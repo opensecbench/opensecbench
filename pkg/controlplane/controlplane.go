@@ -32,9 +32,18 @@ type Options struct {
 
 // Instance is a running control plane.
 type Instance struct {
-	BaseURL string
-	db      *store.DB
-	srv     *http.Server
+	BaseURL  string
+	db       *store.DB
+	srv      *http.Server
+	provider llm.Provider
+}
+
+// ProviderName reports the configured LLM provider (or "none").
+func (i *Instance) ProviderName() string {
+	if i.provider == nil {
+		return "none"
+	}
+	return i.provider.Name()
 }
 
 // Start opens the database, applies migrations, and begins serving the API. The listener is
@@ -90,7 +99,7 @@ func Start(opts Options) (*Instance, error) {
 	}
 	go func() { _ = srv.Serve(ln) }()
 
-	return &Instance{BaseURL: "http://" + ln.Addr().String(), db: db, srv: srv}, nil
+	return &Instance{BaseURL: "http://" + ln.Addr().String(), db: db, srv: srv, provider: provider}, nil
 }
 
 // SchemaVersion returns the applied schema version.

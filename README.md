@@ -79,8 +79,10 @@ wails build   # package a desktop binary
 production — env is a dev convenience):
 
 ```sh
-# local, no key, no egress:
-OSB_LLM_PROVIDER=ollama OSB_LLM_MODEL=llama3.1 go run ./cmd/daemon
+# local Ollama, no key, no egress (MODEL must be one you have pulled):
+OSB_LLM_PROVIDER=ollama OSB_LLM_MODEL=qwen2.5 go run ./cmd/daemon
+# remote/non-default Ollama — set the OpenAI-compatible base URL (note the /v1):
+OSB_LLM_PROVIDER=ollama OSB_LLM_BASE_URL=http://10.0.0.5:11434/v1 OSB_LLM_MODEL=qwen2.5 go run ./cmd/daemon
 # hosted, OpenAI-compatible:
 OSB_LLM_PROVIDER=deepseek OSB_LLM_API_KEY=... go run ./cmd/daemon
 OSB_LLM_PROVIDER=grok     OSB_LLM_API_KEY=... go run ./cmd/daemon
