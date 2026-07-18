@@ -1,7 +1,8 @@
 # ADR-0015 — Workbench IDE shell
 
 Status: Accepted (Phase 1 — frame reshape: activity bar + document center + docked Analyst + status
-bar); contextual explorer, methodology-as-landing, and the persistent document-tab model staged
+bar; Phase 2 — contextual explorer + methodology-as-landing + coverage in status bar); the persistent
+document-tab model (Phase 3) staged
 
 ## Context
 
