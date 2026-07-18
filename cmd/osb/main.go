@@ -19,6 +19,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/browser"
 	"github.com/opensecbench/opensecbench/pkg/client"
+	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/version"
 )
 
@@ -92,6 +93,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return reportCmd(ctx, c, args[1:])
 	case "methodology", "method":
 		return methodologyCmd(ctx, c, args[1:])
+	case "kb":
+		return kbCmd(ctx, c, args[1:])
 	case "proxy":
 		return proxyCmd(ctx, c, args[1:])
 	case "observation", "obs":
@@ -864,6 +867,73 @@ func proxyBrowser(ctx context.Context, c *client.Client, args []string) error {
 	return nil
 }
 
+func kbCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb kb <list|add|review>")
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("kb list", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (inherited KB)")
+		target := fs.String("target", "", "target id (target KB)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		var entries []model.KBEntry
+		var err error
+		switch {
+		case *target != "":
+			entries, err = c.ListTargetKB(ctx, *target)
+		case *project != "":
+			entries, err = c.ListProjectKB(ctx, *project)
+		default:
+			return errors.New("kb list: --project or --target is required")
+		}
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			fmt.Printf("%s  %-12s [%-10s] %s\n", e.ID[:8], e.Kind, e.ReviewState, e.Title)
+		}
+		return nil
+	case "add":
+		fs := flag.NewFlagSet("kb add", flag.ContinueOnError)
+		target := fs.String("target", "", "target id (required)")
+		kind := fs.String("kind", "", "architecture|auth|endpoint|tech_stack|environment|data_flow|convention|gotcha|tactic (required)")
+		title := fs.String("title", "", "entry title (required)")
+		body := fs.String("body", "", "entry body")
+		tags := fs.String("tags", "", "comma-separated tags")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *target == "" || *kind == "" || *title == "" {
+			return errors.New("kb add: --target, --kind, and --title are required")
+		}
+		e, err := c.CreateKBEntry(ctx, *target, client.NewKBEntry{Kind: *kind, Title: *title, Body: *body, Tags: *tags})
+		if err != nil {
+			return err
+		}
+		return printJSON(e)
+	case "review":
+		fs := flag.NewFlagSet("kb review", flag.ContinueOnError)
+		id := fs.String("id", "", "entry id (required)")
+		state := fs.String("state", "", "confirmed|rejected|unreviewed (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" || *state == "" {
+			return errors.New("kb review: --id and --state are required")
+		}
+		e, err := c.ReviewKBEntry(ctx, *id, *state)
+		if err != nil {
+			return err
+		}
+		return printJSON(e)
+	default:
+		return fmt.Errorf("unknown kb subcommand %q", args[0])
+	}
+}
+
 func methodologyCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: osb methodology <catalog|coverage|adopt|set>")
@@ -1344,6 +1414,9 @@ Commands:
   session list --project ID   list terminal sessions
   session close <id>          close a session and capture its transcript
   session evidence --id ID [--note N]  save a session transcript as evidence
+  kb list (--project ID | --target ID)  list knowledge-base entries
+  kb add --target ID --kind K --title T [--body B] [--tags t]  add a KB entry
+  kb review --id ID --state confirmed|rejected  curate an agent-drafted entry
   methodology catalog        list methodology packs + items
   methodology adopt --project ID --id PACK   adopt a methodology pack
   methodology coverage --project ID          show coverage + roll-up
