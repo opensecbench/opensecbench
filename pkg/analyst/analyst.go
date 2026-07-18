@@ -1,6 +1,8 @@
 // Package analyst wires the agent loop to tools over the assessment data, giving the Analyst
-// persona the ability to answer questions and — when explicitly authorized — run capabilities.
-// Read-only tools are auto-approved; capability execution is gated (ADR-0001, ADR-0006).
+// persona the ability to answer questions, read captured traffic and coverage, and — when explicitly
+// authorized — send requests, update coverage, create findings, and run capabilities. Read-only tools
+// are auto-approved; anything that sends traffic or mutates assessment state is gated (ADR-0001,
+// ADR-0006, ADR-0017). Project-scoped tools operate only on the current thread's project.
 package analyst
 
 import (
@@ -13,12 +15,21 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
+	"github.com/opensecbench/opensecbench/pkg/replay"
+	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
-// gatedTools require explicit per-run authorization; everything else is read-only and safe.
-var gatedTools = map[string]bool{"run_capability": true, "run_playbook": true}
+// gatedTools require explicit per-run authorization; everything else is read-only and safe. Anything
+// that sends traffic or mutates assessment state is gated; reads are auto-approved.
+var gatedTools = map[string]bool{
+	"run_capability": true,
+	"run_playbook":   true,
+	"send_request":   true,
+	"set_coverage":   true,
+	"create_finding": true,
+}
 
 // Tools are the tools the Analyst may call.
 func Tools() []agent.Tool {
@@ -40,6 +51,35 @@ func Tools() []agent.Tool {
 			{Name: "kind", Type: agent.TypeEnum, Required: true, Description: "entry kind", Enum: []string{"architecture", "auth", "endpoint", "tech_stack", "environment", "data_flow", "convention", "gotcha", "tactic"}},
 			{Name: "title", Type: agent.TypeString, Required: true, Description: "short entry title"},
 			{Name: "body", Type: agent.TypeString, Required: true, Description: "the knowledge (what was learned)"},
+		}},
+		{Name: "list_exchanges", Description: "List captured HTTP traffic for the current project (id, method, url, status, origin). Use get_exchange for full headers/bodies.", Params: []agent.Param{
+			{Name: "origin", Type: agent.TypeEnum, Description: "filter by origin", Enum: []string{"proxy", "replay"}},
+			{Name: "method", Type: agent.TypeString, Description: "filter by exact HTTP method"},
+			{Name: "status", Type: agent.TypeInteger, Description: "filter by exact response status code"},
+			{Name: "query", Type: agent.TypeString, Description: "case-insensitive substring of the URL"},
+			{Name: "limit", Type: agent.TypeInteger, Description: "max results (default 50)"},
+		}},
+		{Name: "get_exchange", Description: "Get one captured HTTP exchange by id, including request and response headers and bodies.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "exchange id (from list_exchanges)"},
+		}},
+		{Name: "get_coverage", Description: "Show the current project's methodology coverage (item id, status, note)."},
+		{Name: "send_request", Description: "Send an HTTP request from the Replay tool and record the response. GATED — outbound traffic; scope-guarded and requires human authorization.", Params: []agent.Param{
+			{Name: "method", Type: agent.TypeString, Required: true, Description: "HTTP method, e.g. GET or POST"},
+			{Name: "url", Type: agent.TypeString, Required: true, Description: "absolute request URL (must be in engagement scope)"},
+			{Name: "headers", Type: agent.TypeString, Description: "raw request headers, one per line"},
+			{Name: "body", Type: agent.TypeString, Description: "request body"},
+		}},
+		{Name: "set_coverage", Description: "Set the coverage status of a methodology item for the current project. GATED — mutates assessment state.", Params: []agent.Param{
+			{Name: "item", Type: agent.TypeString, Required: true, Description: "methodology item id (from get_coverage)"},
+			{Name: "status", Type: agent.TypeEnum, Required: true, Description: "coverage status", Enum: []string{"not_started", "in_progress", "covered", "not_applicable"}},
+			{Name: "note", Type: agent.TypeString, Description: "optional note (evidence/rationale)"},
+		}},
+		{Name: "create_finding", Description: "Create a finding from confirmed observations. GATED — writes an assessment artifact.", Params: []agent.Param{
+			{Name: "title", Type: agent.TypeString, Required: true, Description: "finding title"},
+			{Name: "severity", Type: agent.TypeEnum, Required: true, Description: "severity", Enum: []string{"critical", "high", "medium", "low", "info"}},
+			{Name: "description", Type: agent.TypeString, Description: "finding description"},
+			{Name: "cwe", Type: agent.TypeString, Description: "optional CWE id, e.g. CWE-89"},
+			{Name: "observations", Type: agent.TypeArray, Description: "supporting observation ids (must be confirmed)"},
 		}},
 		{Name: "run_capability", Description: "Run a security capability against a source asset. GATED — requires human authorization; if unauthorized it will be denied.", Params: []agent.Param{
 			{Name: "capability", Type: agent.TypeString, Required: true, Description: "capability id (from list_capabilities)"},
@@ -68,8 +108,20 @@ func Approver(allow []string) func(context.Context, agent.ToolCall) (bool, error
 	}
 }
 
-// Executor dispatches a tool call to a store query or a capability run.
-func Executor(st *store.DB, engine *task.Engine) func(context.Context, agent.ToolCall) (string, error) {
+// ExecDeps are the resources the Executor dispatches into. ProjectID is the current thread's project,
+// which scopes the traffic, coverage, and finding tools; Replay sends outbound requests. Both may be
+// zero (e.g. a project-less thread or a loop built without a replay client), in which case the tools
+// that need them return a clear error instead of misbehaving.
+type ExecDeps struct {
+	Store     *store.DB
+	Engine    *task.Engine
+	Replay    *replay.Client
+	ProjectID string
+}
+
+// Executor dispatches a tool call to a store query, a capability run, or an outbound request.
+func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, error) {
+	st, engine := deps.Store, deps.Engine
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
 		switch call.Tool {
 		case "list_projects":
@@ -88,6 +140,18 @@ func Executor(st *store.DB, engine *task.Engine) func(context.Context, agent.Too
 			return jsonify(st.GetFinding(ctx, id))
 		case "draft_kb_entry":
 			return draftKBEntry(ctx, st, call)
+		case "list_exchanges":
+			return listExchanges(ctx, deps, call)
+		case "get_exchange":
+			return getExchange(ctx, deps, call)
+		case "get_coverage":
+			return getCoverage(ctx, deps)
+		case "send_request":
+			return sendRequest(ctx, deps, call)
+		case "set_coverage":
+			return setCoverage(ctx, deps, call)
+		case "create_finding":
+			return createFinding(ctx, deps, call)
 		case "list_capabilities":
 			if engine == nil {
 				return "", errors.New("capability engine unavailable")
@@ -103,6 +167,159 @@ func Executor(st *store.DB, engine *task.Engine) func(context.Context, agent.Too
 			return "", fmt.Errorf("unknown tool %q", call.Tool)
 		}
 	}
+}
+
+// requireProject returns the thread's project id or an error explaining the tool needs one.
+func requireProject(deps ExecDeps, tool string) (string, error) {
+	if deps.ProjectID == "" {
+		return "", fmt.Errorf("%s needs a project-scoped thread; this conversation is not attached to a project", tool)
+	}
+	return deps.ProjectID, nil
+}
+
+// listExchanges returns a scannable summary of the project's captured traffic (no bodies).
+func listExchanges(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	projectID, err := requireProject(deps, "list_exchanges")
+	if err != nil {
+		return "", err
+	}
+	f := store.ExchangeFilter{
+		Origin: stringArg(call, "origin"),
+		Method: stringArg(call, "method"),
+		Status: intArg(call, "status"),
+		Query:  stringArg(call, "query"),
+		Limit:  intArg(call, "limit"),
+	}
+	if f.Limit <= 0 {
+		f.Limit = 50
+	}
+	exchanges, err := deps.Store.ListExchangesFiltered(ctx, projectID, f)
+	if err != nil {
+		return "", err
+	}
+	type row struct {
+		ID     string `json:"id"`
+		Method string `json:"method"`
+		URL    string `json:"url"`
+		Status *int   `json:"status,omitempty"`
+		Origin string `json:"origin"`
+	}
+	out := make([]row, 0, len(exchanges))
+	for _, e := range exchanges {
+		out = append(out, row{ID: e.ID, Method: e.Method, URL: e.URL, Status: e.Status, Origin: e.Origin})
+	}
+	return jsonify(out, nil)
+}
+
+// getExchange returns one exchange in full, refusing to cross project boundaries.
+func getExchange(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	id := stringArg(call, "id")
+	if id == "" {
+		return "", errors.New("get_exchange requires 'id'")
+	}
+	ex, err := deps.Store.GetExchange(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if deps.ProjectID != "" && ex.ProjectID != deps.ProjectID {
+		return "", errors.New("exchange belongs to a different project")
+	}
+	return jsonify(ex, nil)
+}
+
+// getCoverage returns the project's methodology coverage.
+func getCoverage(ctx context.Context, deps ExecDeps) (string, error) {
+	projectID, err := requireProject(deps, "get_coverage")
+	if err != nil {
+		return "", err
+	}
+	return jsonify(deps.Store.ListCoverage(ctx, projectID))
+}
+
+// sendRequest scope-guards the target, sends it via Replay, records the exchange, and returns a
+// response summary (body truncated; use get_exchange for the full capture).
+func sendRequest(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	projectID, err := requireProject(deps, "send_request")
+	if err != nil {
+		return "", err
+	}
+	if deps.Replay == nil {
+		return "", errors.New("replay client unavailable")
+	}
+	method, url := stringArg(call, "method"), stringArg(call, "url")
+	if method == "" || url == "" {
+		return "", errors.New("send_request requires 'method' and 'url'")
+	}
+
+	// Scope guard: refuse an out-of-scope target before anything leaves the host (ADR-0001).
+	entries, err := deps.Store.ListScopeEntries(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) > 0 {
+		rules := make([]scope.Entry, len(entries))
+		for i, e := range entries {
+			rules[i] = scope.Entry{Kind: e.Kind, Value: e.Value}
+		}
+		if serr := scope.Check(rules, url); serr != nil {
+			return "", fmt.Errorf("blocked by scope guard: %w", serr)
+		}
+	}
+
+	headers, body := stringArg(call, "headers"), stringArg(call, "body")
+	ex, err := deps.Store.CreateExchange(ctx, model.HTTPExchange{
+		ProjectID: projectID, Origin: "replay", Method: method, URL: url,
+		RequestHeaders: headers, RequestBody: body,
+	})
+	if err != nil {
+		return "", err
+	}
+	resp, err := deps.Replay.Send(ctx, replay.Request{Method: method, URL: url, Headers: headers, Body: body})
+	if err != nil {
+		return "", fmt.Errorf("send failed: %w", err)
+	}
+	if err := deps.Store.RecordResponse(ctx, ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS); err != nil {
+		return "", err
+	}
+	return jsonify(map[string]any{
+		"exchange_id":      ex.ID,
+		"status":           resp.Status,
+		"duration_ms":      resp.DurationMS,
+		"response_headers": resp.Headers,
+		"response_body":    truncate(resp.Body, 2000),
+	}, nil)
+}
+
+// setCoverage records a methodology item's coverage status for the project.
+func setCoverage(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	projectID, err := requireProject(deps, "set_coverage")
+	if err != nil {
+		return "", err
+	}
+	item, status := stringArg(call, "item"), stringArg(call, "status")
+	if item == "" || status == "" {
+		return "", errors.New("set_coverage requires 'item' and 'status'")
+	}
+	if err := deps.Store.SetCoverage(ctx, projectID, item, status, stringArg(call, "note")); err != nil {
+		return "", err
+	}
+	return jsonify(map[string]any{"item": item, "status": status}, nil)
+}
+
+// createFinding writes a finding from confirmed observations.
+func createFinding(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	title := stringArg(call, "title")
+	if title == "" {
+		return "", errors.New("create_finding requires 'title'")
+	}
+	nf := store.NewFinding{
+		Title:          title,
+		Severity:       stringArg(call, "severity"),
+		Description:    stringArg(call, "description"),
+		CWE:            stringArg(call, "cwe"),
+		ObservationIDs: stringsArg(call, "observations"),
+	}
+	return jsonify(deps.Store.CreateFinding(ctx, nf))
 }
 
 // draftKBEntry writes an unreviewed, agent-origin knowledge-base entry (ADR-0010). It only records
@@ -190,7 +407,7 @@ func NewLoop(provider llm.Provider, st *store.DB, engine *task.Engine, allow []s
 		Provider: provider,
 		Tools:    Tools(),
 		Approve:  Approver(allow),
-		Execute:  Executor(st, engine),
+		Execute:  Executor(ExecDeps{Store: st, Engine: engine}),
 		Audit:    audit,
 		MaxSteps: 8,
 	}
@@ -205,4 +422,39 @@ func jsonify[T any](v T, err error) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// --- tool argument helpers (args arrive as decoded JSON, so numbers are float64) ---
+
+func stringArg(call agent.ToolCall, name string) string {
+	s, _ := call.Args[name].(string)
+	return s
+}
+
+func intArg(call agent.ToolCall, name string) int {
+	if f, ok := call.Args[name].(float64); ok {
+		return int(f)
+	}
+	return 0
+}
+
+func stringsArg(call agent.ToolCall, name string) []string {
+	raw, ok := call.Args[name].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…(truncated)"
 }
