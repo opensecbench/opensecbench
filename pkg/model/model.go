@@ -48,6 +48,42 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// KB entry kinds and scopes (ADR-0010).
+const (
+	KBArchitecture = "architecture"
+	KBAuth         = "auth"
+	KBEndpoint     = "endpoint"
+	KBTechStack    = "tech_stack"
+	KBEnvironment  = "environment"
+	KBDataFlow     = "data_flow"
+	KBConvention   = "convention"
+	KBGotcha       = "gotcha"
+	KBTactic       = "tactic"
+
+	KBScopeTarget = "target"
+	KBScopeGroup  = "group"
+	KBScopeOrg    = "org"
+	KBScopeGlobal = "global"
+)
+
+// KBEntry is durable knowledge about a target that survives across engagements (ADR-0010). Agent-
+// drafted entries (origin=thread) start unreviewed and are curated by a human, like observations.
+type KBEntry struct {
+	ID          string    `json:"id"`
+	TargetID    string    `json:"target_id"`
+	Kind        string    `json:"kind"`
+	Scope       string    `json:"scope"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body,omitempty"`
+	Tags        string    `json:"tags,omitempty"`
+	Sensitivity string    `json:"sensitivity"`
+	Origin      string    `json:"origin"`
+	ReviewState string    `json:"review_state"`
+	SourceRef   string    `json:"source_ref,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // Methodology coverage statuses (ADR-0009).
 const (
 	CoverageNotStarted    = "not_started"
