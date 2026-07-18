@@ -65,12 +65,16 @@ and can later ship as plugins.
       register/select providers (keys in the vault). The plan's `provider` entity is not built; provider is
       env-only at daemon start (defaults to Mock). Include a **"test provider"** round-trip so a broken
       backend is caught before use.
-- [ ] **`claude-cli` provider is not a viable Analyst backend** (found 2026-07-18): `claude` (Claude Code) is
-      a full agent, not a completions API. `CLIProvider.Complete` renders our system prompt as `[SYSTEM]`
-      user-text to `claude -p`, which correctly rejects it as role-reassignment/injection; even otherwise it
-      won't emit our JSON tool protocol. Fix: relabel it "experimental / chat-only, no tools", steer setup to
-      an **API provider** (`anthropic`/OpenAI-compat) as the real path, and consider dropping it or gating it
-      behind a chat-only mode.
+- [x] **`claude-cli` provider adapter FIXED** (2026-07-18): `claude` (Claude Code) IS usable as a completion
+      backend via `-p --output-format json` — James does this to use a Claude subscription. The old adapter
+      flattened our system prompt into `[SYSTEM]` user-text, which Claude Code rightly rejected as injection.
+      Now: system prompt via `--append-system-prompt`; conversation on **stdin**; `--output-format json`
+      parsed for `.result`; the CLI's own tools disabled (`--disallowed-tools`) so it only generates text.
+      Verified against the real CLI. It's a first-class personal option (alongside `anthropic`/OpenAI/`ollama`).
+- [ ] **Run `claude-cli` inside the runner** (governed setup) — mount only `~/.claude/.credentials.json`
+      (read-only), NOT the whole `~/.claude`; the LLM-runner needs network egress to the provider (policy-
+      gated) + an image with `claude`+node. Today the adapter execs on the host. James's home setup uses the
+      subscription this way; API keys remain the recommended default for others.
 
 ## Small / medium follow-ups
 
