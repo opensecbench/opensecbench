@@ -1086,6 +1086,344 @@ select option {
 .graph-svg:active{cursor:grabbing}
 .graph-tip{position:absolute;left:12px;bottom:12px;background:var(--bg3);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px;pointer-events:none;max-width:80%}
 
+/* ===================================================================== */
+/* Workbench IDE shell (ADR-0015 Phase 1) — activity bar + document      */
+/* center + docked Analyst + status bar. Namespaced .wb-* to avoid       */
+/* colliding with the flat-tab styles other views still use.            */
+/* ===================================================================== */
+.wb {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* titlebar */
+.wb-titlebar {
+  height: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--line);
+}
+.wb-proj {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg4);
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+  padding: 5px 11px;
+  font-weight: 600;
+  color: var(--tx);
+  cursor: pointer;
+}
+.wb-proj .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tx3);
+}
+.wb-proj.online .dot {
+  background: var(--green);
+}
+.wb-proj .car {
+  color: var(--tx3);
+  font-size: 10px;
+}
+.wb-omni {
+  flex: 1;
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  padding: 6px 11px;
+  color: var(--tx3);
+  cursor: text;
+}
+.wb-omni kbd {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--bg4);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--tx2);
+}
+
+/* body */
+.wb-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* activity bar */
+.wb-activity {
+  width: 60px;
+  min-width: 60px;
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 2px;
+  overflow-y: auto;
+}
+.wb-ic {
+  width: 48px;
+  min-height: 37px;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  color: var(--tx3);
+  font-size: 15px;
+  cursor: pointer;
+  position: relative;
+}
+.wb-ic small {
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: inherit;
+}
+.wb-ic:hover {
+  background: var(--bg3);
+  color: var(--tx2);
+}
+.wb-ic.on {
+  background: var(--bg4);
+  color: var(--acc);
+  box-shadow: inset 2px 0 0 var(--acc);
+}
+.wb-ic .n {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  background: var(--amber);
+  color: #1a1206;
+  font-size: 8px;
+  font-weight: 800;
+  border-radius: 8px;
+  padding: 0 3px;
+  line-height: 12px;
+}
+.wb-ic .n.red {
+  background: var(--red);
+  color: #fff;
+}
+.wb-actdiv {
+  width: 26px;
+  height: 1px;
+  background: var(--line);
+  margin: 5px 0;
+}
+.wb-actsp {
+  flex: 1;
+  min-height: 6px;
+}
+
+/* document center */
+.wb-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+}
+.wb-doctabs {
+  height: 37px;
+  min-height: 37px;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+.wb-doctab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  font-size: 12.5px;
+  color: var(--tx);
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+  box-shadow: inset 0 -2px 0 var(--acc);
+  white-space: nowrap;
+}
+.wb-work {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  padding: 20px 22px;
+}
+.wb-work > .panel:first-child,
+.wb-work > div > .panel:first-child {
+  margin-top: 0;
+}
+
+/* docked Analyst */
+.wb-analyst {
+  width: 350px;
+  min-width: 350px;
+  background: var(--bg2);
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.wb-analyst.collapsed {
+  width: 44px;
+  min-width: 44px;
+}
+.wb-an-head {
+  height: 37px;
+  min-height: 37px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tx3);
+}
+.wb-an-head .title {
+  color: var(--tx2);
+}
+.wb-an-head .grow {
+  flex: 1;
+}
+.wb-an-head button {
+  border: 1px solid var(--line2);
+  background: var(--bg4);
+  color: var(--tx2);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.wb-an-collapsed {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 10px;
+  gap: 8px;
+  color: var(--tx3);
+  cursor: pointer;
+}
+.wb-an-collapsed .n {
+  background: var(--amber);
+  color: #1a1206;
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 9px;
+  padding: 0 5px;
+  line-height: 15px;
+}
+.wb-an-threads {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+}
+.wb-an-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--line2);
+  color: var(--tx2);
+  padding: 4px 9px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.wb-an-chip.on {
+  background: var(--bg4);
+  color: var(--tx);
+  border-color: var(--acc);
+}
+.wb-an-chip.new {
+  color: var(--acc);
+  border-style: dashed;
+}
+.wb-analyst .messages {
+  flex: 1;
+}
+.wb-analyst .empty {
+  margin: auto;
+}
+
+/* status bar */
+.wb-status {
+  height: 27px;
+  min-height: 27px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  background: var(--bg2);
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tx2);
+}
+.wb-status .b {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.wb-status .b.good {
+  color: var(--green);
+}
+.wb-status .sdot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+.wb-status .sp {
+  flex: 1;
+}
+.wb-status .warnpill {
+  background: #2a2114;
+  color: var(--amber);
+  border-radius: 20px;
+  padding: 2px 9px;
+  font-weight: 800;
+}
+.wb-banner {
+  margin: 0;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+}
+
 /* Toolbar buttons (proxy/terminal): primary style like .create-row buttons */
 .term-toolbar button:not(.link):not(.ghost-btn) {
   background: var(--acc);

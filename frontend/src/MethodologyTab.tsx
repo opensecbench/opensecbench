@@ -66,6 +66,7 @@ export function MethodologyTab({
   }
 
   const s = view?.summary
+  const packs = view?.packs ?? [] // Go serializes an empty slice as null
 
   return (
     <section className="panel">
@@ -98,19 +99,19 @@ export function MethodologyTab({
         <select value={adopt} onChange={(e) => setAdopt(e.target.value)} disabled={!online || available.length === 0}>
           <option value="">{available.length ? 'Adopt a methodology…' : 'All packs adopted'}</option>
           {available.map((m) => (
-            <option key={m.id} value={m.id}>{m.title} ({m.items.length})</option>
+            <option key={m.id} value={m.id}>{m.title} ({m.items?.length ?? 0})</option>
           ))}
         </select>
         <button onClick={doAdopt} disabled={!online || !adopt}>Adopt</button>
       </div>
 
-      {(!view || view.packs.length === 0) && <div className="empty">No methodology adopted yet.</div>}
+      {packs.length === 0 && <div className="empty">No methodology adopted yet.</div>}
 
-      {view?.packs.map((p) => (
+      {packs.map((p) => (
         <div key={p.id} className="mpack">
           <h3 className="mpack-head">{p.title} <span className="muted">{p.tech}</span></h3>
           <ul className="mitems">
-            {p.items.map((ic) => (
+            {(p.items ?? []).map((ic) => (
               <li key={ic.item.id} className={`mitem status-${ic.status}`}>
                 <div className="mitem-main">
                   <span className="mitem-title">{ic.item.title}</span>
