@@ -34,7 +34,10 @@ infrastructure pieces that warrant their own focused efforts.
 ## Proxy — make it a first-class tool (not an add-on)
 
 The Proxy tab is currently minimal (a live-polled list of captured exchanges). It's meant to be a
-primary daily-driver on par with Burp's proxy history, so build it out:
+primary daily-driver, so build it out. **Structure per ADR-0016**: Proxy/Replay/Intercept are one HTTP
+toolset over a shared exchange substrate, built around four extension seams (exchange **actions**, proxy
+**traffic processors**, history **columns/filters**, tools-as-**surfaces**) so features slot in cleanly
+and can later ship as plugins.
 
 - [ ] **Full history UI** — searchable/filterable table (by host, method, status, path, origin,
       time), column sort, and live streaming without losing scroll/selection.
@@ -59,6 +62,16 @@ primary daily-driver on par with Burp's proxy history, so build it out:
       (schedule → notify / create task / run playbook).
 - [x] Interactive graph tab: structure, traffic, topology (nmap), dependency (SBOM) kinds
 - [ ] Runtime extension **uninstall** + update/version-constraint flow.
+
+## Plugin / extension ecosystem
+
+- [ ] **HTTP traffic-tool plugin system** (ADR-0016) — expose the toolset's in-tree extension seams
+      (exchange **actions**, proxy **traffic processors**, history **columns/filters**, and whole **tools**
+      as surfaces) as **signed extension packages** (ADR-0003 format, ADR-0013 loader), governed by the
+      same publisher-trust + sandbox model as capabilities/methodologies. Our vendor-neutral analog to
+      proxy-suite plugin ecosystems. Build the seams as registries now; package them as plugins later.
+- [ ] Generalize beyond HTTP: let extension packages contribute new **workbench surfaces/tools** in
+      general (the HTTP toolset is the first proving ground).
 
 ## Large subsystems (own effort each)
 

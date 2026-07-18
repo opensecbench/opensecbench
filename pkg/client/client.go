@@ -85,13 +85,13 @@ func (c *Client) DeleteScope(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/scope/"+id, nil, nil)
 }
 
-// ListExchanges returns a project's HTTP exchanges (Repeater), newest first.
+// ListExchanges returns a project's HTTP exchanges (Replay), newest first.
 func (c *Client) ListExchanges(ctx context.Context, projectID string) ([]model.HTTPExchange, error) {
 	var out []model.HTTPExchange
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/exchanges", nil, &out)
 }
 
-// NewExchange is a draft HTTP request to create in the Repeater.
+// NewExchange is a draft HTTP request to create in the Replay.
 type NewExchange struct {
 	Name           string `json:"name,omitempty"`
 	Method         string `json:"method,omitempty"`

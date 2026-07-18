@@ -25,7 +25,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/policy"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
-	"github.com/opensecbench/opensecbench/pkg/repeater"
+	"github.com/opensecbench/opensecbench/pkg/replay"
 	"github.com/opensecbench/opensecbench/pkg/report"
 	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/secret"
@@ -59,7 +59,7 @@ type Server struct {
 	engine   *task.Engine
 	cas      *cas.Store
 	provider llm.Provider
-	repeater *repeater.Client
+	replay *replay.Client
 	sessMgr  *session.Manager
 	proxyCA  *proxy.CA
 	reports  *report.Registry
@@ -88,7 +88,7 @@ func New(deps Deps) *Server {
 		engine:   deps.Engine,
 		cas:      deps.CAS,
 		provider: deps.Provider,
-		repeater: repeater.New(0),
+		replay: replay.New(0),
 		sessMgr:  deps.SessionMgr,
 		proxyCA:  deps.ProxyCA,
 		reports:  deps.Reports,
@@ -899,7 +899,7 @@ func (s *Server) verifyAudit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// --- Repeater / HTTP exchanges (P7) ---
+// --- Replay / HTTP exchanges (P7) ---
 
 func (s *Server) listExchanges(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListExchangesByProject(r.Context(), r.PathValue("id"))
@@ -978,13 +978,13 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 			rules[i] = scope.Entry{Kind: en.Kind, Value: en.Value}
 		}
 		if serr := scope.Check(rules, ex.URL); serr != nil {
-			s.record(r.Context(), actorOf(r), "repeater.blocked", ex.ID, map[string]string{"url": ex.URL, "reason": serr.Error()})
+			s.record(r.Context(), actorOf(r), "replay.blocked", ex.ID, map[string]string{"url": ex.URL, "reason": serr.Error()})
 			writeErr(w, http.StatusForbidden, "blocked by scope guard: "+serr.Error())
 			return
 		}
 	}
 
-	resp, err := s.repeater.Send(r.Context(), repeater.Request{
+	resp, err := s.replay.Send(r.Context(), replay.Request{
 		Method: ex.Method, URL: ex.URL, Headers: ex.RequestHeaders, Body: ex.RequestBody,
 	})
 	if err != nil {
@@ -995,7 +995,7 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.record(r.Context(), actorOf(r), "repeater.send", ex.ID, map[string]any{
+	s.record(r.Context(), actorOf(r), "replay.send", ex.ID, map[string]any{
 		"method": ex.Method, "url": ex.URL, "status": resp.Status,
 	})
 	updated, _ := s.store.GetExchange(r.Context(), ex.ID)

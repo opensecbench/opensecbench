@@ -80,14 +80,14 @@ export function KnowledgeTab({
         <div className="banner">Link a target to this project to build a knowledge base.</div>
       ) : (
         <form className="kb-add" onSubmit={add}>
-          <div className="repeater-line">
+          <div className="replay-line">
             <select value={kind} onChange={(e) => setKind(e.target.value)}>
               {KINDS.map((k) => (
                 <option key={k} value={k}>{k.replace('_', ' ')}</option>
               ))}
             </select>
             <input
-              className="repeater-url"
+              className="replay-url"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Auth is SAML SSO via Okta"

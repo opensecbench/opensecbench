@@ -37,7 +37,7 @@ type Tab =
   | 'context'
   | 'scope'
   | 'scan'
-  | 'repeater'
+  | 'replay'
   | 'proxy'
   | 'terminal'
   | 'playbooks'
@@ -62,7 +62,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
   { key: 'knowledge', icon: '📚', label: 'Know' },
   { key: 'context', icon: '🔬', label: 'Context' },
   { key: 'findings', icon: '⚑', label: 'Find' },
-  { key: 'repeater', icon: '↔', label: 'Repeat' },
+  { key: 'replay', icon: '↔', label: 'Replay' },
   { key: 'proxy', icon: '📡', label: 'Proxy' },
   { key: 'terminal', icon: '▤', label: 'Term' },
   { key: 'scan', icon: '▷', label: 'Scan' },
@@ -200,7 +200,7 @@ function WorkbenchExplorer({
             <div className="wb-exp-fact">{apps.length} app{apps.length === 1 ? '' : 's'} · {findings.length} finding{findings.length === 1 ? '' : 's'}</div>
             {coverage && <div className="wb-exp-fact">Coverage {coverage.summary.covered_pct}%</div>}
             <div className="wb-exp-links">
-              {(['methodology', 'assets', 'findings', 'repeater'] as Tab[]).map((t) => (
+              {(['methodology', 'assets', 'findings', 'replay'] as Tab[]).map((t) => (
                 <button key={t} onClick={() => onJump(t)}>{SURFACES.find((s) => s.key === t)?.icon} {surfaceTitle(t)}</button>
               ))}
             </div>
@@ -212,7 +212,7 @@ function WorkbenchExplorer({
 }
 
 // A document is an open surface instance. Most are singletons keyed by their surface, but a
-// Repeater can be bound to a methodology test item (ADR-0015 P3b) — its own document whose saved
+// Replay can be bound to a methodology test item (ADR-0015 P3b) — its own document whose saved
 // evidence auto-attaches to that item.
 interface Doc {
   key: string
@@ -286,7 +286,7 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
     [apps],
   )
 
-  // Evidence was attached to a methodology item from a bound Repeater: refresh the status-bar/explorer
+  // Evidence was attached to a methodology item from a bound Replay: refresh the status-bar/explorer
   // coverage and signal open Methodology documents to re-fetch so the item's evidence badge updates.
   async function afterEvidenceLinked() {
     setMethodReload((k) => k + 1)
@@ -304,10 +304,10 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
   function openSurface(surface: Tab) {
     focusOrAdd({ key: surface, surface, title: surfaceTitle(surface) })
   }
-  // Open (or focus) a Repeater bound to a methodology test item — the C payoff: evidence saved
+  // Open (or focus) a Replay bound to a methodology test item — the C payoff: evidence saved
   // here auto-attaches to that item.
-  function openBoundRepeater(itemId: string, itemTitle: string) {
-    focusOrAdd({ key: `repeater:${itemId}`, surface: 'repeater', title: itemTitle, bind: { itemId, itemTitle } })
+  function openBoundReplay(itemId: string, itemTitle: string) {
+    focusOrAdd({ key: `replay:${itemId}`, surface: 'replay', title: itemTitle, bind: { itemId, itemTitle } })
   }
   function closeDoc(key: string, e?: ReactMouseEvent) {
     e?.stopPropagation()
@@ -324,7 +324,7 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
       case 'assets':
         return <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />
       case 'methodology':
-        return <MethodologyTab project={project} online={online} onError={setError} onTestItem={openBoundRepeater} reloadSignal={methodReload} />
+        return <MethodologyTab project={project} online={online} onError={setError} onTestItem={openBoundReplay} reloadSignal={methodReload} />
       case 'knowledge':
         return <KnowledgeTab project={project} online={online} onError={setError} />
       case 'context':
@@ -333,8 +333,8 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
         return <ScopeTab project={project} online={online} onError={setError} />
       case 'scan':
         return <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />
-      case 'repeater':
-        return <RepeaterTab project={project} online={online} onError={setError} boundItem={doc.bind} onEvidenceLinked={afterEvidenceLinked} />
+      case 'replay':
+        return <ReplayTab project={project} online={online} onError={setError} boundItem={doc.bind} onEvidenceLinked={afterEvidenceLinked} />
       case 'proxy':
         return <ProxyTab project={project} online={online} onError={setError} />
       case 'terminal':
@@ -837,7 +837,7 @@ function ScopeTab({
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 
-function RepeaterTab({
+function ReplayTab({
   project,
   online,
   onError,
@@ -913,27 +913,27 @@ function RepeaterTab({
   return (
     <>
       {boundItem && (
-        <div className="repeater-context">
+        <div className="replay-context">
           <span className="pin">⛓ in context of</span> <b>{boundItem.itemTitle}</b>
           <span className="muted"> — evidence you save here attaches to this test item</span>
         </div>
       )}
       <section className="panel">
-      <div className="panel-head">Repeater</div>
+      <div className="panel-head">Replay</div>
       <p className="hint">
         Craft a request and send it. Targets are checked against the project scope allowlist before
         anything leaves the machine.
       </p>
-      <div className="repeater">
-        <form className="repeater-req" onSubmit={send}>
-          <div className="repeater-line">
+      <div className="replay">
+        <form className="replay-req" onSubmit={send}>
+          <div className="replay-line">
             <select value={method} onChange={(e) => setMethod(e.target.value)}>
               {HTTP_METHODS.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
             <input
-              className="repeater-url"
+              className="replay-url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://api.acme.com/v2/users"
@@ -943,7 +943,7 @@ function RepeaterTab({
               {busy ? 'Sending…' : 'Send'}
             </button>
           </div>
-          <label className="repeater-label">Headers</label>
+          <label className="replay-label">Headers</label>
           <textarea
             className="mono"
             rows={4}
@@ -951,14 +951,14 @@ function RepeaterTab({
             onChange={(e) => setHeaders(e.target.value)}
             placeholder={'Authorization: Bearer …\nContent-Type: application/json'}
           />
-          <label className="repeater-label">Body</label>
+          <label className="replay-label">Body</label>
           <textarea className="mono" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
         </form>
 
-        <div className="repeater-res">
+        <div className="replay-res">
           {current && current.sent_at ? (
             <>
-              <div className="repeater-status">
+              <div className="replay-status">
                 <span className={`badge ${statusClass(current.status)}`}>{current.status ?? '—'}</span>
                 {current.duration_ms != null && <span className="muted">{current.duration_ms} ms</span>}
                 <button className="link" onClick={saveEvidence} disabled={saved}>
@@ -975,7 +975,7 @@ function RepeaterTab({
       </div>
 
       {history.length > 0 && (
-        <ul className="rows repeater-history">
+        <ul className="rows replay-history">
           {history.map((ex) => (
             <li key={ex.id} className="row-item clickable" onClick={() => load(ex)}>
               <span className={`badge ${statusClass(ex.status)}`}>{ex.status ?? '—'}</span>

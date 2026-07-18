@@ -85,8 +85,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return contextCmd(ctx, c, args[1:])
 	case "scope":
 		return scopeCmd(ctx, c, args[1:])
-	case "repeater":
-		return repeaterCmd(ctx, c, args[1:])
+	case "replay":
+		return replayCmd(ctx, c, args[1:])
 	case "session":
 		return sessionCmd(ctx, c, args[1:])
 	case "audit":
@@ -588,13 +588,13 @@ func scopeCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 }
 
-func repeaterCmd(ctx context.Context, c *client.Client, args []string) error {
+func replayCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: osb repeater <send|list|get|evidence>")
+		return errors.New("usage: osb replay <send|list|get|evidence>")
 	}
 	switch args[0] {
 	case "send":
-		fs := flag.NewFlagSet("repeater send", flag.ContinueOnError)
+		fs := flag.NewFlagSet("replay send", flag.ContinueOnError)
 		project := fs.String("project", "", "project id (required)")
 		method := fs.String("method", "GET", "HTTP method")
 		urlStr := fs.String("url", "", "request URL (required)")
@@ -606,7 +606,7 @@ func repeaterCmd(ctx context.Context, c *client.Client, args []string) error {
 			return err
 		}
 		if *project == "" || *urlStr == "" {
-			return errors.New("repeater send: --project and --url are required")
+			return errors.New("replay send: --project and --url are required")
 		}
 		ex, err := c.CreateExchange(ctx, *project, client.NewExchange{
 			Name: *name, Method: *method, URL: *urlStr,
@@ -621,13 +621,13 @@ func repeaterCmd(ctx context.Context, c *client.Client, args []string) error {
 		}
 		return printJSON(sent)
 	case "list":
-		fs := flag.NewFlagSet("repeater list", flag.ContinueOnError)
+		fs := flag.NewFlagSet("replay list", flag.ContinueOnError)
 		project := fs.String("project", "", "project id (required)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if *project == "" {
-			return errors.New("repeater list: --project is required")
+			return errors.New("replay list: --project is required")
 		}
 		items, err := c.ListExchanges(ctx, *project)
 		if err != nil {
@@ -643,7 +643,7 @@ func repeaterCmd(ctx context.Context, c *client.Client, args []string) error {
 		return nil
 	case "get":
 		if len(args) < 2 {
-			return errors.New("usage: osb repeater get <id>")
+			return errors.New("usage: osb replay get <id>")
 		}
 		ex, err := c.GetExchange(ctx, args[1])
 		if err != nil {
@@ -651,14 +651,14 @@ func repeaterCmd(ctx context.Context, c *client.Client, args []string) error {
 		}
 		return printJSON(ex)
 	case "evidence":
-		fs := flag.NewFlagSet("repeater evidence", flag.ContinueOnError)
+		fs := flag.NewFlagSet("replay evidence", flag.ContinueOnError)
 		id := fs.String("id", "", "exchange id (required)")
 		note := fs.String("note", "", "note to attach to the observation")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if *id == "" {
-			return errors.New("repeater evidence: --id is required")
+			return errors.New("replay evidence: --id is required")
 		}
 		obs, err := c.SaveExchangeEvidence(ctx, *id, *note)
 		if err != nil {
@@ -666,7 +666,7 @@ func repeaterCmd(ctx context.Context, c *client.Client, args []string) error {
 		}
 		return printJSON(obs)
 	default:
-		return fmt.Errorf("unknown repeater subcommand %q", args[0])
+		return fmt.Errorf("unknown replay subcommand %q", args[0])
 	}
 }
 
@@ -1866,10 +1866,10 @@ Commands:
   scope add --project ID --kind host|domain|cidr --value V  add an in-scope allowlist entry
   scope list --project ID     list a project's scope allowlist
   scope delete --id ID        remove a scope entry
-  repeater send --project ID --url URL [--method M] [--header 'K: v'] [--body B]  send an HTTP request
-  repeater list --project ID  list HTTP exchanges
-  repeater get <id>           show an exchange (request + response)
-  repeater evidence --id ID [--note N]  save a response as evidence (observation)
+  replay send --project ID --url URL [--method M] [--header 'K: v'] [--body B]  send an HTTP request
+  replay list --project ID  list HTTP exchanges
+  replay get <id>           show an exchange (request + response)
+  replay evidence --id ID [--note N]  save a response as evidence (observation)
   session open --project ID   open a sandboxed terminal (attach in the desktop app)
   session list --project ID   list terminal sessions
   session close <id>          close a session and capture its transcript

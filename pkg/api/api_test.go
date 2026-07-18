@@ -238,7 +238,7 @@ func TestCreateProjectValidation(t *testing.T) {
 	}
 }
 
-// postJSON is a small helper for the Repeater test: POST a JSON body and decode the response.
+// postJSON is a small helper for the Replay test: POST a JSON body and decode the response.
 func postJSON(t *testing.T, url, body string, out any) int {
 	t.Helper()
 	resp, err := http.Post(url, "application/json", strings.NewReader(body))
@@ -254,7 +254,7 @@ func postJSON(t *testing.T, url, body string, out any) int {
 	return resp.StatusCode
 }
 
-func TestRepeaterScopeGuardedSend(t *testing.T) {
+func TestReplayScopeGuardedSend(t *testing.T) {
 	srv := newTestServer(t)
 
 	// A target that records whether it was reached.
@@ -267,7 +267,7 @@ func TestRepeaterScopeGuardedSend(t *testing.T) {
 	defer target.Close()
 
 	var proj model.Project
-	if code := postJSON(t, srv.URL+"/v1/projects", `{"name":"repeater"}`, &proj); code != http.StatusCreated {
+	if code := postJSON(t, srv.URL+"/v1/projects", `{"name":"replay"}`, &proj); code != http.StatusCreated {
 		t.Fatalf("create project = %d", code)
 	}
 

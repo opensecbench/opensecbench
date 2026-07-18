@@ -2,7 +2,7 @@
 
 Status: Accepted (Phase 1 — frame reshape: activity bar + document center + docked Analyst + status
 bar; Phase 2 — contextual explorer + methodology-as-landing + coverage in status bar; Phase 3 —
-persistent multi-document model with keep-alive + in-context Repeater↔methodology-item binding with
+persistent multi-document model with keep-alive + in-context Replay↔methodology-item binding with
 evidence auto-attach). Fully delivered.
 
 ## Context
@@ -35,7 +35,7 @@ verbatim as the content of the active surface. Three staged steps:
   titlebar + body + status bar); Home/Extensions keep the app rail. Home is reached via the titlebar
   project control.
 - **Activity bar** (left) replaces the flat tab strip: one grouped icon per existing surface (Assets ·
-  Methodology · Knowledge · Context · Findings · Repeater · Proxy · Terminal · Scan · Playbooks · Tasks ·
+  Methodology · Knowledge · Context · Findings · Replay · Proxy · Terminal · Scan · Playbooks · Tasks ·
   Graph · Scope, with Reports · Audit below a divider). Selecting an icon sets the active surface.
 - **Document center** holds the active surface. A single document-tab header is shown now as the seam for
   the Phase 3 multi-document model.
@@ -50,16 +50,16 @@ verbatim as the content of the active surface. Three staged steps:
 ### Phase 2 — contextual explorer + methodology-as-landing
 
 The explorer panel (between activity bar and center) becomes contextual to the active activity (methodology
-structure when Methodology is active; saved requests + proxy history when Repeater is active; …). Opening a
+structure when Methodology is active; saved requests + proxy history when Replay is active; …). Opening a
 project lands on the methodology coverage home as the active document. Coverage joins the status bar.
 
 ### Phase 3 — persistent document-tab model + in-context binding
 
 Open surfaces became real documents: multiple open at once, open/close, kept **alive** when not focused
-(rendered but `display:none`), so in-progress state — Repeater edits, running scans, proxy capture,
+(rendered but `display:none`), so in-progress state — Replay edits, running scans, proxy capture,
 terminal, Analyst streams — survives navigation. This is the full persistence contract. Documents are
-`{key, surface, title, bind?}`; most are singletons keyed by surface, but a **Repeater can be bound to a
-methodology test item** (key `repeater:<itemId>`). Clicking "Test" on an item opens that bound Repeater;
+`{key, surface, title, bind?}`; most are singletons keyed by surface, but a **Replay can be bound to a
+methodology test item** (key `replay:<itemId>`). Clicking "Test" on an item opens that bound Replay;
 its "save as evidence → item" attaches the observation to the item via a new **`coverage_observations`**
 join table (migration 0021), and the item's evidence count reflects it. This threads evidence back into
 coverage — the ADR-0009 loop closed end-to-end.
@@ -78,4 +78,4 @@ coverage — the ADR-0009 loop closed end-to-end.
 ```
 
 Supersedes the placeholder Workbench shell noted in ADR-0001; coordinates with ADR-0009 (methodology home)
-and ADR-0006/0007 (Analyst dock, Repeater).
+and ADR-0006/0007 (Analyst dock, Replay).

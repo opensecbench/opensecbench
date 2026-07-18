@@ -446,7 +446,7 @@ export const api = {
     request<ScopeEntry>('POST', `/v1/projects/${projectId}/scope`, { kind, value }),
   deleteScope: (id: string) => request<void>('DELETE', `/v1/scope/${id}`),
 
-  // repeater (HTTP exchanges)
+  // replay (HTTP exchanges)
   listExchanges: (projectId: string) =>
     request<HTTPExchange[]>('GET', `/v1/projects/${projectId}/exchanges`),
   createExchange: (

@@ -10,7 +10,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
-// CreateExchange records a new (unsent) HTTP exchange for the Repeater.
+// CreateExchange records a new (unsent) HTTP exchange for the Replay.
 func (db *DB) CreateExchange(ctx context.Context, e model.HTTPExchange) (model.HTTPExchange, error) {
 	if e.ProjectID == "" || e.URL == "" {
 		return model.HTTPExchange{}, errors.New("store: exchange project id and url required")
@@ -22,7 +22,7 @@ func (db *DB) CreateExchange(ctx context.Context, e model.HTTPExchange) (model.H
 		e.Method = "GET"
 	}
 	if e.Origin == "" {
-		e.Origin = model.ExchangeRepeater
+		e.Origin = model.ExchangeReplay
 	}
 	ts := nowString()
 	if _, err := db.ExecContext(ctx,

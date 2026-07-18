@@ -129,7 +129,7 @@ export function MethodologyTab({
                     <span className="mitem-ev" title="evidence attached to this item">🔬 {ic.evidence_count}</span>
                   )}
                   {onTestItem && (
-                    <button className="ghost-btn" title="Open a Repeater bound to this test item" onClick={() => onTestItem(ic.item.id, ic.item.title)}>
+                    <button className="ghost-btn" title="Open a Replay bound to this test item" onClick={() => onTestItem(ic.item.id, ic.item.title)}>
                       ↔ Test
                     </button>
                   )}
