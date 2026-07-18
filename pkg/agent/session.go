@@ -80,7 +80,7 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 		// Validate arguments against the tool schema before gating or executing (ADR-0017).
 		if verr := validateCall(s.Tools, call); verr != nil {
 			s.audit("agent.tool.invalid", call.Tool)
-			out.Messages = append(out.Messages, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q arguments were invalid: %s. Fix the arguments and call it again, or give your final answer.", call.Tool, verr.Error())})
+			out.Messages = append(out.Messages, toolResult(call, fmt.Sprintf("Tool %q arguments were invalid: %s. Fix the arguments and call it again, or give your final answer.", call.Tool, verr.Error()), true))
 			continue
 		}
 
@@ -102,22 +102,28 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 func (s *Session) Resume(ctx context.Context, messages []llm.Message, call ToolCall, approved bool) (Outcome, error) {
 	if !approved {
 		s.audit("agent.tool.denied", call.Tool)
-		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q was denied by the human. Do not retry it; continue or give your final answer.", call.Tool)})
+		messages = append(messages, toolResult(call, fmt.Sprintf("Tool %q was denied by the human. Do not retry it; continue or give your final answer.", call.Tool), true))
 		return s.Advance(ctx, messages)
 	}
 	messages = s.runTool(ctx, messages, call)
 	return s.Advance(ctx, messages)
 }
 
-// runTool executes a call and appends its result (or error) to the conversation.
+// runTool executes a call and appends its canonical result (or error) turn to the conversation.
 func (s *Session) runTool(ctx context.Context, messages []llm.Message, call ToolCall) []llm.Message {
 	out, err := s.Execute(ctx, call)
 	if err != nil {
 		s.audit("agent.tool.error", call.Tool)
-		return append(messages, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q errored: %s", call.Tool, err.Error())})
+		return append(messages, toolResult(call, fmt.Sprintf("Tool %q errored: %s", call.Tool, err.Error()), true))
 	}
 	s.audit("agent.tool.executed", call.Tool)
-	return append(messages, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q result:\n%s", call.Tool, out)})
+	return append(messages, toolResult(call, out, false))
+}
+
+// toolResult builds the canonical RoleTool turn answering a call (ADR-0017): Content is the tool's
+// output, or a complete error/denial instruction when isErr; ToolCallID links it to the call.
+func toolResult(call ToolCall, content string, isErr bool) llm.Message {
+	return llm.Message{Role: llm.RoleTool, Content: content, ToolCallID: call.ID, ToolError: isErr}
 }
 
 func (s *Session) audit(action, detail string) {

@@ -326,14 +326,18 @@ type Thread struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
-// Message is one turn in a thread.
+// Message is one turn in a thread. ToolCalls (on an assistant turn) and ToolCallID/ToolError (on a
+// "tool" turn) carry the canonical tool interaction (ADR-0017), persisted so a thread is vendor-portable.
 type Message struct {
-	ID        string    `json:"id"`
-	ThreadID  string    `json:"thread_id"`
-	Seq       int       `json:"seq"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         string          `json:"id"`
+	ThreadID   string          `json:"thread_id"`
+	Seq        int             `json:"seq"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	ToolError  bool            `json:"tool_error,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
 }
 
 // Approval statuses.

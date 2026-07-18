@@ -165,7 +165,7 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 			l.audit("agent.tool.invalid", call.Tool)
 			st.Error = verr.Error()
 			res.Steps = append(res.Steps, st)
-			msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q arguments were invalid: %s. Fix the arguments and call it again, or give your final answer.", call.Tool, verr.Error())})
+			msgs = append(msgs, toolResult(call, fmt.Sprintf("Tool %q arguments were invalid: %s. Fix the arguments and call it again, or give your final answer.", call.Tool, verr.Error()), true))
 			continue
 		}
 
@@ -181,7 +181,7 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 			l.audit("agent.tool.denied", call.Tool)
 			st.Result = "(denied)"
 			res.Steps = append(res.Steps, st)
-			msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q was denied by the human. Do not retry it; continue or give your final answer.", call.Tool)})
+			msgs = append(msgs, toolResult(call, fmt.Sprintf("Tool %q was denied by the human. Do not retry it; continue or give your final answer.", call.Tool), true))
 			continue
 		}
 
@@ -189,11 +189,11 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 		if execErr != nil {
 			st.Error = execErr.Error()
 			l.audit("agent.tool.error", call.Tool)
-			msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q errored: %s", call.Tool, execErr.Error())})
+			msgs = append(msgs, toolResult(call, fmt.Sprintf("Tool %q errored: %s", call.Tool, execErr.Error()), true))
 		} else {
 			st.Result = out
 			l.audit("agent.tool.executed", call.Tool)
-			msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q result:\n%s", call.Tool, out)})
+			msgs = append(msgs, toolResult(call, out, false))
 		}
 		res.Steps = append(res.Steps, st)
 	}

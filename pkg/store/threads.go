@@ -102,8 +102,14 @@ func (db *DB) UpdateThreadStatus(ctx context.Context, id, status string) error {
 	return nil
 }
 
-// AppendMessage adds a message to a thread, assigning the next sequence number.
+// AppendMessage adds a plain text message (system/user/assistant) to a thread.
 func (db *DB) AppendMessage(ctx context.Context, threadID, role, content string) (model.Message, error) {
+	return db.AppendMessageFull(ctx, model.Message{ThreadID: threadID, Role: role, Content: content})
+}
+
+// AppendMessageFull adds a message to a thread, assigning the next sequence number and persisting its
+// canonical tool fields (ToolCalls/ToolCallID/ToolError, ADR-0017). ID/Seq/CreatedAt are assigned here.
+func (db *DB) AppendMessageFull(ctx context.Context, in model.Message) (model.Message, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return model.Message{}, err
@@ -111,17 +117,20 @@ func (db *DB) AppendMessage(ctx context.Context, threadID, role, content string)
 	defer func() { _ = tx.Rollback() }()
 
 	var seq int
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE thread_id = ?`, threadID).Scan(&seq); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE thread_id = ?`, in.ThreadID).Scan(&seq); err != nil {
 		return model.Message{}, err
 	}
-	m := model.Message{ID: uuid.NewString(), ThreadID: threadID, Seq: seq, Role: role, Content: content}
+	m := in
+	m.ID = uuid.NewString()
+	m.Seq = seq
 	ts := nowString()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO messages (id, thread_id, seq, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		m.ID, threadID, seq, role, content, ts); err != nil {
+		`INSERT INTO messages (id, thread_id, seq, role, content, tool_calls, tool_call_id, tool_error, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.ThreadID, seq, m.Role, m.Content, string(m.ToolCalls), m.ToolCallID, boolToInt(m.ToolError), ts); err != nil {
 		return model.Message{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE threads SET updated_at = ? WHERE id = ?`, ts, threadID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE threads SET updated_at = ? WHERE id = ?`, ts, m.ThreadID); err != nil {
 		return model.Message{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -134,7 +143,7 @@ func (db *DB) AppendMessage(ctx context.Context, threadID, role, content string)
 // ListMessages returns a thread's messages in order.
 func (db *DB) ListMessages(ctx context.Context, threadID string) ([]model.Message, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, thread_id, seq, role, content, created_at FROM messages WHERE thread_id = ? ORDER BY seq`, threadID)
+		`SELECT id, thread_id, seq, role, content, tool_calls, tool_call_id, tool_error, created_at FROM messages WHERE thread_id = ? ORDER BY seq`, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -142,14 +151,26 @@ func (db *DB) ListMessages(ctx context.Context, threadID string) ([]model.Messag
 	var out []model.Message
 	for rows.Next() {
 		var m model.Message
-		var created string
-		if err := rows.Scan(&m.ID, &m.ThreadID, &m.Seq, &m.Role, &m.Content, &created); err != nil {
+		var created, toolCalls string
+		var toolErr int
+		if err := rows.Scan(&m.ID, &m.ThreadID, &m.Seq, &m.Role, &m.Content, &toolCalls, &m.ToolCallID, &toolErr, &created); err != nil {
 			return nil, err
 		}
+		if toolCalls != "" {
+			m.ToolCalls = json.RawMessage(toolCalls)
+		}
+		m.ToolError = toolErr != 0
 		m.CreatedAt = parseTime(created)
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // ForkThread creates a new thread branched from an existing one, copying messages up to and
@@ -183,8 +204,8 @@ func (db *DB) ForkThread(ctx context.Context, id string, atSeq int) (model.Threa
 		return model.Thread{}, err
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO messages (id, thread_id, seq, role, content, created_at)
-		 SELECT lower(hex(randomblob(16))), ?, seq, role, content, created_at FROM messages WHERE thread_id = ? AND seq <= ? ORDER BY seq`,
+		`INSERT INTO messages (id, thread_id, seq, role, content, tool_calls, tool_call_id, tool_error, created_at)
+		 SELECT lower(hex(randomblob(16))), ?, seq, role, content, tool_calls, tool_call_id, tool_error, created_at FROM messages WHERE thread_id = ? AND seq <= ? ORDER BY seq`,
 		child.ID, parent.ID, atSeq); err != nil {
 		return model.Thread{}, err
 	}

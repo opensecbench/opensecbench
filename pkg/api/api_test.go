@@ -191,8 +191,9 @@ func TestAnalystAsk(t *testing.T) {
 	var out struct {
 		Answer      string `json:"answer"`
 		NewMessages []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
+			Role      string          `json:"role"`
+			Content   string          `json:"content"`
+			ToolCalls json.RawMessage `json:"tool_calls"`
 		} `json:"new_messages"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -201,15 +202,19 @@ func TestAnalystAsk(t *testing.T) {
 	if !strings.Contains(out.Answer, "Acme") {
 		t.Fatalf("answer = %q", out.Answer)
 	}
-	// The transcript should record the read-only tool activity (auto-approved).
-	tooled := false
+	// The transcript should record the read-only tool activity (auto-approved) in canonical form: an
+	// assistant turn carrying the structured tool call, and a "tool" turn carrying its result.
+	var calledTool, gotResult bool
 	for _, m := range out.NewMessages {
-		if strings.Contains(m.Content, "list_projects") {
-			tooled = true
+		if m.Role == "assistant" && strings.Contains(string(m.ToolCalls), "list_projects") {
+			calledTool = true
+		}
+		if m.Role == "tool" {
+			gotResult = true
 		}
 	}
-	if !tooled {
-		t.Fatalf("no tool activity in transcript: %+v", out.NewMessages)
+	if !calledTool || !gotResult {
+		t.Fatalf("no canonical tool activity in transcript: %+v", out.NewMessages)
 	}
 }
 

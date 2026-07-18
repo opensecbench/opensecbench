@@ -712,6 +712,9 @@ a.link,
   font-size: 11.5px;
   color: var(--tx3);
 }
+.msg.tool.error {
+  color: var(--red, #e06c75);
+}
 .msg.propose {
   color: var(--amber);
   font-size: 12.5px;
