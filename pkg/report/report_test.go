@@ -142,6 +142,31 @@ func TestRenderTemplates(t *testing.T) {
 	}
 }
 
+func TestRetestGroupsByStatus(t *testing.T) {
+	src := sampleSource()
+	// f1 confirmed (still open), f2 open (still open); add a remediated + accepted one.
+	src.findings = append(src.findings,
+		model.Finding{ID: "f6", ApplicationID: appPtr("a1"), Title: "Fixed XSS", Severity: "medium", Status: "remediated", ObservationIDs: []string{"o1"}},
+		model.Finding{ID: "f7", ApplicationID: appPtr("a1"), Title: "Accepted CSRF", Severity: "low", Status: "accepted", ObservationIDs: []string{"o1"}},
+	)
+	d, _ := NewBuilder(src).Build(context.Background(), "p1", time.Now())
+	retest, ok := BuiltIns().Get("retest")
+	if !ok {
+		t.Fatal("retest template missing")
+	}
+	out, err := retest.Render(d, FormatMarkdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "Remediated:** 1") || !strings.Contains(s, "Still open:** 2") || !strings.Contains(s, "Accepted risk:** 1") {
+		t.Fatalf("retest counts wrong:\n%s", s)
+	}
+	if !strings.Contains(s, "Fixed XSS") || !strings.Contains(s, "Accepted CSRF") {
+		t.Fatalf("retest missing grouped findings:\n%s", s)
+	}
+}
+
 func titles(fs []Finding) []string {
 	var out []string
 	for _, f := range fs {
