@@ -139,12 +139,16 @@ func TestCLIProviderSandboxIsolatesCredential(t *testing.T) {
 }
 
 func TestNewCLISandboxConfig(t *testing.T) {
-	// Sandbox on but no image → a clear error.
-	if _, err := New(Config{Type: "claude-cli", CLISandbox: true}); err == nil {
-		t.Fatal("sandbox without an image should error")
+	// Sandbox on with no image → the conventional osb/claude-cli:latest (built by `make claude-image`).
+	p, err := New(Config{Type: "claude-cli", CLISandbox: true, CLICredential: "/c/cred.json"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Sandbox on with an image and explicit credential.
-	p, err := New(Config{Type: "claude-cli", CLISandbox: true, CLIImage: "img", CLICredential: "/c/cred.json"})
+	if s := p.(*CLIProvider).Sandbox; s == nil || s.Image != DefaultCLIImage {
+		t.Fatalf("sandbox default image = %+v, want %s", s, DefaultCLIImage)
+	}
+	// An explicit image and credential are honored.
+	p, err = New(Config{Type: "claude-cli", CLISandbox: true, CLIImage: "img", CLICredential: "/c/cred.json"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,6 +160,30 @@ func TestNewCLISandboxConfig(t *testing.T) {
 	p2, _ := New(Config{Type: "claude-cli"})
 	if p2.(*CLIProvider).Sandbox != nil {
 		t.Fatal("default claude-cli must run on the host, not sandboxed")
+	}
+}
+
+// TestCLIProviderSandboxReal exercises the full sandbox path — CLIProvider.Sandbox + the real
+// LocalRunner + the osb/claude-cli image + your ambient credential — end to end. It makes a real API
+// call, so it's skipped by default. Build the image first (`make claude-image`), then run with
+// OSB_TEST_CLAUDE_SANDBOX=1.
+func TestCLIProviderSandboxReal(t *testing.T) {
+	if os.Getenv("OSB_TEST_CLAUDE_SANDBOX") == "" {
+		t.Skip("set OSB_TEST_CLAUDE_SANDBOX=1 (and `make claude-image`) to run the sandboxed CLI end to end")
+	}
+	p, err := New(Config{Type: "claude-cli", CLISandbox: true}) // default image + ~/.claude/.credentials.json
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := p.Complete(context.Background(), CompletionRequest{Messages: []Message{
+		{Role: RoleSystem, Content: `You are a test bot. Reply ONLY with the exact JSON: {"answer":"pong"}`},
+		{Role: RoleUser, Content: "ping"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp.Text, "pong") {
+		t.Fatalf("sandboxed claude did not follow the system prompt; got %q", resp.Text)
 	}
 }
 

@@ -36,9 +36,11 @@ is unchanged and remains the default.
 3. **Stdin for the runner.** `RunSpec` gains `Stdin []byte`; `LocalRunner` attaches it (`docker run -i`) and
    feeds it to the container. This is a general runner capability, not CLI-specific.
 4. **Config-driven, opt-in.** `Config.CLISandbox` (env `OSB_LLM_CLI_SANDBOX=1`) turns it on, with
-   `CLIImage` / `CLICredential` / `CLINetwork` (and matching `OSB_LLM_CLI_*` env) to point at an image that
-   has the `claude` CLI installed and the credential path. Off → the existing host exec. The image is the
-   operator's to provide/build; we don't ship one.
+   `CLIImage` / `CLICredential` / `CLINetwork` (and matching `OSB_LLM_CLI_*` env) as overrides. Off → the
+   existing host exec. The image defaults to `osb/claude-cli:latest`, which we ship a Dockerfile for
+   (`images/claude-cli`, built by `make claude-image`) — the one image OSB builds itself, since no public
+   image carries the `claude` CLI; every other sandbox uses a pinned public image. The credential path
+   defaults to `~/.claude/.credentials.json`.
 
 ## Consequences
 
@@ -46,8 +48,10 @@ is unchanged and remains the default.
   profile, other credentials, and the ambient environment are no longer in reach of the sandboxed process.
 - **Reuses the audited sandbox.** Mounts, network policy, resource limits, and secret handling come from the
   existing runner — no second execution path to secure. `Stdin` is a clean, general addition.
-- **Requires Docker + a CLI image.** Sandbox mode needs the Docker runtime and an image containing `claude`;
-  without them the operator stays on the (default) host path. API keys remain the recommended default for
+- **Requires Docker + the CLI image.** Sandbox mode needs the Docker runtime and the `osb/claude-cli` image
+  (`make claude-image`); without them the operator stays on the (default) host path. This is OSB's first
+  self-built image — see `images/README.md` for the convention (`images/<name>/` → `osb/<name>:latest`, a
+  `make image-<name>` pattern that auto-discovers new images). API keys remain the recommended default for
   everyone who isn't deliberately using a subscription this way.
 - **Egress is broad for now.** The sandbox can reach the network to hit the API; narrowing that to just the
   API host is deferred to the egress-proxy work. Documented, not hidden.
