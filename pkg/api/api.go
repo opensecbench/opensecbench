@@ -110,6 +110,9 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /v1/search", s.search)
 	s.mux.HandleFunc("GET /v1/audit", s.listAudit)
+	s.mux.HandleFunc("GET /v1/notifications", s.listNotifications)
+	s.mux.HandleFunc("POST /v1/notifications/{id}/read", s.markNotificationRead)
+	s.mux.HandleFunc("POST /v1/notifications/read-all", s.markAllNotificationsRead)
 	s.mux.HandleFunc("GET /v1/report-templates", s.listReportTemplates)
 	s.mux.HandleFunc("GET /v1/projects/{id}/reports", s.listReports)
 	s.mux.HandleFunc("POST /v1/projects/{id}/reports", s.generateReport)
@@ -222,6 +225,7 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.notifyIfPending(r.Context(), res)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -292,7 +296,21 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.notifyIfPending(r.Context(), res)
 	writeJSON(w, http.StatusOK, res)
+}
+
+// notifyIfPending raises an approval notification when an Analyst run pauses on a gated tool.
+func (s *Server) notifyIfPending(ctx context.Context, res analyst.SendResult) {
+	if res.Pending == nil {
+		return
+	}
+	var pid *string
+	if res.Thread.ProjectID != nil {
+		pid = res.Thread.ProjectID
+	}
+	s.notify(ctx, model.NotifyApproval, "Approval needed",
+		"The Analyst wants to run "+res.Pending.Tool, pid, "approval:"+res.Pending.ID)
 }
 
 func (s *Server) forkThread(w http.ResponseWriter, r *http.Request) {
@@ -349,6 +367,7 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.record(r.Context(), actorOf(r), "approval."+req.Decision, approvalID, nil)
+	s.notifyIfPending(r.Context(), res)
 	writeJSON(w, http.StatusOK, res)
 }
 

@@ -166,6 +166,32 @@ func (c *Client) ProxyCACert(ctx context.Context) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// NotificationFeed is the notifications list plus the unread count.
+type NotificationFeed struct {
+	Unread        int                  `json:"unread"`
+	Notifications []model.Notification `json:"notifications"`
+}
+
+// ListNotifications returns notifications (newest first) and the unread count.
+func (c *Client) ListNotifications(ctx context.Context, unreadOnly bool, limit int) (NotificationFeed, error) {
+	path := "/v1/notifications?limit=" + strconv.Itoa(limit)
+	if unreadOnly {
+		path += "&unread=true"
+	}
+	var out NotificationFeed
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
+// MarkNotificationRead marks one notification read.
+func (c *Client) MarkNotificationRead(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/v1/notifications/"+id+"/read", nil, nil)
+}
+
+// MarkAllNotificationsRead marks all notifications read.
+func (c *Client) MarkAllNotificationsRead(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/v1/notifications/read-all", nil, nil)
+}
+
 // ReportTemplate is an available report template.
 type ReportTemplate struct {
 	ID    string `json:"id"`

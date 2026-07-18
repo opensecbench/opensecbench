@@ -77,3 +77,39 @@ func TestGenerateReportEndToEnd(t *testing.T) {
 		t.Fatalf("reports listed = %d, want 1", len(reps))
 	}
 }
+
+func TestReportEmitsNotification(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := store.LoadMigrations(migrations.FS)
+	if _, err := db.Apply(ms); err != nil {
+		t.Fatal(err)
+	}
+	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	srv := httptest.NewServer(New(Deps{Store: db, CAS: blobs}).Handler())
+	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+
+	proj, _ := db.CreateProject(context.Background(), store.NewProject{Name: "Acme"})
+	var rep model.Report
+	postJSON(t, srv.URL+"/v1/projects/"+proj.ID+"/reports", `{"template":"executive","format":"md"}`, &rep)
+
+	var feed struct {
+		Unread        int                  `json:"unread"`
+		Notifications []model.Notification `json:"notifications"`
+	}
+	postGet(t, srv.URL+"/v1/notifications?unread=true", &feed)
+	if feed.Unread != 1 || len(feed.Notifications) != 1 || feed.Notifications[0].Kind != model.NotifyReport {
+		t.Fatalf("expected 1 unread report notification, got %+v", feed)
+	}
+
+	// Mark it read → unread drops to zero.
+	if code := postJSON(t, srv.URL+"/v1/notifications/"+feed.Notifications[0].ID+"/read", ``, nil); code != http.StatusNoContent {
+		t.Fatalf("mark read = %d", code)
+	}
+	postGet(t, srv.URL+"/v1/notifications", &feed)
+	if feed.Unread != 0 {
+		t.Fatalf("unread after read = %d, want 0", feed.Unread)
+	}
+}

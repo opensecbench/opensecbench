@@ -128,5 +128,8 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 	s.record(r.Context(), actorOf(r), "report.generate", rep.ID, map[string]any{
 		"template": tmpl.ID, "format": format, "findings": data.Summary.Total,
 	})
+	pid := projectID
+	s.notify(r.Context(), model.NotifyReport, "Report ready",
+		tmpl.Title+" ("+string(format)+") for "+data.Project.Name, &pid, "report:"+rep.ID)
 	writeJSON(w, http.StatusCreated, rep)
 }
