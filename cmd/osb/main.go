@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/client"
@@ -67,6 +68,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return applicationCmd(ctx, c, args[1:])
 	case "asset":
 		return assetCmd(ctx, c, args[1:])
+	case "context":
+		return contextCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -262,6 +265,73 @@ func assetCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 }
 
+func contextCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb context <list|add>")
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("context list", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("context list: --project is required")
+		}
+		items, err := c.ListContext(ctx, *project)
+		if err != nil {
+			return err
+		}
+		for _, ci := range items {
+			fmt.Printf("%s  %-10s %s\n", ci.ID, ci.Type, ci.Name)
+		}
+		return nil
+	case "add":
+		fs := flag.NewFlagSet("context add", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		file := fs.String("file", "", "path to the file to ingest (required)")
+		ctype := fs.String("type", "document", "context type: document | email | chat | note")
+		name := fs.String("name", "", "display name (default: file base name)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" || *file == "" {
+			return errors.New("context add: --project and --file are required")
+		}
+		data, err := os.ReadFile(*file)
+		if err != nil {
+			return err
+		}
+		displayName := *name
+		if displayName == "" {
+			displayName = filepath.Base(*file)
+		}
+		ci, err := c.IngestContext(ctx, *project, displayName, *ctype, mediaTypeForExt(*file), data)
+		if err != nil {
+			return err
+		}
+		return printJSON(ci)
+	default:
+		return fmt.Errorf("unknown context subcommand %q", args[0])
+	}
+}
+
+func mediaTypeForExt(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".txt", ".md", ".log":
+		return "text/plain"
+	case ".json":
+		return "application/json"
+	case ".html", ".htm":
+		return "text/html"
+	case ".eml":
+		return "message/rfc822"
+	default:
+		return ""
+	}
+}
+
 func observationCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: osb observation <list|review>")
@@ -454,6 +524,8 @@ Commands:
   application list --project ID
   asset create --app ID --type source_repo --location PATH [--sensitivity S]
   asset list --app ID
+  context add --project ID --file PATH [--type document] [--name NAME]
+  context list --project ID
   capability list             list available capabilities
   capability run --id ID (--dir PATH | --asset ID) [--param k=v]  run a capability
   task get <id>               show a task

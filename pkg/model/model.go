@@ -39,6 +39,26 @@ type Project struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// Context item types.
+const (
+	ContextDocument = "document"
+	ContextEmail    = "email"
+	ContextChat     = "chat"
+	ContextNote     = "note"
+)
+
+// ContextItem is ingested unstructured context (a doc, email, chat log, or note) whose bytes
+// live in the CAS as an input artifact, linked to a project.
+type ContextItem struct {
+	ID            string    `json:"id"`
+	ProjectID     string    `json:"project_id"`
+	ApplicationID *string   `json:"application_id,omitempty"`
+	Type          string    `json:"type"`
+	Name          string    `json:"name"`
+	ArtifactID    string    `json:"artifact_id"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 // SearchResult is one hit from omni-search, across entity kinds.
 type SearchResult struct {
 	Kind   string `json:"kind"` // project | application | asset | finding | observation

@@ -43,6 +43,7 @@ func (db *DB) Search(ctx context.Context, q string, perKind int) ([]model.Search
 		{"asset", `SELECT id, location, type || ' · ' || sensitivity FROM assets WHERE location LIKE ? ORDER BY created_at LIMIT ?`, []any{like, perKind}},
 		{"finding", `SELECT id, title, severity || ' · ' || status FROM findings WHERE title LIKE ? OR description LIKE ? ORDER BY created_at DESC LIMIT ?`, []any{like, like, perKind}},
 		{"observation", `SELECT id, title, COALESCE(NULLIF(location, ''), rule_id) FROM observations WHERE title LIKE ? OR rule_id LIKE ? OR location LIKE ? ORDER BY created_at DESC LIMIT ?`, []any{like, like, like, perKind}},
+		{"context", `SELECT id, name, type FROM context_items WHERE name LIKE ? ORDER BY created_at DESC LIMIT ?`, []any{like, perKind}},
 	}
 
 	for _, qd := range queries {

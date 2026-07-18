@@ -27,7 +27,7 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Application + asset repositories + endpoints (sensitivity default-from-location); asset-targeted runs
 - [x] Project templates / archetypes (scaffold project + default application)
 - [x] Omni-search v1 (projects · applications · assets · findings · observations)
-- [ ] Context ingest (docs/emails/chats into CAS) — search extends to it later
+- [x] Context ingest (docs/emails/chats/notes → CAS input artifacts, searchable)
 - [x] `osb` CLI + pkg/client over the API (health, project list/create/get/delete)
 
 ## P2 — Capability & runner core
