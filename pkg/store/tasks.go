@@ -18,6 +18,7 @@ type NewTask struct {
 	CapabilityVersion string
 	ApplicationID     *string
 	AssetID           *string
+	ProjectID         *string // scope/project association (network & SCA tasks with no application)
 	Actor             string
 	Runner            string
 	Params            json.RawMessage
@@ -50,9 +51,9 @@ func (db *DB) CreateTask(ctx context.Context, nt NewTask) (model.Task, error) {
 	}
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO tasks
-		 (id, capability_id, capability_version, application_id, asset_id, actor, runner, params, status, created_at, started_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.CapabilityID, t.CapabilityVersion, nt.ApplicationID, nt.AssetID, t.Actor, t.Runner,
+		 (id, capability_id, capability_version, application_id, asset_id, project_id, actor, runner, params, status, created_at, started_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.CapabilityID, t.CapabilityVersion, nt.ApplicationID, nt.AssetID, nt.ProjectID, t.Actor, t.Runner,
 		string(params), t.Status, nowStr, nowStr)
 	if err != nil {
 		return model.Task{}, err

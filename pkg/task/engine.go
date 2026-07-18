@@ -133,6 +133,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 		CapabilityVersion: man.Version,
 		ApplicationID:     applicationID,
 		AssetID:           req.AssetID,
+		ProjectID:         req.ProjectID,
 		Actor:             actor,
 		Runner:            e.runner.Name(),
 		Params:            paramsJSON,
