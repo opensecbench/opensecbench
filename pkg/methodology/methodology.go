@@ -30,6 +30,9 @@ type Registry struct{ packs map[string]Methodology }
 // Get returns a methodology by id.
 func (r *Registry) Get(id string) (Methodology, bool) { m, ok := r.packs[id]; return m, ok }
 
+// Register adds (or replaces) a methodology pack — used to load extension-provided packs.
+func (r *Registry) Register(m Methodology) { r.packs[m.ID] = m }
+
 // All returns every methodology, sorted by id.
 func (r *Registry) All() []Methodology {
 	out := make([]Methodology, 0, len(r.packs))

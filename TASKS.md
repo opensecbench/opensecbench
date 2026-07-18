@@ -172,3 +172,14 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [ ] DefectDojo+Teams mediated sharing (reuse P10 connectors + a Teams notifier)
 - [ ] Subset export (findings-only) + full-backup mode (include tasks/audit)
 - [ ] Hosted team service (deferred until existing-platform sharing proves insufficient)
+
+## Extension loader (P2 core, delivered later; ADR-0013)
+
+- [x] ADR-0013 (extension loader: format, ed25519 signing, trust store, digest pinning)
+- [x] pkg/extension: directory packages, container capabilities + methodology packs, sign/verify/trust
+- [x] Control plane loads <data>/extensions at startup into the capability + methodology registries
+- [x] First-party example pack (extensions/trufflehog) + extensions/README
+- [x] API GET /v1/extensions + osb ext list/keygen/sign; verified e2e (sign→trust→load→cap registered)
+- [ ] Report/playbook/visualization pack types; manifest `permissions` schema
+- [ ] Runtime install/reload (drop-in without restart) + trust management over the API
+- [ ] Interpret trufflehog JSON output into observations (currently captured as a raw artifact)

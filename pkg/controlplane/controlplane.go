@@ -5,6 +5,7 @@ package controlplane
 
 import (
 	"context"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -15,7 +16,9 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/api"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/extension"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/secret"
@@ -83,7 +86,29 @@ func Start(opts Options) (*Instance, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	engine := task.NewEngine(db, blobs, capability.BuiltIns(), runner.LocalRunner{})
+	// Build the capability + methodology registries from built-ins, then load installed extension
+	// packages into them (ADR-0013). Extensions live under <data>/extensions; unsigned packages load
+	// only when OSB_ALLOW_UNSIGNED_EXTENSIONS is set.
+	capReg := capability.BuiltIns()
+	methReg := methodology.BuiltIns()
+	extDir := filepath.Join(filepath.Dir(opts.DBPath), "extensions")
+	trust, _ := extension.LoadTrustStore(filepath.Join(extDir, "trusted_keys"))
+	allowUnsigned := os.Getenv("OSB_ALLOW_UNSIGNED_EXTENSIONS") != ""
+	loadedExt, extErrs := extension.LoadDir(extDir, trust, allowUnsigned)
+	for _, l := range loadedExt {
+		for _, c := range l.CapabilityList() {
+			capReg.Register(c)
+		}
+		for _, m := range l.Manifest.Methodologies {
+			methReg.Register(m)
+		}
+		log.Printf("extension loaded: %s v%s (trusted=%v, %d caps)", l.Manifest.ID, l.Manifest.Version, l.Trusted, len(l.Manifest.Capabilities))
+	}
+	for dir, e := range extErrs {
+		log.Printf("extension skipped (%s): %v", dir, e)
+	}
+
+	engine := task.NewEngine(db, blobs, capReg, runner.LocalRunner{})
 
 	// The LLM provider is configured via OSB_LLM_* (ollama/deepseek/grok/claude-cli/anthropic);
 	// unset yields a mock. A misconfiguration disables the Analyst but never blocks startup.
@@ -132,6 +157,7 @@ func Start(opts Options) (*Instance, error) {
 	apiSrv := api.New(api.Deps{
 		Store: db, Engine: engine, CAS: blobs, Provider: provider,
 		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault,
+		Methods: methReg, Extensions: loadedExt,
 	})
 	srv := &http.Server{
 		Handler:           apiSrv.Handler(),
