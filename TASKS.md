@@ -123,8 +123,9 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Inline-SVG severity chart (pkg/viz) embedded in HTML reports (CSP-safe, no JS)
 - [x] PDF via headless Chromium (pkg/browser shared with proxy); degrades if no browser
 - [x] Reports tab in the workbench (template + format, generate, open)
-- [ ] More report types: retest, compliance mapping, client-branded
+- [x] Retest report type (findings grouped by remediation status)
+- [ ] More report types: compliance mapping, client-branded
 - [ ] More visualizations: coverage heatmap, dependency/API maps, topology (interactive workbench views)
 - [ ] Methodology coverage model + roll-up (needs a methodology/checklist entity)
-- [ ] Notifications: OS-level + in-app (approval waiting, task done, report ready)
+- [x] Notifications: in-app feed + bell + OS-native CLI watch (approval waiting, report ready)
 - [ ] Report templates + visualizations as installable extension packages

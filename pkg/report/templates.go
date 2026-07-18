@@ -59,6 +59,25 @@ var funcs = map[string]any{
 	"date":   func(t interface{ Format(string) string }) string { return t.Format("2006-01-02 15:04 MST") },
 	"sevs":   func() []string { return []string{"critical", "high", "medium", "low", "info"} },
 	"sevfmt": func(s string) string { return strings.ToUpper(s) },
+	// retest helpers: partition reportable findings by remediation status.
+	"remediated": func(fs []Finding) []Finding { return filterStatus(fs, "remediated") },
+	"stillopen":  func(fs []Finding) []Finding { return filterStatus(fs, "open", "confirmed") },
+	"accepted":   func(fs []Finding) []Finding { return filterStatus(fs, "accepted") },
+	"count":      func(fs []Finding) int { return len(fs) },
+}
+
+func filterStatus(fs []Finding, statuses ...string) []Finding {
+	want := map[string]bool{}
+	for _, s := range statuses {
+		want[s] = true
+	}
+	var out []Finding
+	for _, f := range fs {
+		if want[f.Status] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // BuiltIns returns the first-party report templates.
@@ -66,6 +85,7 @@ func BuiltIns() *Registry {
 	r := &Registry{tmpls: map[string]*Template{}}
 	r.tmpls["executive"] = mustTemplate("executive", "Executive summary", "exec_summary", execMD, execHTML)
 	r.tmpls["technical"] = mustTemplate("technical", "Technical report", "technical", techMD, techHTML)
+	r.tmpls["retest"] = mustTemplate("retest", "Retest report", "retest", retestMD, retestHTML)
 	return r
 }
 
@@ -135,6 +155,49 @@ _Generated {{date .GeneratedAt}}_
 {{end}}
 {{end}}{{else}}_No reportable findings._
 {{end}}`
+
+const retestMD = `# {{.Project.Name}} — Retest Report
+
+_Generated {{date .GeneratedAt}}_
+
+Remediation status of previously reported findings.
+
+- **Remediated:** {{count (remediated .Findings)}}
+- **Still open:** {{count (stillopen .Findings)}}
+- **Accepted risk:** {{count (accepted .Findings)}}
+
+## ✅ Remediated
+
+{{$r := remediated .Findings}}{{if $r}}{{range $r}}- **[{{sevfmt .Severity}}]** {{.Title}} — _{{.AppName}}_
+{{end}}{{else}}_None._
+{{end}}
+## ❌ Still open
+
+{{$o := stillopen .Findings}}{{if $o}}{{range $o}}- **[{{sevfmt .Severity}}]** {{.Title}}{{if .CWE}} ({{.CWE}}){{end}} — _{{.AppName}}_
+{{end}}{{else}}_None._
+{{end}}
+## ⚠ Accepted risk
+
+{{$a := accepted .Findings}}{{if $a}}{{range $a}}- **[{{sevfmt .Severity}}]** {{.Title}} — _{{.AppName}}_
+{{end}}{{else}}_None._
+{{end}}`
+
+const retestHTML = `<!doctype html><html><head><meta charset="utf-8">
+<title>{{.Project.Name}} — Retest Report</title>
+<style>` + reportCSS + `</style></head><body>
+<h1>{{.Project.Name}}<span class="sub">Retest Report</span></h1>
+<p class="meta">Generated {{date .GeneratedAt}}</p>
+<p>Remediation status of previously reported findings:
+<b>{{count (remediated .Findings)}}</b> remediated ·
+<b>{{count (stillopen .Findings)}}</b> still open ·
+<b>{{count (accepted .Findings)}}</b> accepted.</p>
+<h2>✅ Remediated</h2>
+{{$r := remediated .Findings}}{{if $r}}<ul class="findlist">{{range $r}}<li><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}} <span class="app">{{.AppName}}</span></li>{{end}}</ul>{{else}}<p><em>None.</em></p>{{end}}
+<h2>❌ Still open</h2>
+{{$o := stillopen .Findings}}{{if $o}}<ul class="findlist">{{range $o}}<li><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}}{{if .CWE}} <span class="cwe">{{.CWE}}</span>{{end}} <span class="app">{{.AppName}}</span></li>{{end}}</ul>{{else}}<p><em>None.</em></p>{{end}}
+<h2>⚠ Accepted risk</h2>
+{{$a := accepted .Findings}}{{if $a}}<ul class="findlist">{{range $a}}<li><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}} <span class="app">{{.AppName}}</span></li>{{end}}</ul>{{else}}<p><em>None.</em></p>{{end}}
+</body></html>`
 
 const execHTML = `<!doctype html><html><head><meta charset="utf-8">
 <title>{{.Project.Name}} — Executive Summary</title>
