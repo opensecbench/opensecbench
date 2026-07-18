@@ -1,6 +1,9 @@
 # ADR-0016 — HTTP traffic toolset (Proxy · Replay · Intercept) + extensibility
 
-Status: Proposed (naming + structure accepted; Proxy build and intercept queue staged)
+Status: Accepted — fully delivered. Rename Repeater→Replay; Step 1 first-class history + exchange action
+registry; Step 2 live-push (SSE hub); Step 3 Intercept (hold→edit→forward/drop, requests + responses);
+Step 4 match/replace traffic-processor + scope highlighting. Plugin packaging of the seams is the remaining
+future work (TODO.md).
 
 ## Context
 
