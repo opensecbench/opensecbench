@@ -129,7 +129,7 @@ export interface CoverageView {
     id: string
     title: string
     tech: string
-    items: { item: MethodologyItem; status: string; note?: string }[]
+    items: { item: MethodologyItem; status: string; note?: string; evidence_count?: number }[]
   }[]
   summary: {
     total: number
@@ -454,8 +454,8 @@ export const api = {
     req: { name?: string; method?: string; url: string; request_headers?: string; request_body?: string },
   ) => request<HTTPExchange>('POST', `/v1/projects/${projectId}/exchanges`, req),
   sendExchange: (id: string) => request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, {}),
-  saveExchangeEvidence: (id: string, note: string) =>
-    request<Observation>('POST', `/v1/exchanges/${id}/evidence`, { note }),
+  saveExchangeEvidence: (id: string, note: string, itemId?: string) =>
+    request<Observation>('POST', `/v1/exchanges/${id}/evidence`, { note, item_id: itemId ?? '' }),
 
   // terminal sessions
   listSessions: (projectId: string) =>

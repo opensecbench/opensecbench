@@ -211,17 +211,30 @@ function WorkbenchExplorer({
   )
 }
 
+// A document is an open surface instance. Most are singletons keyed by their surface, but a
+// Repeater can be bound to a methodology test item (ADR-0015 P3b) — its own document whose saved
+// evidence auto-attaches to that item.
+interface Doc {
+  key: string
+  surface: Tab
+  title: string
+  bind?: { itemId: string; itemTitle: string }
+}
+
 export function Workbench({ project, conn, onHome }: { project: Project; conn: Conn; onHome: () => void }) {
   const online = conn === 'online'
   // Open documents are kept mounted so their state survives navigation (ADR-0015
   // Phase 3): switching surfaces hides the inactive ones, it never tears them down.
-  const [openDocs, setOpenDocs] = useState<Tab[]>(['methodology']) // land on the coverage home
-  const [activeDoc, setActiveDoc] = useState<Tab | null>('methodology')
+  const [openDocs, setOpenDocs] = useState<Doc[]>([
+    { key: 'methodology', surface: 'methodology', title: surfaceTitle('methodology') }, // land on the coverage home
+  ])
+  const [activeKey, setActiveKey] = useState<string | null>('methodology')
   const [apps, setApps] = useState<AppAssets[]>([])
   const [capabilities, setCapabilities] = useState<CapabilityManifest[]>([])
   const [context, setContext] = useState<ContextItem[]>([])
   const [findings, setFindings] = useState<Finding[]>([])
   const [coverage, setCoverage] = useState<CoverageView | null>(null)
+  const [methodReload, setMethodReload] = useState(0) // bump to make Methodology docs re-fetch
   const [approvals, setApprovals] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
@@ -273,26 +286,45 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
     [apps],
   )
 
-  function openDoc(t: Tab) {
-    setOpenDocs((docs) => (docs.includes(t) ? docs : [...docs, t]))
-    setActiveDoc(t)
+  // Evidence was attached to a methodology item from a bound Repeater: refresh the status-bar/explorer
+  // coverage and signal open Methodology documents to re-fetch so the item's evidence badge updates.
+  async function afterEvidenceLinked() {
+    setMethodReload((k) => k + 1)
+    try {
+      setCoverage(await api.getMethodologyCoverage(project.id))
+    } catch {
+      /* leave prior coverage; the surface reports its own errors */
+    }
   }
-  function closeDoc(t: Tab, e?: ReactMouseEvent) {
+
+  function focusOrAdd(doc: Doc) {
+    setOpenDocs((docs) => (docs.some((d) => d.key === doc.key) ? docs : [...docs, doc]))
+    setActiveKey(doc.key)
+  }
+  function openSurface(surface: Tab) {
+    focusOrAdd({ key: surface, surface, title: surfaceTitle(surface) })
+  }
+  // Open (or focus) a Repeater bound to a methodology test item — the C payoff: evidence saved
+  // here auto-attaches to that item.
+  function openBoundRepeater(itemId: string, itemTitle: string) {
+    focusOrAdd({ key: `repeater:${itemId}`, surface: 'repeater', title: itemTitle, bind: { itemId, itemTitle } })
+  }
+  function closeDoc(key: string, e?: ReactMouseEvent) {
     e?.stopPropagation()
-    const idx = openDocs.indexOf(t)
-    const next = openDocs.filter((d) => d !== t)
+    const idx = openDocs.findIndex((d) => d.key === key)
+    const next = openDocs.filter((d) => d.key !== key)
     setOpenDocs(next)
-    if (activeDoc === t) setActiveDoc(next[idx] ?? next[idx - 1] ?? null)
+    if (activeKey === key) setActiveKey(next[idx]?.key ?? next[idx - 1]?.key ?? null)
   }
 
   // Each open document renders its surface once and stays mounted; the frame only
   // toggles visibility. Adding a surface here makes it an openable document.
-  function renderSurface(t: Tab) {
-    switch (t) {
+  function renderSurface(doc: Doc) {
+    switch (doc.surface) {
       case 'assets':
         return <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />
       case 'methodology':
-        return <MethodologyTab project={project} online={online} onError={setError} />
+        return <MethodologyTab project={project} online={online} onError={setError} onTestItem={openBoundRepeater} reloadSignal={methodReload} />
       case 'knowledge':
         return <KnowledgeTab project={project} online={online} onError={setError} />
       case 'context':
@@ -302,7 +334,7 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
       case 'scan':
         return <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />
       case 'repeater':
-        return <RepeaterTab project={project} online={online} onError={setError} />
+        return <RepeaterTab project={project} online={online} onError={setError} boundItem={doc.bind} onEvidenceLinked={afterEvidenceLinked} />
       case 'proxy':
         return <ProxyTab project={project} online={online} onError={setError} />
       case 'terminal':
@@ -326,6 +358,8 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
     }
   }
 
+  const activeSurface = openDocs.find((d) => d.key === activeKey)?.surface ?? null
+
   return (
     <div className="wb">
       <div className="wb-titlebar">
@@ -343,7 +377,7 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
       <div className="wb-body">
         <nav className="wb-activity">
           {SURFACES.filter((s) => !s.meta).map((s) => (
-            <button key={s.key} className={`wb-ic ${activeDoc === s.key ? 'on' : ''} ${openDocs.includes(s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => openDoc(s.key)}>
+            <button key={s.key} className={`wb-ic ${activeSurface === s.key ? 'on' : ''} ${openDocs.some((d) => d.surface === s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => openSurface(s.key)}>
               <span>{s.icon}</span>
               {s.key === 'findings' && findings.length > 0 && <span className="n red">{findings.length}</span>}
               {s.key === 'context' && context.length > 0 && <span className="n">{context.length}</span>}
@@ -353,22 +387,22 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
           <div className="wb-actsp" />
           <div className="wb-actdiv" />
           {SURFACES.filter((s) => s.meta).map((s) => (
-            <button key={s.key} className={`wb-ic ${activeDoc === s.key ? 'on' : ''} ${openDocs.includes(s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => openDoc(s.key)}>
+            <button key={s.key} className={`wb-ic ${activeSurface === s.key ? 'on' : ''} ${openDocs.some((d) => d.surface === s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => openSurface(s.key)}>
               <span>{s.icon}</span>
               <small>{s.label}</small>
             </button>
           ))}
         </nav>
 
-        <WorkbenchExplorer tab={activeDoc} project={project} apps={apps} findings={findings} coverage={coverage} onJump={openDoc} />
+        <WorkbenchExplorer tab={activeSurface} project={project} apps={apps} findings={findings} coverage={coverage} onJump={openSurface} />
 
         <div className="wb-center">
           <div className="wb-doctabs">
-            {openDocs.map((t) => (
-              <div key={t} className={`wb-doctab ${activeDoc === t ? 'on' : ''}`} onClick={() => setActiveDoc(t)} title={surfaceTitle(t)}>
-                <span className="em">{SURFACES.find((s) => s.key === t)?.icon}</span>
-                <span className="lbl">{surfaceTitle(t)}</span>
-                <span className="x" title="Close" onClick={(e) => closeDoc(t, e)}>✕</span>
+            {openDocs.map((d) => (
+              <div key={d.key} className={`wb-doctab ${activeKey === d.key ? 'on' : ''}`} onClick={() => setActiveKey(d.key)} title={d.title}>
+                <span className="em">{SURFACES.find((s) => s.key === d.surface)?.icon}</span>
+                <span className="lbl">{d.title}</span>
+                <span className="x" title="Close" onClick={(e) => closeDoc(d.key, e)}>✕</span>
               </div>
             ))}
           </div>
@@ -377,9 +411,9 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
             {openDocs.length === 0 && (
               <div className="empty">No document open — pick a surface from the activity bar on the left.</div>
             )}
-            {openDocs.map((t) => (
-              <div key={t} className="wb-doc" style={{ display: activeDoc === t ? 'block' : 'none' }}>
-                <SurfaceBoundary>{renderSurface(t)}</SurfaceBoundary>
+            {openDocs.map((d) => (
+              <div key={d.key} className="wb-doc" style={{ display: activeKey === d.key ? 'block' : 'none' }}>
+                <SurfaceBoundary>{renderSurface(d)}</SurfaceBoundary>
               </div>
             ))}
           </div>
@@ -807,10 +841,14 @@ function RepeaterTab({
   project,
   online,
   onError,
+  boundItem,
+  onEvidenceLinked,
 }: {
   project: Project
   online: boolean
   onError: (m: string) => void
+  boundItem?: { itemId: string; itemTitle: string }
+  onEvidenceLinked?: () => void
 }) {
   const [history, setHistory] = useState<HTTPExchange[]>([])
   const [method, setMethod] = useState('GET')
@@ -864,15 +902,23 @@ function RepeaterTab({
   async function saveEvidence() {
     if (!current) return
     try {
-      await api.saveExchangeEvidence(current.id, '')
+      await api.saveExchangeEvidence(current.id, '', boundItem?.itemId)
       setSaved(true)
+      if (boundItem) onEvidenceLinked?.()
     } catch (err) {
       onError((err as Error).message)
     }
   }
 
   return (
-    <section className="panel">
+    <>
+      {boundItem && (
+        <div className="repeater-context">
+          <span className="pin">⛓ in context of</span> <b>{boundItem.itemTitle}</b>
+          <span className="muted"> — evidence you save here attaches to this test item</span>
+        </div>
+      )}
+      <section className="panel">
       <div className="panel-head">Repeater</div>
       <p className="hint">
         Craft a request and send it. Targets are checked against the project scope allowlist before
@@ -916,7 +962,7 @@ function RepeaterTab({
                 <span className={`badge ${statusClass(current.status)}`}>{current.status ?? '—'}</span>
                 {current.duration_ms != null && <span className="muted">{current.duration_ms} ms</span>}
                 <button className="link" onClick={saveEvidence} disabled={saved}>
-                  {saved ? '✓ saved as evidence' : 'save as evidence'}
+                  {saved ? '✓ saved as evidence' : boundItem ? 'save as evidence → item' : 'save as evidence'}
                 </button>
               </div>
               <pre className="mono response">{current.response_headers}</pre>
@@ -939,7 +985,8 @@ function RepeaterTab({
           ))}
         </ul>
       )}
-    </section>
+      </section>
+    </>
   )
 }
 

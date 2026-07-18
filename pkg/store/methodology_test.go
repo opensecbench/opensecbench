@@ -55,3 +55,44 @@ func TestMethodologyAdoptionAndCoverage(t *testing.T) {
 		t.Fatalf("after unadopt = %v, want [web-app]", adopted)
 	}
 }
+
+func TestCoverageObservationLink(t *testing.T) {
+	db := migratedDB(t)
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, NewProject{Name: "engagement"})
+
+	mk := func(title string) model.Observation {
+		o, err := db.CreateObservation(ctx, model.Observation{
+			Origin: model.OriginHuman, ReviewState: model.ReviewUnreviewed, Title: title, Severity: "info",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return o
+	}
+	obsA, obsB := mk("req A"), mk("req B")
+
+	item := "rest-api/bola"
+	// Linking is idempotent; two distinct observations on one item count as two.
+	for i := 0; i < 2; i++ {
+		if err := db.LinkCoverageObservation(ctx, proj.ID, item, obsA.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.LinkCoverageObservation(ctx, proj.ID, item, obsB.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	counts, err := db.CountCoverageEvidence(ctx, proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts[item] != 2 {
+		t.Fatalf("evidence count for %s = %d, want 2", item, counts[item])
+	}
+
+	// Missing arguments are rejected.
+	if err := db.LinkCoverageObservation(ctx, proj.ID, "", obsA.ID); err == nil {
+		t.Fatal("expected error for empty item id")
+	}
+}

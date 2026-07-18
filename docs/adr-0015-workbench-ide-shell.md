@@ -1,8 +1,9 @@
 # ADR-0015 — Workbench IDE shell
 
 Status: Accepted (Phase 1 — frame reshape: activity bar + document center + docked Analyst + status
-bar; Phase 2 — contextual explorer + methodology-as-landing + coverage in status bar); the persistent
-document-tab model (Phase 3) staged
+bar; Phase 2 — contextual explorer + methodology-as-landing + coverage in status bar; Phase 3 —
+persistent multi-document model with keep-alive + in-context Repeater↔methodology-item binding with
+evidence auto-attach). Fully delivered.
 
 ## Context
 
@@ -52,12 +53,16 @@ The explorer panel (between activity bar and center) becomes contextual to the a
 structure when Methodology is active; saved requests + proxy history when Repeater is active; …). Opening a
 project lands on the methodology coverage home as the active document. Coverage joins the status bar.
 
-### Phase 3 — persistent document-tab model
+### Phase 3 — persistent document-tab model + in-context binding
 
-Open surfaces become real documents: multiple open at once, open/close, kept **alive** when not focused.
-Open-document and background-session state (Repeater edits, running scans, proxy capture, terminal, Analyst
-streams) is hoisted above the view so navigating never tears it down — the full persistence contract. Test
-items open their tools in-context (Repeater bound to an item; "save as evidence" auto-attaches).
+Open surfaces became real documents: multiple open at once, open/close, kept **alive** when not focused
+(rendered but `display:none`), so in-progress state — Repeater edits, running scans, proxy capture,
+terminal, Analyst streams — survives navigation. This is the full persistence contract. Documents are
+`{key, surface, title, bind?}`; most are singletons keyed by surface, but a **Repeater can be bound to a
+methodology test item** (key `repeater:<itemId>`). Clicking "Test" on an item opens that bound Repeater;
+its "save as evidence → item" attaches the observation to the item via a new **`coverage_observations`**
+join table (migration 0021), and the item's evidence count reflects it. This threads evidence back into
+coverage — the ADR-0009 loop closed end-to-end.
 
 ## Consequences
 

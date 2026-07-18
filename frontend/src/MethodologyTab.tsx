@@ -7,10 +7,14 @@ export function MethodologyTab({
   project,
   online,
   onError,
+  onTestItem,
+  reloadSignal,
 }: {
   project: Project
   online: boolean
   onError: (m: string) => void
+  onTestItem?: (itemId: string, itemTitle: string) => void
+  reloadSignal?: number
 }) {
   const [catalog, setCatalog] = useState<Methodology[]>([])
   const [view, setView] = useState<CoverageView | null>(null)
@@ -37,7 +41,7 @@ export function MethodologyTab({
     })()
     void reload()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, project.id])
+  }, [online, project.id, reloadSignal])
 
   const adoptedIds = new Set((view?.packs ?? []).map((p) => p.id))
   const available = catalog.filter((m) => !adoptedIds.has(m.id))
@@ -120,11 +124,21 @@ export function MethodologyTab({
                     <span className="mitem-std">{ic.item.standards.join(' · ')}</span>
                   )}
                 </div>
-                <select value={ic.status} onChange={(e) => setStatus(ic.item.id, e.target.value)} disabled={!online}>
-                  {STATUSES.map((st) => (
-                    <option key={st} value={st}>{st.replace('_', ' ')}</option>
-                  ))}
-                </select>
+                <div className="mitem-actions">
+                  {(ic.evidence_count ?? 0) > 0 && (
+                    <span className="mitem-ev" title="evidence attached to this item">🔬 {ic.evidence_count}</span>
+                  )}
+                  {onTestItem && (
+                    <button className="ghost-btn" title="Open a Repeater bound to this test item" onClick={() => onTestItem(ic.item.id, ic.item.title)}>
+                      ↔ Test
+                    </button>
+                  )}
+                  <select value={ic.status} onChange={(e) => setStatus(ic.item.id, e.target.value)} disabled={!online}>
+                    {STATUSES.map((st) => (
+                      <option key={st} value={st}>{st.replace('_', ' ')}</option>
+                    ))}
+                  </select>
+                </div>
               </li>
             ))}
           </ul>
