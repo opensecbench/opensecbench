@@ -133,6 +133,46 @@ func (db *DB) CreateArtifact(ctx context.Context, a model.Artifact) (model.Artif
 	return a, nil
 }
 
+// ListTasks returns recent tasks, newest first.
+func (db *DB) ListTasks(ctx context.Context, limit int) ([]model.Task, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, capability_id, capability_version, application_id, asset_id, actor, runner,
+		        params, status, exit_code, error, created_at, started_at, finished_at
+		 FROM tasks ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []model.Task
+	for rows.Next() {
+		var t model.Task
+		var app, asset sql.NullString
+		var params string
+		var exit sql.NullInt64
+		var created string
+		var started, finished sql.NullString
+		if err := rows.Scan(&t.ID, &t.CapabilityID, &t.CapabilityVersion, &app, &asset, &t.Actor, &t.Runner,
+			&params, &t.Status, &exit, &t.Error, &created, &started, &finished); err != nil {
+			return nil, err
+		}
+		t.ApplicationID, t.AssetID = ptr(app), ptr(asset)
+		t.Params = json.RawMessage(params)
+		if exit.Valid {
+			v := int(exit.Int64)
+			t.ExitCode = &v
+		}
+		t.CreatedAt = parseTime(created)
+		t.StartedAt = ptrTime(started)
+		t.FinishedAt = ptrTime(finished)
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // GetArtifact returns an artifact by id.
 func (db *DB) GetArtifact(ctx context.Context, id string) (model.Artifact, error) {
 	var a model.Artifact

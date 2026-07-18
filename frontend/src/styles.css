@@ -798,3 +798,87 @@ select option {
   background-color: var(--bg2);
   color: var(--tx);
 }
+
+/* --- tasks view --- */
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.head-right {
+  margin-left: auto;
+}
+.tasks-layout {
+  display: flex;
+  gap: 14px;
+  margin-top: 16px;
+  align-items: flex-start;
+}
+.task-list {
+  width: 260px;
+  min-width: 260px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 600px;
+  overflow: auto;
+}
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--tx2);
+  padding: 8px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+}
+.task-row.on {
+  background: var(--bg4);
+}
+.tr-cap {
+  color: var(--tx);
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-detail {
+  flex: 1;
+  min-width: 0;
+}
+.task-detail .panel {
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+.badge.running {
+  background: #2a2114;
+  color: var(--amber);
+}
+.badge.succeeded {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.badge.failed {
+  background: var(--red-bg);
+  color: var(--red);
+}
+.output {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 420px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--tx2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
