@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
+
+	"github.com/opensecbench/opensecbench/pkg/runner"
 )
 
 // CLIProvider drives the `claude` CLI in headless JSON mode as an inference source (ADR-0006). Two
@@ -17,10 +20,26 @@ import (
 //   - the CLI's own tools are disabled so it only generates text; our loop (pkg/agent) owns tool use.
 //
 // It uses the caller's ambient `claude` credentials (a Claude subscription or an API key). For a
-// governed setup the binary runs inside a runner with only ~/.claude/.credentials.json mounted.
+// governed setup, set Sandbox: the binary then runs inside a runner with only the credential file
+// mounted (ADR-0018).
 type CLIProvider struct {
 	Bin  string
 	Args []string // base args before flags; default -p
+	// Sandbox, when set, runs the CLI inside a runner container mounting only the credential file,
+	// instead of exec'ing it on the host (ADR-0018). Nil → direct host exec (the default).
+	Sandbox *CLISandbox
+}
+
+// CLISandbox configures running the CLI inside a runner container with only the credential file
+// exposed (ADR-0018). It reaches the network (egress) because the CLI must call the Anthropic API.
+type CLISandbox struct {
+	Runner runner.Runner
+	Image  string // container image that has the `claude` CLI installed
+	// CredentialSrc is the host path mounted read-only to <HomeDir>/.claude/.credentials.json.
+	CredentialSrc string
+	HomeDir       string        // container HOME (default /root)
+	Network       string        // egress network (default "bridge")
+	Timeout       time.Duration // default 120s
 }
 
 // disabledCLITools stops the CLI from acting as an agent — it must only return text for our loop.
@@ -55,7 +74,8 @@ type cliResult struct {
 
 // Complete runs the CLI once: system prompt via flag, conversation on stdin, JSON out. The prompt goes
 // on stdin because --disallowed-tools is variadic (a positional prompt would be consumed as a tool
-// name); stdin also avoids arg-length limits on long conversations.
+// name); stdin also avoids arg-length limits on long conversations. It runs on the host by default, or
+// inside a runner container when Sandbox is set (ADR-0018) — both paths produce the same JSON.
 func (c *CLIProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	system, convo := splitSystem(req.Messages)
 
@@ -66,18 +86,75 @@ func (c *CLIProvider) Complete(ctx context.Context, req CompletionRequest) (Comp
 	if system != "" {
 		args = append(args, "--append-system-prompt", system)
 	}
+	stdin := []byte(RenderPrompt(convo))
 
+	var stdout []byte
+	var err error
+	if c.Sandbox != nil {
+		stdout, err = c.Sandbox.run(ctx, c.Bin, args, stdin)
+	} else {
+		stdout, err = c.runHost(ctx, args, stdin)
+	}
+	if err != nil {
+		return CompletionResponse{}, err
+	}
+	return c.parseResult(stdout)
+}
+
+// runHost execs the CLI directly on the host, returning its stdout.
+func (c *CLIProvider) runHost(ctx context.Context, args []string, stdin []byte) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.Bin, args...)
-	cmd.Stdin = strings.NewReader(RenderPrompt(convo))
+	cmd.Stdin = bytes.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return CompletionResponse{}, fmt.Errorf("llm cli %s: %w: %s", c.Bin, err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("llm cli %s: %w: %s", c.Bin, err, strings.TrimSpace(stderr.String()))
 	}
+	return stdout.Bytes(), nil
+}
 
+// run executes the CLI inside a runner container, mounting only the credential file, and returns its
+// stdout. It reaches the network because the CLI must call the Anthropic API.
+func (s *CLISandbox) run(ctx context.Context, bin string, args []string, stdin []byte) ([]byte, error) {
+	home := s.HomeDir
+	if home == "" {
+		home = "/root"
+	}
+	network := s.Network
+	if network == "" {
+		network = "bridge"
+	}
+	timeout := s.Timeout
+	if timeout == 0 {
+		timeout = 120 * time.Second
+	}
+	res, err := s.Runner.Run(ctx, runner.RunSpec{
+		Image:   s.Image,
+		Cmd:     append([]string{bin}, args...),
+		Stdin:   stdin,
+		Env:     []string{"HOME=" + home},
+		Network: network,
+		Timeout: timeout,
+		Mounts: []runner.Mount{{
+			Source:   s.CredentialSrc,
+			Target:   home + "/.claude/.credentials.json",
+			ReadOnly: true,
+		}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("llm cli sandbox: %w", err)
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("llm cli sandbox: exit %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
+	}
+	return res.Stdout, nil
+}
+
+// parseResult decodes `claude --output-format json` stdout into a completion.
+func (c *CLIProvider) parseResult(stdout []byte) (CompletionResponse, error) {
 	var res cliResult
-	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &res); err != nil {
+	if err := json.Unmarshal(bytes.TrimSpace(stdout), &res); err != nil {
 		return CompletionResponse{}, fmt.Errorf("llm cli %s: unparseable output: %w", c.Bin, err)
 	}
 	if res.IsError {

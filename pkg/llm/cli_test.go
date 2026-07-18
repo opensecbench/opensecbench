@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/opensecbench/opensecbench/pkg/runner"
 )
 
 // fakeClaude writes a stub `claude` that records its args and stdin to files and emits a JSON
@@ -72,6 +74,88 @@ func TestCLIProviderReal(t *testing.T) {
 	}
 	if !strings.Contains(resp.Text, "pong") {
 		t.Fatalf("real claude did not follow the system prompt; got %q", resp.Text)
+	}
+}
+
+// fakeRunner captures the RunSpec and returns a canned CLI JSON envelope, so the sandbox wiring can be
+// tested (mounts, network, stdin, cmd) without Docker.
+type fakeRunner struct{ got runner.RunSpec }
+
+func (f *fakeRunner) Name() string { return "fake" }
+func (f *fakeRunner) Run(_ context.Context, spec runner.RunSpec) (runner.Result, error) {
+	f.got = spec
+	return runner.Result{ExitCode: 0, Stdout: []byte(`{"is_error":false,"result":"SANDBOXED","usage":{"input_tokens":1,"output_tokens":2}}`)}, nil
+}
+
+func TestCLIProviderSandboxIsolatesCredential(t *testing.T) {
+	fr := &fakeRunner{}
+	p := NewCLIProvider("claude")
+	p.Sandbox = &CLISandbox{Runner: fr, Image: "osb/claude:latest", CredentialSrc: "/home/u/.claude/.credentials.json"}
+
+	resp, err := p.Complete(context.Background(), CompletionRequest{Messages: []Message{
+		{Role: RoleSystem, Content: "SYS"},
+		{Role: RoleUser, Content: "hello there"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Text != "SANDBOXED" || resp.InputTokens != 1 || resp.OutputTokens != 2 {
+		t.Fatalf("parsed sandbox response = %+v", resp)
+	}
+
+	spec := fr.got
+	if spec.Image != "osb/claude:latest" {
+		t.Fatalf("image = %q", spec.Image)
+	}
+	// The sandbox must mount EXACTLY the credential file, read-only, and nothing else.
+	if len(spec.Mounts) != 1 {
+		t.Fatalf("sandbox must mount exactly one path, got %+v", spec.Mounts)
+	}
+	m := spec.Mounts[0]
+	if m.Source != "/home/u/.claude/.credentials.json" || !m.ReadOnly || m.Target != "/root/.claude/.credentials.json" {
+		t.Fatalf("credential mount wrong / not read-only: %+v", m)
+	}
+	// The CLI is invoked with the system prompt as a flag and the conversation on stdin.
+	joined := strings.Join(spec.Cmd, " ")
+	if len(spec.Cmd) == 0 || spec.Cmd[0] != "claude" || !strings.Contains(joined, "--append-system-prompt SYS") || !strings.Contains(joined, "--output-format json") {
+		t.Fatalf("cmd wrong: %v", spec.Cmd)
+	}
+	if !strings.Contains(string(spec.Stdin), "hello there") || strings.Contains(string(spec.Stdin), "SYS") {
+		t.Fatalf("stdin wrong: %q", spec.Stdin)
+	}
+	// The sandbox needs egress to reach the API — it must NOT be network-isolated.
+	if spec.Network != "bridge" {
+		t.Fatalf("egress network = %q, want the bridge default", spec.Network)
+	}
+	foundHome := false
+	for _, e := range spec.Env {
+		if e == "HOME=/root" {
+			foundHome = true
+		}
+	}
+	if !foundHome {
+		t.Fatalf("HOME not set for the container: %v", spec.Env)
+	}
+}
+
+func TestNewCLISandboxConfig(t *testing.T) {
+	// Sandbox on but no image → a clear error.
+	if _, err := New(Config{Type: "claude-cli", CLISandbox: true}); err == nil {
+		t.Fatal("sandbox without an image should error")
+	}
+	// Sandbox on with an image and explicit credential.
+	p, err := New(Config{Type: "claude-cli", CLISandbox: true, CLIImage: "img", CLICredential: "/c/cred.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cp := p.(*CLIProvider)
+	if cp.Sandbox == nil || cp.Sandbox.Image != "img" || cp.Sandbox.CredentialSrc != "/c/cred.json" {
+		t.Fatalf("sandbox not configured: %+v", cp.Sandbox)
+	}
+	// Default claude-cli is NOT sandboxed.
+	p2, _ := New(Config{Type: "claude-cli"})
+	if p2.(*CLIProvider).Sandbox != nil {
+		t.Fatal("default claude-cli must run on the host, not sandboxed")
 	}
 }
 
