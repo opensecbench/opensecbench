@@ -55,22 +55,24 @@ type Deps struct {
 
 // Server routes control-plane HTTP requests against the control-plane services.
 type Server struct {
-	mux      *http.ServeMux
-	store    *store.DB
-	engine   *task.Engine
-	cas      *cas.Store
-	provider llm.Provider
-	replay   *replay.Client
-	events   *events.Hub
-	sessMgr  *session.Manager
-	proxyCA  *proxy.CA
-	reports  *report.Registry
-	methods  *methodology.Registry
-	vault    *secret.Vault
-	integr   *integration.Registry
-	trust    *extension.TrustStore
-	extDir   string
-	hubCli   *hub.Client
+	mux            *http.ServeMux
+	store          *store.DB
+	engine         *task.Engine
+	cas            *cas.Store
+	providerMu     sync.RWMutex
+	provider       llm.Provider
+	activeProvider providerInfo
+	replay         *replay.Client
+	events         *events.Hub
+	sessMgr        *session.Manager
+	proxyCA        *proxy.CA
+	reports        *report.Registry
+	methods        *methodology.Registry
+	vault          *secret.Vault
+	integr         *integration.Registry
+	trust          *extension.TrustStore
+	extDir         string
+	hubCli         *hub.Client
 
 	extMu sync.Mutex
 	exts  []extension.Loaded
@@ -115,7 +117,9 @@ func New(deps Deps) *Server {
 	if s.reports == nil {
 		s.reports = report.BuiltIns()
 	}
+	s.activeProvider = envProviderInfo(s.provider)
 	s.routes()
+	s.loadActiveProvider() // a persisted active provider overrides the env default
 	return s
 }
 
@@ -176,6 +180,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/extensions/trust", s.trustPublisher)
 	s.mux.HandleFunc("GET /v1/hub/index", s.hubIndex)
 	s.mux.HandleFunc("POST /v1/hub/install", s.hubInstall)
+	s.mux.HandleFunc("GET /v1/analyst/provider", s.getActiveProvider)
+	s.mux.HandleFunc("GET /v1/analyst/providers", s.listProviders)
+	s.mux.HandleFunc("POST /v1/analyst/providers", s.addProvider)
+	s.mux.HandleFunc("POST /v1/analyst/providers/{id}/activate", s.activateProvider)
+	s.mux.HandleFunc("POST /v1/analyst/providers/{id}/test", s.testProvider)
+	s.mux.HandleFunc("DELETE /v1/analyst/providers/{id}", s.deleteProvider)
 	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology/suggestions", s.methodologySuggestions)
@@ -289,10 +299,11 @@ func (s *Server) activePolicy() policy.Profile {
 // guardedProvider wraps the LLM provider with DLP inspection of outbound content (ADR-0011): vault
 // secrets and canaries are blocked on external providers; every hit is recorded and audited.
 func (s *Server) guardedProvider() llm.Provider {
-	if s.provider == nil {
+	p := s.llmProvider()
+	if p == nil {
 		return nil
 	}
-	external := !llm.IsLocal(s.provider)
+	external := !llm.IsLocal(p)
 	load := func(ctx context.Context) (map[string]string, map[string]string) {
 		var secrets map[string]string
 		if s.vault != nil {
@@ -303,26 +314,27 @@ func (s *Server) guardedProvider() llm.Provider {
 	}
 	onHit := func(ctx context.Context, h dlp.Hit, blocked bool) {
 		_ = s.store.RecordDLPEvent(ctx, model.DLPEvent{
-			Kind: h.Kind, Label: h.Label, Action: h.Action, Blocked: blocked, Location: "llm:" + s.provider.Name(),
+			Kind: h.Kind, Label: h.Label, Action: h.Action, Blocked: blocked, Location: "llm:" + p.Name(),
 		})
 		s.record(ctx, "system", "dlp."+h.Kind, h.Label, map[string]any{"blocked": blocked, "action": h.Action})
 		if h.Kind == dlp.KindCanary {
 			s.notify(ctx, model.NotifyInfo, "Canary tripped", "Canary "+h.Label+" appeared at an LLM egress", nil, "")
 		}
 	}
-	return dlp.Guard(s.provider, external, load, onHit)
+	return dlp.Guard(p, external, load, onHit)
 }
 
 func (s *Server) providerName() string {
-	if s.provider == nil {
+	p := s.llmProvider()
+	if p == nil {
 		return ""
 	}
-	return s.provider.Name()
+	return p.Name()
 }
 
 // analystAsk is a convenience: create a thread and send one message.
 func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
-	if s.provider == nil {
+	if s.llmProvider() == nil {
 		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured (set OSB_LLM_PROVIDER)")
 		return
 	}
@@ -394,7 +406,7 @@ func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
-	if s.provider == nil {
+	if s.llmProvider() == nil {
 		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured")
 		return
 	}
@@ -463,7 +475,7 @@ func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
-	if s.provider == nil {
+	if s.llmProvider() == nil {
 		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured")
 		return
 	}

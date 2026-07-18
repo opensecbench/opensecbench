@@ -57,6 +57,18 @@ const (
 	RuleTargetResponseBody   = "response_body"
 )
 
+// Provider is a registered LLM backend for the Analyst (ADR-0006). KeySealed is the vault-sealed
+// credential and is never serialized to clients.
+type Provider struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"`
+	Model     string    `json:"model"`
+	BaseURL   string    `json:"base_url"`
+	KeySealed string    `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // ProxyRule is a per-project match/replace rule applied by the proxy's traffic-processor pipeline.
 type ProxyRule struct {
 	ID        string    `json:"id"`

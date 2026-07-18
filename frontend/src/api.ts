@@ -158,6 +158,25 @@ export interface InterceptState {
   held: HeldItem[]
 }
 
+export interface ActiveProvider {
+  id?: string
+  name: string
+  type: string
+  model: string
+  is_local: boolean
+  configured: boolean
+}
+export interface ProviderView {
+  id: string
+  name: string
+  type: string
+  model: string
+  base_url: string
+  has_key: boolean
+  active: boolean
+  created_at: string
+}
+
 export interface ProxyRule {
   id: string
   project_id: string
@@ -653,6 +672,16 @@ export const api = {
   search: (q: string) => request<SearchResult[]>('GET', '/v1/search?q=' + encodeURIComponent(q)),
 
   // analyst threads & approvals
+  // Analyst provider / model
+  getActiveProvider: () => request<ActiveProvider>('GET', '/v1/analyst/provider'),
+  listProviders: () => request<ProviderView[]>('GET', '/v1/analyst/providers'),
+  addProvider: (body: { name: string; type: string; model: string; base_url: string; api_key: string }) =>
+    request<ProviderView>('POST', '/v1/analyst/providers', body),
+  activateProvider: (id: string) => request<ActiveProvider>('POST', `/v1/analyst/providers/${id}/activate`, {}),
+  testProvider: (id: string) =>
+    request<{ ok: boolean; latency_ms?: number; sample?: string; error?: string }>('POST', `/v1/analyst/providers/${id}/test`, {}),
+  deleteProvider: (id: string) => request<void>('DELETE', `/v1/analyst/providers/${id}`),
+
   listThreads: () => request<Thread[]>('GET', '/v1/threads'),
   createThread: (projectId?: string, title?: string) =>
     request<Thread>('POST', '/v1/threads', { project_id: projectId, title }),
