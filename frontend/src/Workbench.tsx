@@ -22,6 +22,7 @@ import { AnalystPanel } from './AnalystPanel'
 import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
 import { KnowledgeTab } from './KnowledgeTab'
+import { InterceptTab } from './InterceptTab'
 import { MethodologyTab } from './MethodologyTab'
 import { ProxyTab } from './ProxyTab'
 import { TasksTab } from './TasksTab'
@@ -39,6 +40,7 @@ type Tab =
   | 'scan'
   | 'replay'
   | 'proxy'
+  | 'intercept'
   | 'terminal'
   | 'playbooks'
   | 'tasks'
@@ -64,6 +66,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
   { key: 'findings', icon: '⚑', label: 'Find' },
   { key: 'replay', icon: '↔', label: 'Replay' },
   { key: 'proxy', icon: '📡', label: 'Proxy' },
+  { key: 'intercept', icon: '✋', label: 'Intcpt' },
   { key: 'terminal', icon: '▤', label: 'Term' },
   { key: 'scan', icon: '▷', label: 'Scan' },
   { key: 'playbooks', icon: '🧩', label: 'Play' },
@@ -350,6 +353,8 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
         return <ReplayTab project={project} online={online} onError={setError} boundItem={doc.bind} seed={doc.seed} onEvidenceLinked={afterEvidenceLinked} />
       case 'proxy':
         return <ProxyTab project={project} online={online} onError={setError} onSendToReplay={openReplayFromExchange} />
+      case 'intercept':
+        return <InterceptTab project={project} online={online} onError={setError} />
       case 'terminal':
         return (
           <Suspense fallback={<div className="empty">Loading terminal…</div>}>

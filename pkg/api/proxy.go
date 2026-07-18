@@ -14,10 +14,12 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/scope"
 )
 
-// liveProxy is a running per-project intercepting proxy.
+// liveProxy is a running per-project intercepting proxy plus its intercept manager (holds live with
+// the proxy — draining them is part of stopping it).
 type liveProxy struct {
-	srv  *http.Server
-	port int
+	srv       *http.Server
+	port      int
+	intercept *interceptManager
 }
 
 // proxyStatus is the JSON view of a project's proxy.
@@ -85,12 +87,13 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "listen: "+err.Error())
 		return
 	}
-	px := proxy.New(s.proxyCA, s.proxyCapture(projectID), s.projectAllows(projectID))
+	mgr := newInterceptManager(projectID, s.events)
+	px := proxy.New(s.proxyCA, s.proxyCapture(projectID), s.projectAllows(projectID), mgr)
 	srv := &http.Server{Handler: px, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
 
 	port := ln.Addr().(*net.TCPAddr).Port
-	s.proxies[projectID] = &liveProxy{srv: srv, port: port}
+	s.proxies[projectID] = &liveProxy{srv: srv, port: port, intercept: mgr}
 	s.record(r.Context(), actorOf(r), "proxy.start", projectID, map[string]int{"port": port})
 	st := proxyStatus{Running: true, Port: port, CASPKI: s.caSPKI()}
 	s.events.Publish(events.Event{Type: "proxy", ProjectID: projectID, Payload: st})
@@ -107,6 +110,9 @@ func (s *Server) stopProxy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, proxyStatus{Running: false})
 		return
 	}
+	// Release any held requests before shutting the server down, or Shutdown blocks on the parked
+	// handlers forever.
+	lp.intercept.drain()
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	_ = lp.srv.Shutdown(ctx)
@@ -168,6 +174,7 @@ func (s *Server) shutdownProxies() {
 	s.proxyMu.Lock()
 	defer s.proxyMu.Unlock()
 	for id, lp := range s.proxies {
+		lp.intercept.drain()
 		_ = lp.srv.Close()
 		delete(s.proxies, id)
 	}

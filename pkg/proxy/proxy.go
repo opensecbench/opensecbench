@@ -2,12 +2,15 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -34,21 +37,27 @@ type Proxy struct {
 	ca         *CA
 	onExchange func(Exchange)
 	allow      func(host string) bool
+	intercept  Interceptor
 	transport  *http.Transport
 }
 
-// New builds a proxy. onExchange persists captures; allow gates hosts (nil allows all).
-func New(ca *CA, onExchange func(Exchange), allow func(host string) bool) *Proxy {
+// New builds a proxy. onExchange persists captures; allow gates hosts (nil allows all); intercept
+// holds traffic for operator edit/forward/drop (nil disables interception — pure capture).
+func New(ca *CA, onExchange func(Exchange), allow func(host string) bool, intercept Interceptor) *Proxy {
 	if onExchange == nil {
 		onExchange = func(Exchange) {}
 	}
 	if allow == nil {
 		allow = func(string) bool { return true }
 	}
+	if intercept == nil {
+		intercept = noopInterceptor{}
+	}
 	return &Proxy{
 		ca:         ca,
 		onExchange: onExchange,
 		allow:      allow,
+		intercept:  intercept,
 		transport: &http.Transport{
 			Proxy:               nil,
 			TLSHandshakeTimeout: 10 * time.Second,
@@ -74,7 +83,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.handleHTTP(w, r)
 }
 
-// handleHTTP forwards a plain-HTTP proxy request (absolute-URI) and captures it.
+// handleHTTP forwards a plain-HTTP proxy request (absolute-URI), applying interception at the request
+// and response choke points, and captures what was actually delivered.
 func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if !p.allow(hostname(r.URL.Host)) {
 		http.Error(w, "blocked by scope guard: "+r.URL.Host, http.StatusForbidden)
@@ -82,13 +92,25 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	reqBody, _ := io.ReadAll(r.Body)
 	_ = r.Body.Close()
+	ctx := r.Context()
 
-	outReq, err := http.NewRequest(r.Method, r.URL.String(), strings.NewReader(string(reqBody)))
+	reqOn, respOn := p.intercept.Enabled()
+	method, url, header, body := r.Method, r.URL.String(), r.Header, reqBody
+	if reqOn {
+		var dropped bool
+		if method, url, header, body, dropped = p.holdRequest(ctx, method, url, header, body); dropped {
+			http.Error(w, "request dropped by operator", http.StatusForbidden)
+			return
+		}
+	}
+
+	outReq, err := http.NewRequest(method, url, bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	copyHeaders(outReq.Header, r.Header)
+	copyHeaders(outReq.Header, header)
+	fixRequestFraming(outReq) // an edited body may have changed the length
 
 	start := time.Now()
 	resp, err := p.transport.RoundTrip(outReq)
@@ -98,19 +120,34 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	ex := Exchange{
-		Method: r.Method, URL: r.URL.String(),
-		RequestHeaders: formatHeaders(r.Header), RequestBody: capString(reqBody),
-		Status: resp.StatusCode, ResponseHeaders: formatHeaders(resp.Header),
+	if respOn {
+		respBody, _ := io.ReadAll(resp.Body)
+		status, respHeader, outBody, dropped := p.holdResponse(ctx, method, url, resp.StatusCode, resp.Header, respBody)
+		if dropped {
+			http.Error(w, "response dropped by operator", http.StatusForbidden)
+			p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start)
+			return
+		}
+		writeBufferedResponse(w, status, respHeader, outBody)
+		p.capture(method, url, header, body, status, respHeader, outBody, start)
+		return
 	}
 
+	// Not intercepting responses: stream through, capturing a bounded copy.
 	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	cw := &capWriter{max: MaxCaptureBytes}
 	_, _ = io.Copy(w, io.TeeReader(resp.Body, cw))
-	ex.ResponseBody = string(cw.buf)
-	ex.DurationMS = int(time.Since(start).Milliseconds())
-	p.onExchange(ex)
+	p.capture(method, url, header, body, resp.StatusCode, resp.Header, cw.buf, start)
+}
+
+// writeBufferedResponse writes an edited, fully-buffered response, fixing framing headers.
+func writeBufferedResponse(w http.ResponseWriter, status int, header http.Header, body []byte) {
+	copyHeaders(w.Header(), header)
+	w.Header().Del("Transfer-Encoding")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
 }
 
 // handleConnect terminates TLS with a per-host leaf cert and proxies the decrypted requests,
@@ -146,13 +183,18 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tlsConn.Close() }()
 
+	// Requests read off a hijacked tunnel carry no server context, so derive one that cancels when
+	// the tunnel ends — held requests on this connection then auto-drop.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	br := bufio.NewReader(tlsConn)
 	for {
 		req, err := http.ReadRequest(br)
 		if err != nil {
 			return // client closed or malformed; end the tunnel
 		}
-		if !p.forwardTLS(tlsConn, req, host, r.Host) {
+		if !p.forwardTLS(ctx, tlsConn, req, host, r.Host) {
 			return
 		}
 	}
@@ -160,16 +202,27 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 // forwardTLS sends one decrypted request to the real origin over TLS, writes the response back to
 // the client, and captures the exchange. It returns false when the connection should close.
-func (p *Proxy) forwardTLS(clientConn net.Conn, req *http.Request, host, authority string) bool {
+func (p *Proxy) forwardTLS(ctx context.Context, clientConn net.Conn, req *http.Request, host, authority string) bool {
 	reqBody, _ := io.ReadAll(req.Body)
 	_ = req.Body.Close()
 
-	url := "https://" + authority + req.URL.RequestURI()
-	outReq, err := http.NewRequest(req.Method, url, strings.NewReader(string(reqBody)))
+	keepOpen := !req.Close && strings.ToLower(req.Header.Get("Connection")) != "close"
+	reqOn, respOn := p.intercept.Enabled()
+	method, url, header, body := req.Method, "https://"+authority+req.URL.RequestURI(), req.Header, reqBody
+	if reqOn {
+		var dropped bool
+		if method, url, header, body, dropped = p.holdRequest(ctx, method, url, header, body); dropped {
+			_, _ = fmt.Fprintf(clientConn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+			return keepOpen
+		}
+	}
+
+	outReq, err := http.NewRequest(method, url, bytes.NewReader(body))
 	if err != nil {
 		return false
 	}
-	copyHeaders(outReq.Header, req.Header)
+	copyHeaders(outReq.Header, header)
+	fixRequestFraming(outReq)
 
 	start := time.Now()
 	resp, err := p.transport.RoundTrip(outReq)
@@ -178,21 +231,33 @@ func (p *Proxy) forwardTLS(clientConn net.Conn, req *http.Request, host, authori
 		return false
 	}
 
-	ex := Exchange{
-		Method: req.Method, URL: url,
-		RequestHeaders: formatHeaders(req.Header), RequestBody: capString(reqBody),
-		Status: resp.StatusCode, ResponseHeaders: formatHeaders(resp.Header),
+	if respOn {
+		respBody, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		status, respHeader, outBody, dropped := p.holdResponse(ctx, method, url, resp.StatusCode, resp.Header, respBody)
+		if dropped {
+			_, _ = fmt.Fprintf(clientConn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+			p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start)
+			return keepOpen
+		}
+		respHeader.Del("Transfer-Encoding")
+		respHeader.Set("Content-Length", strconv.Itoa(len(outBody)))
+		outResp := &http.Response{
+			StatusCode: status, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+			Header: respHeader, Body: io.NopCloser(bytes.NewReader(outBody)),
+			ContentLength: int64(len(outBody)), Request: outReq,
+		}
+		writeErr := outResp.Write(clientConn)
+		p.capture(method, url, header, body, status, respHeader, outBody, start)
+		return writeErr == nil && keepOpen
 	}
+
 	cw := &capWriter{max: MaxCaptureBytes}
 	resp.Body = readCloser{io.TeeReader(resp.Body, cw), resp.Body}
 	writeErr := resp.Write(clientConn)
 	_ = resp.Body.Close()
-	ex.ResponseBody = string(cw.buf)
-	ex.DurationMS = int(time.Since(start).Milliseconds())
-	p.onExchange(ex)
-
-	// Honor connection close semantics.
-	return writeErr == nil && !req.Close && strings.ToLower(req.Header.Get("Connection")) != "close"
+	p.capture(method, url, header, body, resp.StatusCode, resp.Header, cw.buf, start)
+	return writeErr == nil && keepOpen
 }
 
 type readCloser struct {
