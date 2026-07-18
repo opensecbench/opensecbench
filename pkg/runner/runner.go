@@ -1,0 +1,123 @@
+// Package runner executes capabilities in isolated sandboxes (ADR-0004). The interface is
+// transport-agnostic so a remote runner can be added later behind the same contract; P2 ships a
+// local Docker runner.
+package runner
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os/exec"
+	"time"
+)
+
+// Mount binds a host path into the container.
+type Mount struct {
+	Source   string
+	Target   string
+	ReadOnly bool
+}
+
+// RunSpec is a fully-specified sandboxed execution.
+type RunSpec struct {
+	Image    string
+	Cmd      []string
+	Env      []string
+	Mounts   []Mount
+	Network  string // default "none"
+	Workdir  string
+	Timeout  time.Duration
+	MemoryMB int
+	CPUs     float64
+}
+
+// Result is the outcome of a run. A non-zero ExitCode is a normal result, not an error; err is
+// non-nil only when the run could not be carried out (e.g. the runtime is missing or timed out).
+type Result struct {
+	ExitCode int
+	Stdout   []byte
+	Stderr   []byte
+	Duration time.Duration
+}
+
+// Runner executes a RunSpec.
+type Runner interface {
+	Run(ctx context.Context, spec RunSpec) (Result, error)
+	Name() string
+}
+
+// LocalRunner runs each capability in an ephemeral Docker container with sandboxing defaults:
+// no network, read-only source mounts, and resource/time limits.
+type LocalRunner struct{}
+
+// Name identifies this runner in provenance records.
+func (LocalRunner) Name() string { return "local-docker" }
+
+// Available reports whether the Docker CLI is on PATH.
+func Available() bool {
+	_, err := exec.LookPath("docker")
+	return err == nil
+}
+
+// Run executes spec via `docker run` and captures its output.
+func (LocalRunner) Run(ctx context.Context, spec RunSpec) (Result, error) {
+	if spec.Image == "" {
+		return Result{}, errors.New("runner: image required")
+	}
+
+	network := spec.Network
+	if network == "" {
+		network = "none"
+	}
+	args := []string{"run", "--rm", "--network", network}
+	if spec.MemoryMB > 0 {
+		args = append(args, "--memory", fmt.Sprintf("%dm", spec.MemoryMB))
+	}
+	if spec.CPUs > 0 {
+		args = append(args, "--cpus", fmt.Sprintf("%g", spec.CPUs))
+	}
+	for _, m := range spec.Mounts {
+		mode := "rw"
+		if m.ReadOnly {
+			mode = "ro"
+		}
+		args = append(args, "-v", fmt.Sprintf("%s:%s:%s", m.Source, m.Target, mode))
+	}
+	if spec.Workdir != "" {
+		args = append(args, "-w", spec.Workdir)
+	}
+	for _, e := range spec.Env {
+		args = append(args, "-e", e)
+	}
+	args = append(args, spec.Image)
+	args = append(args, spec.Cmd...)
+
+	if spec.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, spec.Timeout)
+		defer cancel()
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	start := time.Now()
+	err := cmd.Run()
+	res := Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes(), Duration: time.Since(start)}
+
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			res.ExitCode = exitErr.ExitCode()
+			return res, nil // non-zero exit is a normal result
+		}
+		if ctx.Err() == context.DeadlineExceeded {
+			return res, fmt.Errorf("runner: timed out after %s", spec.Timeout)
+		}
+		return res, fmt.Errorf("runner: %w", err)
+	}
+	return res, nil
+}
