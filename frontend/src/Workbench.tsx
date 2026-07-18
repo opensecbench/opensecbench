@@ -6,6 +6,7 @@ import {
   CapabilityManifest,
   ContextItem,
   Finding,
+  HTTPExchange,
   Observation,
   Playbook,
   PlaybookRunResult,
@@ -17,7 +18,16 @@ import { AnalystPanel } from './AnalystPanel'
 import { TasksTab } from './TasksTab'
 import { hasNativePickers, pickDirectory } from './native'
 
-type Tab = 'assets' | 'context' | 'scope' | 'scan' | 'playbooks' | 'tasks' | 'findings' | 'analyst'
+type Tab =
+  | 'assets'
+  | 'context'
+  | 'scope'
+  | 'scan'
+  | 'repeater'
+  | 'playbooks'
+  | 'tasks'
+  | 'findings'
+  | 'analyst'
 
 interface AppAssets {
   app: Application
@@ -75,7 +85,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="tabs">
-        {(['assets', 'context', 'scope', 'scan', 'playbooks', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
+        {(['assets', 'context', 'scope', 'scan', 'repeater', 'playbooks', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -86,6 +96,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {tab === 'context' && <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />}
       {tab === 'scope' && <ScopeTab project={project} online={online} onError={setError} />}
       {tab === 'scan' && <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />}
+      {tab === 'repeater' && <RepeaterTab project={project} online={online} onError={setError} />}
       {tab === 'playbooks' && <PlaybooksTab assets={allAssets} online={online} onError={setError} />}
       {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
       {tab === 'findings' && <FindingsTab findings={findings} />}
@@ -341,6 +352,155 @@ function ScopeTab({
       )}
     </section>
   )
+}
+
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+
+function RepeaterTab({
+  project,
+  online,
+  onError,
+}: {
+  project: Project
+  online: boolean
+  onError: (m: string) => void
+}) {
+  const [history, setHistory] = useState<HTTPExchange[]>([])
+  const [method, setMethod] = useState('GET')
+  const [url, setUrl] = useState('')
+  const [headers, setHeaders] = useState('')
+  const [body, setBody] = useState('')
+  const [current, setCurrent] = useState<HTTPExchange | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  async function reload() {
+    setHistory((await api.listExchanges(project.id)) ?? [])
+  }
+
+  useEffect(() => {
+    if (online) void reload().catch((e) => onError((e as Error).message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, project.id])
+
+  function load(ex: HTTPExchange) {
+    setMethod(ex.method)
+    setUrl(ex.url)
+    setHeaders(ex.request_headers)
+    setBody(ex.request_body)
+    setCurrent(ex)
+    setSaved(false)
+  }
+
+  async function send(e: FormEvent) {
+    e.preventDefault()
+    if (!url.trim()) return
+    setBusy(true)
+    setSaved(false)
+    try {
+      const ex = await api.createExchange(project.id, {
+        method,
+        url: url.trim(),
+        request_headers: headers,
+        request_body: body,
+      })
+      const sent = await api.sendExchange(ex.id)
+      setCurrent(sent)
+      await reload()
+    } catch (err) {
+      onError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveEvidence() {
+    if (!current) return
+    try {
+      await api.saveExchangeEvidence(current.id, '')
+      setSaved(true)
+    } catch (err) {
+      onError((err as Error).message)
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-head">Repeater</div>
+      <p className="hint">
+        Craft a request and send it. Targets are checked against the project scope allowlist before
+        anything leaves the machine.
+      </p>
+      <div className="repeater">
+        <form className="repeater-req" onSubmit={send}>
+          <div className="repeater-line">
+            <select value={method} onChange={(e) => setMethod(e.target.value)}>
+              {HTTP_METHODS.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <input
+              className="repeater-url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://api.acme.com/v2/users"
+              disabled={!online || busy}
+            />
+            <button type="submit" disabled={!online || busy || !url.trim()}>
+              {busy ? 'Sending…' : 'Send'}
+            </button>
+          </div>
+          <label className="repeater-label">Headers</label>
+          <textarea
+            className="mono"
+            rows={4}
+            value={headers}
+            onChange={(e) => setHeaders(e.target.value)}
+            placeholder={'Authorization: Bearer …\nContent-Type: application/json'}
+          />
+          <label className="repeater-label">Body</label>
+          <textarea className="mono" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
+        </form>
+
+        <div className="repeater-res">
+          {current && current.sent_at ? (
+            <>
+              <div className="repeater-status">
+                <span className={`badge ${statusClass(current.status)}`}>{current.status ?? '—'}</span>
+                {current.duration_ms != null && <span className="muted">{current.duration_ms} ms</span>}
+                <button className="link" onClick={saveEvidence} disabled={saved}>
+                  {saved ? '✓ saved as evidence' : 'save as evidence'}
+                </button>
+              </div>
+              <pre className="mono response">{current.response_headers}</pre>
+              <pre className="mono response body">{current.response_body}</pre>
+            </>
+          ) : (
+            <div className="empty">Send a request to see its response.</div>
+          )}
+        </div>
+      </div>
+
+      {history.length > 0 && (
+        <ul className="rows repeater-history">
+          {history.map((ex) => (
+            <li key={ex.id} className="row-item clickable" onClick={() => load(ex)}>
+              <span className={`badge ${statusClass(ex.status)}`}>{ex.status ?? '—'}</span>
+              <span className="kind">{ex.method}</span>
+              <span className="row-title mono">{ex.url}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function statusClass(status?: number): string {
+  if (status == null) return ''
+  if (status >= 400) return 'failed'
+  if (status >= 200 && status < 300) return 'succeeded'
+  return 'active'
 }
 
 function ScanTab({
