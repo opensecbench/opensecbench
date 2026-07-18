@@ -11,12 +11,13 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
 // gatedTools require explicit per-run authorization; everything else is read-only and safe.
-var gatedTools = map[string]bool{"run_capability": true}
+var gatedTools = map[string]bool{"run_capability": true, "run_playbook": true}
 
 // Tools are the tools the Analyst may call.
 func Tools() []agent.Tool {
@@ -25,12 +26,17 @@ func Tools() []agent.Tool {
 		{Name: "list_findings", Description: "List all findings (id, title, severity, status)."},
 		{Name: "list_assets", Description: "List all source assets available to scan (id, type, location)."},
 		{Name: "list_capabilities", Description: "List the security capabilities you can run."},
+		{Name: "list_playbooks", Description: "List playbooks (named sequences of capabilities)."},
 		{Name: "search", Description: "Search across projects, applications, assets, findings, observations, and context.", Params: map[string]string{"q": "query text"}},
 		{Name: "get_finding", Description: "Get one finding by id, including its supporting observation ids.", Params: map[string]string{"id": "finding id"}},
 		{Name: "run_capability", Description: "Run a security capability against a source asset. GATED — requires human authorization; if unauthorized it will be denied.", Params: map[string]string{
 			"capability": "capability id (from list_capabilities)",
 			"asset":      "asset id (from list_assets)",
 			"config":     "optional capability config parameter",
+		}},
+		{Name: "run_playbook", Description: "Run a playbook (a sequence of capabilities) against a source asset. GATED.", Params: map[string]string{
+			"playbook": "playbook id (from list_playbooks)",
+			"asset":    "asset id (from list_assets)",
 		}},
 	}
 }
@@ -71,8 +77,12 @@ func Executor(st *store.DB, engine *task.Engine) func(context.Context, agent.Too
 				return "", errors.New("capability engine unavailable")
 			}
 			return jsonify(engine.Registry().Manifests(), nil)
+		case "list_playbooks":
+			return jsonify(playbook.BuiltIns(), nil)
 		case "run_capability":
 			return runCapability(ctx, engine, call)
+		case "run_playbook":
+			return runPlaybook(ctx, st, engine, call)
 		default:
 			return "", fmt.Errorf("unknown tool %q", call.Tool)
 		}
@@ -115,6 +125,25 @@ func runCapability(ctx context.Context, engine *task.Engine, call agent.ToolCall
 		"exit_code":          out.Task.ExitCode,
 		"observation_count":  len(out.Observations),
 		"observation_sample": titles,
+	}, nil)
+}
+
+func runPlaybook(ctx context.Context, st *store.DB, engine *task.Engine, call agent.ToolCall) (string, error) {
+	if engine == nil {
+		return "", errors.New("capability engine unavailable")
+	}
+	pbID, _ := call.Args["playbook"].(string)
+	assetID, _ := call.Args["asset"].(string)
+	if pbID == "" || assetID == "" {
+		return "", errors.New("run_playbook requires 'playbook' and 'asset'")
+	}
+	res, err := playbook.NewRunner(engine, st).Run(ctx, pbID, assetID, "thread:analyst")
+	if err != nil {
+		return "", err
+	}
+	return jsonify(map[string]any{
+		"status":     res.Run.Status,
+		"step_count": len(res.Outcomes),
 	}, nil)
 }
 

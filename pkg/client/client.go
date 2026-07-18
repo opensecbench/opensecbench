@@ -269,6 +269,34 @@ func (c *Client) CancelTask(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/v1/tasks/"+id+"/cancel", nil, nil)
 }
 
+// Playbook is a tactic (sequence of capability steps).
+type Playbook struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Steps       []struct {
+		Capability string `json:"capability"`
+	} `json:"steps"`
+}
+
+// PlaybookRunResult is a playbook run with per-step outcomes.
+type PlaybookRunResult struct {
+	Run      model.PlaybookRun `json:"run"`
+	Outcomes []TaskOutcome     `json:"outcomes"`
+}
+
+// ListPlaybooks returns the available playbooks.
+func (c *Client) ListPlaybooks(ctx context.Context) ([]Playbook, error) {
+	var out []Playbook
+	return out, c.do(ctx, http.MethodGet, "/v1/playbooks", nil, &out)
+}
+
+// RunPlaybook runs a playbook against an asset.
+func (c *Client) RunPlaybook(ctx context.Context, playbookID, assetID string) (PlaybookRunResult, error) {
+	var out PlaybookRunResult
+	return out, c.do(ctx, http.MethodPost, "/v1/playbooks/"+playbookID+"/run", map[string]string{"asset_id": assetID}, &out)
+}
+
 // ListTaskObservations returns the observations interpreted from a task's outputs.
 func (c *Client) ListTaskObservations(ctx context.Context, taskID string) ([]model.Observation, error) {
 	var out []model.Observation

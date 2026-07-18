@@ -7,6 +7,8 @@ import {
   ContextItem,
   Finding,
   Observation,
+  Playbook,
+  PlaybookRunResult,
   Project,
   TaskOutcome,
 } from './api'
@@ -14,7 +16,7 @@ import { AnalystPanel } from './AnalystPanel'
 import { TasksTab } from './TasksTab'
 import { hasNativePickers, pickDirectory } from './native'
 
-type Tab = 'assets' | 'context' | 'scan' | 'tasks' | 'findings' | 'analyst'
+type Tab = 'assets' | 'context' | 'scan' | 'playbooks' | 'tasks' | 'findings' | 'analyst'
 
 interface AppAssets {
   app: Application
@@ -72,7 +74,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="tabs">
-        {(['assets', 'context', 'scan', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
+        {(['assets', 'context', 'scan', 'playbooks', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -82,6 +84,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {tab === 'assets' && <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />}
       {tab === 'context' && <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />}
       {tab === 'scan' && <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />}
+      {tab === 'playbooks' && <PlaybooksTab assets={allAssets} online={online} onError={setError} />}
       {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
       {tab === 'findings' && <FindingsTab findings={findings} />}
       {tab === 'analyst' && <AnalystPanel project={project} online={online} />}
@@ -376,6 +379,93 @@ function ScanTab({
               <button disabled={!findingTitle.trim()} onClick={createFinding}>⚑ Create finding from {confirmed.length} confirmed</button>
             </div>
           )}
+        </section>
+      )}
+    </div>
+  )
+}
+
+function PlaybooksTab({
+  assets,
+  online,
+  onError,
+}: {
+  assets: { asset: Asset; appName: string }[]
+  online: boolean
+  onError: (m: string) => void
+}) {
+  const repoAssets = assets.filter((a) => a.asset.type === 'source_repo')
+  const [playbooks, setPlaybooks] = useState<Playbook[]>([])
+  const [pbId, setPbId] = useState('')
+  const [assetId, setAssetId] = useState('')
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<PlaybookRunResult | null>(null)
+
+  useEffect(() => {
+    if (!online) return
+    api.listPlaybooks().then((p) => setPlaybooks(p ?? [])).catch((e) => onError((e as Error).message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online])
+
+  async function run() {
+    if (!pbId || !assetId) return
+    setRunning(true)
+    setResult(null)
+    try {
+      setResult(await api.runPlaybook(pbId, assetId))
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div>
+      <section className="panel">
+        <div className="panel-head">Run a playbook</div>
+        <div className="create-row">
+          <select value={pbId} onChange={(e) => setPbId(e.target.value)}>
+            <option value="">playbook…</option>
+            {playbooks.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} [{p.steps.map((s) => s.capability).join(', ')}]
+              </option>
+            ))}
+          </select>
+          <select value={assetId} onChange={(e) => setAssetId(e.target.value)}>
+            <option value="">source-repo asset…</option>
+            {repoAssets.map((a) => (
+              <option key={a.asset.id} value={a.asset.id}>
+                {a.appName}: {a.asset.location}
+              </option>
+            ))}
+          </select>
+          <button disabled={!online || running || !pbId || !assetId} onClick={run}>
+            {running ? 'Running…' : '▷ Run'}
+          </button>
+        </div>
+        {repoAssets.length === 0 && <div className="empty">Add a source_repo asset first (Applications &amp; Assets).</div>}
+      </section>
+
+      {result && (
+        <section className="panel">
+          <div className="panel-head">
+            Run <span className={`badge ${result.run.status}`}>{result.run.status}</span> · {result.outcomes.length} step(s)
+          </div>
+          <ul className="rows">
+            {result.outcomes.map((o, i) => (
+              <li key={o.task.id} className="row-item">
+                <span className="muted">#{i + 1}</span>
+                <span className={`badge ${o.task.status}`}>{o.task.status}</span>
+                <span className="row-title">{o.task.capability_id}</span>
+                <span className="muted">{o.observations.length} obs</span>
+              </li>
+            ))}
+          </ul>
+          <div className="empty" style={{ textAlign: 'left' }}>
+            Review each step's output and triage observations in the Tasks tab.
+          </div>
         </section>
       )}
     </div>

@@ -60,6 +60,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return templateCmd(ctx, c, args[1:])
 	case "capability", "cap":
 		return capabilityCmd(ctx, c, args[1:])
+	case "playbook":
+		return playbookCmd(ctx, c, args[1:])
 	case "task":
 		return taskCmd(ctx, c, args[1:])
 	case "artifact":
@@ -153,6 +155,44 @@ func capabilityCmd(ctx context.Context, c *client.Client, args []string) error {
 		return printJSON(out)
 	default:
 		return fmt.Errorf("unknown capability subcommand %q", args[0])
+	}
+}
+
+func playbookCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb playbook <list|run>")
+	}
+	switch args[0] {
+	case "list":
+		pbs, err := c.ListPlaybooks(ctx)
+		if err != nil {
+			return err
+		}
+		for _, p := range pbs {
+			steps := make([]string, 0, len(p.Steps))
+			for _, s := range p.Steps {
+				steps = append(steps, s.Capability)
+			}
+			fmt.Printf("%-16s %-22s [%s]\n", p.ID, p.Name, strings.Join(steps, ", "))
+		}
+		return nil
+	case "run":
+		fs := flag.NewFlagSet("playbook run", flag.ContinueOnError)
+		id := fs.String("id", "", "playbook id (required)")
+		asset := fs.String("asset", "", "asset id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" || *asset == "" {
+			return errors.New("playbook run: --id and --asset are required")
+		}
+		res, err := c.RunPlaybook(ctx, *id, *asset)
+		if err != nil {
+			return err
+		}
+		return printJSON(res)
+	default:
+		return fmt.Errorf("unknown playbook subcommand %q", args[0])
 	}
 }
 
@@ -661,6 +701,8 @@ Commands:
   context list --project ID
   capability list             list available capabilities
   capability run --id ID (--dir PATH | --asset ID) [--param k=v]  run a capability
+  playbook list               list playbooks
+  playbook run --id ID --asset ID  run a playbook against an asset
   task get <id>               show a task
   task cancel <id>            stop a running task
   artifact get <id>           write an artifact's bytes to stdout
