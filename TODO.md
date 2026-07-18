@@ -61,10 +61,11 @@ and can later ship as plugins.
 
 ## Analyst provider / model management
 
-- [ ] **Provider display + selection** — show the active provider+model in the Analyst UI and let the user
-      register/select providers (keys in the vault). The plan's `provider` entity is not built; provider is
-      env-only at daemon start (defaults to Mock). Include a **"test provider"** round-trip so a broken
-      backend is caught before use.
+- [x] **Provider display + selection** (DONE) — the Analyst header shows the active model (or "⚠ not
+      configured" for mock); a provider settings panel lists/activates/tests/deletes and adds providers.
+      Persisted `providers` entity (migration 0024) with vault-sealed keys; runtime swap + restore on start;
+      a **test** round-trip catches a broken backend in one click (proved with the real claude CLI).
+      *Follow-ups: per-provider allowed-sensitivity wired into egress routing; edit an existing provider.*
 - [x] **`claude-cli` provider adapter FIXED** (2026-07-18): `claude` (Claude Code) IS usable as a completion
       backend via `-p --output-format json` — James does this to use a Claude subscription. The old adapter
       flattened our system prompt into `[SYSTEM]` user-text, which Claude Code rightly rejected as injection.
