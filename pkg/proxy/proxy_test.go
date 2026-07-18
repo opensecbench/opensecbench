@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -31,6 +34,31 @@ func TestCALoadOrCreatePersists(t *testing.T) {
 	}
 	if leaf.Leaf.Subject.CommonName != "example.com" {
 		t.Fatalf("leaf CN = %q", leaf.Leaf.Subject.CommonName)
+	}
+}
+
+func TestCASPKIMatchesCert(t *testing.T) {
+	ca, err := LoadOrCreate(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ca.SPKISHA256()
+
+	// Decode and confirm it is a 32-byte SHA-256.
+	raw, err := base64.StdEncoding.DecodeString(got)
+	if err != nil || len(raw) != sha256.Size {
+		t.Fatalf("SPKI hash not a base64 SHA-256: %q (%d bytes, err=%v)", got, len(raw), err)
+	}
+
+	// It must be the hash of the CA cert's SubjectPublicKeyInfo (what a browser's SPKI list checks).
+	blk, _ := pem.Decode(ca.CertPEM())
+	cert, err := x509.ParseCertificate(blk.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
+	if got != base64.StdEncoding.EncodeToString(want[:]) {
+		t.Fatal("SPKI hash does not match the CA certificate SPKI")
 	}
 }
 

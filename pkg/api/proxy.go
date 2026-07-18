@@ -21,8 +21,16 @@ type liveProxy struct {
 
 // proxyStatus is the JSON view of a project's proxy.
 type proxyStatus struct {
-	Running bool `json:"running"`
-	Port    int  `json:"port,omitempty"`
+	Running bool   `json:"running"`
+	Port    int    `json:"port,omitempty"`
+	CASPKI  string `json:"ca_spki_sha256,omitempty"` // for a browser's --ignore-certificate-errors-spki-list
+}
+
+func (s *Server) caSPKI() string {
+	if s.proxyCA == nil {
+		return ""
+	}
+	return s.proxyCA.SPKISHA256()
 }
 
 // proxyCACert serves the proxy CA certificate for the operator to trust in their browser/tools.
@@ -41,10 +49,10 @@ func (s *Server) getProxy(w http.ResponseWriter, r *http.Request) {
 	lp := s.proxies[r.PathValue("id")]
 	s.proxyMu.Unlock()
 	if lp == nil {
-		writeJSON(w, http.StatusOK, proxyStatus{Running: false})
+		writeJSON(w, http.StatusOK, proxyStatus{Running: false, CASPKI: s.caSPKI()})
 		return
 	}
-	writeJSON(w, http.StatusOK, proxyStatus{Running: true, Port: lp.port})
+	writeJSON(w, http.StatusOK, proxyStatus{Running: true, Port: lp.port, CASPKI: s.caSPKI()})
 }
 
 // startProxy opens an intercepting proxy bound to a project on a loopback port. Captured traffic
@@ -67,7 +75,7 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 	s.proxyMu.Lock()
 	defer s.proxyMu.Unlock()
 	if lp := s.proxies[projectID]; lp != nil {
-		writeJSON(w, http.StatusOK, proxyStatus{Running: true, Port: lp.port})
+		writeJSON(w, http.StatusOK, proxyStatus{Running: true, Port: lp.port, CASPKI: s.caSPKI()})
 		return
 	}
 
@@ -83,7 +91,7 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	s.proxies[projectID] = &liveProxy{srv: srv, port: port}
 	s.record(r.Context(), actorOf(r), "proxy.start", projectID, map[string]int{"port": port})
-	writeJSON(w, http.StatusCreated, proxyStatus{Running: true, Port: port})
+	writeJSON(w, http.StatusCreated, proxyStatus{Running: true, Port: port, CASPKI: s.caSPKI()})
 }
 
 func (s *Server) stopProxy(w http.ResponseWriter, r *http.Request) {

@@ -100,6 +100,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [ ] Intercepting proxy (CA/TLS capture) → http_exchange rows with origin=proxy
 - [x] Interactive terminal: shell in a sandboxed container over a PTY (pkg/session)
 - [x] WebSocket terminal API + xterm.js tab; transcript captured to CAS on close, save-as-evidence
+- [x] Preconfigured throwaway browser: `osb proxy browser` launches Chromium pointed at the proxy
+      and trusting only the CA via --ignore-certificate-errors-spki-list (no system trust change)
 - [ ] SSH/PTY to an external host (scoped); agent co-drive through the approval gate
 - [ ] Fragment-level response selection as evidence (byte-range)
 

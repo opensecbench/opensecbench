@@ -126,8 +126,9 @@ func (c *Client) SaveExchangeEvidence(ctx context.Context, id, note string) (mod
 
 // ProxyStatus reports whether a project's intercepting proxy is running and on which port.
 type ProxyStatus struct {
-	Running bool `json:"running"`
-	Port    int  `json:"port,omitempty"`
+	Running bool   `json:"running"`
+	Port    int    `json:"port,omitempty"`
+	CASPKI  string `json:"ca_spki_sha256,omitempty"` // base64 SHA-256 of the CA SPKI (for browser trust)
 }
 
 // GetProxy returns a project's proxy status.

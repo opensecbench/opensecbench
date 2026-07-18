@@ -30,6 +30,9 @@ Future work and deferred decisions. **Rule: never stub something out without add
 - [ ] **Audit-write failures are best-effort** (logged, not fatal). Decide whether a governed action
       should hard-fail if its audit append fails (tamper-evidence vs availability) before P10 DLP.
 
+- [ ] Desktop **"Open browser"** button in the Proxy tab (Wails binding to launch the
+      preconfigured Chromium; today it is the `osb proxy browser` CLI command).
+
 ## Deferred subsystems (tracked in the roadmap, not yet built)
 
 - [ ] Remote outbound-connect runner + split `opensecbench-runner` repo (P12).
