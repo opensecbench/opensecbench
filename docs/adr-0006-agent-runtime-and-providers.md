@@ -1,6 +1,8 @@
 # ADR-0006 — Agent runtime & providers
 
-Status: Accepted
+Status: Accepted. The prompt-only tool protocol here is superseded by **ADR-0017** (first-class tool use +
+per-provider translation: native tool-use where available, prompted fallback otherwise, typed tool schema,
+canonical tool-message model).
 
 ## Context
 
