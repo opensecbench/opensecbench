@@ -1217,7 +1217,7 @@ func kbCmd(ctx context.Context, c *client.Client, args []string) error {
 
 func methodologyCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: osb methodology <catalog|coverage|adopt|set>")
+		return errors.New("usage: osb methodology <catalog|coverage|adopt|set|suggest>")
 	}
 	switch args[0] {
 	case "catalog":
@@ -1251,6 +1251,26 @@ func methodologyCmd(ctx context.Context, c *client.Client, args []string) error 
 			for _, it := range p.Items {
 				fmt.Printf("  [%-14s] %s\n", it.Status, it.Item.Title)
 			}
+		}
+		return nil
+	case "suggest":
+		fs := flag.NewFlagSet("methodology suggest", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("methodology suggest: --project is required")
+		}
+		sugg, err := c.MethodologySuggestions(ctx, *project)
+		if err != nil {
+			return err
+		}
+		if len(sugg) == 0 {
+			fmt.Println("no suggestions (adopt packs manually, or add knowledge-base entries)")
+		}
+		for _, s := range sugg {
+			fmt.Printf("%-14s %s — %s\n", s.MethodologyID, s.Title, s.Reason)
 		}
 		return nil
 	case "adopt":

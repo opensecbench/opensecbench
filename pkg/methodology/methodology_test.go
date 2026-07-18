@@ -79,3 +79,21 @@ func TestBuildCoverageEmptyDenominator(t *testing.T) {
 		t.Fatalf("all-n/a should be 0%%, got %d", v.Summary.CoveredPct)
 	}
 }
+
+func TestSuggestFromKB(t *testing.T) {
+	reg := BuiltIns()
+	// KB mentions SAML → suggest oidc-oauth; already-adopted web-app is not re-suggested.
+	kb := "The application authenticates via SAML SSO through Okta."
+	sugg := Suggest(reg, kb, []string{"web-app"})
+	if len(sugg) != 1 || sugg[0].MethodologyID != "oidc-oauth" {
+		t.Fatalf("expected oidc-oauth suggestion, got %+v", sugg)
+	}
+	if !strings.Contains(sugg[0].Reason, "saml") {
+		t.Fatalf("reason should cite the matched keyword: %q", sugg[0].Reason)
+	}
+
+	// No signals → no suggestions.
+	if s := Suggest(reg, "nothing relevant here", nil); len(s) != 0 {
+		t.Fatalf("expected no suggestions, got %+v", s)
+	}
+}
