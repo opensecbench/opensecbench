@@ -53,6 +53,13 @@ func (s *Server) projectGraph(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Always emit arrays (not null) so clients can safely read .length.
+	if resp.Nodes == nil {
+		resp.Nodes = []graphNode{}
+	}
+	if resp.Edges == nil {
+		resp.Edges = []graphEdge{}
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
