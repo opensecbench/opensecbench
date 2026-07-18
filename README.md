@@ -71,12 +71,15 @@ window. Needs the [Wails](https://wails.io) CLI and, on Linux, the GTK/WebKit de
 (the Makefile does it for you):
 
 ```sh
-make dev                       # = wails dev -tags desktop
-make build                     # = wails build -tags desktop
+make dev                       # = wails dev -tags "desktop webkit2_41"
+make build                     # = wails build -tags "desktop webkit2_41"
 OSB_LLM_PROVIDER=claude-cli make dev   # with the Analyst enabled
 ```
 
-Without the tag, Wails builds a stub that prints a hint and exits.
+Notes:
+- Without the `desktop` tag, Wails builds a stub that prints a hint and exits.
+- On Ubuntu/Pop!_OS **24.04+**, webkit is 4.1, so the `webkit2_41` tag is required (the Makefile
+  includes it). On older distros with webkit2gtk-4.0, use `make dev WAILS_TAGS=desktop`.
 
 **The Analyst (AI):** the control plane owns the agent loop; providers are inference-only
 (ADR-0006). Configure one via `OSB_LLM_*` when starting the daemon (keys come from the vault in

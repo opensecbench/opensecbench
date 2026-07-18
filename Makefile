@@ -6,13 +6,17 @@
 
 .PHONY: dev build daemon cli test lint fmt frontend
 
+# Wails build tags. On modern distros (Ubuntu/Pop!_OS 24.04+) webkit is 4.1, which needs the
+# webkit2_41 tag. On older distros that ship webkit2gtk-4.0, override: WAILS_TAGS=desktop.
+WAILS_TAGS ?= desktop webkit2_41
+
 # Live-reload desktop app.
 dev:
-	wails dev -tags desktop
+	wails dev -tags "$(WAILS_TAGS)"
 
 # Package a desktop binary into ./build/bin.
 build:
-	wails build -tags desktop
+	wails build -tags "$(WAILS_TAGS)"
 
 # Headless control plane (no desktop toolchain needed).
 daemon:
