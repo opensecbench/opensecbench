@@ -40,6 +40,7 @@ func main() {
 			"Free the port (e.g. `lsof -ti tcp:7373 | xargs -r kill`) and retry.", err)
 	}
 
+	app := &App{}
 	err = wails.Run(&options.App{
 		Title:            "OpenSecBench",
 		Width:            1280,
@@ -48,11 +49,13 @@ func main() {
 		MinHeight:        640,
 		BackgroundColour: &options.RGBA{R: 11, G: 14, B: 20, A: 1},
 		AssetServer:      &assetserver.Options{Assets: assets},
+		OnStartup:        app.startup,
 		OnShutdown: func(context.Context) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = cp.Shutdown(ctx)
 		},
+		Bind: []interface{}{app},
 	})
 	if err != nil {
 		panic(err)

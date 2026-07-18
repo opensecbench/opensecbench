@@ -11,6 +11,7 @@ import {
   TaskOutcome,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
+import { hasNativePickers, pickDirectory } from './native'
 
 type Tab = 'assets' | 'context' | 'scan' | 'findings' | 'analyst'
 
@@ -160,6 +161,18 @@ function AssetsTab({
                 ))}
               </select>
               <input placeholder="location / path…" value={inp.location} onChange={(e) => setAssetInputs({ ...assetInputs, [app.id]: { ...inp, location: e.target.value } })} />
+              {hasNativePickers() && (inp.type === 'source_repo' || inp.type === 'document') && (
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={async () => {
+                    const p = await pickDirectory()
+                    if (p) setAssetInputs({ ...assetInputs, [app.id]: { ...inp, location: p } })
+                  }}
+                >
+                  Browse…
+                </button>
+              )}
               <select value={inp.sensitivity} onChange={(e) => setAssetInputs({ ...assetInputs, [app.id]: { ...inp, sensitivity: e.target.value } })}>
                 <option value="">sensitivity: infer</option>
                 <option value="private">private</option>
