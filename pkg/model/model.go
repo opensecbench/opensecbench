@@ -39,6 +39,55 @@ type Project struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// Thread statuses.
+const (
+	ThreadActive           = "active"
+	ThreadAwaitingApproval = "awaiting_approval"
+	ThreadDone             = "done"
+	ThreadError            = "error"
+)
+
+// Thread is a persisted Analyst conversation (forkable).
+type Thread struct {
+	ID             string    `json:"id"`
+	ProjectID      *string   `json:"project_id,omitempty"`
+	ParentThreadID *string   `json:"parent_thread_id,omitempty"`
+	ForkSeq        *int      `json:"fork_seq,omitempty"`
+	Title          string    `json:"title"`
+	Status         string    `json:"status"`
+	Provider       string    `json:"provider"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// Message is one turn in a thread.
+type Message struct {
+	ID        string    `json:"id"`
+	ThreadID  string    `json:"thread_id"`
+	Seq       int       `json:"seq"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Approval statuses.
+const (
+	ApprovalPending  = "pending"
+	ApprovalApproved = "approved"
+	ApprovalDenied   = "denied"
+)
+
+// Approval is a gated tool call awaiting a human decision.
+type Approval struct {
+	ID        string          `json:"id"`
+	ThreadID  string          `json:"thread_id"`
+	Tool      string          `json:"tool"`
+	Args      json.RawMessage `json:"args"`
+	Status    string          `json:"status"`
+	CreatedAt time.Time       `json:"created_at"`
+	DecidedAt *time.Time      `json:"decided_at,omitempty"`
+}
+
 // Context item types.
 const (
 	ContextDocument = "document"
