@@ -25,4 +25,4 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [ ] Application + asset repositories + endpoints (incl. sensitivity default-from-location)
 - [ ] Project templates / archetypes
 - [ ] Context ingest + omni-search v1
-- [ ] `osb` CLI subcommands over the API
+- [x] `osb` CLI + pkg/client over the API (health, project list/create/get/delete)
