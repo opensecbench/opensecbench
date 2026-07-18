@@ -123,10 +123,15 @@ type AnalystResult struct {
 	Steps  []AgentStep `json:"steps"`
 }
 
-// AnalystAsk asks the Analyst a question about the assessment.
-func (c *Client) AnalystAsk(ctx context.Context, message string) (AnalystResult, error) {
+// AnalystAsk asks the Analyst a question. allow authorizes gated tools (e.g. run_capability) for
+// this ask only.
+func (c *Client) AnalystAsk(ctx context.Context, message string, allow []string) (AnalystResult, error) {
 	var out AnalystResult
-	return out, c.do(ctx, http.MethodPost, "/v1/analyst/ask", map[string]string{"message": message}, &out)
+	body := map[string]any{"message": message}
+	if len(allow) > 0 {
+		body["allow"] = allow
+	}
+	return out, c.do(ctx, http.MethodPost, "/v1/analyst/ask", body, &out)
 }
 
 // Template is a project archetype reported by the control plane.

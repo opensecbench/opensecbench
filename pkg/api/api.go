@@ -115,7 +115,8 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Message string `json:"message"`
+		Message string   `json:"message"`
+		Allow   []string `json:"allow"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -124,8 +125,9 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "message is required")
 		return
 	}
-	// TODO(P4): thread persistence, budgets, and wiring audit + data-egress policy.
-	loop := analyst.NewLoop(s.provider, s.store, nil)
+	// TODO(P4): async approval queue, thread persistence, budgets, and data-egress policy.
+	// req.Allow authorizes gated tools (e.g. run_capability) for this ask only.
+	loop := analyst.NewLoop(s.provider, s.store, s.engine, req.Allow, nil)
 	res, err := loop.Run(r.Context(), req.Message)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

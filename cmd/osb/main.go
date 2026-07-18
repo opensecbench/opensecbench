@@ -164,17 +164,27 @@ func taskCmd(ctx context.Context, c *client.Client, args []string) error {
 }
 
 func analystCmd(ctx context.Context, c *client.Client, args []string) error {
-	if len(args) < 2 || args[0] != "ask" {
-		return errors.New("usage: osb analyst ask <message>")
+	if len(args) == 0 || args[0] != "ask" {
+		return errors.New("usage: osb analyst ask [--allow run_capability] <message>")
 	}
-	res, err := c.AnalystAsk(ctx, strings.Join(args[1:], " "))
+	fs := flag.NewFlagSet("analyst ask", flag.ContinueOnError)
+	var allow paramFlags
+	fs.Var(&allow, "allow", "authorize a gated tool for this ask (e.g. run_capability); repeatable")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	message := strings.Join(fs.Args(), " ")
+	if message == "" {
+		return errors.New("analyst ask: a message is required")
+	}
+	res, err := c.AnalystAsk(ctx, message, []string(allow))
 	if err != nil {
 		return err
 	}
 	for _, s := range res.Steps {
 		status := "ok"
 		if !s.Approved {
-			status = "denied"
+			status = "denied (unauthorized)"
 		} else if s.Error != "" {
 			status = "error: " + s.Error
 		}

@@ -129,6 +129,18 @@ func (db *DB) ListAssetsByApplication(ctx context.Context, applicationID string)
 	return scanAssets(rows)
 }
 
+// ListAssets returns all assets, newest first (used by the Analyst to find scan targets).
+func (db *DB) ListAssets(ctx context.Context) ([]model.Asset, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, application_id, type, location, sensitivity, created_at, updated_at
+		 FROM assets ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	return scanAssets(rows)
+}
+
 // GetAsset returns an asset by id.
 func (db *DB) GetAsset(ctx context.Context, id string) (model.Asset, error) {
 	var a model.Asset
