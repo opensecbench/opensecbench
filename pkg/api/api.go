@@ -18,6 +18,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
+	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/repeater"
 	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/session"
@@ -34,6 +35,7 @@ type Deps struct {
 	CAS        *cas.Store
 	Provider   llm.Provider
 	SessionMgr *session.Manager
+	ProxyCA    *proxy.CA
 }
 
 // Server routes control-plane HTTP requests against the control-plane services.
@@ -45,9 +47,13 @@ type Server struct {
 	provider llm.Provider
 	repeater *repeater.Client
 	sessMgr  *session.Manager
+	proxyCA  *proxy.CA
 
 	sessMu   sync.Mutex
 	sessions map[string]*liveSession
+
+	proxyMu sync.Mutex
+	proxies map[string]*liveProxy
 }
 
 // New builds the API server with its routes registered.
@@ -60,7 +66,9 @@ func New(deps Deps) *Server {
 		provider: deps.Provider,
 		repeater: repeater.New(0),
 		sessMgr:  deps.SessionMgr,
+		proxyCA:  deps.ProxyCA,
 		sessions: make(map[string]*liveSession),
+		proxies:  make(map[string]*liveProxy),
 	}
 	s.routes()
 	return s
@@ -127,6 +135,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/sessions/{id}/ws", s.sessionWS)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/close", s.closeSession)
 	s.mux.HandleFunc("POST /v1/sessions/{id}/evidence", s.sessionEvidence)
+	s.mux.HandleFunc("GET /v1/proxy/ca", s.proxyCACert)
+	s.mux.HandleFunc("GET /v1/projects/{id}/proxy", s.getProxy)
+	s.mux.HandleFunc("POST /v1/projects/{id}/proxy/start", s.startProxy)
+	s.mux.HandleFunc("POST /v1/projects/{id}/proxy/stop", s.stopProxy)
 	s.mux.HandleFunc("GET /v1/applications/{id}/assets", s.listAssets)
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
