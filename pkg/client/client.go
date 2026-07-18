@@ -209,6 +209,33 @@ func (c *Client) DeleteSecret(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/secrets/"+name, nil, nil)
 }
 
+// ListCanaries returns planted canary tokens.
+func (c *Client) ListCanaries(ctx context.Context) ([]model.Canary, error) {
+	var out []model.Canary
+	return out, c.do(ctx, http.MethodGet, "/v1/canaries", nil, &out)
+}
+
+// CreateCanary plants a new canary token with a label (the token is returned).
+func (c *Client) CreateCanary(ctx context.Context, label string) (model.Canary, error) {
+	var out model.Canary
+	return out, c.do(ctx, http.MethodPost, "/v1/canaries", map[string]string{"label": label}, &out)
+}
+
+// DeleteCanary removes a canary by id.
+func (c *Client) DeleteCanary(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/canaries/"+id, nil, nil)
+}
+
+// ListDLPEvents returns recent DLP events.
+func (c *Client) ListDLPEvents(ctx context.Context, limit int) ([]model.DLPEvent, error) {
+	path := "/v1/dlp-events"
+	if limit > 0 {
+		path += "?limit=" + strconv.Itoa(limit)
+	}
+	var out []model.DLPEvent
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
 // ListProjectKB returns the KB a project inherits from its targets.
 func (c *Client) ListProjectKB(ctx context.Context, projectID string) ([]model.KBEntry, error) {
 	var out []model.KBEntry

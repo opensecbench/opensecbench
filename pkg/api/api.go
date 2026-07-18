@@ -15,6 +15,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/analyst"
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/dlp"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -129,6 +130,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/secrets", s.listSecrets)
 	s.mux.HandleFunc("POST /v1/secrets", s.setSecret)
 	s.mux.HandleFunc("DELETE /v1/secrets/{name}", s.deleteSecret)
+	s.mux.HandleFunc("GET /v1/canaries", s.listCanaries)
+	s.mux.HandleFunc("POST /v1/canaries", s.createCanary)
+	s.mux.HandleFunc("DELETE /v1/canaries/{id}", s.deleteCanary)
+	s.mux.HandleFunc("GET /v1/dlp-events", s.listDLPEvents)
 	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)
 	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/adopt", s.adoptMethodology)
@@ -206,11 +211,38 @@ func (s *Server) routes() {
 }
 
 func (s *Server) analystService() *analyst.Service {
-	svc := analyst.NewService(s.store, s.engine, s.provider)
+	svc := analyst.NewService(s.store, s.engine, s.guardedProvider())
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}
 	return svc
+}
+
+// guardedProvider wraps the LLM provider with DLP inspection of outbound content (ADR-0011): vault
+// secrets and canaries are blocked on external providers; every hit is recorded and audited.
+func (s *Server) guardedProvider() llm.Provider {
+	if s.provider == nil {
+		return nil
+	}
+	external := !llm.IsLocal(s.provider)
+	load := func(ctx context.Context) (map[string]string, map[string]string) {
+		var secrets map[string]string
+		if s.vault != nil {
+			secrets, _ = s.store.SecretValueMap(ctx, s.vault.Open)
+		}
+		canaries, _ := s.store.CanaryMap(ctx)
+		return secrets, canaries
+	}
+	onHit := func(ctx context.Context, h dlp.Hit, blocked bool) {
+		_ = s.store.RecordDLPEvent(ctx, model.DLPEvent{
+			Kind: h.Kind, Label: h.Label, Action: h.Action, Blocked: blocked, Location: "llm:" + s.provider.Name(),
+		})
+		s.record(ctx, "system", "dlp."+h.Kind, h.Label, map[string]any{"blocked": blocked, "action": h.Action})
+		if h.Kind == dlp.KindCanary {
+			s.notify(ctx, model.NotifyInfo, "Canary tripped", "Canary "+h.Label+" appeared at an LLM egress", nil, "")
+		}
+	}
+	return dlp.Guard(s.provider, external, load, onHit)
 }
 
 func (s *Server) providerName() string {

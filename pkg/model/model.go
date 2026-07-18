@@ -48,6 +48,25 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Canary is a planted decoy token (exfil tripwire) — if it appears at an egress, DLP alerts.
+type Canary struct {
+	ID        string    `json:"id"`
+	Label     string    `json:"label"`
+	Token     string    `json:"token"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// DLPEvent is a recorded DLP hit at an egress point (ADR-0011).
+type DLPEvent struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`   // secret | canary | pattern
+	Label     string    `json:"label"`  // secret/canary name or pattern name
+	Action    string    `json:"action"` // block | alert
+	Blocked   bool      `json:"blocked"`
+	Location  string    `json:"location,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // Secret is vault metadata (ADR-0011). The sealed value is never exposed through this type.
 type Secret struct {
 	ID        string    `json:"id"`
