@@ -285,3 +285,26 @@ func TestDOCXIsValidZip(t *testing.T) {
 		t.Fatalf("docx body missing content")
 	}
 }
+
+func TestRegistryAddExtensionTemplate(t *testing.T) {
+	reg := BuiltIns()
+	err := reg.Add("custom", "Custom pack report", "custom",
+		"# {{.Project.Name}} custom\n{{.Summary.Total}} findings",
+		"<h1>{{.Project.Name}}</h1><p>{{.Summary.Total}} findings</p>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl, ok := reg.Get("custom")
+	if !ok {
+		t.Fatal("added template not found")
+	}
+	d, _ := NewBuilder(sampleSource()).Build(context.Background(), "p1", time.Now())
+	out, err := tmpl.Render(d, FormatHTML)
+	if err != nil || !strings.Contains(string(out), "Acme Web") {
+		t.Fatalf("extension template render failed: %v", err)
+	}
+	// A bad template string returns a parse error, not a panic.
+	if err := reg.Add("bad", "Bad", "x", "{{.Nope", "{{.Nope"); err == nil {
+		t.Fatal("expected parse error for malformed template")
+	}
+}

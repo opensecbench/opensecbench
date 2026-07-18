@@ -6,6 +6,7 @@ import (
 	htmltemplate "html/template"
 	"sort"
 	"strings"
+	"sync"
 	texttemplate "text/template"
 )
 
@@ -38,20 +39,47 @@ func (t *Template) Render(d Data, format Format) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Registry holds the available report templates by id.
-type Registry struct{ tmpls map[string]*Template }
+// Registry holds the available report templates by id. Safe for concurrent use so extension-provided
+// templates can be registered at runtime.
+type Registry struct {
+	mu    sync.RWMutex
+	tmpls map[string]*Template
+}
 
 // Get returns a template by id.
-func (r *Registry) Get(id string) (*Template, bool) { t, ok := r.tmpls[id]; return t, ok }
+func (r *Registry) Get(id string) (*Template, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.tmpls[id]
+	return t, ok
+}
 
 // Templates returns all templates sorted by id.
 func (r *Registry) Templates() []*Template {
+	r.mu.RLock()
 	out := make([]*Template, 0, len(r.tmpls))
 	for _, t := range r.tmpls {
 		out = append(out, t)
 	}
+	r.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// Add registers a template from raw MD/HTML strings (extension-provided). Parse errors are returned.
+func (r *Registry) Add(id, title, kind, md, html string) error {
+	mdT, err := texttemplate.New(id).Funcs(funcs).Parse(md)
+	if err != nil {
+		return fmt.Errorf("report: parse markdown template %q: %w", id, err)
+	}
+	htmlT, err := htmltemplate.New(id).Funcs(htmltemplate.FuncMap(funcs)).Parse(html)
+	if err != nil {
+		return fmt.Errorf("report: parse html template %q: %w", id, err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tmpls[id] = &Template{ID: id, Title: title, Kind: kind, md: mdT, html: htmlT}
+	return nil
 }
 
 var funcs = map[string]any{

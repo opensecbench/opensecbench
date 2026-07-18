@@ -46,6 +46,7 @@ type Deps struct {
 	ProxyCA    *proxy.CA
 	Vault      *secret.Vault
 	Methods    *methodology.Registry // built-ins + loaded extensions; nil = built-ins only
+	Reports    *report.Registry      // built-ins + loaded extensions; nil = built-ins only
 	Extensions []extension.Loaded    // loaded extension packages (for listing)
 	TrustStore *extension.TrustStore // publisher trust store (for hub install / trust)
 	ExtDir     string                // where installed packages are extracted
@@ -90,7 +91,7 @@ func New(deps Deps) *Server {
 		repeater: repeater.New(0),
 		sessMgr:  deps.SessionMgr,
 		proxyCA:  deps.ProxyCA,
-		reports:  report.BuiltIns(),
+		reports:  deps.Reports,
 		methods:  deps.Methods,
 		vault:    deps.Vault,
 		integr:   integration.BuiltIns(),
@@ -103,6 +104,9 @@ func New(deps Deps) *Server {
 	}
 	if s.methods == nil {
 		s.methods = methodology.BuiltIns()
+	}
+	if s.reports == nil {
+		s.reports = report.BuiltIns()
 	}
 	s.routes()
 	return s
