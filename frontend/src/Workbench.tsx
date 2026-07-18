@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ChangeEvent } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ChangeEvent } from 'react'
 import {
   api,
   Application,
@@ -18,12 +18,16 @@ import { AnalystPanel } from './AnalystPanel'
 import { TasksTab } from './TasksTab'
 import { hasNativePickers, pickDirectory } from './native'
 
+// The terminal pulls in xterm.js; load it only when the tab is opened.
+const TerminalTab = lazy(() => import('./TerminalTab').then((m) => ({ default: m.TerminalTab })))
+
 type Tab =
   | 'assets'
   | 'context'
   | 'scope'
   | 'scan'
   | 'repeater'
+  | 'terminal'
   | 'playbooks'
   | 'tasks'
   | 'findings'
@@ -85,7 +89,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="tabs">
-        {(['assets', 'context', 'scope', 'scan', 'repeater', 'playbooks', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
+        {(['assets', 'context', 'scope', 'scan', 'repeater', 'terminal', 'playbooks', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -97,6 +101,11 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {tab === 'scope' && <ScopeTab project={project} online={online} onError={setError} />}
       {tab === 'scan' && <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />}
       {tab === 'repeater' && <RepeaterTab project={project} online={online} onError={setError} />}
+      {tab === 'terminal' && (
+        <Suspense fallback={<div className="empty">Loading terminal…</div>}>
+          <TerminalTab project={project} online={online} onError={setError} />
+        </Suspense>
+      )}
       {tab === 'playbooks' && <PlaybooksTab assets={allAssets} online={online} onError={setError} />}
       {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
       {tab === 'findings' && <FindingsTab findings={findings} />}
