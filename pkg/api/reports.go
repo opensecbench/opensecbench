@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"time"
 
@@ -34,10 +35,14 @@ func (s *Server) listReports(w http.ResponseWriter, r *http.Request) {
 }
 
 func reportMediaType(format report.Format) string {
-	if format == report.FormatMarkdown {
+	switch format {
+	case report.FormatMarkdown:
 		return "text/markdown; charset=utf-8"
+	case report.FormatPDF:
+		return "application/pdf"
+	default:
+		return "text/html; charset=utf-8"
 	}
-	return "text/html; charset=utf-8"
 }
 
 // generateReport builds a report from a project's confirmed findings, stores the rendered bytes in
@@ -57,7 +62,9 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	format := report.Format(req.Format)
-	if format != report.FormatMarkdown && format != report.FormatHTML {
+	switch format {
+	case report.FormatMarkdown, report.FormatHTML, report.FormatPDF:
+	default:
 		format = report.FormatHTML
 	}
 
@@ -66,10 +73,28 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "build report: "+err.Error())
 		return
 	}
-	rendered, err := tmpl.Render(data, format)
+
+	// PDF is the HTML render printed through a headless browser.
+	renderFormat := format
+	if format == report.FormatPDF {
+		renderFormat = report.FormatHTML
+	}
+	rendered, err := tmpl.Render(data, renderFormat)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "render: "+err.Error())
 		return
+	}
+	if format == report.FormatPDF {
+		pdf, perr := report.HTMLToPDF(r.Context(), rendered)
+		if errors.Is(perr, report.ErrNoBrowser) {
+			writeErr(w, http.StatusServiceUnavailable, perr.Error())
+			return
+		}
+		if perr != nil {
+			writeErr(w, http.StatusInternalServerError, "pdf: "+perr.Error())
+			return
+		}
+		rendered = pdf
 	}
 
 	digest, err := s.cas.Put(bytes.NewReader(rendered))

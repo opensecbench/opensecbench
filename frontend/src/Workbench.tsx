@@ -11,6 +11,8 @@ import {
   Observation,
   Playbook,
   ProxyStatus,
+  Report,
+  ReportTemplate,
   PlaybookRunResult,
   Project,
   ScopeEntry,
@@ -34,6 +36,7 @@ type Tab =
   | 'playbooks'
   | 'tasks'
   | 'findings'
+  | 'reports'
   | 'analyst'
   | 'audit'
 
@@ -93,7 +96,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="tabs">
-        {(['assets', 'context', 'scope', 'scan', 'repeater', 'proxy', 'terminal', 'playbooks', 'tasks', 'findings', 'analyst', 'audit'] as Tab[]).map((t) => (
+        {(['assets', 'context', 'scope', 'scan', 'repeater', 'proxy', 'terminal', 'playbooks', 'tasks', 'findings', 'reports', 'analyst', 'audit'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -114,9 +117,101 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {tab === 'playbooks' && <PlaybooksTab assets={allAssets} online={online} onError={setError} />}
       {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
       {tab === 'findings' && <FindingsTab findings={findings} />}
+      {tab === 'reports' && <ReportsTab project={project} online={online} onError={setError} />}
       {tab === 'analyst' && <AnalystPanel project={project} online={online} />}
       {tab === 'audit' && <AuditTab online={online} onError={setError} />}
     </div>
+  )
+}
+
+function ReportsTab({
+  project,
+  online,
+  onError,
+}: {
+  project: Project
+  online: boolean
+  onError: (m: string) => void
+}) {
+  const [templates, setTemplates] = useState<ReportTemplate[]>([])
+  const [reports, setReports] = useState<Report[]>([])
+  const [template, setTemplate] = useState('technical')
+  const [format, setFormat] = useState('html')
+  const [busy, setBusy] = useState(false)
+
+  async function reload() {
+    try {
+      setReports((await api.listReports(project.id)) ?? [])
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
+  useEffect(() => {
+    if (!online) return
+    void (async () => {
+      try {
+        const tmpls = (await api.listReportTemplates()) ?? []
+        setTemplates(tmpls)
+        if (tmpls.length && !tmpls.find((t) => t.id === template)) setTemplate(tmpls[0].id)
+      } catch (e) {
+        onError((e as Error).message)
+      }
+    })()
+    void reload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, project.id])
+
+  async function generate() {
+    setBusy(true)
+    try {
+      const rep = await api.generateReport(project.id, template, format)
+      await reload()
+      window.open(api.artifactContentURL(rep.artifact_id), '_blank')
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-head">Reports</div>
+      <p className="hint">
+        Generated from confirmed findings with traceable evidence only. PDF renders via a local
+        headless browser.
+      </p>
+      <div className="create-row">
+        <select value={template} onChange={(e) => setTemplate(e.target.value)}>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>{t.title}</option>
+          ))}
+        </select>
+        <select value={format} onChange={(e) => setFormat(e.target.value)}>
+          {['html', 'md', 'pdf'].map((f) => (
+            <option key={f} value={f}>{f.toUpperCase()}</option>
+          ))}
+        </select>
+        <button onClick={generate} disabled={!online || busy}>
+          {busy ? 'Generating…' : 'Generate'}
+        </button>
+      </div>
+      {reports.length === 0 ? (
+        <div className="empty">No reports generated yet.</div>
+      ) : (
+        <ul className="rows">
+          {reports.map((rep) => (
+            <li key={rep.id} className="row-item">
+              <span className="badge">{rep.format}</span>
+              <span className="row-title">{rep.title}</span>
+              <span className="muted mono">{new Date(rep.created_at).toLocaleString()}</span>
+              <a className="link" href={api.artifactContentURL(rep.artifact_id)} target="_blank" rel="noreferrer">open</a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 

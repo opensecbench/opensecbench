@@ -12,10 +12,10 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 
+	"github.com/opensecbench/opensecbench/pkg/browser"
 	"github.com/opensecbench/opensecbench/pkg/client"
 	"github.com/opensecbench/opensecbench/pkg/version"
 )
@@ -807,7 +807,7 @@ func proxyBrowser(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("proxy browser", flag.ContinueOnError)
 	project := fs.String("project", "", "project id (required)")
 	startURL := fs.String("url", "about:blank", "initial URL to open")
-	browser := fs.String("browser", "", "browser binary to use (default: autodetect; or set OSB_BROWSER)")
+	browserBin := fs.String("browser", "", "browser binary to use (default: autodetect; or set OSB_BROWSER)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -822,7 +822,7 @@ func proxyBrowser(ctx context.Context, c *client.Client, args []string) error {
 	if st.CASPKI == "" {
 		return errors.New("proxy CA unavailable; cannot configure browser trust")
 	}
-	bin, err := findBrowser(*browser)
+	bin, err := browser.Resolve(*browserBin)
 	if err != nil {
 		return err
 	}
@@ -856,53 +856,6 @@ func proxyBrowser(ctx context.Context, c *client.Client, args []string) error {
 		return fmt.Errorf("launch browser: %w", err)
 	}
 	return nil
-}
-
-// findBrowser resolves a Chromium-based browser binary: an explicit override, then OSB_BROWSER,
-// then platform defaults.
-func findBrowser(override string) (string, error) {
-	if override != "" {
-		if p, err := exec.LookPath(override); err == nil {
-			return p, nil
-		}
-		return "", fmt.Errorf("browser %q not found in PATH", override)
-	}
-	if env := os.Getenv("OSB_BROWSER"); env != "" {
-		if p, err := exec.LookPath(env); err == nil {
-			return p, nil
-		}
-	}
-	for _, cand := range browserCandidates() {
-		if filepath.IsAbs(cand) {
-			if _, err := os.Stat(cand); err == nil {
-				return cand, nil
-			}
-			continue
-		}
-		if p, err := exec.LookPath(cand); err == nil {
-			return p, nil
-		}
-	}
-	return "", errors.New("no Chromium-based browser found; set --browser or OSB_BROWSER")
-}
-
-func browserCandidates() []string {
-	switch runtime.GOOS {
-	case "darwin":
-		return []string{
-			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-			"/Applications/Chromium.app/Contents/MacOS/Chromium",
-			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-		}
-	case "windows":
-		return []string{"chrome.exe", "msedge.exe", "brave.exe"}
-	default: // linux and other unixes
-		return []string{
-			"google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
-			"brave-browser", "microsoft-edge", "microsoft-edge-stable",
-		}
-	}
 }
 
 func reportCmd(ctx context.Context, c *client.Client, args []string) error {

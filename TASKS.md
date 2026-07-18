@@ -112,3 +112,19 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
       session open/close, evidence promotions, playbook run, approval decisions, Analyst tool calls
 - [x] GET /v1/audit + client + `osb audit` CLI + Audit tab in the workbench
 - [ ] Broaden coverage to entity CRUD; `osb audit --verify` chain check; decide fail-closed policy
+
+## P8 — Reporting + visualizations + coverage
+
+- [x] ADR-0008 (reporting & visualization)
+- [x] Report engine (pkg/report): gathered Data snapshot, confirmed-evidence-only rule in one Builder
+- [x] Built-in templates: executive + technical → Markdown + HTML (self-contained, escaped)
+- [x] Coverage roll-up (apps/assets/tasks/capabilities) + severity summary in Data
+- [x] Report persistence (migration 0012) + generate API + client + `osb report` CLI
+- [x] Inline-SVG severity chart (pkg/viz) embedded in HTML reports (CSP-safe, no JS)
+- [x] PDF via headless Chromium (pkg/browser shared with proxy); degrades if no browser
+- [x] Reports tab in the workbench (template + format, generate, open)
+- [ ] More report types: retest, compliance mapping, client-branded
+- [ ] More visualizations: coverage heatmap, dependency/API maps, topology (interactive workbench views)
+- [ ] Methodology coverage model + roll-up (needs a methodology/checklist entity)
+- [ ] Notifications: OS-level + in-app (approval waiting, task done, report ready)
+- [ ] Report templates + visualizations as installable extension packages
