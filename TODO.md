@@ -39,18 +39,20 @@ toolset over a shared exchange substrate, built around four extension seams (exc
 **traffic processors**, history **columns/filters**, tools-as-**surfaces**) so features slot in cleanly
 and can later ship as plugins.
 
-- [ ] **Full history UI** — searchable/filterable table (by host, method, status, path, origin,
-      time), column sort, and live streaming without losing scroll/selection.
-- [ ] **Request/response detail view** — click an exchange to see full headers + body (pretty-print
-      JSON/HTML), with syntax highlighting and copy.
-- [ ] **Send to Repeater** — one click from a captured exchange → a prefilled Repeater draft (clone
-      request into an editable exchange).
-- [ ] **Save-as-evidence** from a captured exchange (already exists for Repeater; wire it here).
-- [ ] **Intercept & edit** — hold a request/response, edit, forward/drop (needs a proxy intercept
-      queue in pkg/proxy + a control channel; today it's passthrough capture only).
-- [ ] **Match/replace + scope filtering** in the history; highlight in-scope vs out.
-- [ ] Server-side: paginated/filtered `GET /v1/projects/{id}/exchanges` (query by host/status/method);
-      today it returns all. WebSocket/live push for new captures instead of polling.
+- [x] **Filterable history UI** (Step 1) — master-detail table with method/status/URL filters, status
+      badges, selection preserved across the live poll. *Still to add: column sort, host-parsed filter.*
+- [x] **Request/response detail view** (Step 1) — full headers + body per exchange. *Still to add:
+      JSON/HTML pretty-print + syntax highlighting.*
+- [x] **Send to Replay** (Step 1) — one click from a captured exchange → a Replay document seeded with
+      the request (via the shared action registry + the doc-seed model).
+- [x] **Save-as-evidence** from a captured exchange (Step 1; registry action).
+- [ ] **Live push** (Step 2) — WebSocket/SSE for new captures instead of the 2.5s poll.
+- [ ] **Intercept & edit** (Step 3) — hold a request/response, edit, forward/drop (needs an intercept
+      queue in pkg/proxy + a control channel; today it's passthrough capture only). The one new subsystem.
+- [ ] **Match/replace + scope highlighting** (Step 4) — a traffic-processor in the pipeline; highlight
+      in-scope vs out in the history.
+- [x] Server-side filtered `GET /v1/projects/{id}/exchanges` (Step 1; `origin/method/status/q/limit`).
+      *Cursor pagination still to add; live push is Step 2.*
 
 ## Small / medium follow-ups
 
