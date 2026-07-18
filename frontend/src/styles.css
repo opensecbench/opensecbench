@@ -902,39 +902,39 @@ select option {
   border-color: #4a2226;
 }
 
-/* Repeater */
-.repeater {
+/* Replay */
+.replay {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   align-items: start;
 }
 @media (max-width: 900px) {
-  .repeater {
+  .replay {
     grid-template-columns: 1fr;
   }
 }
-.repeater-req {
+.replay-req {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.repeater-line {
+.replay-line {
   display: flex;
   gap: 8px;
 }
-.repeater-url {
+.replay-url {
   flex: 1;
   font-family: var(--mono);
 }
-.repeater-label {
+.replay-label {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--tx2);
   margin-top: 6px;
 }
-.repeater-req textarea.mono {
+.replay-req textarea.mono {
   width: 100%;
   resize: vertical;
   background: var(--bg3);
@@ -943,16 +943,16 @@ select option {
   border-radius: 6px;
   padding: 8px;
 }
-.repeater-res {
+.replay-res {
   min-width: 0;
 }
-.repeater-status {
+.replay-status {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 8px;
 }
-.repeater-res .response {
+.replay-res .response {
   background: var(--bg3);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -962,11 +962,11 @@ select option {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.repeater-res .response.body {
+.replay-res .response.body {
   margin-top: 8px;
   max-height: 360px;
 }
-.repeater-history {
+.replay-history {
   margin-top: 18px;
 }
 .row-item.clickable {
@@ -1061,14 +1061,14 @@ select option {
 .mitem-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .mitem-ev{font-size:11px;color:var(--acc);white-space:nowrap}
 
-/* Repeater bound-to-item context strip (ADR-0015 P3b) */
-.repeater-context{
+/* Replay bound-to-item context strip (ADR-0015 P3b) */
+.replay-context{
   display:flex;align-items:center;gap:7px;flex-wrap:wrap;
   background:var(--bg3);border:1px solid var(--line2);border-left:3px solid var(--amber);
   border-radius:0 8px 8px 0;padding:8px 12px;margin-bottom:12px;font-size:12.5px;color:var(--tx2);
 }
-.repeater-context .pin{color:var(--amber);font-weight:700}
-.repeater-context b{color:var(--tx)}
+.replay-context .pin{color:var(--amber);font-weight:700}
+.replay-context b{color:var(--tx)}
 
 /* Knowledge base */
 .kb-add{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}

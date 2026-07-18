@@ -1,7 +1,8 @@
 # ADR-0007 — HTTP capture, Repeater & interactive sessions
 
-Status: Accepted — Repeater, Terminal (sandboxed container), and the intercepting Proxy shipped;
-SSH-to-external-host and agent co-drive remain staged
+Status: Accepted — the Replay tool (**renamed from "Repeater"**, ADR-0016), Terminal (sandboxed
+container), and the intercepting Proxy shipped; SSH-to-external-host and agent co-drive remain staged.
+The HTTP toolset's first-class build + extensibility structure is governed by ADR-0016.
 
 ## Context
 

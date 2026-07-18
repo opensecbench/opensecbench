@@ -210,12 +210,12 @@ type Session struct {
 
 // HTTP exchange origins.
 const (
-	ExchangeRepeater = "repeater"
+	ExchangeReplay = "replay"
 	ExchangeProxy    = "proxy"
 )
 
 // HTTPExchange is a request and (once sent) its response, anchored to a project (ADR-0007). The
-// Repeater edits and resends it; save-as-evidence promotes a response into the CAS.
+// Replay edits and resends it; save-as-evidence promotes a response into the CAS.
 type HTTPExchange struct {
 	ID              string     `json:"id"`
 	ProjectID       string     `json:"project_id"`

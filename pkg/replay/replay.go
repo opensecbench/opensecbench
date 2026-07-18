@@ -1,7 +1,7 @@
-// Package repeater is the HTTP transport for the Repeater (ADR-0007): it issues a single request
+// Package replay is the HTTP transport for the Replay (ADR-0007): it issues a single request
 // and captures the response. It enforces no policy — the caller (the service layer) applies the
 // scope guard and audit so every send is governed in one place.
-package repeater
+package replay
 
 import (
 	"context"

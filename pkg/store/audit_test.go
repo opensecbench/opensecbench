@@ -19,7 +19,7 @@ func TestAuditChainAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e2, err := db.AppendAudit(ctx, "human:james", "repeater.send", "https://x", nil)
+	e2, err := db.AppendAudit(ctx, "human:james", "replay.send", "https://x", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

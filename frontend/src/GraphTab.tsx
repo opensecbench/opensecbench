@@ -128,7 +128,7 @@ export function GraphTab({
       <p className="hint">
         {{
           structure: 'Project → applications → assets & findings.',
-          traffic: 'Hosts → endpoints from captured traffic (proxy + repeater).',
+          traffic: 'Hosts → endpoints from captured traffic (proxy + replay).',
           topology: 'Hosts → open ports from nmap scans.',
           dependency: 'Components → dependencies from the latest syft SBOM.',
         }[kind]}{' '}
