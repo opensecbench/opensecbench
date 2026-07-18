@@ -7,7 +7,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os/exec"
+	"sync"
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
@@ -17,17 +20,44 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
+// ErrTaskNotRunning is returned when cancelling a task that is not currently executing.
+var ErrTaskNotRunning = errors.New("task: not running")
+
 // Engine executes capabilities and persists their provenance.
 type Engine struct {
 	store    *store.DB
 	blobs    *cas.Store
 	registry *capability.Registry
 	runner   runner.Runner
+
+	mu      sync.Mutex
+	running map[string]runState
+}
+
+type runState struct {
+	cancel    context.CancelFunc
+	container string
 }
 
 // NewEngine wires the engine's dependencies.
 func NewEngine(st *store.DB, blobs *cas.Store, reg *capability.Registry, r runner.Runner) *Engine {
-	return &Engine{store: st, blobs: blobs, registry: reg, runner: r}
+	return &Engine{store: st, blobs: blobs, registry: reg, runner: r, running: make(map[string]runState)}
+}
+
+// Cancel stops a running task by killing its container and cancelling its context. The in-flight
+// Run then records the task as failed.
+func (e *Engine) Cancel(taskID string) error {
+	e.mu.Lock()
+	rs, ok := e.running[taskID]
+	e.mu.Unlock()
+	if !ok {
+		return ErrTaskNotRunning
+	}
+	if rs.container != "" {
+		_ = exec.Command("docker", "kill", rs.container).Run() // best-effort
+	}
+	rs.cancel()
+	return nil
 }
 
 // Registry exposes the capabilities this engine can run.
@@ -101,9 +131,27 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 		return Outcome{}, err
 	}
 
-	res, runErr := e.runner.Run(ctx, spec)
+	// Name the container and register the run so Cancel can stop it.
+	spec.Name = "osb-" + task.ID
+	runCtx, cancel := context.WithCancel(ctx)
+	e.mu.Lock()
+	e.running[task.ID] = runState{cancel: cancel, container: spec.Name}
+	e.mu.Unlock()
+
+	res, runErr := e.runner.Run(runCtx, spec)
+
+	e.mu.Lock()
+	delete(e.running, task.ID)
+	e.mu.Unlock()
+	cancel()
+
 	if runErr != nil {
-		_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, runErr.Error())
+		msg := runErr.Error()
+		if runCtx.Err() == context.Canceled {
+			msg = "cancelled by user"
+		}
+		// FinishTask uses the original ctx (still live); runCtx may be cancelled.
+		_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, msg)
 		return e.outcome(ctx, task.ID), runErr
 	}
 

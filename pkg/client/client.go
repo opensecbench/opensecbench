@@ -264,6 +264,11 @@ func (c *Client) GetTask(ctx context.Context, id string) (model.Task, error) {
 	return out, c.do(ctx, http.MethodGet, "/v1/tasks/"+id, nil, &out)
 }
 
+// CancelTask stops a running task.
+func (c *Client) CancelTask(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/v1/tasks/"+id+"/cancel", nil, nil)
+}
+
 // ListTaskObservations returns the observations interpreted from a task's outputs.
 func (c *Client) ListTaskObservations(ctx context.Context, taskID string) ([]model.Observation, error) {
 	var out []model.Observation

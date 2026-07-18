@@ -882,3 +882,8 @@ select option {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.ghost-btn.danger:hover {
+  color: var(--red);
+  border-color: #4a2226;
+}

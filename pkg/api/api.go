@@ -97,6 +97,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)
 	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
 	s.mux.HandleFunc("GET /v1/tasks/{id}", s.getTask)
+	s.mux.HandleFunc("POST /v1/tasks/{id}/cancel", s.cancelTask)
 	s.mux.HandleFunc("GET /v1/tasks/{id}/artifacts", s.getTaskArtifacts)
 	s.mux.HandleFunc("GET /v1/artifacts/{id}/content", s.getArtifactContent)
 
@@ -698,6 +699,23 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
+	if s.engine == nil {
+		writeErr(w, http.StatusServiceUnavailable, "engine unavailable")
+		return
+	}
+	err := s.engine.Cancel(r.PathValue("id"))
+	if errors.Is(err, task.ErrTaskNotRunning) {
+		writeErr(w, http.StatusConflict, "task is not running")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) getTaskArtifacts(w http.ResponseWriter, r *http.Request) {
