@@ -36,7 +36,7 @@ infrastructure pieces that warrant their own focused efforts.
 - [ ] Broaden audit coverage to remaining entity CRUD (project/app/asset/finding create/update).
 - [ ] Decide fail-closed vs best-effort on an audit-append failure (currently logged, not fatal).
 - [ ] Interpret TruffleHog JSON output into observations (currently captured as a raw artifact).
-- [ ] Report/playbook/visualization **extension pack types** (loader does capabilities + methodology now).
+- [x] Report templates as extension packs; playbook/visualization pack types still to add.
 - [ ] Integration **pull** (DefectDojo findings/scans in; DependencyTrack SBOM) + **watchers**
       (schedule → notify / create task / run playbook).
 - [x] Interactive graph tab (structure + traffic/endpoint maps, pan/zoom/hover); more graph
