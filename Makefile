@@ -4,7 +4,7 @@
 # don't need the webkit/gtk toolchain. Wails must be told that tag explicitly — these targets do
 # it for you. Set a provider to enable the Analyst, e.g. `OSB_LLM_PROVIDER=claude-cli make dev`.
 
-.PHONY: dev build daemon cli test lint fmt frontend
+.PHONY: dev build daemon cli test lint fmt frontend images claude-image
 
 # Wails build tags. On modern distros (Ubuntu/Pop!_OS 24.04+) webkit is 4.1, which needs the
 # webkit2_41 tag. On older distros that ship webkit2gtk-4.0, override: WAILS_TAGS=desktop.
@@ -38,3 +38,15 @@ fmt:
 # Build the frontend once (creates frontend/dist).
 frontend:
 	cd frontend && npm install && npm run build
+
+# OSB-built container images (see images/README.md). Each images/<name>/ builds to osb/<name>:latest.
+# The image-% pattern auto-discovers dirs, so a new image needs no Makefile change.
+IMAGES := $(patsubst images/%/,%,$(wildcard images/*/))
+
+images: $(addprefix image-,$(IMAGES))
+
+image-%:
+	docker build -t osb/$*:latest images/$*
+
+# Convenience alias for the one image most people build.
+claude-image: image-claude-cli

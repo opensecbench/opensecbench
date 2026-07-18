@@ -36,8 +36,9 @@ func New(cfg Config) (Provider, error) {
 	case "claude-cli", "cli", "claude":
 		p := NewCLIProvider(cfg.Bin)
 		if cfg.CLISandbox {
-			if cfg.CLIImage == "" {
-				return nil, fmt.Errorf("llm: claude-cli sandbox requires an image (OSB_LLM_CLI_IMAGE)")
+			image := cfg.CLIImage
+			if image == "" {
+				image = DefaultCLIImage // built by `make claude-image`
 			}
 			cred := cfg.CLICredential
 			if cred == "" {
@@ -49,7 +50,7 @@ func New(cfg Config) (Provider, error) {
 			}
 			p.Sandbox = &CLISandbox{
 				Runner:        runner.LocalRunner{},
-				Image:         cfg.CLIImage,
+				Image:         image,
 				CredentialSrc: cred,
 				Network:       cfg.CLINetwork,
 			}
