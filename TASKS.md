@@ -183,3 +183,16 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [ ] Report/playbook/visualization pack types; manifest `permissions` schema
 - [ ] Runtime install/reload (drop-in without restart) + trust management over the API
 - [ ] Interpret trufflehog JSON output into observations (currently captured as a raw artifact)
+
+## P12 — Community extension hub (ADR-0014)
+
+- [x] ADR-0014 (community hub: static signed index, publish/browse/install, explicit trust)
+- [x] pkg/hub: Index/PackageEntry, ArchiveDir/Extract (traversal-safe), Publish, FetchIndex,
+      DownloadArchive (transit digest verify)
+- [x] Concurrency-safe capability + methodology registries (runtime extension registration)
+- [x] Control plane: GET /v1/hub/index, POST /v1/hub/install (verify→extract→hot-register),
+      POST /v1/extensions/trust; explicit trust-on-install
+- [x] osb hub browse/install/publish + ext trust flow; e2e (publish→serve→install→live capability)
+- [ ] Hosted hub service (accounts, uploads, submission scanning, reputation, moderation/takedown)
+- [ ] Frontend Extensions/Hub view (browse + install + trust)
+- [ ] Version constraints / update flow; uninstall

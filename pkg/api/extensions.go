@@ -1,6 +1,10 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/opensecbench/opensecbench/pkg/extension"
+)
 
 // extensionInfo is the JSON view of a loaded extension package.
 type extensionInfo struct {
@@ -16,8 +20,11 @@ type extensionInfo struct {
 
 // listExtensions returns the loaded extension packages (metadata only).
 func (s *Server) listExtensions(w http.ResponseWriter, _ *http.Request) {
-	out := make([]extensionInfo, 0, len(s.exts))
-	for _, e := range s.exts {
+	s.extMu.Lock()
+	loaded := append([]extension.Loaded(nil), s.exts...)
+	s.extMu.Unlock()
+	out := make([]extensionInfo, 0, len(loaded))
+	for _, e := range loaded {
 		info := extensionInfo{
 			ID: e.Manifest.ID, Name: e.Manifest.Name, Version: e.Manifest.Version,
 			Publisher: e.Manifest.Publisher, Trusted: e.Trusted, Digest: e.Digest,

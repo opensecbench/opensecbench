@@ -17,6 +17,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/dlp"
 	"github.com/opensecbench/opensecbench/pkg/extension"
+	"github.com/opensecbench/opensecbench/pkg/hub"
 	"github.com/opensecbench/opensecbench/pkg/integration"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/methodology"
@@ -45,6 +46,8 @@ type Deps struct {
 	Vault      *secret.Vault
 	Methods    *methodology.Registry // built-ins + loaded extensions; nil = built-ins only
 	Extensions []extension.Loaded    // loaded extension packages (for listing)
+	TrustStore *extension.TrustStore // publisher trust store (for hub install / trust)
+	ExtDir     string                // where installed packages are extracted
 }
 
 // Server routes control-plane HTTP requests against the control-plane services.
@@ -61,7 +64,12 @@ type Server struct {
 	methods  *methodology.Registry
 	vault    *secret.Vault
 	integr   *integration.Registry
-	exts     []extension.Loaded
+	trust    *extension.TrustStore
+	extDir   string
+	hubCli   *hub.Client
+
+	extMu sync.Mutex
+	exts  []extension.Loaded
 
 	sessMu   sync.Mutex
 	sessions map[string]*liveSession
@@ -85,6 +93,9 @@ func New(deps Deps) *Server {
 		methods:  deps.Methods,
 		vault:    deps.Vault,
 		integr:   integration.BuiltIns(),
+		trust:    deps.TrustStore,
+		extDir:   deps.ExtDir,
+		hubCli:   hub.NewClient(0),
 		exts:     deps.Extensions,
 		sessions: make(map[string]*liveSession),
 		proxies:  make(map[string]*liveProxy),
@@ -146,6 +157,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /v1/canaries/{id}", s.deleteCanary)
 	s.mux.HandleFunc("GET /v1/dlp-events", s.listDLPEvents)
 	s.mux.HandleFunc("GET /v1/extensions", s.listExtensions)
+	s.mux.HandleFunc("POST /v1/extensions/trust", s.trustPublisher)
+	s.mux.HandleFunc("GET /v1/hub/index", s.hubIndex)
+	s.mux.HandleFunc("POST /v1/hub/install", s.hubInstall)
 	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)
 	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/adopt", s.adoptMethodology)

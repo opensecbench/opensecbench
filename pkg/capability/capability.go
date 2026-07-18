@@ -5,6 +5,7 @@ package capability
 
 import (
 	"sort"
+	"sync"
 
 	"github.com/opensecbench/opensecbench/pkg/runner"
 )
@@ -49,8 +50,10 @@ type Capability interface {
 	Plan(in Input) (runner.RunSpec, error)
 }
 
-// Registry holds the available capabilities by id.
+// Registry holds the available capabilities by id. It is safe for concurrent use so extensions can
+// be registered at runtime (hub install) while tasks read it.
 type Registry struct {
+	mu   sync.RWMutex
 	caps map[string]Capability
 }
 
@@ -58,20 +61,28 @@ type Registry struct {
 func NewRegistry() *Registry { return &Registry{caps: make(map[string]Capability)} }
 
 // Register adds a capability (replacing any with the same id).
-func (r *Registry) Register(c Capability) { r.caps[c.Manifest().ID] = c }
+func (r *Registry) Register(c Capability) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.caps[c.Manifest().ID] = c
+}
 
 // Get returns a capability by id.
 func (r *Registry) Get(id string) (Capability, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	c, ok := r.caps[id]
 	return c, ok
 }
 
 // Manifests returns all capability manifests sorted by id.
 func (r *Registry) Manifests() []Manifest {
+	r.mu.RLock()
 	out := make([]Manifest, 0, len(r.caps))
 	for _, c := range r.caps {
 		out = append(out, c.Manifest())
 	}
+	r.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }

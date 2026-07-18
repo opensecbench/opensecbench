@@ -21,6 +21,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/browser"
 	"github.com/opensecbench/opensecbench/pkg/client"
 	"github.com/opensecbench/opensecbench/pkg/extension"
+	"github.com/opensecbench/opensecbench/pkg/hub"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/version"
 )
@@ -107,6 +108,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return proxyCmd(ctx, c, args[1:])
 	case "ext", "extension":
 		return extCmd(ctx, c, args[1:])
+	case "hub":
+		return hubCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -740,6 +743,78 @@ func sessionCmd(ctx context.Context, c *client.Client, args []string) error {
 		return printJSON(obs)
 	default:
 		return fmt.Errorf("unknown session subcommand %q", args[0])
+	}
+}
+
+// hubCmd browses and installs from a community hub, and publishes to a local hub directory.
+func hubCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb hub <browse|install|publish>")
+	}
+	switch args[0] {
+	case "browse":
+		fs := flag.NewFlagSet("hub browse", flag.ContinueOnError)
+		url := fs.String("url", "", "hub base URL (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *url == "" {
+			return errors.New("hub browse: --url is required")
+		}
+		pkgs, err := c.HubIndex(ctx, *url)
+		if err != nil {
+			return err
+		}
+		for _, p := range pkgs {
+			fmt.Printf("%-28s v%-8s %-12s %v\n    %s\n", p.ID, p.Version, p.Publisher, p.Tags, p.Description)
+		}
+		return nil
+	case "install":
+		fs := flag.NewFlagSet("hub install", flag.ContinueOnError)
+		url := fs.String("url", "", "hub base URL (required)")
+		id := fs.String("id", "", "package id (required)")
+		trust := fs.Bool("trust", false, "trust the publisher's key from the index (explicit consent)")
+		allowUnsigned := fs.Bool("allow-unsigned", false, "install without a trusted signature (local dev)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *url == "" || *id == "" {
+			return errors.New("hub install: --url and --id are required")
+		}
+		info, err := c.HubInstall(ctx, *url, *id, *trust, *allowUnsigned)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("installed %s v%s (publisher %q, trusted=%v)\n", info.ID, info.Version, info.Publisher, info.Trusted)
+		return nil
+	case "publish":
+		fs := flag.NewFlagSet("hub publish", flag.ContinueOnError)
+		hubDir := fs.String("hub", "", "local hub directory to publish into (required)")
+		dir := fs.String("dir", "", "package directory (required)")
+		key := fs.String("key", "", "publisher public key file (.pub) to record in the index")
+		desc := fs.String("description", "", "package description")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *hubDir == "" || *dir == "" {
+			return errors.New("hub publish: --hub and --dir are required")
+		}
+		pub := ""
+		if *key != "" {
+			b, err := os.ReadFile(*key)
+			if err != nil {
+				return err
+			}
+			pub = strings.TrimSpace(string(b))
+		}
+		entry, err := hub.Publish(*hubDir, *dir, pub, *desc, nil)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("published %s v%s to %s (digest %s)\n", entry.ID, entry.Version, *hubDir, entry.Digest[:12])
+		return nil
+	default:
+		return fmt.Errorf("unknown hub subcommand %q", args[0])
 	}
 }
 
@@ -1725,6 +1800,9 @@ Commands:
   notifications list [--unread]  show notifications
   notifications watch          fire OS-native notifications as they arrive
   notifications read-all       mark all read
+  hub browse --url URL        browse a community hub
+  hub install --url URL --id ID [--trust]  install a package from a hub
+  hub publish --hub DIR --dir PKG [--key K.pub]  publish to a local hub
   ext list                    list loaded extension packages
   ext keygen --out NAME       generate a publisher key pair
   ext sign --dir DIR --key K  sign a package

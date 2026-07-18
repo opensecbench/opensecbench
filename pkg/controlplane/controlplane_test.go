@@ -3,9 +3,13 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"github.com/opensecbench/opensecbench/pkg/extension"
+	"github.com/opensecbench/opensecbench/pkg/hub"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,4 +78,63 @@ func containsID(items []map[string]any, id string) bool {
 		}
 	}
 	return false
+}
+
+// TestHubInstallEndToEnd publishes a signed package to a local hub, serves it, and installs it via
+// the control plane — capability appears with no restart.
+func TestHubInstallEndToEnd(t *testing.T) {
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "osb.db")
+
+	// Author + sign a package.
+	pub, priv, err := extension.GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgSrc := filepath.Join(t.TempDir(), "pkg")
+	if err := os.MkdirAll(pkgSrc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := extension.Manifest{
+		ID: "acme.scanner", Name: "Scanner", Version: "2.0.0", Publisher: "acme",
+		Capabilities: []extension.ContainerCapability{{
+			ID: "scanner", Version: "2.0.0", Title: "Scanner", Image: "alpine:3",
+			Cmd: []string{"echo", "scan"}, OutputName: "o.txt", OutputMediaType: "text/plain",
+		}},
+	}
+	raw, _ := json.Marshal(m)
+	_ = os.WriteFile(filepath.Join(pkgSrc, "extension.json"), raw, 0o644)
+	sig, _ := extension.Sign(m, priv)
+	_ = os.WriteFile(filepath.Join(pkgSrc, "extension.sig"), []byte(sig), 0o644)
+
+	// Publish to a local hub dir + serve it.
+	hubDir := t.TempDir()
+	if _, err := hub.Publish(hubDir, pkgSrc, pub, "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	hubSrv := httptest.NewServer(http.FileServer(http.Dir(hubDir)))
+	defer hubSrv.Close()
+
+	cp, err := Start(Options{Addr: "127.0.0.1:0", DBPath: dbPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cp.Shutdown(context.Background()) }()
+
+	// Install with trust-on-install → verifies signature, hot-registers.
+	body := `{"url":"` + hubSrv.URL + `","id":"acme.scanner","trust":true}`
+	resp, err := http.Post(cp.BaseURL+"/v1/hub/install", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("install status = %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	// The capability is live immediately (no restart).
+	caps := getJSON(t, cp.BaseURL+"/v1/capabilities")
+	if !containsID(caps, "scanner") {
+		t.Fatalf("installed capability not registered: %v", caps)
+	}
 }
