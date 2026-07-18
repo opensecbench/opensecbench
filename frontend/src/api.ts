@@ -447,8 +447,19 @@ export const api = {
   deleteScope: (id: string) => request<void>('DELETE', `/v1/scope/${id}`),
 
   // replay (HTTP exchanges)
-  listExchanges: (projectId: string) =>
-    request<HTTPExchange[]>('GET', `/v1/projects/${projectId}/exchanges`),
+  listExchanges: (
+    projectId: string,
+    filter?: { origin?: string; method?: string; status?: number; q?: string; limit?: number },
+  ) => {
+    const p = new URLSearchParams()
+    if (filter?.origin) p.set('origin', filter.origin)
+    if (filter?.method) p.set('method', filter.method)
+    if (filter?.status) p.set('status', String(filter.status))
+    if (filter?.q) p.set('q', filter.q)
+    if (filter?.limit) p.set('limit', String(filter.limit))
+    const qs = p.toString()
+    return request<HTTPExchange[]>('GET', `/v1/projects/${projectId}/exchanges${qs ? `?${qs}` : ''}`)
+  },
   createExchange: (
     projectId: string,
     req: { name?: string; method?: string; url: string; request_headers?: string; request_body?: string },
