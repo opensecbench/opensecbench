@@ -12,8 +12,10 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Migrations loader + embedded migrations (pkg/store); DB open wired in P1
 - [x] Content-addressed storage skeleton (pkg/cas)
 - [x] Append-only, hash-chained audit writer (pkg/audit)
-- [ ] Global Home + Workbench shells (frontend, later in P0)
-- [ ] Wails desktop boots the control plane in-process (later in P0)
+- [x] Reusable control-plane bootstrap (pkg/controlplane) + CORS for browser/Wails frontends
+- [x] React (Vite + TS) frontend: Global Home (projects list/create/delete) against the API
+- [ ] Wails desktop boots the control plane in-process (glue added; run locally with webkit)
+- [ ] Full Workbench surfaces (methodology/evidence/findings/Analyst) — later phases
 
 ## P1 — Targets, projects, assets, templates, search
 
