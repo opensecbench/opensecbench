@@ -21,6 +21,15 @@ type fakeSource struct {
 	obs      map[string]model.Observation
 	scope    []model.ScopeEntry
 	tasks    []model.Task
+	adopted  []string
+	coverage []model.CoverageEntry
+}
+
+func (f *fakeSource) ListAdoptedMethodologies(context.Context, string) ([]string, error) {
+	return f.adopted, nil
+}
+func (f *fakeSource) ListCoverage(context.Context, string) ([]model.CoverageEntry, error) {
+	return f.coverage, nil
 }
 
 func (f *fakeSource) GetProject(context.Context, string) (model.Project, error) {
@@ -191,6 +200,29 @@ func TestComplianceGroupsByCWE(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "CWE-89") || !strings.Contains(string(out), "Unmapped") {
 		t.Fatalf("compliance report missing CWE grouping:\n%s", out)
+	}
+}
+
+func TestReportIncludesMethodologyCoverage(t *testing.T) {
+	src := sampleSource()
+	src.adopted = []string{"oidc-oauth"}
+	src.coverage = []model.CoverageEntry{
+		{ItemID: "oidc-oauth/pkce", Status: "covered"},
+		{ItemID: "oidc-oauth/state-csrf", Status: "covered"},
+	}
+	d, _ := NewBuilder(src).Build(context.Background(), "p1", time.Now())
+	if d.Methodology.Summary.Total != 4 || d.Methodology.Summary.Covered != 2 {
+		t.Fatalf("methodology summary wrong: %+v", d.Methodology.Summary)
+	}
+	tech, _ := BuiltIns().Get("technical")
+	out, _ := tech.Render(d, FormatMarkdown)
+	if !strings.Contains(string(out), "Methodology coverage") || !strings.Contains(string(out), "PKCE for public clients") {
+		t.Fatalf("technical report missing methodology section:\n%s", out)
+	}
+	exec, _ := BuiltIns().Get("executive")
+	eout, _ := exec.Render(d, FormatMarkdown)
+	if !strings.Contains(string(eout), "Methodology coverage: **50%**") {
+		t.Fatalf("executive missing coverage line:\n%s", eout)
 	}
 }
 
