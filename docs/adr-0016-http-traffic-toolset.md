@@ -98,9 +98,13 @@ path, full provenance.
 **Hold semantics (first-principles, matches operator expectations):**
 - **Hold forever** until the operator acts (like every intercepting proxy) — no silent auto-forward.
 - **Auto-drop on**: proxy stop (drain all holds), client/connection cancel (`ctx.Done()`), control-plane
-  shutdown. No leaked goroutines: every blocked hook selects on its context.
-- **Requests only in v1.** Response interception (hold the upstream response before writing it back) is the
-  same pattern at the second choke point and is a v2 refinement, explicitly deferred.
+  shutdown. No leaked goroutines: every blocked hook selects on its context and the manager's drain signal.
+- **Requests *and* responses in the first pass.** Two choke points, one mechanism: the request hold sits
+  before `RoundTrip`; the response hold sits after it, before the bytes reach the client. Each phase arms
+  independently (`requests` / `responses` flags). When response interception is armed the proxy **buffers**
+  the full upstream body so it can be shown and edited (streaming stays the default when it is off, so large
+  downloads aren't buffered needlessly). The `Held`/`Decision` carry a `phase` and the fields relevant to
+  it (method/url/headers/body for requests; status/headers/body for responses).
 - **Governance unchanged and total**: out-of-scope hosts are already refused before a hold exists; DLP still
   inspects the *forwarded* (edited) request; **every hold, edit-and-forward, and drop is audited**. Editing
   a request is exactly the operator power a hands-on proxy grants — and here it is fully logged.

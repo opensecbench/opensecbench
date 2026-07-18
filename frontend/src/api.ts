@@ -141,6 +141,23 @@ export interface CoverageView {
   }
 }
 
+export interface HeldItem {
+  id: string
+  phase: 'request' | 'response'
+  method: string
+  url: string
+  request_headers: string
+  request_body: string
+  status?: number
+  response_headers?: string
+  response_body?: string
+}
+export interface InterceptState {
+  requests: boolean
+  responses: boolean
+  held: HeldItem[]
+}
+
 export interface GraphNode {
   id: string
   label: string
@@ -466,11 +483,18 @@ export const api = {
   ) => request<HTTPExchange>('POST', `/v1/projects/${projectId}/exchanges`, req),
   sendExchange: (id: string) => request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, {}),
 
-  // Live project event stream (SSE): captured exchanges + proxy status, so clients react instead of
-  // polling. EventSource auto-reconnects; callers resync with a fetch on (re)connect. Returns a close fn.
+  // Live project event stream (SSE): captured exchanges, proxy status, and intercept queue changes,
+  // so clients react instead of polling. EventSource auto-reconnects; callers resync with a fetch on
+  // (re)connect. Returns a close fn.
   subscribeProjectEvents: (
     projectId: string,
-    handlers: { exchange?: (ex: HTTPExchange) => void; proxy?: (st: ProxyStatus) => void },
+    handlers: {
+      exchange?: (ex: HTTPExchange) => void
+      proxy?: (st: ProxyStatus) => void
+      interceptState?: (st: InterceptState) => void
+      held?: (h: HeldItem) => void
+      resolved?: (id: string) => void
+    },
   ): (() => void) => {
     const es = new EventSource(`${baseURL}/v1/projects/${projectId}/events`)
     const on = (type: string, fn: (payload: unknown) => void) =>
@@ -483,8 +507,31 @@ export const api = {
       })
     if (handlers.exchange) on('exchange', (p) => handlers.exchange!(p as HTTPExchange))
     if (handlers.proxy) on('proxy', (p) => handlers.proxy!(p as ProxyStatus))
+    if (handlers.interceptState) on('intercept', (p) => handlers.interceptState!(p as InterceptState))
+    if (handlers.held) on('intercept.held', (p) => handlers.held!(p as HeldItem))
+    if (handlers.resolved) on('intercept.resolved', (p) => handlers.resolved!((p as { id: string }).id))
     return () => es.close()
   },
+
+  // intercept (hold → edit → forward/drop)
+  getIntercept: (projectId: string) =>
+    request<InterceptState>('GET', `/v1/projects/${projectId}/intercept`),
+  setIntercept: (projectId: string, requests: boolean, responses: boolean) =>
+    request<InterceptState>('PUT', `/v1/projects/${projectId}/intercept`, { requests, responses }),
+  resolveIntercept: (
+    projectId: string,
+    holdId: string,
+    body: {
+      action: 'forward' | 'drop'
+      method?: string
+      url?: string
+      request_headers?: string
+      request_body?: string
+      status?: number
+      response_headers?: string
+      response_body?: string
+    },
+  ) => request<{ status: string }>('POST', `/v1/projects/${projectId}/intercept/${holdId}`, body),
   saveExchangeEvidence: (id: string, note: string, itemId?: string) =>
     request<Observation>('POST', `/v1/exchanges/${id}/evidence`, { note, item_id: itemId ?? '' }),
 
