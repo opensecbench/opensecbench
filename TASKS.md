@@ -98,5 +98,7 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] API + osb CLI: repeater send/list/get/evidence
 - [x] Repeater tab in the frontend (send, response view, save-as-evidence, history)
 - [ ] Intercepting proxy (CA/TLS capture) → http_exchange rows with origin=proxy
-- [ ] Interactive terminal (SSH/PTY via a runner; agent co-drive gated; transcript audited)
+- [x] Interactive terminal: shell in a sandboxed container over a PTY (pkg/session)
+- [x] WebSocket terminal API + xterm.js tab; transcript captured to CAS on close, save-as-evidence
+- [ ] SSH/PTY to an external host (scoped); agent co-drive through the approval gate
 - [ ] Fragment-level response selection as evidence (byte-range)

@@ -12,6 +12,11 @@ const baseURL: string =
   (import.meta.env.VITE_OSB_API as string | undefined) ||
   'http://127.0.0.1:7373'
 
+// wsURL builds a WebSocket URL against the control plane for a given API path.
+export function wsURL(path: string): string {
+  return baseURL.replace(/^http/, 'ws') + path
+}
+
 // --- types (mirror pkg/model JSON) ---
 
 export interface Project {
@@ -73,6 +78,19 @@ export interface CapabilityManifest {
   title: string
   description: string
   target_param?: string
+}
+
+export interface Session {
+  id: string
+  project_id: string
+  kind: string
+  container: string
+  image: string
+  status: string
+  actor: string
+  transcript_artifact_id?: string
+  created_at: string
+  closed_at?: string
 }
 
 export interface HTTPExchange {
@@ -292,6 +310,16 @@ export const api = {
   sendExchange: (id: string) => request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, {}),
   saveExchangeEvidence: (id: string, note: string) =>
     request<Observation>('POST', `/v1/exchanges/${id}/evidence`, { note }),
+
+  // terminal sessions
+  listSessions: (projectId: string) =>
+    request<Session[]>('GET', `/v1/projects/${projectId}/sessions`),
+  openSession: (projectId: string, actor: string) =>
+    request<Session>('POST', `/v1/projects/${projectId}/sessions`, { actor }),
+  getSession: (id: string) => request<Session>('GET', `/v1/sessions/${id}`),
+  closeSession: (id: string) => request<Session>('POST', `/v1/sessions/${id}/close`, {}),
+  saveSessionEvidence: (id: string, note: string) =>
+    request<Observation>('POST', `/v1/sessions/${id}/evidence`, { note }),
 
   // capabilities & tasks
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
