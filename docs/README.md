@@ -24,7 +24,8 @@ scratch); these docs are the buildable, versioned foundation.
 | [0013](adr-0013-extension-loader.md) | Extension loader | Accepted (dir packages, container caps + methodology, ed25519 signing); more pack types staged |
 | [0014](adr-0014-community-hub.md) | Community extension hub | Accepted (static signed index, publish/browse/install, explicit trust); scanning/reputation staged |
 | [0015](adr-0015-workbench-ide-shell.md) | Workbench IDE shell | Accepted (Phases 1–3 delivered: frame reshape; explorer + methodology landing + coverage; persistent multi-document keep-alive + in-context Replay↔item evidence binding) |
-| [0016](adr-0016-http-traffic-toolset.md) | HTTP traffic toolset (Proxy · Replay · Intercept) | Proposed (naming + extensible structure accepted; Proxy build + intercept queue staged) |
+| [0016](adr-0016-http-traffic-toolset.md) | HTTP traffic toolset (Proxy · Replay · Intercept) | Accepted — fully delivered (rename + Steps 1–4) |
+| [0017](adr-0017-first-class-tool-use.md) | First-class tool use & provider translation | Accepted (design); phased implementation. Evolves ADR-0006 |
 
 Later subsystems get an ADR when their phase begins. See [`../TODO.md`](../TODO.md).
 
