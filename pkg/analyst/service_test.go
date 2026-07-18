@@ -119,19 +119,19 @@ func TestEgressPolicyBlocksPrivateAssetOnExternalProvider(t *testing.T) {
 
 	// Strict egress + external provider: running a capability on a PRIVATE asset is blocked.
 	external := &Service{store: db, provider: &llm.MockProvider{}, egressStrict: true, providerLocal: false}
-	_, err := external.execute(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
+	_, err := external.executeFor("")(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
 	if err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("expected egress block for private asset, got %v", err)
 	}
 	// An open-source asset is not blocked by egress (it fails later for a different reason).
-	_, err = external.execute(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": oss.ID}})
+	_, err = external.executeFor("")(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": oss.ID}})
 	if err != nil && strings.Contains(err.Error(), "egress") {
 		t.Fatal("open-source asset must not be egress-blocked")
 	}
 
 	// A local provider is never egress-blocked.
 	local := &Service{store: db, provider: &llm.MockProvider{}, egressStrict: true, providerLocal: true}
-	_, err = local.execute(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
+	_, err = local.executeFor("")(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
 	if err != nil && strings.Contains(err.Error(), "egress") {
 		t.Fatal("local provider must not be egress-blocked")
 	}

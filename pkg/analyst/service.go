@@ -11,6 +11,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/replay"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
@@ -23,6 +24,7 @@ type Service struct {
 	store         *store.DB
 	engine        *task.Engine
 	provider      llm.Provider
+	replay        *replay.Client
 	egressStrict  bool
 	providerLocal bool
 	tokenBudget   int
@@ -44,6 +46,7 @@ func NewService(st *store.DB, engine *task.Engine, provider llm.Provider) *Servi
 		store:         st,
 		engine:        engine,
 		provider:      provider,
+		replay:        replay.New(0),
 		egressStrict:  os.Getenv("OSB_EGRESS_POLICY") != "open", // default: strict
 		providerLocal: provider != nil && llm.IsLocal(provider),
 		tokenBudget:   budget,
@@ -57,30 +60,41 @@ func (svc *Service) Available() bool { return svc.provider != nil }
 // strict, capability output for a private asset is not sent to an external provider.
 func (svc *Service) SetEgressStrict(strict bool) { svc.egressStrict = strict }
 
-func (svc *Service) session() *agent.Session {
+func (svc *Service) session(projectID string) *agent.Session {
 	return &agent.Session{
 		Provider:    svc.provider,
 		Tools:       Tools(),
 		Gate:        func(c agent.ToolCall) bool { return gatedTools[c.Tool] },
-		Execute:     svc.execute,
+		Execute:     svc.executeFor(projectID),
 		MaxSteps:    8,
 		TokenBudget: svc.tokenBudget,
 		Audit:       svc.Audit,
 	}
 }
 
-// execute enforces the data-egress policy before running a tool: under a strict policy with an
-// external LLM provider, running a capability on a private asset is blocked, because its output
-// would be summarized by the external model.
-func (svc *Service) execute(ctx context.Context, call agent.ToolCall) (string, error) {
-	if (call.Tool == "run_capability" || call.Tool == "run_playbook") && svc.egressStrict && !svc.providerLocal {
-		if assetID, _ := call.Args["asset"].(string); assetID != "" {
-			if asset, err := svc.store.GetAsset(ctx, assetID); err == nil && asset.Sensitivity == model.SensitivityPrivate {
-				return "", fmt.Errorf("blocked by data-egress policy: capability output for a private asset would be sent to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", svc.provider.Name())
+// executeFor builds the tool executor for a thread's project, wrapped with the data-egress policy:
+// under a strict policy with an external LLM provider, running a capability on a private asset is
+// blocked, because its output would be summarized by the external model.
+func (svc *Service) executeFor(projectID string) func(context.Context, agent.ToolCall) (string, error) {
+	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, ProjectID: projectID})
+	return func(ctx context.Context, call agent.ToolCall) (string, error) {
+		if (call.Tool == "run_capability" || call.Tool == "run_playbook") && svc.egressStrict && !svc.providerLocal {
+			if assetID, _ := call.Args["asset"].(string); assetID != "" {
+				if asset, err := svc.store.GetAsset(ctx, assetID); err == nil && asset.Sensitivity == model.SensitivityPrivate {
+					return "", fmt.Errorf("blocked by data-egress policy: capability output for a private asset would be sent to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", svc.provider.Name())
+				}
 			}
 		}
+		return exec(ctx, call)
 	}
-	return Executor(svc.store, svc.engine)(ctx, call)
+}
+
+// projectOf returns a thread's project id, or "" if it is a project-less thread.
+func projectOf(th model.Thread) string {
+	if th.ProjectID == nil {
+		return ""
+	}
+	return *th.ProjectID
 }
 
 // SendResult is the outcome of sending a message or deciding an approval.
@@ -99,10 +113,11 @@ func (svc *Service) Send(ctx context.Context, threadID, userMessage string) (Sen
 	if svc.provider == nil {
 		return SendResult{}, errors.New("no LLM provider configured")
 	}
-	if _, err := svc.store.GetThread(ctx, threadID); err != nil {
+	th, err := svc.store.GetThread(ctx, threadID)
+	if err != nil {
 		return SendResult{}, err
 	}
-	sess := svc.session()
+	sess := svc.session(projectOf(th))
 
 	existing, err := svc.store.ListMessages(ctx, threadID)
 	if err != nil {
@@ -147,6 +162,10 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 		return SendResult{}, err
 	}
 
+	th, err := svc.store.GetThread(ctx, ap.ThreadID)
+	if err != nil {
+		return SendResult{}, err
+	}
 	prior, err := svc.loadMessages(ctx, ap.ThreadID)
 	if err != nil {
 		return SendResult{}, err
@@ -155,7 +174,7 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 	_ = json.Unmarshal(ap.Args, &args)
 	call := agent.ToolCall{Tool: ap.Tool, Args: args}
 
-	out, err := svc.session().Resume(ctx, prior, call, approved)
+	out, err := svc.session(projectOf(th)).Resume(ctx, prior, call, approved)
 	if err != nil {
 		_ = svc.store.UpdateThreadStatus(ctx, ap.ThreadID, model.ThreadError)
 		return SendResult{}, err
