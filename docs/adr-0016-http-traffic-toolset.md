@@ -66,6 +66,58 @@ same publisher-trust model as capabilities/methodologies — our vendor-neutral 
 ecosystems. Designing the seams as registries now is what makes that a later additive step rather than a
 rewrite. Tracked in `TODO.md`.
 
+## Step 3 — Intercept (design)
+
+Capture is passthrough: `OnExchange` fires *after* the proxy has already forwarded. Intercept must
+**pause a request in flight**, let the operator edit it, then **forward** (possibly edited) or **drop** it.
+This is the one genuinely new subsystem, and it touches the proxy's hot path, so the design is explicit.
+
+**Keep `pkg/proxy` generic — add one blocking hook.** Alongside `Allow` (scope) and `OnExchange`
+(capture), the proxy gains an optional `Intercept` hook called at the single choke point both forwarding
+paths already share (`handleHTTP` and `forwardTLS`), *after* the scope check and body read, *before*
+`RoundTrip`:
+
+```
+type Decision struct { Drop bool; Method, URL, RequestHeaders, RequestBody string }
+Intercept func(Held) Decision   // nil or disabled ⇒ forward unchanged, immediately
+```
+
+The proxy calls it, and either drops (return 403 to the client) or applies the returned method/url/
+headers/body to the outgoing request. `pkg/proxy` knows nothing about queues or HTTP control — it just
+respects the decision. This keeps the risky concurrency out of the transport code.
+
+**The queue lives in the api layer (`pkg/api`), not the DB.** Held requests are in-flight and transient —
+never persisted. An intercept manager holds, per project: an `enabled` flag and a map of `holdID → hold`,
+where each hold carries the request snapshot and a `chan Decision`. The `Intercept` hook implementation:
+if disabled, forward immediately; else register a hold, publish an `intercept.held` event (SSE), and block
+on the hold's channel *selected against the request context* so a client disconnect auto-drops. When the
+operator resolves, the control handler sends the decision on the channel and publishes `intercept.resolved`.
+A forwarded request still flows through `OnExchange`, so it lands in history like any capture — one code
+path, full provenance.
+
+**Hold semantics (first-principles, matches operator expectations):**
+- **Hold forever** until the operator acts (like every intercepting proxy) — no silent auto-forward.
+- **Auto-drop on**: proxy stop (drain all holds), client/connection cancel (`ctx.Done()`), control-plane
+  shutdown. No leaked goroutines: every blocked hook selects on its context.
+- **Requests only in v1.** Response interception (hold the upstream response before writing it back) is the
+  same pattern at the second choke point and is a v2 refinement, explicitly deferred.
+- **Governance unchanged and total**: out-of-scope hosts are already refused before a hold exists; DLP still
+  inspects the *forwarded* (edited) request; **every hold, edit-and-forward, and drop is audited**. Editing
+  a request is exactly the operator power a hands-on proxy grants — and here it is fully logged.
+
+**Control protocol (API):**
+- `PUT /v1/projects/{id}/intercept` `{enabled}` — arm/disarm; publishes state.
+- `GET /v1/projects/{id}/intercept` — `{enabled, held:[…]}` for initial load (queue + arm state).
+- `POST /v1/projects/{id}/intercept/{holdId}` `{action:"forward"|"drop", method?,url?,headers?,body?}` —
+  resolve one hold, with optional edits on forward.
+- Live: `intercept.held` / `intercept.resolved` / `intercept` (arm-state) events over the existing SSE hub
+  (Step 2) — no new transport.
+
+**Frontend — an Intercept surface** (a workbench document): an **armed** toggle, the held-request queue,
+an editor for the currently-held request (method/url/headers/body), and **Forward** / **Drop** (Forward
+carries edits). When armed, the operator works the queue; when off, traffic flows straight to capture. It
+reuses the doc model and can offer the same exchange **actions** (e.g. Send to Replay) on a held request.
+
 ## Consequences
 
 - **Extensibility is structural, not bolted on** — every planned Proxy feature is either an action, a
