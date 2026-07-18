@@ -16,7 +16,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] React (Vite + TS) frontend: Global Home (projects, template create, omni-search)
 - [x] Wails desktop boots the control plane in-process (verified locally via `wails dev`)
 - [x] Project Workbench: Applications & Assets, Context (upload), Scan (run → triage → finding), Findings
-- [ ] Methodology / Analyst (agent) surfaces — later phases
+- [x] Methodology / Analyst (agent) surfaces — delivered in later phases: Analyst panel (P4),
+      Methodology tab (P8/ADR-0009); Workbench now spans the full lifecycle
 
 ## P1 — Targets, projects, assets, templates, search
 
@@ -86,7 +87,7 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Network capability (http-probe) with Manifest.TargetParam
 - [x] Engine enforcement: scope.Check before network capabilities; blocked = failed task (audited)
 - [x] Scope management API + osb CLI (scope add/list/delete); capability run --project
-- [ ] Scope enforcement for interactive sessions / proxy targets — P7
+- [x] Scope enforcement for proxy targets (host allowlist gate); sessions are local sandboxes
 
 ## P7 — Proxy + Repeater + Terminal
 
@@ -97,7 +98,7 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Save-as-evidence: response → CAS artifact + human-origin observation (ADR-0005)
 - [x] API + osb CLI: repeater send/list/get/evidence
 - [x] Repeater tab in the frontend (send, response view, save-as-evidence, history)
-- [ ] Intercepting proxy (CA/TLS capture) → http_exchange rows with origin=proxy
+- [x] Intercepting proxy (CA/TLS capture) → http_exchange rows with origin=proxy
 - [x] Interactive terminal: shell in a sandboxed container over a PTY (pkg/session)
 - [x] WebSocket terminal API + xterm.js tab; transcript captured to CAS on close, save-as-evidence
 - [x] Preconfigured throwaway browser: `osb proxy browser` launches Chromium pointed at the proxy
@@ -111,7 +112,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Record governed actions: task run/blocked, scope add/delete, repeater send/blocked,
       session open/close, evidence promotions, playbook run, approval decisions, Analyst tool calls
 - [x] GET /v1/audit + client + `osb audit` CLI + Audit tab in the workbench
-- [ ] Broaden coverage to entity CRUD; `osb audit --verify` chain check; decide fail-closed policy
+- [x] `osb audit --verify` chain check (tamper detection)
+- [ ] Broaden audit coverage to entity CRUD; decide fail-closed-on-audit-failure policy
 
 ## P8 — Reporting + visualizations + coverage
 
@@ -145,7 +147,7 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Analyst draft_kb_entry + list_targets tools; KB in omni-search
 - [x] Workbench Knowledge tab (add, AI-draft marking, confirm/reject)
 - [ ] Broader scope resolution (group/org/global-personal)
-- [ ] KB-driven methodology applicability ("auth: SAML → suggest SAML pack")
+- [x] KB-driven methodology applicability (KB keywords → adopt suggestions)
 - [ ] KB entry versioning; link entries to source evidence/findings
 - [ ] KB packs as extension packages
 
@@ -161,7 +163,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [ ] Integration pull (DefectDojo findings/scans in) + DependencyTrack SBOM
 - [ ] Jira/resource watchers (schedule → notify/create task/run playbook)
 - [ ] Integrations modeled as first-class capabilities (gate/audit via the capability contract)
-- [ ] policy_profile entity (bundle agent data-access + provider routing); OS keychain / KMS key custody
+- [x] policy_profile entity (personal/corporate/strict; governs Analyst egress)
+- [ ] OS keychain / KMS vault key custody
 
 ## P11 — Collaboration (export/import first)
 
@@ -170,8 +173,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Export gathers the shareable graph + CAS blobs; Import remaps IDs (re-import safe), preserves
       evidence content hashes
 - [x] API (X-OSB-Passphrase header) + osb CLI (project export/import); verified across two daemons
-- [ ] Publisher-key signing of bundles (tie to identity; reuse extension-hub trust model)
-- [ ] DefectDojo+Teams mediated sharing (reuse P10 connectors + a Teams notifier)
+- [x] Publisher-key signing of bundles (ed25519 sidecar; `export --sign-key` / `import --verify`)
+- [x] Mediated sharing: DefectDojo finding push (P10) + Slack/Teams webhook notifications
 - [ ] Subset export (findings-only) + full-backup mode (include tasks/audit)
 - [ ] Hosted team service (deferred until existing-platform sharing proves insufficient)
 
@@ -182,7 +185,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Control plane loads <data>/extensions at startup into the capability + methodology registries
 - [x] First-party example pack (extensions/trufflehog) + extensions/README
 - [x] API GET /v1/extensions + osb ext list/keygen/sign; verified e2e (sign→trust→load→cap registered)
-- [ ] Report/playbook/visualization pack types; manifest `permissions` schema
+- [x] Report extension pack type
+- [ ] Playbook/visualization extension pack types; manifest `permissions` schema
 - [ ] Runtime install/reload (drop-in without restart) + trust management over the API
 - [ ] Interpret trufflehog JSON output into observations (currently captured as a raw artifact)
 
@@ -196,5 +200,5 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
       POST /v1/extensions/trust; explicit trust-on-install
 - [x] osb hub browse/install/publish + ext trust flow; e2e (publish→serve→install→live capability)
 - [ ] Hosted hub service (accounts, uploads, submission scanning, reputation, moderation/takedown)
-- [ ] Frontend Extensions/Hub view (browse + install + trust)
+- [x] Frontend Extensions & Governance view (browse/install/trust + policy)
 - [ ] Version constraints / update flow; uninstall
