@@ -53,8 +53,9 @@ and can later ship as plugins.
       `Interceptor` hook in `pkg/proxy` (both HTTP + TLS paths); in-memory hold queue in `pkg/api`
       (resolve/drain/ctx-cancel, all tested); control endpoints + audit; live over the SSE hub; an
       Intercept workbench surface. Verified E2E (edited body reached the upstream; drop blocked it).
-- [ ] **Match/replace + scope highlighting** (Step 4) — a traffic-processor in the pipeline; highlight
-      in-scope vs out in the history.
+- [x] **Match/replace + scope highlighting** (Step 4) — a persisted match/replace traffic-processor
+      (regex rules over url/req+resp headers/body, live-applied by the running proxy) and in/out-of-scope
+      row highlighting in history. The HTTP toolset (ADR-0016) is now fully delivered.
 - [x] Server-side filtered `GET /v1/projects/{id}/exchanges` (Step 1; `origin/method/status/q/limit`).
       *Cursor pagination still to add; live push is Step 2.*
 
