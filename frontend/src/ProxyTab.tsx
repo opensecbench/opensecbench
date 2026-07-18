@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, HTTPExchange, ProxyStatus, Project } from './api'
 import { actionsFor, type ActionContext } from './exchangeActions'
 import { hasNativeBrowserLaunch, openProxyBrowser } from './native'
@@ -35,9 +35,8 @@ export function ProxyTab({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
-  async function refresh() {
+  async function loadList() {
     try {
-      setStatus(await api.getProxy(project.id))
       const list =
         (await api.listExchanges(project.id, {
           origin: 'proxy',
@@ -52,20 +51,55 @@ export function ProxyTab({
     }
   }
 
-  // Poll so captured traffic streams in; selection is kept by id so it survives refreshes.
+  // A live event may arrive while a filter is active; decide client-side whether it belongs in the
+  // current view (mirrors the server filter). A ref keeps the stream handler reading fresh filters
+  // without re-subscribing on every keystroke.
+  const filterRef = useRef({ method, statusFilter, q })
+  filterRef.current = { method, statusFilter, q }
+  function matchesFilter(ex: HTTPExchange): boolean {
+    const f = filterRef.current
+    return (
+      ex.origin === 'proxy' &&
+      (!f.method || ex.method === f.method) &&
+      (!f.statusFilter || ex.status === Number(f.statusFilter)) &&
+      (!f.q || ex.url.toLowerCase().includes(f.q.toLowerCase()))
+    )
+  }
+
+  // Initial proxy status (then kept current by 'proxy' events + toggle, no polling).
   useEffect(() => {
     if (!online) return
-    void refresh()
-    const timer = setInterval(refresh, 2500)
-    return () => clearInterval(timer)
+    api.getProxy(project.id).then(setStatus).catch((e) => onError((e as Error).message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, project.id])
+
+  // Fetch the filtered history on mount and whenever a filter changes; the live stream keeps it fresh.
+  useEffect(() => {
+    if (!online) return
+    void loadList()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, project.id, method, statusFilter, q])
+
+  // Live push (SSE): upsert captured exchanges as they happen; reflect proxy start/stop. Subscribe
+  // once per project — filters are applied via the ref, so typing never tears down the stream.
+  useEffect(() => {
+    if (!online) return
+    const close = api.subscribeProjectEvents(project.id, {
+      exchange: (ex) => {
+        if (!matchesFilter(ex)) return
+        setCaptured((prev) => [ex, ...prev.filter((e) => e.id !== ex.id)].slice(0, 300))
+      },
+      proxy: setStatus,
+    })
+    return close
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, project.id])
 
   async function toggle() {
     setBusy(true)
     try {
       setStatus(status.running ? await api.stopProxy(project.id) : await api.startProxy(project.id))
-      await refresh()
+      await loadList()
     } catch (e) {
       onError((e as Error).message)
     } finally {

@@ -211,7 +211,7 @@ type Session struct {
 // HTTP exchange origins.
 const (
 	ExchangeReplay = "replay"
-	ExchangeProxy    = "proxy"
+	ExchangeProxy  = "proxy"
 )
 
 // HTTPExchange is a request and (once sent) its response, anchored to a project (ADR-0007). The

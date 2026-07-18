@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/opensecbench/opensecbench/pkg/events"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/scope"
@@ -91,7 +92,9 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	s.proxies[projectID] = &liveProxy{srv: srv, port: port}
 	s.record(r.Context(), actorOf(r), "proxy.start", projectID, map[string]int{"port": port})
-	writeJSON(w, http.StatusCreated, proxyStatus{Running: true, Port: port, CASPKI: s.caSPKI()})
+	st := proxyStatus{Running: true, Port: port, CASPKI: s.caSPKI()}
+	s.events.Publish(events.Event{Type: "proxy", ProjectID: projectID, Payload: st})
+	writeJSON(w, http.StatusCreated, st)
 }
 
 func (s *Server) stopProxy(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +111,7 @@ func (s *Server) stopProxy(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	_ = lp.srv.Shutdown(ctx)
 	s.record(r.Context(), actorOf(r), "proxy.stop", projectID, map[string]int{"port": lp.port})
+	s.events.Publish(events.Event{Type: "proxy", ProjectID: projectID, Payload: proxyStatus{Running: false, CASPKI: s.caSPKI()}})
 	writeJSON(w, http.StatusOK, proxyStatus{Running: false})
 }
 
@@ -130,7 +134,18 @@ func (s *Server) proxyCapture(projectID string) func(proxy.Exchange) {
 		if err := s.store.RecordResponse(ctx, ex.ID, e.Status, e.ResponseHeaders, e.ResponseBody, e.DurationMS); err != nil {
 			log.Printf("proxy capture response: %v", err)
 		}
+		s.publishExchange(ctx, projectID, ex.ID)
 	}
+}
+
+// publishExchange emits the current, complete state of an exchange to subscribers (SSE). Best-effort:
+// a fetch failure just skips the live update, which the client's next fetch reconciles.
+func (s *Server) publishExchange(ctx context.Context, projectID, id string) {
+	full, err := s.store.GetExchange(ctx, id)
+	if err != nil {
+		return
+	}
+	s.events.Publish(events.Event{Type: "exchange", ProjectID: projectID, Payload: full})
 }
 
 // projectAllows returns a host gate enforcing the project's scope allowlist (empty = allow all).

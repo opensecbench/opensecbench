@@ -465,6 +465,26 @@ export const api = {
     req: { name?: string; method?: string; url: string; request_headers?: string; request_body?: string },
   ) => request<HTTPExchange>('POST', `/v1/projects/${projectId}/exchanges`, req),
   sendExchange: (id: string) => request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, {}),
+
+  // Live project event stream (SSE): captured exchanges + proxy status, so clients react instead of
+  // polling. EventSource auto-reconnects; callers resync with a fetch on (re)connect. Returns a close fn.
+  subscribeProjectEvents: (
+    projectId: string,
+    handlers: { exchange?: (ex: HTTPExchange) => void; proxy?: (st: ProxyStatus) => void },
+  ): (() => void) => {
+    const es = new EventSource(`${baseURL}/v1/projects/${projectId}/events`)
+    const on = (type: string, fn: (payload: unknown) => void) =>
+      es.addEventListener(type, (e) => {
+        try {
+          fn(JSON.parse((e as MessageEvent).data).payload)
+        } catch {
+          /* ignore malformed frame */
+        }
+      })
+    if (handlers.exchange) on('exchange', (p) => handlers.exchange!(p as HTTPExchange))
+    if (handlers.proxy) on('proxy', (p) => handlers.proxy!(p as ProxyStatus))
+    return () => es.close()
+  },
   saveExchangeEvidence: (id: string, note: string, itemId?: string) =>
     request<Observation>('POST', `/v1/exchanges/${id}/evidence`, { note, item_id: itemId ?? '' }),
 

@@ -16,6 +16,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/analyst"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/dlp"
+	"github.com/opensecbench/opensecbench/pkg/events"
 	"github.com/opensecbench/opensecbench/pkg/extension"
 	"github.com/opensecbench/opensecbench/pkg/hub"
 	"github.com/opensecbench/opensecbench/pkg/integration"
@@ -59,7 +60,8 @@ type Server struct {
 	engine   *task.Engine
 	cas      *cas.Store
 	provider llm.Provider
-	replay *replay.Client
+	replay   *replay.Client
+	events   *events.Hub
 	sessMgr  *session.Manager
 	proxyCA  *proxy.CA
 	reports  *report.Registry
@@ -88,7 +90,8 @@ func New(deps Deps) *Server {
 		engine:   deps.Engine,
 		cas:      deps.CAS,
 		provider: deps.Provider,
-		replay: replay.New(0),
+		replay:   replay.New(0),
+		events:   events.NewHub(),
 		sessMgr:  deps.SessionMgr,
 		proxyCA:  deps.ProxyCA,
 		reports:  deps.Reports,
@@ -198,6 +201,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/projects/{id}/scope", s.listScope)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scope", s.addScope)
 	s.mux.HandleFunc("DELETE /v1/scope/{id}", s.deleteScope)
+	s.mux.HandleFunc("GET /v1/projects/{id}/events", s.projectEvents)
 	s.mux.HandleFunc("GET /v1/projects/{id}/exchanges", s.listExchanges)
 	s.mux.HandleFunc("POST /v1/projects/{id}/exchanges", s.createExchange)
 	s.mux.HandleFunc("GET /v1/exchanges/{id}", s.getExchange)
@@ -1011,6 +1015,7 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 		"method": ex.Method, "url": ex.URL, "status": resp.Status,
 	})
 	updated, _ := s.store.GetExchange(r.Context(), ex.ID)
+	s.events.Publish(events.Event{Type: "exchange", ProjectID: ex.ProjectID, Payload: updated})
 	writeJSON(w, http.StatusOK, updated)
 }
 
