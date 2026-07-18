@@ -209,6 +209,32 @@ func (c *Client) DeleteSecret(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/secrets/"+name, nil, nil)
 }
 
+// ListIntegrations returns available integration connector names.
+func (c *Client) ListIntegrations(ctx context.Context) ([]string, error) {
+	var out []string
+	return out, c.do(ctx, http.MethodGet, "/v1/integrations", nil, &out)
+}
+
+// PushFindingRequest configures a finding push to an external tracker.
+type PushFindingRequest struct {
+	Integration string `json:"integration"`
+	BaseURL     string `json:"base_url"`
+	ProjectKey  string `json:"project_key,omitempty"`
+	Credential  string `json:"credential,omitempty"` // vault secret NAME
+}
+
+// PushFinding sends a finding to an external tracker and returns the (idempotent) external link.
+func (c *Client) PushFinding(ctx context.Context, findingID string, req PushFindingRequest) (model.ExternalLink, error) {
+	var out model.ExternalLink
+	return out, c.do(ctx, http.MethodPost, "/v1/findings/"+findingID+"/push", req, &out)
+}
+
+// ListFindingLinks returns a finding's external links.
+func (c *Client) ListFindingLinks(ctx context.Context, findingID string) ([]model.ExternalLink, error) {
+	var out []model.ExternalLink
+	return out, c.do(ctx, http.MethodGet, "/v1/findings/"+findingID+"/links", nil, &out)
+}
+
 // ListCanaries returns planted canary tokens.
 func (c *Client) ListCanaries(ctx context.Context) ([]model.Canary, error) {
 	var out []model.Canary

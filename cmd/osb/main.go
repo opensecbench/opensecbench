@@ -1386,9 +1386,42 @@ func observationCmd(ctx context.Context, c *client.Client, args []string) error 
 
 func findingCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: osb finding <list|get|create>")
+		return errors.New("usage: osb finding <list|get|create|push|links>")
 	}
 	switch args[0] {
+	case "push":
+		fs := flag.NewFlagSet("finding push", flag.ContinueOnError)
+		id := fs.String("id", "", "finding id (required)")
+		integ := fs.String("integration", "", "integration: jira | defectdojo (required)")
+		baseURL := fs.String("url", "", "base URL of the tracker (required)")
+		projectKey := fs.String("project", "", "jira project key / defectdojo test id")
+		cred := fs.String("credential", "", "vault secret NAME holding the auth token")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" || *integ == "" || *baseURL == "" {
+			return errors.New("finding push: --id, --integration, and --url are required")
+		}
+		link, err := c.PushFinding(ctx, *id, client.PushFindingRequest{
+			Integration: *integ, BaseURL: *baseURL, ProjectKey: *projectKey, Credential: *cred,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("linked to %s %s (%s)\n", link.Integration, link.ExternalID, link.ExternalURL)
+		return nil
+	case "links":
+		if len(args) < 2 {
+			return errors.New("usage: osb finding links <id>")
+		}
+		links, err := c.ListFindingLinks(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		for _, l := range links {
+			fmt.Printf("%-10s %-12s %s\n", l.Integration, l.ExternalID, l.ExternalURL)
+		}
+		return nil
 	case "list":
 		findings, err := c.ListFindings(ctx)
 		if err != nil {
@@ -1580,6 +1613,8 @@ Commands:
   finding create --title T [--severity S] [--cwe C] [--obs ID ...]
   finding list                list findings
   finding get <id>            show a finding
+  finding push --id ID --integration jira|defectdojo --url URL [--project K] [--credential SECRET]
+  finding links <id>          list a finding's external tracker links
   analyst ask <message>       ask the Analyst (needs OSB_LLM_PROVIDER on the daemon)
   thread list                 list Analyst threads
   thread show <id>            show a thread's messages

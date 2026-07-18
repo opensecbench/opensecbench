@@ -48,6 +48,16 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// ExternalLink ties an OSB finding to an issue in an external tracker (idempotent per integration).
+type ExternalLink struct {
+	ID          string    `json:"id"`
+	FindingID   string    `json:"finding_id"`
+	Integration string    `json:"integration"`
+	ExternalID  string    `json:"external_id"`
+	ExternalURL string    `json:"external_url"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // Canary is a planted decoy token (exfil tripwire) — if it appears at an egress, DLP alerts.
 type Canary struct {
 	ID        string    `json:"id"`
