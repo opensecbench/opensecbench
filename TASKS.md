@@ -125,14 +125,15 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Reports tab in the workbench (template + format, generate, open)
 - [x] Retest report type (findings grouped by remediation status)
 - [x] Compliance mapping report (findings grouped by CWE)
-- [ ] More report types: client-branded
+- [x] Client-branded report type
 - [x] Coverage heatmap viz (severity × remediation status) embedded in the technical report
 - [x] Interactive graph tab: project structure + traffic/endpoint map (pan/zoom/hover)
 - [ ] More graph kinds: dependency (SCA) + topology (nmap) — pending those capabilities
 - [x] Methodology coverage model + roll-up (ADR-0009): catalog packs, adoption, item status,
       coverage % on the Workbench and in reports
 - [x] Notifications: in-app feed + bell + OS-native CLI watch (approval waiting, report ready)
-- [ ] Report templates + visualizations as installable extension packages
+- [x] Report templates as installable extension packs (extension.json `reports`)
+- [ ] Visualization definitions as extension packs (graph kinds); pending a viz pack schema
 
 ## P9 — Knowledge base
 

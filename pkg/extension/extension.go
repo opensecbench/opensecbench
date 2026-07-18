@@ -22,6 +22,15 @@ const (
 	SignatureFile = "extension.sig"
 )
 
+// ReportDef is an extension-provided report template (raw MD/HTML template strings).
+type ReportDef struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Kind  string `json:"kind"`
+	MD    string `json:"md"`
+	HTML  string `json:"html"`
+}
+
 // Manifest is a package's extension.json.
 type Manifest struct {
 	ID            string                    `json:"id"`
@@ -30,6 +39,7 @@ type Manifest struct {
 	Publisher     string                    `json:"publisher"`
 	Capabilities  []ContainerCapability     `json:"capabilities,omitempty"`
 	Methodologies []methodology.Methodology `json:"methodologies,omitempty"`
+	Reports       []ReportDef               `json:"reports,omitempty"`
 }
 
 // Loaded is a verified, loaded package.

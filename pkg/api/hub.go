@@ -120,6 +120,9 @@ func (s *Server) hubInstall(w http.ResponseWriter, r *http.Request) {
 	for _, m := range loaded.Manifest.Methodologies {
 		s.methods.Register(m)
 	}
+	for _, rd := range loaded.Manifest.Reports {
+		_ = s.reports.Add(rd.ID, rd.Title, rd.Kind, rd.MD, rd.HTML)
+	}
 	s.extMu.Lock()
 	s.exts = append(s.exts, loaded)
 	s.extMu.Unlock()

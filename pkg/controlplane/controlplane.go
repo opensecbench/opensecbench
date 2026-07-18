@@ -20,6 +20,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
+	"github.com/opensecbench/opensecbench/pkg/report"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/secret"
 	"github.com/opensecbench/opensecbench/pkg/session"
@@ -91,6 +92,7 @@ func Start(opts Options) (*Instance, error) {
 	// only when OSB_ALLOW_UNSIGNED_EXTENSIONS is set.
 	capReg := capability.BuiltIns()
 	methReg := methodology.BuiltIns()
+	reportReg := report.BuiltIns()
 	extDir := filepath.Join(filepath.Dir(opts.DBPath), "extensions")
 	trust, _ := extension.LoadTrustStore(filepath.Join(extDir, "trusted_keys"))
 	allowUnsigned := os.Getenv("OSB_ALLOW_UNSIGNED_EXTENSIONS") != ""
@@ -101,6 +103,11 @@ func Start(opts Options) (*Instance, error) {
 		}
 		for _, m := range l.Manifest.Methodologies {
 			methReg.Register(m)
+		}
+		for _, rd := range l.Manifest.Reports {
+			if err := reportReg.Add(rd.ID, rd.Title, rd.Kind, rd.MD, rd.HTML); err != nil {
+				log.Printf("extension %s: report %s skipped: %v", l.Manifest.ID, rd.ID, err)
+			}
 		}
 		log.Printf("extension loaded: %s v%s (trusted=%v, %d caps)", l.Manifest.ID, l.Manifest.Version, l.Trusted, len(l.Manifest.Capabilities))
 	}
@@ -157,7 +164,7 @@ func Start(opts Options) (*Instance, error) {
 	apiSrv := api.New(api.Deps{
 		Store: db, Engine: engine, CAS: blobs, Provider: provider,
 		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault,
-		Methods: methReg, Extensions: loadedExt, TrustStore: trust, ExtDir: extDir,
+		Methods: methReg, Reports: reportReg, Extensions: loadedExt, TrustStore: trust, ExtDir: extDir,
 	})
 	srv := &http.Server{
 		Handler:           apiSrv.Handler(),

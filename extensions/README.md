@@ -29,5 +29,6 @@ Then publish the package directory and share your `.pub` so users can trust it.
 
 - **container capabilities** — an image + templated `cmd`; runs in the standard sandbox (ADR-0004).
 - **methodology packs** — reusable checklists (ADR-0009).
+- **report templates** — MD/HTML template strings registered as report types.
 
-Report/playbook/visualization pack types are staged.
+Playbook/visualization pack types are staged.
