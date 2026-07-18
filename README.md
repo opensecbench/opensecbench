@@ -95,6 +95,13 @@ osb analyst ask "how many findings are there, and which are high severity?"
 ```
 
 Providers: `ollama`, `deepseek`, `grok`, `openai`/`azure` (set `OSB_LLM_BASE_URL`), `anthropic`,
-`claude-cli`. The Analyst calls read-only tools over your data (auto-approved); gated capability
-execution is added next.
+`claude-cli`. The Analyst calls read-only tools over your data (auto-approved) and can run
+capabilities behind an **approval queue** (`osb approval list|approve|deny`).
+
+Governance (env, dev convenience):
+
+- `OSB_EGRESS_POLICY` — `strict` (default) blocks running a capability on a **private** asset when
+  the provider is external (e.g. DeepSeek/Grok/Anthropic); `open` allows it. Local providers
+  (Ollama) are never blocked.
+- `OSB_AGENT_MAX_TOKENS` — per-turn token budget (default 200000); the run stops if exceeded.
 

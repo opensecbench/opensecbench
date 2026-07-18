@@ -17,11 +17,14 @@ type Session struct {
 	// Gate reports whether a tool call needs human approval (true) or may run automatically.
 	Gate func(call ToolCall) bool
 	// Execute runs an (approved or auto) tool call.
-	Execute   func(ctx context.Context, call ToolCall) (string, error)
-	Audit     func(action, detail string)
-	MaxSteps  int
-	Model     string
+	Execute  func(ctx context.Context, call ToolCall) (string, error)
+	Audit    func(action, detail string)
+	MaxSteps int
+	Model    string
+	// MaxTokens caps output tokens per completion (passed to the provider).
 	MaxTokens int
+	// TokenBudget caps cumulative tokens for this advance; 0 means unlimited.
+	TokenBudget int
 }
 
 // Outcome is the result of an Advance/Resume. Exactly one of Done/Pending is meaningful.
@@ -54,6 +57,13 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 		out.InputTokens += resp.InputTokens
 		out.OutputTokens += resp.OutputTokens
 		out.Messages = append(out.Messages, llm.Message{Role: llm.RoleAssistant, Content: resp.Text})
+
+		if s.TokenBudget > 0 && out.InputTokens+out.OutputTokens >= s.TokenBudget {
+			s.audit("agent.budget.exceeded", "")
+			out.Done = true
+			out.Answer = "(stopped: token budget exceeded)"
+			return out, nil
+		}
 
 		rep, ok := parseReply(resp.Text)
 		if !ok || rep.Tool == "" {

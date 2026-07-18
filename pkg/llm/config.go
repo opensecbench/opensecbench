@@ -63,3 +63,22 @@ func orDefault(v, d string) string {
 	}
 	return v
 }
+
+// IsLocal reports whether a provider keeps data on the local machine / private network (so it is
+// safe for private data under a strict egress policy). Mock and a loopback Ollama are local;
+// hosted APIs and the claude CLI (which calls the Anthropic API) are not.
+func IsLocal(p Provider) bool {
+	switch v := p.(type) {
+	case *MockProvider:
+		return true
+	case *OpenAIProvider:
+		return v.Label == "ollama" || isLoopbackURL(v.BaseURL)
+	default:
+		return false
+	}
+}
+
+func isLoopbackURL(u string) bool {
+	u = strings.ToLower(u)
+	return strings.Contains(u, "127.0.0.1") || strings.Contains(u, "localhost") || strings.Contains(u, "://[::1]")
+}
