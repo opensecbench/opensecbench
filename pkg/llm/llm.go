@@ -12,22 +12,29 @@ const (
 	RoleAssistant = "assistant"
 )
 
-// Message is one turn in a conversation.
+// Message is one turn in a conversation. ToolCalls/ToolCallID carry the canonical tool-call and
+// tool-result turns (ADR-0017); the prompted path leaves them empty and represents tools as text.
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant turn: structured calls (native)
+	ToolCallID string     `json:"tool_call_id,omitempty"` // tool turn: the call this result answers
 }
 
-// CompletionRequest asks a provider for the next assistant message.
+// CompletionRequest asks a provider for the next assistant message. Tools, when set, are the tools the
+// model may call; a tool-aware provider renders them natively, the prompted adapter into the prompt.
 type CompletionRequest struct {
 	Messages  []Message
 	Model     string
 	MaxTokens int
+	Tools     []ToolDef
 }
 
-// CompletionResponse is a provider's reply plus token usage.
+// CompletionResponse is a provider's reply plus token usage. Exactly one of Text (a final answer) or
+// ToolCalls (requested tool invocations) is meaningful.
 type CompletionResponse struct {
 	Text         string
+	ToolCalls    []ToolCall
 	InputTokens  int
 	OutputTokens int
 }
