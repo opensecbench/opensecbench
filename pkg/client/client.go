@@ -59,6 +59,35 @@ func (c *Client) DeleteProject(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+id, nil, nil)
 }
 
+// Template is a project archetype reported by the control plane.
+type Template struct {
+	ID                    string   `json:"id"`
+	Name                  string   `json:"name"`
+	Description           string   `json:"description"`
+	DefaultApplication    string   `json:"default_application"`
+	SuggestedCapabilities []string `json:"suggested_capabilities"`
+}
+
+// ListTemplates returns the available project templates.
+func (c *Client) ListTemplates(ctx context.Context) ([]Template, error) {
+	var out []Template
+	return out, c.do(ctx, http.MethodGet, "/v1/templates", nil, &out)
+}
+
+// ScaffoldResult is the outcome of creating a project from a template.
+type ScaffoldResult struct {
+	Project     model.Project      `json:"project"`
+	Application *model.Application `json:"application,omitempty"`
+	Template    Template           `json:"template"`
+}
+
+// CreateProjectFromTemplate scaffolds a project from a template.
+func (c *Client) CreateProjectFromTemplate(ctx context.Context, templateID, name string) (ScaffoldResult, error) {
+	var out ScaffoldResult
+	body := map[string]string{"template_id": templateID, "name": name}
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/from-template", body, &out)
+}
+
 // ListApplications returns a project's applications.
 func (c *Client) ListApplications(ctx context.Context, projectID string) ([]model.Application, error) {
 	var out []model.Application
