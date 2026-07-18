@@ -29,22 +29,26 @@ func Tools() []agent.Tool {
 		{Name: "list_assets", Description: "List all source assets available to scan (id, type, location)."},
 		{Name: "list_capabilities", Description: "List the security capabilities you can run."},
 		{Name: "list_playbooks", Description: "List playbooks (named sequences of capabilities)."},
-		{Name: "search", Description: "Search across projects, applications, assets, findings, observations, and context.", Params: map[string]string{"q": "query text"}},
-		{Name: "get_finding", Description: "Get one finding by id, including its supporting observation ids.", Params: map[string]string{"id": "finding id"}},
-		{Name: "draft_kb_entry", Description: "Draft a knowledge-base entry about a target (architecture, auth, endpoint, tech_stack, environment, data_flow, convention, gotcha, tactic). Saved as an unreviewed draft for human confirmation.", Params: map[string]string{
-			"target": "target id (from list_targets)",
-			"kind":   "one of: architecture|auth|endpoint|tech_stack|environment|data_flow|convention|gotcha|tactic",
-			"title":  "short entry title",
-			"body":   "the knowledge (what was learned)",
+		{Name: "search", Description: "Search across projects, applications, assets, findings, observations, and context.", Params: []agent.Param{
+			{Name: "q", Type: agent.TypeString, Required: true, Description: "query text"},
 		}},
-		{Name: "run_capability", Description: "Run a security capability against a source asset. GATED — requires human authorization; if unauthorized it will be denied.", Params: map[string]string{
-			"capability": "capability id (from list_capabilities)",
-			"asset":      "asset id (from list_assets)",
-			"config":     "optional capability config parameter",
+		{Name: "get_finding", Description: "Get one finding by id, including its supporting observation ids.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "finding id"},
 		}},
-		{Name: "run_playbook", Description: "Run a playbook (a sequence of capabilities) against a source asset. GATED.", Params: map[string]string{
-			"playbook": "playbook id (from list_playbooks)",
-			"asset":    "asset id (from list_assets)",
+		{Name: "draft_kb_entry", Description: "Draft a knowledge-base entry about a target. Saved as an unreviewed draft for human confirmation.", Params: []agent.Param{
+			{Name: "target", Type: agent.TypeString, Required: true, Description: "target id (from list_targets)"},
+			{Name: "kind", Type: agent.TypeEnum, Required: true, Description: "entry kind", Enum: []string{"architecture", "auth", "endpoint", "tech_stack", "environment", "data_flow", "convention", "gotcha", "tactic"}},
+			{Name: "title", Type: agent.TypeString, Required: true, Description: "short entry title"},
+			{Name: "body", Type: agent.TypeString, Required: true, Description: "the knowledge (what was learned)"},
+		}},
+		{Name: "run_capability", Description: "Run a security capability against a source asset. GATED — requires human authorization; if unauthorized it will be denied.", Params: []agent.Param{
+			{Name: "capability", Type: agent.TypeString, Required: true, Description: "capability id (from list_capabilities)"},
+			{Name: "asset", Type: agent.TypeString, Required: true, Description: "asset id (from list_assets)"},
+			{Name: "config", Type: agent.TypeString, Description: "optional capability config parameter"},
+		}},
+		{Name: "run_playbook", Description: "Run a playbook (a sequence of capabilities) against a source asset. GATED.", Params: []agent.Param{
+			{Name: "playbook", Type: agent.TypeString, Required: true, Description: "playbook id (from list_playbooks)"},
+			{Name: "asset", Type: agent.TypeString, Required: true, Description: "asset id (from list_assets)"},
 		}},
 	}
 }
