@@ -78,6 +78,13 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 		call := ToolCall{Tool: rep.Tool, Args: rep.Args}
 		s.audit("agent.tool.proposed", call.Tool)
 
+		// Validate arguments against the tool schema before gating or executing (ADR-0017).
+		if verr := validateCall(s.Tools, call); verr != nil {
+			s.audit("agent.tool.invalid", call.Tool)
+			out.Messages = append(out.Messages, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q arguments were invalid: %s. Fix the arguments and call it again, or give your final answer.", call.Tool, verr.Error())})
+			continue
+		}
+
 		if s.Gate != nil && s.Gate(call) {
 			c := call
 			out.Pending = &c

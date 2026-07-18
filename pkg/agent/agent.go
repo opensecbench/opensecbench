@@ -8,16 +8,112 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/llm"
 )
 
-// Tool is a capability the Analyst may call, as advertised to the model.
+// ParamType is the JSON type of a tool parameter — a pragmatic JSON-Schema subset (ADR-0017) that
+// both native tool-use and the prompted fallback render from, and that arguments validate against.
+type ParamType string
+
+const (
+	TypeString  ParamType = "string"
+	TypeInteger ParamType = "integer"
+	TypeNumber  ParamType = "number"
+	TypeBoolean ParamType = "boolean"
+	TypeEnum    ParamType = "enum"
+	TypeArray   ParamType = "array"
+	TypeObject  ParamType = "object"
+)
+
+// Param is one typed tool parameter.
+type Param struct {
+	Name        string
+	Type        ParamType
+	Required    bool
+	Description string
+	Enum        []string // allowed values when Type == TypeEnum
+}
+
+// Tool is a capability the Analyst may call, advertised to the model with a typed schema (ADR-0017).
 type Tool struct {
 	Name        string
 	Description string
-	Params      map[string]string // param name -> human description
+	Params      []Param
+}
+
+// ValidateArgs checks a tool call's arguments against the tool's schema: required params present, and
+// each provided value the right JSON type / enum. Unknown extra args are ignored (models add noise);
+// the returned error is fed back to the model as a correction.
+func ValidateArgs(t Tool, args map[string]any) error {
+	for _, p := range t.Params {
+		v, ok := args[p.Name]
+		if !ok {
+			if p.Required {
+				return fmt.Errorf("missing required argument %q", p.Name)
+			}
+			continue
+		}
+		if err := checkType(p, v); err != nil {
+			return fmt.Errorf("argument %q: %w", p.Name, err)
+		}
+	}
+	return nil
+}
+
+func checkType(p Param, v any) error {
+	switch p.Type {
+	case TypeString, "":
+		if _, ok := v.(string); !ok {
+			return fmt.Errorf("expected a string")
+		}
+	case TypeEnum:
+		s, ok := v.(string)
+		if !ok {
+			return fmt.Errorf("expected one of %s", strings.Join(p.Enum, ", "))
+		}
+		for _, e := range p.Enum {
+			if s == e {
+				return nil
+			}
+		}
+		return fmt.Errorf("must be one of %s", strings.Join(p.Enum, ", "))
+	case TypeBoolean:
+		if _, ok := v.(bool); !ok {
+			return fmt.Errorf("expected a boolean")
+		}
+	case TypeInteger:
+		f, ok := v.(float64)
+		if !ok || f != math.Trunc(f) {
+			return fmt.Errorf("expected an integer")
+		}
+	case TypeNumber:
+		if _, ok := v.(float64); !ok {
+			return fmt.Errorf("expected a number")
+		}
+	case TypeArray:
+		if _, ok := v.([]any); !ok {
+			return fmt.Errorf("expected an array")
+		}
+	case TypeObject:
+		if _, ok := v.(map[string]any); !ok {
+			return fmt.Errorf("expected an object")
+		}
+	}
+	return nil
+}
+
+// validateCall validates a call against a known tool's schema. Unknown tools are not validated here
+// (they surface as an execution error), so a caller that leaves Tools unset is unaffected.
+func validateCall(tools []Tool, call ToolCall) error {
+	for _, t := range tools {
+		if t.Name == call.Tool {
+			return ValidateArgs(t, call.Args)
+		}
+	}
+	return nil
 }
 
 // ToolCall is a requested tool invocation.
@@ -89,6 +185,15 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 		l.audit("agent.tool.proposed", call.Tool)
 		st := Step{Call: call}
 
+		// Validate arguments against the tool schema before gating or executing (ADR-0017).
+		if verr := validateCall(l.Tools, call); verr != nil {
+			l.audit("agent.tool.invalid", call.Tool)
+			st.Error = verr.Error()
+			res.Steps = append(res.Steps, st)
+			msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("Tool %q arguments were invalid: %s. Fix the arguments and call it again, or give your final answer.", call.Tool, verr.Error())})
+			continue
+		}
+
 		approved := true
 		if l.Approve != nil {
 			approved, err = l.Approve(ctx, call)
@@ -144,10 +249,10 @@ func buildSystemPrompt(tools []Tool) string {
 			fmt.Fprintf(&b, "- %s: %s", t.Name, t.Description)
 			if len(t.Params) > 0 {
 				parts := make([]string, 0, len(t.Params))
-				for name, desc := range t.Params {
-					parts = append(parts, fmt.Sprintf("%s (%s)", name, desc))
+				for _, p := range t.Params {
+					parts = append(parts, renderParam(p))
 				}
-				fmt.Fprintf(&b, " [params: %s]", strings.Join(parts, ", "))
+				fmt.Fprintf(&b, " [params: %s]", strings.Join(parts, "; "))
 			}
 			b.WriteByte('\n')
 		}
@@ -157,6 +262,21 @@ func buildSystemPrompt(tools []Tool) string {
 To call a tool: {"tool":"<name>","args":{...}}
 To give your final answer (only once you have the real data from tools): {"answer":"<text>"}`)
 	return b.String()
+}
+
+// renderParam describes a typed parameter for the prompted tool protocol.
+func renderParam(p Param) string {
+	typ := string(p.Type)
+	if typ == "" {
+		typ = "string"
+	}
+	if p.Type == TypeEnum {
+		typ = "one of: " + strings.Join(p.Enum, "|")
+	}
+	if p.Required {
+		typ += ", required"
+	}
+	return fmt.Sprintf("%s (%s): %s", p.Name, typ, p.Description)
 }
 
 type reply struct {
