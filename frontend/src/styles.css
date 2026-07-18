@@ -1652,6 +1652,13 @@ select option {
 .proxy-table tbody tr:hover { background: var(--bg3); }
 .proxy-table tbody tr.sel { background: var(--bg4); box-shadow: inset 2px 0 0 var(--acc); }
 .proxy-table .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proxy-table tr.oos td { opacity: 0.5; }
+.proxy-table tr.oos.sel td { opacity: 1; }
+.oos-tag {
+  display: inline-block; margin-right: 6px; font-size: 9px; font-weight: 800;
+  text-transform: uppercase; color: var(--amber); background: var(--amber-bg, #2a2114);
+  border-radius: 4px; padding: 0 4px; vertical-align: middle;
+}
 
 .proxy-actions {
   display: flex; gap: 6px; flex-wrap: wrap; padding: 10px;

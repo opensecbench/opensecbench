@@ -926,7 +926,28 @@ func (s *Server) listExchanges(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, items)
+	writeJSON(w, http.StatusOK, s.annotateScope(r.Context(), r.PathValue("id"), items))
+}
+
+// exchangeView adds computed, non-stored fields to an exchange for clients.
+type exchangeView struct {
+	model.HTTPExchange
+	InScope bool `json:"in_scope"`
+}
+
+// annotateScope marks each exchange in- or out-of-scope against the project's current allowlist
+// (empty allowlist ⇒ everything is in scope). Uses pkg/scope so the UI never re-implements matching.
+func (s *Server) annotateScope(ctx context.Context, projectID string, items []model.HTTPExchange) []exchangeView {
+	entries, _ := s.store.ListScopeEntries(ctx, projectID)
+	rules := make([]scope.Entry, 0, len(entries))
+	for _, e := range entries {
+		rules = append(rules, scope.Entry{Kind: e.Kind, Value: e.Value})
+	}
+	views := make([]exchangeView, len(items))
+	for i, ex := range items {
+		views[i] = exchangeView{HTTPExchange: ex, InScope: len(rules) == 0 || scope.Check(rules, ex.URL) == nil}
+	}
+	return views
 }
 
 func (s *Server) createExchange(w http.ResponseWriter, r *http.Request) {
