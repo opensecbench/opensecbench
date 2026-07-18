@@ -16,6 +16,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/analyst"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/dlp"
+	"github.com/opensecbench/opensecbench/pkg/extension"
 	"github.com/opensecbench/opensecbench/pkg/integration"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/methodology"
@@ -42,6 +43,8 @@ type Deps struct {
 	SessionMgr *session.Manager
 	ProxyCA    *proxy.CA
 	Vault      *secret.Vault
+	Methods    *methodology.Registry // built-ins + loaded extensions; nil = built-ins only
+	Extensions []extension.Loaded    // loaded extension packages (for listing)
 }
 
 // Server routes control-plane HTTP requests against the control-plane services.
@@ -58,6 +61,7 @@ type Server struct {
 	methods  *methodology.Registry
 	vault    *secret.Vault
 	integr   *integration.Registry
+	exts     []extension.Loaded
 
 	sessMu   sync.Mutex
 	sessions map[string]*liveSession
@@ -78,11 +82,15 @@ func New(deps Deps) *Server {
 		sessMgr:  deps.SessionMgr,
 		proxyCA:  deps.ProxyCA,
 		reports:  report.BuiltIns(),
-		methods:  methodology.BuiltIns(),
+		methods:  deps.Methods,
 		vault:    deps.Vault,
 		integr:   integration.BuiltIns(),
+		exts:     deps.Extensions,
 		sessions: make(map[string]*liveSession),
 		proxies:  make(map[string]*liveProxy),
+	}
+	if s.methods == nil {
+		s.methods = methodology.BuiltIns()
 	}
 	s.routes()
 	return s
@@ -137,6 +145,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/canaries", s.createCanary)
 	s.mux.HandleFunc("DELETE /v1/canaries/{id}", s.deleteCanary)
 	s.mux.HandleFunc("GET /v1/dlp-events", s.listDLPEvents)
+	s.mux.HandleFunc("GET /v1/extensions", s.listExtensions)
 	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)
 	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/adopt", s.adoptMethodology)

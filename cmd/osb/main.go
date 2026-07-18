@@ -20,6 +20,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/browser"
 	"github.com/opensecbench/opensecbench/pkg/client"
+	"github.com/opensecbench/opensecbench/pkg/extension"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/version"
 )
@@ -104,6 +105,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return dlpCmd(ctx, c, args[1:])
 	case "proxy":
 		return proxyCmd(ctx, c, args[1:])
+	case "ext", "extension":
+		return extCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -737,6 +740,79 @@ func sessionCmd(ctx context.Context, c *client.Client, args []string) error {
 		return printJSON(obs)
 	default:
 		return fmt.Errorf("unknown session subcommand %q", args[0])
+	}
+}
+
+// extCmd manages extension packages: list loaded (via API), and author/sign locally.
+func extCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb ext <list|keygen|sign>")
+	}
+	switch args[0] {
+	case "list":
+		exts, err := c.ListExtensions(ctx)
+		if err != nil {
+			return err
+		}
+		for _, e := range exts {
+			trust := "untrusted"
+			if e.Trusted {
+				trust = "trusted"
+			}
+			fmt.Printf("%-28s v%-8s %-10s [%s] caps=%v\n", e.ID, e.Version, e.Publisher, trust, e.Capabilities)
+		}
+		return nil
+	case "keygen":
+		fs := flag.NewFlagSet("ext keygen", flag.ContinueOnError)
+		out := fs.String("out", "publisher", "output key file prefix (writes <prefix>.pub / <prefix>.key)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		pub, priv, err := extension.GenerateKeyPair()
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(*out+".pub", []byte(pub), 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(*out+".key", []byte(priv), 0o600); err != nil {
+			return err
+		}
+		fmt.Printf("wrote %s.pub (share to be trusted) and %s.key (keep secret)\n", *out, *out)
+		return nil
+	case "sign":
+		fs := flag.NewFlagSet("ext sign", flag.ContinueOnError)
+		dir := fs.String("dir", "", "package directory containing extension.json (required)")
+		keyFile := fs.String("key", "", "private key file from keygen (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *dir == "" || *keyFile == "" {
+			return errors.New("ext sign: --dir and --key are required")
+		}
+		raw, err := os.ReadFile(filepath.Join(*dir, extension.ManifestFile))
+		if err != nil {
+			return err
+		}
+		var m extension.Manifest
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return err
+		}
+		key, err := os.ReadFile(*keyFile)
+		if err != nil {
+			return err
+		}
+		sig, err := extension.Sign(m, strings.TrimSpace(string(key)))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(*dir, extension.SignatureFile), []byte(sig), 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("signed %s (publisher %q)\n", *dir, m.Publisher)
+		return nil
+	default:
+		return fmt.Errorf("unknown ext subcommand %q", args[0])
 	}
 }
 
@@ -1649,6 +1725,9 @@ Commands:
   notifications list [--unread]  show notifications
   notifications watch          fire OS-native notifications as they arrive
   notifications read-all       mark all read
+  ext list                    list loaded extension packages
+  ext keygen --out NAME       generate a publisher key pair
+  ext sign --dir DIR --key K  sign a package
   proxy start --project ID [--port N]  start the intercepting proxy for a project
   proxy stop --project ID     stop the proxy
   proxy ca [--out FILE]        fetch the proxy CA cert to trust

@@ -1,0 +1,24 @@
+{
+  "id": "opensecbench.trufflehog",
+  "name": "TruffleHog secrets scanner",
+  "version": "1.0.0",
+  "publisher": "opensecbench",
+  "capabilities": [
+    {
+      "id": "trufflehog",
+      "version": "1.0.0",
+      "title": "TruffleHog (secrets)",
+      "description": "Scans a source tree for verified secrets. Offline (no network).",
+      "image": "trufflesecurity/trufflehog:3.82.6",
+      "cmd": ["filesystem", "/src", "--json", "--no-update"],
+      "network": "none",
+      "mount_source": true,
+      "mount_target": "/src",
+      "output_name": "trufflehog.json",
+      "output_media_type": "application/json",
+      "ok_exit_codes": [0, 183],
+      "timeout_seconds": 600,
+      "memory_mb": 2048
+    }
+  ]
+}

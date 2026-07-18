@@ -253,6 +253,24 @@ func (c *Client) ImportBundle(ctx context.Context, data []byte, passphrase strin
 	return out.ProjectID, nil
 }
 
+// ExtensionInfo is a loaded extension package's metadata.
+type ExtensionInfo struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Version       string   `json:"version"`
+	Publisher     string   `json:"publisher"`
+	Trusted       bool     `json:"trusted"`
+	Digest        string   `json:"digest"`
+	Capabilities  []string `json:"capabilities"`
+	Methodologies []string `json:"methodologies"`
+}
+
+// ListExtensions returns the loaded extension packages.
+func (c *Client) ListExtensions(ctx context.Context) ([]ExtensionInfo, error) {
+	var out []ExtensionInfo
+	return out, c.do(ctx, http.MethodGet, "/v1/extensions", nil, &out)
+}
+
 // ListIntegrations returns available integration connector names.
 func (c *Client) ListIntegrations(ctx context.Context) ([]string, error) {
 	var out []string
