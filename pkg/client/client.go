@@ -124,6 +124,47 @@ func (c *Client) SaveExchangeEvidence(ctx context.Context, id, note string) (mod
 	return out, c.do(ctx, http.MethodPost, "/v1/exchanges/"+id+"/evidence", map[string]string{"note": note}, &out)
 }
 
+// ProxyStatus reports whether a project's intercepting proxy is running and on which port.
+type ProxyStatus struct {
+	Running bool `json:"running"`
+	Port    int  `json:"port,omitempty"`
+}
+
+// GetProxy returns a project's proxy status.
+func (c *Client) GetProxy(ctx context.Context, projectID string) (ProxyStatus, error) {
+	var out ProxyStatus
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/proxy", nil, &out)
+}
+
+// StartProxy starts the intercepting proxy for a project (port 0 auto-assigns).
+func (c *Client) StartProxy(ctx context.Context, projectID string, port int) (ProxyStatus, error) {
+	var out ProxyStatus
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/proxy/start", map[string]int{"port": port}, &out)
+}
+
+// StopProxy stops a project's intercepting proxy.
+func (c *Client) StopProxy(ctx context.Context, projectID string) (ProxyStatus, error) {
+	var out ProxyStatus
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/proxy/stop", nil, &out)
+}
+
+// ProxyCACert fetches the proxy CA certificate (PEM) for the operator to trust.
+func (c *Client) ProxyCACert(ctx context.Context) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/proxy/ca", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, fmt.Errorf("proxy ca: %s", resp.Status)
+	}
+	return io.ReadAll(resp.Body)
+}
+
 // ListAudit returns recent audit events (newest first).
 func (c *Client) ListAudit(ctx context.Context, limit int) ([]model.AuditEvent, error) {
 	path := "/v1/audit"

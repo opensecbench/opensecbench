@@ -80,6 +80,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return sessionCmd(ctx, c, args[1:])
 	case "audit":
 		return auditCmd(ctx, c, args[1:])
+	case "proxy":
+		return proxyCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -716,6 +718,80 @@ func sessionCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 }
 
+func proxyCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb proxy <start|stop|status|ca>")
+	}
+	switch args[0] {
+	case "start":
+		fs := flag.NewFlagSet("proxy start", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		port := fs.Int("port", 0, "loopback port (0 = auto-assign)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("proxy start: --project is required")
+		}
+		st, err := c.StartProxy(ctx, *project, *port)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("proxy listening on 127.0.0.1:%d — set your client's HTTP(S) proxy there\n", st.Port)
+		fmt.Println("trust the CA: osb proxy ca --out osb-ca.crt")
+		return nil
+	case "stop":
+		fs := flag.NewFlagSet("proxy stop", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("proxy stop: --project is required")
+		}
+		if _, err := c.StopProxy(ctx, *project); err != nil {
+			return err
+		}
+		fmt.Println("proxy stopped")
+		return nil
+	case "status":
+		fs := flag.NewFlagSet("proxy status", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("proxy status: --project is required")
+		}
+		st, err := c.GetProxy(ctx, *project)
+		if err != nil {
+			return err
+		}
+		return printJSON(st)
+	case "ca":
+		fs := flag.NewFlagSet("proxy ca", flag.ContinueOnError)
+		out := fs.String("out", "", "write the CA cert to this file (default: stdout)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		pem, err := c.ProxyCACert(ctx)
+		if err != nil {
+			return err
+		}
+		if *out == "" {
+			_, err := os.Stdout.Write(pem)
+			return err
+		}
+		if err := os.WriteFile(*out, pem, 0o600); err != nil {
+			return err
+		}
+		fmt.Printf("wrote CA certificate to %s — trust it in your browser/tools\n", *out)
+		return nil
+	default:
+		return fmt.Errorf("unknown proxy subcommand %q", args[0])
+	}
+}
+
 func auditCmd(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
 	limit := fs.Int("limit", 50, "max events to show")
@@ -958,6 +1034,9 @@ Commands:
   session close <id>          close a session and capture its transcript
   session evidence --id ID [--note N]  save a session transcript as evidence
   audit [--limit N] [--json]  show the append-only audit trail
+  proxy start --project ID [--port N]  start the intercepting proxy for a project
+  proxy stop --project ID     stop the proxy
+  proxy ca [--out FILE]        fetch the proxy CA cert to trust
   capability list             list available capabilities
   capability run --id ID (--dir PATH | --asset ID) [--project ID] [--param k=v]  run a capability
   playbook list               list playbooks

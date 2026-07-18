@@ -16,6 +16,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/session"
 	"github.com/opensecbench/opensecbench/pkg/store"
@@ -36,6 +37,7 @@ type Instance struct {
 	BaseURL  string
 	db       *store.DB
 	srv      *http.Server
+	api      *api.Server
 	provider llm.Provider
 }
 
@@ -96,27 +98,39 @@ func Start(opts Options) (*Instance, error) {
 		sessMgr = session.NewManager("")
 	}
 
+	// The intercepting proxy's CA is generated/persisted next to the database; a failure disables
+	// the proxy but never blocks startup.
+	proxyCA, err := proxy.LoadOrCreate(filepath.Join(filepath.Dir(opts.DBPath), "proxy-ca"))
+	if err != nil {
+		proxyCA = nil
+	}
+
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
+	apiSrv := api.New(api.Deps{
+		Store: db, Engine: engine, CAS: blobs, Provider: provider, SessionMgr: sessMgr, ProxyCA: proxyCA,
+	})
 	srv := &http.Server{
-		Handler: api.New(api.Deps{
-			Store: db, Engine: engine, CAS: blobs, Provider: provider, SessionMgr: sessMgr,
-		}).Handler(),
+		Handler:           apiSrv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() { _ = srv.Serve(ln) }()
 
-	return &Instance{BaseURL: "http://" + ln.Addr().String(), db: db, srv: srv, provider: provider}, nil
+	return &Instance{BaseURL: "http://" + ln.Addr().String(), db: db, srv: srv, api: apiSrv, provider: provider}, nil
 }
 
 // SchemaVersion returns the applied schema version.
 func (i *Instance) SchemaVersion() (int, error) { return i.db.Version() }
 
-// Shutdown stops the HTTP server and closes the database.
+// Shutdown stops the HTTP server, releases live resources (proxies, terminal sessions), and closes
+// the database.
 func (i *Instance) Shutdown(ctx context.Context) error {
+	if i.api != nil {
+		i.api.Close()
+	}
 	err := i.srv.Shutdown(ctx)
 	if cerr := i.db.Close(); err == nil {
 		err = cerr
