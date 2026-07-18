@@ -233,3 +233,18 @@ func titles(fs []Finding) []string {
 	}
 	return out
 }
+
+func TestBrandedReport(t *testing.T) {
+	d, _ := NewBuilder(sampleSource()).Build(context.Background(), "p1", time.Now())
+	d.Brand = Brand{Name: "Acme Security", Tagline: "Confidential", Color: "#0b5"}
+	tmpl, _ := BuiltIns().Get("branded")
+	html, err := tmpl.Render(d, FormatHTML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Acme Security", "Confidential", "#0b5", "Critical RCE"} {
+		if !strings.Contains(string(html), want) {
+			t.Fatalf("branded report missing %q", want)
+		}
+	}
+}

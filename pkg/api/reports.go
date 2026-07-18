@@ -50,8 +50,11 @@ func reportMediaType(format report.Format) string {
 func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	var req struct {
-		Template string `json:"template"`
-		Format   string `json:"format"`
+		Template     string `json:"template"`
+		Format       string `json:"format"`
+		BrandName    string `json:"brand_name"`
+		BrandTagline string `json:"brand_tagline"`
+		BrandColor   string `json:"brand_color"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -73,6 +76,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "build report: "+err.Error())
 		return
 	}
+	data.Brand = report.Brand{Name: req.BrandName, Tagline: req.BrandTagline, Color: req.BrandColor}
 
 	// PDF is the HTML render printed through a headless browser.
 	renderFormat := format

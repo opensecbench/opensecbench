@@ -88,6 +88,7 @@ func BuiltIns() *Registry {
 	r.tmpls["technical"] = mustTemplate("technical", "Technical report", "technical", techMD, techHTML)
 	r.tmpls["retest"] = mustTemplate("retest", "Retest report", "retest", retestMD, retestHTML)
 	r.tmpls["compliance"] = mustTemplate("compliance", "Compliance mapping (CWE)", "compliance_standard", complianceMD, complianceHTML)
+	r.tmpls["branded"] = mustTemplate("branded", "Client-branded report", "branded", brandedMD, brandedHTML)
 	return r
 }
 
@@ -235,6 +236,60 @@ const complianceHTML = `<!doctype html><html><head><meta charset="utf-8">
 <h3>{{.CWE}}</h3>
 <ul class="findlist">{{range .Findings}}<li><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}} <span class="cwe">{{.Status}}</span> <span class="app">{{.AppName}}</span></li>{{end}}</ul>
 </div>{{else}}<p><em>No reportable findings.</em></p>{{end}}
+</body></html>`
+
+const brandedMD = `# {{if .Brand.Name}}{{.Brand.Name}} — {{end}}Security Assessment: {{.Project.Name}}
+
+{{if .Brand.Tagline}}_{{.Brand.Tagline}}_{{end}}
+
+_Generated {{date .GeneratedAt}}{{if .Brand.Name}} · Prepared by {{.Brand.Name}}{{end}}_
+
+## Summary
+
+**{{.Summary.Total}}** finding(s) with supporting evidence across **{{.Summary.Applications}}**
+application(s).{{if .Methodology.Summary.Total}} Methodology coverage: **{{.Methodology.Summary.CoveredPct}}%**.{{end}}
+
+| Severity | Count |
+|----------|-------|
+{{- range sevs}}
+| {{sevfmt .}} | {{index $.Summary.BySeverity .}} |
+{{- end}}
+
+## Findings
+
+{{if .Findings}}{{range .Findings}}### [{{sevfmt .Severity}}] {{.Title}}
+
+_{{.AppName}} · {{.Status}}{{if .CWE}} · {{.CWE}}{{end}}_
+
+{{if .Description}}{{.Description}}
+{{end}}
+{{range .Evidence}}- {{.Title}}{{if .Location}} — ` + "`{{.Location}}`" + `{{end}}
+{{end}}
+{{end}}{{else}}_No reportable findings._
+{{end}}`
+
+const brandedHTML = `<!doctype html><html><head><meta charset="utf-8">
+<title>{{if .Brand.Name}}{{.Brand.Name}} — {{end}}{{.Project.Name}}</title>
+<style>` + reportCSS + `
+.brandbar{border-top:6px solid {{if .Brand.Color}}{{.Brand.Color}}{{else}}#4aa8ff{{end}};padding-top:16px}
+.brandname{font-weight:800;color:{{if .Brand.Color}}{{.Brand.Color}}{{else}}#4aa8ff{{end}}}
+</style></head><body>
+<div class="brandbar">
+{{if .Brand.Name}}<div class="brandname">{{.Brand.Name}}</div>{{end}}
+<h1>Security Assessment<span class="sub">{{.Project.Name}}</span></h1>
+{{if .Brand.Tagline}}<p class="meta">{{.Brand.Tagline}}</p>{{end}}
+<p class="meta">Generated {{date .GeneratedAt}}{{if .Brand.Name}} · Prepared by {{.Brand.Name}}{{end}}</p>
+</div>
+<h2>Summary</h2>
+<p><b>{{.Summary.Total}}</b> finding(s) with supporting evidence across <b>{{.Summary.Applications}}</b> application(s).{{if .Methodology.Summary.Total}} Methodology coverage: <b>{{.Methodology.Summary.CoveredPct}}%</b>.{{end}}</p>
+<figure class="chart">{{.SeverityChart}}</figure>
+<h2>Findings</h2>
+{{if .Findings}}{{range .Findings}}<div class="finding">
+<h3><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}}</h3>
+<p class="fmeta">{{.AppName}} · {{.Status}}{{if .CWE}} · {{.CWE}}{{end}}</p>
+{{if .Description}}<p>{{.Description}}</p>{{end}}
+<ul class="evidence">{{range .Evidence}}<li>{{.Title}}{{if .Location}} — <code>{{.Location}}</code>{{end}}</li>{{end}}</ul>
+</div>{{end}}{{else}}<p><em>No reportable findings.</em></p>{{end}}
 </body></html>`
 
 const execHTML = `<!doctype html><html><head><meta charset="utf-8">

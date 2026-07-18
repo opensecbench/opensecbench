@@ -46,6 +46,14 @@ type Data struct {
 	Methodology   methodology.View  // adopted checklist coverage + roll-up
 	SeverityChart htmltemplate.HTML // self-contained inline SVG figure (HTML reports)
 	CoverageChart htmltemplate.HTML // severity × status heatmap (inline SVG)
+	Brand         Brand             // optional client branding (branded template)
+}
+
+// Brand is optional client branding for the branded report template.
+type Brand struct {
+	Name    string `json:"name"`
+	Tagline string `json:"tagline"`
+	Color   string `json:"color"` // hex accent, e.g. #0b5
 }
 
 // Summary is the coverage + severity roll-up.
