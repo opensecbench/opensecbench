@@ -19,30 +19,26 @@ export function App() {
       .catch(() => setConn('offline'))
   }, [])
 
+  // A project open takes over the whole window as the IDE Workbench (ADR-0015).
+  if (project) {
+    return <Workbench project={project} conn={conn} onHome={() => { setProject(null); setView('home') }} />
+  }
+
   return (
     <div className="app">
       <aside className="rail">
         <div className="logo" title="OpenSecBench" onClick={() => { setProject(null); setView('home') }} />
-        <button className={`rail-btn ${!project && view === 'home' ? 'active' : ''}`} title="Home" onClick={() => { setProject(null); setView('home') }}>
+        <button className={`rail-btn ${view === 'home' ? 'active' : ''}`} title="Home" onClick={() => setView('home')}>
           ⌂
         </button>
-        <button className={`rail-btn ${view === 'ext' ? 'active' : ''}`} title="Extensions & Governance" onClick={() => { setProject(null); setView('ext') }}>
+        <button className={`rail-btn ${view === 'ext' ? 'active' : ''}`} title="Extensions & Governance" onClick={() => setView('ext')}>
           ⧉
         </button>
       </aside>
 
       <main className="main">
         <header className="topbar">
-          <div className="crumb">
-            <span className={project ? 'link' : ''} onClick={() => setProject(null)}>
-              Home
-            </span>
-            {project && (
-              <>
-                <span className="sep">›</span> {project.name}
-              </>
-            )}
-          </div>
+          <div className="crumb">Home</div>
           <div className="spacer" />
           <NotificationBell online={conn === 'online'} />
           <span className={`conn conn-${conn}`}>
@@ -51,9 +47,7 @@ export function App() {
           <code className="apiurl">{api.baseURL}</code>
         </header>
 
-        {project ? (
-          <Workbench project={project} online={conn === 'online'} />
-        ) : view === 'ext' ? (
+        {view === 'ext' ? (
           <ExtensionsView online={conn === 'online'} />
         ) : (
           <Home online={conn === 'online'} onOpen={setProject} />

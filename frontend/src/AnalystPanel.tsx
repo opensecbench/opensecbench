@@ -8,6 +8,7 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
   const [pending, setPending] = useState<Approval | null>(null)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function loadThreads() {
@@ -21,7 +22,7 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
 
   async function refresh(t: Thread) {
     const d = await api.getThread(t.id)
-    setMessages(d.messages)
+    setMessages(d.messages ?? []) // Go serializes an empty slice as null
     setCurrent(d.thread)
     if (d.thread.status === 'awaiting_approval') {
       const aps = (await api.listApprovals()) ?? []
@@ -80,64 +81,82 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
     }
   }
 
+  // Docked on the right of the Workbench (ADR-0015): always present, stays
+  // mounted across surface navigation so threads and streaming survive.
+  if (collapsed) {
+    return (
+      <aside className="wb-analyst collapsed">
+        <div className="wb-an-collapsed" onClick={() => setCollapsed(false)} title="Open Analyst">
+          <span>◆</span>
+          {pending && <span className="n">⏸</span>}
+        </div>
+      </aside>
+    )
+  }
+
   return (
-    <div className="analyst">
-      <aside className="threads">
-        <button className="new-thread" onClick={newThread} disabled={!online}>
-          ＋ New thread
-        </button>
+    <aside className="wb-analyst">
+      <div className="wb-an-head">
+        <span className="title">◆ Analyst</span>
+        <span className="grow" />
+        <button onClick={newThread} disabled={!online} title="New thread">＋ Thread</button>
+        <button onClick={() => setCollapsed(true)} title="Collapse">⟩</button>
+      </div>
+
+      <div className="wb-an-threads">
         {threads.map((t) => (
-          <button key={t.id} className={`thread-item ${current?.id === t.id ? 'on' : ''}`} onClick={() => open(t)}>
+          <button key={t.id} className={`wb-an-chip ${current?.id === t.id ? 'on' : ''}`} onClick={() => open(t)}>
             <span className={`tstatus tstatus-${t.status}`} />
             <span className="tname">{t.title || 'Analyst'}</span>
           </button>
         ))}
-      </aside>
-
-      <div className="chat">
-        {error && <div className="banner error">⚠ {error}</div>}
-        {!current ? (
-          <div className="empty">Start a thread to chat with the Analyst.</div>
-        ) : (
-          <>
-            <div className="messages">
-              {messages.filter((m) => m.role !== 'system').map((m) => (
-                <Message key={m.id} m={m} />
-              ))}
-            </div>
-
-            {pending && (
-              <div className="approval-card">
-                <div className="ac-title">⏸ Approval required</div>
-                <code>
-                  {pending.tool} {JSON.stringify(pending.args)}
-                </code>
-                <div className="ac-btns">
-                  <button className="ok" disabled={busy} onClick={() => decide('approve')}>
-                    ✓ Approve
-                  </button>
-                  <button className="no" disabled={busy} onClick={() => decide('deny')}>
-                    ✕ Deny
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <form className="composer" onSubmit={send}>
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={pending ? 'Resolve the approval to continue…' : 'Ask the Analyst…'}
-                disabled={!online || busy || !!pending}
-              />
-              <button type="submit" disabled={!online || busy || !!pending || !input.trim()}>
-                {busy ? '…' : 'Send'}
-              </button>
-            </form>
-          </>
+        {threads.length === 0 && (
+          <button className="wb-an-chip new" onClick={newThread} disabled={!online}>＋ New thread</button>
         )}
       </div>
-    </div>
+
+      {error && <div className="banner error">⚠ {error}</div>}
+      {!current ? (
+        <div className="empty">Start a thread to chat with the Analyst.</div>
+      ) : (
+        <>
+          <div className="messages">
+            {(messages ?? []).filter((m) => m.role !== 'system').map((m) => (
+              <Message key={m.id} m={m} />
+            ))}
+          </div>
+
+          {pending && (
+            <div className="approval-card">
+              <div className="ac-title">⏸ Approval required</div>
+              <code>
+                {pending.tool} {JSON.stringify(pending.args)}
+              </code>
+              <div className="ac-btns">
+                <button className="ok" disabled={busy} onClick={() => decide('approve')}>
+                  ✓ Approve
+                </button>
+                <button className="no" disabled={busy} onClick={() => decide('deny')}>
+                  ✕ Deny
+                </button>
+              </div>
+            </div>
+          )}
+
+          <form className="composer" onSubmit={send}>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={pending ? 'Resolve the approval to continue…' : 'Ask the Analyst…'}
+              disabled={!online || busy || !!pending}
+            />
+            <button type="submit" disabled={!online || busy || !!pending || !input.trim()}>
+              {busy ? '…' : 'Send'}
+            </button>
+          </form>
+        </>
+      )}
+    </aside>
   )
 }
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ChangeEvent } from 'react'
+import { Component, lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ChangeEvent, type ReactNode } from 'react'
 import {
   api,
   Application,
@@ -19,6 +19,7 @@ import {
   TaskOutcome,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
+import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
 import { KnowledgeTab } from './KnowledgeTab'
 import { MethodologyTab } from './MethodologyTab'
@@ -43,20 +44,69 @@ type Tab =
   | 'findings'
   | 'reports'
   | 'graph'
-  | 'analyst'
   | 'audit'
+
+type Conn = 'connecting' | 'online' | 'offline'
 
 interface AppAssets {
   app: Application
   assets: Asset[]
 }
 
-export function Workbench({ project, online }: { project: Project; online: boolean }) {
+// The activity bar surfaces (ADR-0015). The Analyst is not here — it is the
+// right-hand dock, always present, never a surface you navigate to.
+const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
+  { key: 'assets', icon: '🗂', label: 'Assets' },
+  { key: 'methodology', icon: '✓', label: 'Method' },
+  { key: 'knowledge', icon: '📚', label: 'Know' },
+  { key: 'context', icon: '🔬', label: 'Context' },
+  { key: 'findings', icon: '⚑', label: 'Find' },
+  { key: 'repeater', icon: '↔', label: 'Repeat' },
+  { key: 'proxy', icon: '📡', label: 'Proxy' },
+  { key: 'terminal', icon: '▤', label: 'Term' },
+  { key: 'scan', icon: '▷', label: 'Scan' },
+  { key: 'playbooks', icon: '🧩', label: 'Play' },
+  { key: 'tasks', icon: '☰', label: 'Tasks' },
+  { key: 'graph', icon: '📊', label: 'Graph' },
+  { key: 'scope', icon: '🛡', label: 'Scope' },
+  { key: 'reports', icon: '📄', label: 'Report', meta: true },
+  { key: 'audit', icon: '📜', label: 'Audit', meta: true },
+]
+
+function surfaceTitle(t: Tab): string {
+  if (t === 'assets') return 'Applications & Assets'
+  if (t === 'scan') return 'Scan'
+  return t[0].toUpperCase() + t.slice(1)
+}
+
+// A crash in one surface must never blank the shell, the docked Analyst, or the
+// status bar. Re-keyed per surface so switching away and back clears the error.
+class SurfaceBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null }
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="banner error wb-banner">
+          ⚠ This surface hit an error: {this.state.error.message}. Other surfaces and the Analyst are
+          unaffected — switch away and back to retry.
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+export function Workbench({ project, conn, onHome }: { project: Project; conn: Conn; onHome: () => void }) {
+  const online = conn === 'online'
   const [tab, setTab] = useState<Tab>('assets')
   const [apps, setApps] = useState<AppAssets[]>([])
   const [capabilities, setCapabilities] = useState<CapabilityManifest[]>([])
   const [context, setContext] = useState<ContextItem[]>([])
   const [findings, setFindings] = useState<Finding[]>([])
+  const [approvals, setApprovals] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   async function loadApps() {
@@ -84,51 +134,112 @@ export function Workbench({ project, online }: { project: Project; online: boole
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, project.id])
 
+  // Approvals feed the status bar, independent of the active surface.
+  useEffect(() => {
+    if (!online) return
+    let alive = true
+    const tick = () =>
+      api
+        .listApprovals()
+        .then((a) => alive && setApprovals(a?.length ?? 0))
+        .catch(() => {})
+    void tick()
+    const timer = setInterval(tick, 5000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [online])
+
   const allAssets = useMemo(
     () => apps.flatMap((a) => a.assets.map((asset) => ({ asset, appName: a.app.name }))),
     [apps],
   )
 
+  const active = SURFACES.find((s) => s.key === tab)
+
   return (
-    <div className="content wide">
-      <div className="hero">
-        <h1>{project.name}</h1>
-        <p>
-          <span className={`badge ${project.status}`}>{project.status}</span> · {apps.length} application
-          {apps.length === 1 ? '' : 's'} · {findings.length} finding{findings.length === 1 ? '' : 's'}
-        </p>
+    <div className="wb">
+      <div className="wb-titlebar">
+        <button className={`wb-proj ${online ? 'online' : ''}`} onClick={onHome} title="Back to Home">
+          <span className="dot" /> {project.name} <span className="car">▾</span>
+        </button>
+        <div className="wb-omni" title="Omni-search — coming soon">
+          <span>⌕</span> Search code · traffic · findings · knowledge…
+          <kbd>⌘K</kbd>
+        </div>
+        <NotificationBell online={online} />
+        <code className="apiurl">{api.baseURL}</code>
       </div>
 
-      {error && <div className="banner error">⚠ {error}</div>}
+      <div className="wb-body">
+        <nav className="wb-activity">
+          {SURFACES.filter((s) => !s.meta).map((s) => (
+            <button key={s.key} className={`wb-ic ${tab === s.key ? 'on' : ''}`} title={surfaceTitle(s.key)} onClick={() => setTab(s.key)}>
+              <span>{s.icon}</span>
+              {s.key === 'findings' && findings.length > 0 && <span className="n red">{findings.length}</span>}
+              {s.key === 'context' && context.length > 0 && <span className="n">{context.length}</span>}
+              <small>{s.label}</small>
+            </button>
+          ))}
+          <div className="wb-actsp" />
+          <div className="wb-actdiv" />
+          {SURFACES.filter((s) => s.meta).map((s) => (
+            <button key={s.key} className={`wb-ic ${tab === s.key ? 'on' : ''}`} title={surfaceTitle(s.key)} onClick={() => setTab(s.key)}>
+              <span>{s.icon}</span>
+              <small>{s.label}</small>
+            </button>
+          ))}
+        </nav>
 
-      <div className="tabs">
-        {(['assets', 'methodology', 'knowledge', 'context', 'scope', 'scan', 'repeater', 'proxy', 'terminal', 'playbooks', 'tasks', 'findings', 'reports', 'graph', 'analyst', 'audit'] as Tab[]).map((t) => (
-          <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
-            {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
-          </button>
-        ))}
+        <div className="wb-center">
+          <div className="wb-doctabs">
+            <div className="wb-doctab">
+              <span>{active?.icon}</span> {surfaceTitle(tab)}
+            </div>
+          </div>
+          {error && <div className="banner error wb-banner">⚠ {error}</div>}
+          <div className="wb-work">
+            <SurfaceBoundary key={tab}>
+            {tab === 'assets' && <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />}
+            {tab === 'methodology' && <MethodologyTab project={project} online={online} onError={setError} />}
+            {tab === 'knowledge' && <KnowledgeTab project={project} online={online} onError={setError} />}
+            {tab === 'context' && <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />}
+            {tab === 'scope' && <ScopeTab project={project} online={online} onError={setError} />}
+            {tab === 'scan' && <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />}
+            {tab === 'repeater' && <RepeaterTab project={project} online={online} onError={setError} />}
+            {tab === 'proxy' && <ProxyTab project={project} online={online} onError={setError} />}
+            {tab === 'terminal' && (
+              <Suspense fallback={<div className="empty">Loading terminal…</div>}>
+                <TerminalTab project={project} online={online} onError={setError} />
+              </Suspense>
+            )}
+            {tab === 'playbooks' && <PlaybooksTab assets={allAssets} online={online} onError={setError} />}
+            {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
+            {tab === 'findings' && <FindingsTab findings={findings} />}
+            {tab === 'reports' && <ReportsTab project={project} online={online} onError={setError} />}
+            {tab === 'graph' && <GraphTab project={project} online={online} onError={setError} />}
+            {tab === 'audit' && <AuditTab online={online} onError={setError} />}
+            </SurfaceBoundary>
+          </div>
+        </div>
+
+        <SurfaceBoundary>
+          <AnalystPanel project={project} online={online} />
+        </SurfaceBoundary>
       </div>
 
-      {tab === 'assets' && <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />}
-      {tab === 'methodology' && <MethodologyTab project={project} online={online} onError={setError} />}
-      {tab === 'knowledge' && <KnowledgeTab project={project} online={online} onError={setError} />}
-      {tab === 'context' && <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />}
-      {tab === 'scope' && <ScopeTab project={project} online={online} onError={setError} />}
-      {tab === 'scan' && <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />}
-      {tab === 'repeater' && <RepeaterTab project={project} online={online} onError={setError} />}
-      {tab === 'proxy' && <ProxyTab project={project} online={online} onError={setError} />}
-      {tab === 'terminal' && (
-        <Suspense fallback={<div className="empty">Loading terminal…</div>}>
-          <TerminalTab project={project} online={online} onError={setError} />
-        </Suspense>
-      )}
-      {tab === 'playbooks' && <PlaybooksTab assets={allAssets} online={online} onError={setError} />}
-      {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
-      {tab === 'findings' && <FindingsTab findings={findings} />}
-      {tab === 'reports' && <ReportsTab project={project} online={online} onError={setError} />}
-      {tab === 'graph' && <GraphTab project={project} online={online} onError={setError} />}
-      {tab === 'analyst' && <AnalystPanel project={project} online={online} />}
-      {tab === 'audit' && <AuditTab online={online} onError={setError} />}
+      <div className="wb-status">
+        <span className={`b ${online ? 'good' : ''}`}>
+          <span className="sdot" /> {online ? 'control plane online' : conn === 'offline' ? 'control plane offline' : 'connecting…'}
+        </span>
+        <span className="b good">⛨ egress governed</span>
+        <span className="sp" />
+        {approvals > 0 && (
+          <span className="warnpill">⏸ {approvals} approval{approvals === 1 ? '' : 's'} waiting</span>
+        )}
+        <span className="b">audit ●</span>
+      </div>
     </div>
   )
 }
