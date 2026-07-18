@@ -12,8 +12,10 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/browser"
 	"github.com/opensecbench/opensecbench/pkg/client"
@@ -84,6 +86,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return sessionCmd(ctx, c, args[1:])
 	case "audit":
 		return auditCmd(ctx, c, args[1:])
+	case "notifications", "notif":
+		return notifyCmd(ctx, c, args[1:])
 	case "report":
 		return reportCmd(ctx, c, args[1:])
 	case "proxy":
@@ -923,6 +927,105 @@ func reportCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 }
 
+func notifyCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb notifications <list|read|read-all|watch>")
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("notifications list", flag.ContinueOnError)
+		unread := fs.Bool("unread", false, "only unread")
+		limit := fs.Int("limit", 50, "max to show")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		feed, err := c.ListNotifications(ctx, *unread, *limit)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%d unread\n", feed.Unread)
+		for _, n := range feed.Notifications {
+			mark := " "
+			if !n.Read {
+				mark = "*"
+			}
+			fmt.Printf("%s %s  %-9s %s — %s\n", mark, n.ID[:8], n.Kind, n.Title, n.Body)
+		}
+		return nil
+	case "read":
+		if len(args) < 2 {
+			return errors.New("usage: osb notifications read <id>")
+		}
+		return c.MarkNotificationRead(ctx, args[1])
+	case "read-all":
+		return c.MarkAllNotificationsRead(ctx)
+	case "watch":
+		fs := flag.NewFlagSet("notifications watch", flag.ContinueOnError)
+		interval := fs.Int("interval", 10, "poll interval seconds")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return watchNotifications(ctx, c, *interval)
+	default:
+		return fmt.Errorf("unknown notifications subcommand %q", args[0])
+	}
+}
+
+// watchNotifications polls for unread notifications and fires an OS-native notification for each new
+// one, until interrupted.
+func watchNotifications(ctx context.Context, c *client.Client, interval int) error {
+	if interval < 2 {
+		interval = 2
+	}
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	fmt.Printf("watching for notifications every %ds (Ctrl-C to stop)\n", interval)
+
+	seen := map[string]bool{}
+	first := true
+	tick := time.NewTicker(time.Duration(interval) * time.Second)
+	defer tick.Stop()
+	for {
+		feed, err := c.ListNotifications(runCtx, true, 50)
+		if err == nil {
+			for i := len(feed.Notifications) - 1; i >= 0; i-- { // oldest first
+				n := feed.Notifications[i]
+				if seen[n.ID] {
+					continue
+				}
+				seen[n.ID] = true
+				if !first { // don't replay the backlog on startup
+					osNotify(n.Title, n.Body)
+				}
+			}
+			first = false
+		}
+		select {
+		case <-runCtx.Done():
+			return nil
+		case <-tick.C:
+		}
+	}
+}
+
+// osNotify fires a best-effort native desktop notification.
+func osNotify(title, body string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		script := fmt.Sprintf("display notification %q with title %q", body, "OpenSecBench: "+title)
+		cmd = exec.Command("osascript", "-e", script)
+	case "windows":
+		ps := fmt.Sprintf(`[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms');`+
+			`$n=New-Object System.Windows.Forms.NotifyIcon;$n.Icon=[System.Drawing.SystemIcons]::Information;`+
+			`$n.Visible=$true;$n.ShowBalloonTip(5000,%q,%q,'Info')`, "OpenSecBench: "+title, body)
+		cmd = exec.Command("powershell", "-NoProfile", "-Command", ps)
+	default:
+		cmd = exec.Command("notify-send", "OpenSecBench: "+title, body)
+	}
+	_ = cmd.Run() // best-effort
+}
+
 func auditCmd(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
 	limit := fs.Int("limit", 50, "max events to show")
@@ -1168,6 +1271,9 @@ Commands:
   report generate --project ID [--template T] [--format html|md] [--out FILE]
   report list --project ID    list generated reports
   audit [--limit N] [--json]  show the append-only audit trail
+  notifications list [--unread]  show notifications
+  notifications watch          fire OS-native notifications as they arrive
+  notifications read-all       mark all read
   proxy start --project ID [--port N]  start the intercepting proxy for a project
   proxy stop --project ID     stop the proxy
   proxy ca [--out FILE]        fetch the proxy CA cert to trust

@@ -48,6 +48,27 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Notification kinds.
+const (
+	NotifyApproval = "approval"
+	NotifyReport   = "report"
+	NotifyTask     = "task"
+	NotifyInfo     = "info"
+)
+
+// Notification is an in-app, needs-attention event surfaced to the operator (P8). A `link` is an
+// optional client hint like "approval:<id>" or "report:<id>".
+type Notification struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body,omitempty"`
+	ProjectID *string   `json:"project_id,omitempty"`
+	Link      string    `json:"link,omitempty"`
+	Read      bool      `json:"read"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // Report is a generated engagement deliverable (ADR-0008). Its rendered bytes are a CAS artifact.
 type Report struct {
 	ID         string    `json:"id"`
