@@ -94,7 +94,17 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	s.sessMu.Lock()
 	s.sessions[id] = &liveSession{h: h, projectID: projectID}
 	s.sessMu.Unlock()
+	s.record(r.Context(), sessionActor(req.Actor), "session.open", id, map[string]string{
+		"project": projectID, "container": container,
+	})
 	writeJSON(w, http.StatusCreated, sess)
+}
+
+func sessionActor(actor string) string {
+	if actor == "" {
+		return "human"
+	}
+	return actor
 }
 
 // sessionWS bridges a WebSocket to the session's PTY: binary frames are terminal input, text frames
@@ -208,6 +218,9 @@ func (s *Server) finalizeSession(id string) {
 			}
 		}
 		_ = s.store.CloseSession(ctx, id, model.SessionClosed, artifactID, "")
+		s.record(ctx, "human", "session.close", id, map[string]any{
+			"transcript_artifact": artifactID, "transcript_bytes": len(transcript),
+		})
 	})
 }
 
@@ -243,5 +256,6 @@ func (s *Server) sessionEvidence(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.record(r.Context(), actorOf(r), "evidence.session", obs.ID, map[string]string{"session": sess.ID})
 	writeJSON(w, http.StatusCreated, obs)
 }

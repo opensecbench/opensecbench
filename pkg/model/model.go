@@ -48,6 +48,18 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// AuditEvent is one immutable, hash-chained entry in the append-only audit trail (ADR-0002).
+type AuditEvent struct {
+	Seq      uint64          `json:"seq"`
+	Time     time.Time       `json:"time"`
+	Actor    string          `json:"actor"`
+	Action   string          `json:"action"`
+	Target   string          `json:"target,omitempty"`
+	Data     json.RawMessage `json:"data,omitempty"`
+	PrevHash string          `json:"prev_hash"`
+	Hash     string          `json:"hash"`
+}
+
 // Session kinds and statuses.
 const (
 	SessionTerminal = "terminal"

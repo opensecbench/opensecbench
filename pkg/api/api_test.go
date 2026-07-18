@@ -314,3 +314,58 @@ func TestRepeaterScopeGuardedSend(t *testing.T) {
 		t.Fatal("out-of-scope target should never be reached")
 	}
 }
+
+func TestAuditRecordsGovernedActions(t *testing.T) {
+	srv := newTestServer(t)
+
+	var proj model.Project
+	postJSON(t, srv.URL+"/v1/projects", `{"name":"audited"}`, &proj)
+
+	// Two governed actions: add then delete a scope entry.
+	var entry model.ScopeEntry
+	postJSON(t, srv.URL+"/v1/projects/"+proj.ID+"/scope", `{"kind":"domain","value":"acme.com"}`, &entry)
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/v1/scope/"+entry.ID, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	var events []model.AuditEvent
+	postGet(t, srv.URL+"/v1/audit", &events)
+	if len(events) < 2 {
+		t.Fatalf("expected >=2 audit events, got %d", len(events))
+	}
+	// Newest first: the delete is most recent.
+	if events[0].Action != "scope.delete" || events[0].Target != entry.ID {
+		t.Fatalf("newest event = %+v, want scope.delete of %s", events[0], entry.ID)
+	}
+	// The chain links.
+	for i := 0; i+1 < len(events); i++ {
+		if events[i].PrevHash != events[i+1].Hash {
+			t.Fatalf("chain broken between seq %d and %d", events[i].Seq, events[i+1].Seq)
+		}
+	}
+	// scope.add is present too.
+	found := false
+	for _, e := range events {
+		if e.Action == "scope.add" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("scope.add not recorded")
+	}
+}
+
+func postGet(t *testing.T, url string, out any) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		t.Fatal(err)
+	}
+}

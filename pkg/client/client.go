@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
@@ -121,6 +122,16 @@ func (c *Client) SendExchange(ctx context.Context, id string) (model.HTTPExchang
 func (c *Client) SaveExchangeEvidence(ctx context.Context, id, note string) (model.Observation, error) {
 	var out model.Observation
 	return out, c.do(ctx, http.MethodPost, "/v1/exchanges/"+id+"/evidence", map[string]string{"note": note}, &out)
+}
+
+// ListAudit returns recent audit events (newest first).
+func (c *Client) ListAudit(ctx context.Context, limit int) ([]model.AuditEvent, error) {
+	path := "/v1/audit"
+	if limit > 0 {
+		path += "?limit=" + strconv.Itoa(limit)
+	}
+	var out []model.AuditEvent
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
 // ListSessions returns a project's interactive terminal sessions, newest first.

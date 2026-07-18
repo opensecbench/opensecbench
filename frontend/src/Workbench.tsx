@@ -5,6 +5,7 @@ import {
   Asset,
   CapabilityManifest,
   ContextItem,
+  AuditEvent,
   Finding,
   HTTPExchange,
   Observation,
@@ -32,6 +33,7 @@ type Tab =
   | 'tasks'
   | 'findings'
   | 'analyst'
+  | 'audit'
 
 interface AppAssets {
   app: Application
@@ -89,7 +91,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="tabs">
-        {(['assets', 'context', 'scope', 'scan', 'repeater', 'terminal', 'playbooks', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
+        {(['assets', 'context', 'scope', 'scan', 'repeater', 'terminal', 'playbooks', 'tasks', 'findings', 'analyst', 'audit'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -110,7 +112,61 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
       {tab === 'findings' && <FindingsTab findings={findings} />}
       {tab === 'analyst' && <AnalystPanel project={project} online={online} />}
+      {tab === 'audit' && <AuditTab online={online} onError={setError} />}
     </div>
+  )
+}
+
+function AuditTab({ online, onError }: { online: boolean; onError: (m: string) => void }) {
+  const [events, setEvents] = useState<AuditEvent[]>([])
+
+  async function reload() {
+    try {
+      setEvents((await api.listAudit(200)) ?? [])
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
+  useEffect(() => {
+    if (online) void reload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online])
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        Audit trail
+        <button className="link" onClick={reload}>refresh</button>
+      </div>
+      <p className="hint">Append-only, hash-chained record of every governed action.</p>
+      {events.length === 0 ? (
+        <div className="empty">No audit events yet.</div>
+      ) : (
+        <table className="audit-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>time</th>
+              <th>action</th>
+              <th>actor</th>
+              <th>target</th>
+            </tr>
+          </thead>
+          <tbody>
+            {events.map((e) => (
+              <tr key={e.seq} title={e.hash}>
+                <td className="muted">{e.seq}</td>
+                <td className="mono">{new Date(e.time).toLocaleString()}</td>
+                <td><span className="badge">{e.action}</span></td>
+                <td className="mono">{e.actor}</td>
+                <td className="mono truncate">{e.target}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   )
 }
 

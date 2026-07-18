@@ -4,6 +4,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO)
@@ -12,6 +13,7 @@ import (
 // DB is the control-plane database handle.
 type DB struct {
 	*sql.DB
+	auditMu sync.Mutex // serializes audit-chain appends
 }
 
 // Open opens (creating if needed) the SQLite database at path with foreign-key enforcement,
@@ -26,7 +28,7 @@ func Open(path string) (*DB, error) {
 		_ = sqldb.Close()
 		return nil, fmt.Errorf("store: enable WAL: %w", err)
 	}
-	return &DB{sqldb}, nil
+	return &DB{DB: sqldb}, nil
 }
 
 // Apply runs every migration newer than the recorded schema version, each in its own

@@ -26,6 +26,9 @@ type Service struct {
 	egressStrict  bool
 	providerLocal bool
 	tokenBudget   int
+
+	// Audit, if set, records agent loop events (tool calls, gate decisions, answers).
+	Audit func(action, detail string)
 }
 
 // NewService wires the Analyst service. Egress policy and budget are read from OSB_EGRESS_POLICY
@@ -58,6 +61,7 @@ func (svc *Service) session() *agent.Session {
 		Execute:     svc.execute,
 		MaxSteps:    8,
 		TokenBudget: svc.tokenBudget,
+		Audit:       svc.Audit,
 	}
 }
 

@@ -78,6 +78,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return repeaterCmd(ctx, c, args[1:])
 	case "session":
 		return sessionCmd(ctx, c, args[1:])
+	case "audit":
+		return auditCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -714,6 +716,27 @@ func sessionCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 }
 
+func auditCmd(ctx context.Context, c *client.Client, args []string) error {
+	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
+	limit := fs.Int("limit", 50, "max events to show")
+	jsonOut := fs.Bool("json", false, "emit raw JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	events, err := c.ListAudit(ctx, *limit)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return printJSON(events)
+	}
+	for _, e := range events {
+		fmt.Printf("%5d  %s  %-22s %-18s %s\n",
+			e.Seq, e.Time.Format("2006-01-02 15:04:05"), e.Action, e.Actor, e.Target)
+	}
+	return nil
+}
+
 func mediaTypeForExt(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".txt", ".md", ".log":
@@ -934,6 +957,7 @@ Commands:
   session list --project ID   list terminal sessions
   session close <id>          close a session and capture its transcript
   session evidence --id ID [--note N]  save a session transcript as evidence
+  audit [--limit N] [--json]  show the append-only audit trail
   capability list             list available capabilities
   capability run --id ID (--dir PATH | --asset ID) [--project ID] [--param k=v]  run a capability
   playbook list               list playbooks
