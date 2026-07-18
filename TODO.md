@@ -59,6 +59,19 @@ and can later ship as plugins.
 - [x] Server-side filtered `GET /v1/projects/{id}/exchanges` (Step 1; `origin/method/status/q/limit`).
       *Cursor pagination still to add; live push is Step 2.*
 
+## Analyst provider / model management
+
+- [ ] **Provider display + selection** — show the active provider+model in the Analyst UI and let the user
+      register/select providers (keys in the vault). The plan's `provider` entity is not built; provider is
+      env-only at daemon start (defaults to Mock). Include a **"test provider"** round-trip so a broken
+      backend is caught before use.
+- [ ] **`claude-cli` provider is not a viable Analyst backend** (found 2026-07-18): `claude` (Claude Code) is
+      a full agent, not a completions API. `CLIProvider.Complete` renders our system prompt as `[SYSTEM]`
+      user-text to `claude -p`, which correctly rejects it as role-reassignment/injection; even otherwise it
+      won't emit our JSON tool protocol. Fix: relabel it "experimental / chat-only, no tools", steer setup to
+      an **API provider** (`anthropic`/OpenAI-compat) as the real path, and consider dropping it or gating it
+      behind a chat-only mode.
+
 ## Small / medium follow-ups
 
 - [ ] Broaden audit coverage to remaining entity CRUD (project/app/asset/finding create/update).
