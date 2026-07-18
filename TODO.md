@@ -81,6 +81,13 @@ and can later ship as plugins.
 
 - [ ] **Remote outbound-connect runner** + split `opensecbench-runner` repo — a runner agent that
       dials home and executes tasks over the runner protocol (ADR-0004 is additive-ready).
+  - [ ] **Runners as request-egress endpoints** (builds on the above + ADR-0016) — route Proxy/Replay
+        (and network capabilities') outbound requests *through a selected remote runner* instead of the
+        local host. Unlocks **distributed/geo-distributed testing** (observe a target from different
+        regions/source IPs) and **origination from inside the target's network** (a runner deployed in
+        their environment) — high-value for internal assessments and egress/segmentation testing. Needs a
+        per-tool/per-request "egress via runner X" selector; scope guard + DLP + audit still governed by the
+        control plane (the runner is only the exit point). Idea from James, 2026-07-18.
 - [ ] **Hosted team hub service** — accounts, uploads, submission scanning, reputation, moderation
       (the static-index hub + signed format is the foundation).
 - [ ] **RDP/VNC** interactive sessions (terminal shipped in P7).
