@@ -53,6 +53,10 @@ func NewService(st *store.DB, engine *task.Engine, provider llm.Provider) *Servi
 // Available reports whether an LLM provider is configured.
 func (svc *Service) Available() bool { return svc.provider != nil }
 
+// SetEgressStrict overrides the data-egress posture (e.g. from the active policy profile): when
+// strict, capability output for a private asset is not sent to an external provider.
+func (svc *Service) SetEgressStrict(strict bool) { svc.egressStrict = strict }
+
 func (svc *Service) session() *agent.Session {
 	return &agent.Session{
 		Provider:    svc.provider,

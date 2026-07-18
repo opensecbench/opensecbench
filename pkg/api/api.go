@@ -23,6 +23,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
+	"github.com/opensecbench/opensecbench/pkg/policy"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/repeater"
 	"github.com/opensecbench/opensecbench/pkg/report"
@@ -156,6 +157,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/canaries", s.createCanary)
 	s.mux.HandleFunc("DELETE /v1/canaries/{id}", s.deleteCanary)
 	s.mux.HandleFunc("GET /v1/dlp-events", s.listDLPEvents)
+	s.mux.HandleFunc("GET /v1/policy/profiles", s.listPolicyProfiles)
+	s.mux.HandleFunc("GET /v1/policy/active", s.getActivePolicy)
+	s.mux.HandleFunc("PUT /v1/policy/active", s.setActivePolicy)
 	s.mux.HandleFunc("GET /v1/extensions", s.listExtensions)
 	s.mux.HandleFunc("POST /v1/extensions/trust", s.trustPublisher)
 	s.mux.HandleFunc("GET /v1/hub/index", s.hubIndex)
@@ -247,7 +251,18 @@ func (s *Server) analystService() *analyst.Service {
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}
+	// The active policy profile governs data egress (ADR-0006).
+	svc.SetEgressStrict(!s.activePolicy().AllowExternalForPrivate)
 	return svc
+}
+
+// activePolicy returns the currently selected governance profile (default: conservative).
+func (s *Server) activePolicy() policy.Profile {
+	name := policy.Default
+	if v, err := s.store.GetSetting(context.Background(), "active_policy_profile"); err == nil && v != "" {
+		name = v
+	}
+	return policy.Get(name)
 }
 
 // guardedProvider wraps the LLM provider with DLP inspection of outbound content (ADR-0011): vault
