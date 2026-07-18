@@ -80,7 +80,7 @@ func (s *Server) buildProvider(p model.Provider) (llm.Provider, error) {
 		}
 		key = string(b)
 	}
-	return llm.New(llm.Config{Type: p.Type, BaseURL: p.BaseURL, Model: p.Model, APIKey: key})
+	return llm.New(llm.Config{Type: p.Type, BaseURL: p.BaseURL, Model: p.Model, APIKey: key, NativeTools: os.Getenv("OSB_LLM_NATIVE_TOOLS") == "1"})
 }
 
 // loadActiveProvider swaps in the persisted active provider on startup (falling back to the env
