@@ -28,3 +28,15 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [ ] Project templates / archetypes
 - [ ] Context ingest + omni-search v1
 - [x] `osb` CLI + pkg/client over the API (health, project list/create/get/delete)
+
+## P2 — Capability & runner core
+
+- [x] ADR-0004 (runner protocol & sandboxing)
+- [x] tasks + artifacts schema (0003) + repositories (provenance chain)
+- [x] Sandboxed Docker LocalRunner (pkg/runner) with limits + read-only mounts
+- [x] Capability contract + registry (pkg/capability); built-ins: source-inventory, semgrep
+- [x] Task engine (pkg/task): capability → sandbox → CAS artifact → provenance
+- [x] API + osb CLI: capabilities list, task run/get, artifact content
+- [ ] Resolve target dir from an asset (needs asset endpoints); async task scheduling
+- [ ] Semgrep verified against a real repo (pulls image + fetches rules; run locally)
+- [ ] Observations: interpret SARIF → observations (P3)

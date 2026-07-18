@@ -59,6 +59,63 @@ func (c *Client) DeleteProject(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+id, nil, nil)
 }
 
+// CapabilityManifest is a capability as reported by the control plane.
+type CapabilityManifest struct {
+	ID          string `json:"id"`
+	Version     string `json:"version"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+// ListCapabilities returns the available capabilities.
+func (c *Client) ListCapabilities(ctx context.Context) ([]CapabilityManifest, error) {
+	var out []CapabilityManifest
+	return out, c.do(ctx, http.MethodGet, "/v1/capabilities", nil, &out)
+}
+
+// RunTaskRequest asks the control plane to run a capability against a target directory.
+type RunTaskRequest struct {
+	CapabilityID string         `json:"capability_id"`
+	TargetDir    string         `json:"target_dir,omitempty"`
+	Actor        string         `json:"actor,omitempty"`
+	Params       map[string]any `json:"params,omitempty"`
+}
+
+// TaskOutcome is a completed task with its artifacts.
+type TaskOutcome struct {
+	Task      model.Task       `json:"task"`
+	Artifacts []model.Artifact `json:"artifacts"`
+}
+
+// RunTask runs a capability and returns the resulting task and artifacts.
+func (c *Client) RunTask(ctx context.Context, req RunTaskRequest) (TaskOutcome, error) {
+	var out TaskOutcome
+	return out, c.do(ctx, http.MethodPost, "/v1/tasks", req, &out)
+}
+
+// GetTask returns a task by id.
+func (c *Client) GetTask(ctx context.Context, id string) (model.Task, error) {
+	var out model.Task
+	return out, c.do(ctx, http.MethodGet, "/v1/tasks/"+id, nil, &out)
+}
+
+// ArtifactContent fetches an artifact's raw bytes from the CAS.
+func (c *Client) ArtifactContent(ctx context.Context, id string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/artifacts/"+id+"/content", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, fmt.Errorf("GET artifact content: %s", resp.Status)
+	}
+	return io.ReadAll(resp.Body)
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
 	var reqBody io.Reader
 	if body != nil {

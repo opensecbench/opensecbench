@@ -5,21 +5,33 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
+	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/task"
 	"github.com/opensecbench/opensecbench/pkg/version"
 )
 
-// Server routes control-plane HTTP requests against the store.
+// Deps are the control-plane services the API exposes.
+type Deps struct {
+	Store  *store.DB
+	Engine *task.Engine
+	CAS    *cas.Store
+}
+
+// Server routes control-plane HTTP requests against the control-plane services.
 type Server struct {
-	mux   *http.ServeMux
-	store *store.DB
+	mux    *http.ServeMux
+	store  *store.DB
+	engine *task.Engine
+	cas    *cas.Store
 }
 
 // New builds the API server with its routes registered.
-func New(st *store.DB) *Server {
-	s := &Server{mux: http.NewServeMux(), store: st}
+func New(deps Deps) *Server {
+	s := &Server{mux: http.NewServeMux(), store: deps.Store, engine: deps.Engine, cas: deps.CAS}
 	s.routes()
 	return s
 }
@@ -59,6 +71,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/projects", s.createProject)
 	s.mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
 	s.mux.HandleFunc("DELETE /v1/projects/{id}", s.deleteProject)
+
+	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
+	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
+	s.mux.HandleFunc("GET /v1/tasks/{id}", s.getTask)
+	s.mux.HandleFunc("GET /v1/tasks/{id}/artifacts", s.getTaskArtifacts)
+	s.mux.HandleFunc("GET /v1/artifacts/{id}/content", s.getArtifactContent)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -202,6 +220,95 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- capabilities, tasks, artifacts ---
+
+func (s *Server) listCapabilities(w http.ResponseWriter, _ *http.Request) {
+	if s.engine == nil {
+		writeErr(w, http.StatusServiceUnavailable, "engine unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.engine.Registry().Manifests())
+}
+
+func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
+	if s.engine == nil {
+		writeErr(w, http.StatusServiceUnavailable, "engine unavailable")
+		return
+	}
+	var req struct {
+		CapabilityID  string         `json:"capability_id"`
+		TargetDir     string         `json:"target_dir"`
+		Actor         string         `json:"actor"`
+		AssetID       *string        `json:"asset_id"`
+		ApplicationID *string        `json:"application_id"`
+		Params        map[string]any `json:"params"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.CapabilityID == "" {
+		writeErr(w, http.StatusBadRequest, "capability_id is required")
+		return
+	}
+	out, err := s.engine.Run(r.Context(), task.RunRequest{
+		CapabilityID:  req.CapabilityID,
+		TargetDir:     req.TargetDir,
+		Actor:         req.Actor,
+		AssetID:       req.AssetID,
+		ApplicationID: req.ApplicationID,
+		Params:        req.Params,
+	})
+	// A validation/plan error produces no task; a run failure produces a failed task the caller
+	// still wants to inspect.
+	if err != nil && out.Task.ID == "" {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
+	t, err := s.store.GetTask(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) getTaskArtifacts(w http.ResponseWriter, r *http.Request) {
+	arts, err := s.store.ListArtifactsByTask(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, arts)
+}
+
+func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
+	art, err := s.store.GetArtifact(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "artifact not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rc, err := s.cas.Open(art.SHA256)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "artifact bytes unavailable")
+		return
+	}
+	defer func() { _ = rc.Close() }()
+	w.Header().Set("Content-Type", art.MediaType)
+	_, _ = io.Copy(w, rc)
 }
 
 // --- helpers ---

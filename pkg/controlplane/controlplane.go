@@ -13,7 +13,11 @@ import (
 
 	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/api"
+	"github.com/opensecbench/opensecbench/pkg/capability"
+	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
 // Options configures a control-plane instance.
@@ -60,13 +64,20 @@ func Start(opts Options) (*Instance, error) {
 		return nil, err
 	}
 
+	blobs, err := cas.Open(filepath.Join(filepath.Dir(opts.DBPath), "cas"))
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	engine := task.NewEngine(db, blobs, capability.BuiltIns(), runner.LocalRunner{})
+
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	srv := &http.Server{
-		Handler:           api.New(db).Handler(),
+		Handler:           api.New(api.Deps{Store: db, Engine: engine, CAS: blobs}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() { _ = srv.Serve(ln) }()
