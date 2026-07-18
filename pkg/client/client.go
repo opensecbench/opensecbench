@@ -192,6 +192,62 @@ func (c *Client) MarkAllNotificationsRead(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/v1/notifications/read-all", nil, nil)
 }
 
+// ListMethodologies returns the methodology catalog (raw JSON packs).
+func (c *Client) ListMethodologies(ctx context.Context) ([]methodologyPack, error) {
+	var out []methodologyPack
+	return out, c.do(ctx, http.MethodGet, "/v1/methodologies", nil, &out)
+}
+
+// methodologyPack is a light view of a catalog pack for the CLI.
+type methodologyPack struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Tech  string `json:"tech"`
+	Items []struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	} `json:"items"`
+}
+
+// MethodologyCoverage is a project's coverage view (opaque summary + packs).
+type MethodologyCoverage struct {
+	Packs []struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+		Items []struct {
+			Item struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"item"`
+			Status string `json:"status"`
+			Note   string `json:"note"`
+		} `json:"items"`
+	} `json:"packs"`
+	Summary struct {
+		Total      int `json:"total"`
+		Covered    int `json:"covered"`
+		CoveredPct int `json:"covered_pct"`
+	} `json:"summary"`
+}
+
+// GetMethodologyCoverage returns a project's methodology coverage view.
+func (c *Client) GetMethodologyCoverage(ctx context.Context, projectID string) (MethodologyCoverage, error) {
+	var out MethodologyCoverage
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/methodology", nil, &out)
+}
+
+// AdoptMethodology adopts a methodology pack for a project.
+func (c *Client) AdoptMethodology(ctx context.Context, projectID, methodologyID string) error {
+	return c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/methodology/adopt",
+		map[string]string{"methodology_id": methodologyID}, nil)
+}
+
+// SetCoverage records a project's status + note for a methodology item.
+func (c *Client) SetCoverage(ctx context.Context, projectID, itemID, status, note string) error {
+	return c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/coverage",
+		map[string]string{"item_id": itemID, "status": status, "note": note}, nil)
+}
+
 // ReportTemplate is an available report template.
 type ReportTemplate struct {
 	ID    string `json:"id"`

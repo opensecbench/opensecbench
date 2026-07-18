@@ -16,6 +16,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/analyst"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
@@ -50,6 +51,7 @@ type Server struct {
 	sessMgr  *session.Manager
 	proxyCA  *proxy.CA
 	reports  *report.Registry
+	methods  *methodology.Registry
 
 	sessMu   sync.Mutex
 	sessions map[string]*liveSession
@@ -70,6 +72,7 @@ func New(deps Deps) *Server {
 		sessMgr:  deps.SessionMgr,
 		proxyCA:  deps.ProxyCA,
 		reports:  report.BuiltIns(),
+		methods:  methodology.BuiltIns(),
 		sessions: make(map[string]*liveSession),
 		proxies:  make(map[string]*liveProxy),
 	}
@@ -113,6 +116,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/notifications", s.listNotifications)
 	s.mux.HandleFunc("POST /v1/notifications/{id}/read", s.markNotificationRead)
 	s.mux.HandleFunc("POST /v1/notifications/read-all", s.markAllNotificationsRead)
+	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
+	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)
+	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/adopt", s.adoptMethodology)
+	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/unadopt", s.unadoptMethodology)
+	s.mux.HandleFunc("POST /v1/projects/{id}/coverage", s.setCoverage)
 	s.mux.HandleFunc("GET /v1/report-templates", s.listReportTemplates)
 	s.mux.HandleFunc("GET /v1/projects/{id}/reports", s.listReports)
 	s.mux.HandleFunc("POST /v1/projects/{id}/reports", s.generateReport)
