@@ -39,6 +39,25 @@ type Project struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// Playbook run statuses.
+const (
+	PlaybookRunning   = "running"
+	PlaybookSucceeded = "succeeded"
+	PlaybookFailed    = "failed"
+)
+
+// PlaybookRun groups the tasks produced by running a playbook against an asset.
+type PlaybookRun struct {
+	ID         string     `json:"id"`
+	PlaybookID string     `json:"playbook_id"`
+	AssetID    *string    `json:"asset_id,omitempty"`
+	Actor      string     `json:"actor"`
+	Status     string     `json:"status"`
+	TaskIDs    []string   `json:"task_ids"`
+	CreatedAt  time.Time  `json:"created_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+}
+
 // Thread statuses.
 const (
 	ThreadActive           = "active"
