@@ -84,6 +84,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return sessionCmd(ctx, c, args[1:])
 	case "audit":
 		return auditCmd(ctx, c, args[1:])
+	case "report":
+		return reportCmd(ctx, c, args[1:])
 	case "proxy":
 		return proxyCmd(ctx, c, args[1:])
 	case "observation", "obs":
@@ -903,6 +905,71 @@ func browserCandidates() []string {
 	}
 }
 
+func reportCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb report <templates|generate|list>")
+	}
+	switch args[0] {
+	case "templates":
+		tmpls, err := c.ListReportTemplates(ctx)
+		if err != nil {
+			return err
+		}
+		for _, t := range tmpls {
+			fmt.Printf("%-12s %-20s %s\n", t.ID, t.Kind, t.Title)
+		}
+		return nil
+	case "generate":
+		fs := flag.NewFlagSet("report generate", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		tmpl := fs.String("template", "technical", "template id (executive | technical)")
+		format := fs.String("format", "html", "output format: html | md")
+		out := fs.String("out", "", "write the report to this file (default: stdout)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("report generate: --project is required")
+		}
+		rep, err := c.GenerateReport(ctx, *project, *tmpl, *format)
+		if err != nil {
+			return err
+		}
+		body, err := c.ArtifactContent(ctx, rep.ArtifactID)
+		if err != nil {
+			return err
+		}
+		if *out == "" {
+			_, err := os.Stdout.Write(body)
+			return err
+		}
+		if err := os.WriteFile(*out, body, 0o600); err != nil {
+			return err
+		}
+		fmt.Printf("wrote %s report to %s\n", rep.TemplateID, *out)
+		return nil
+	case "list":
+		fs := flag.NewFlagSet("report list", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("report list: --project is required")
+		}
+		reps, err := c.ListReports(ctx, *project)
+		if err != nil {
+			return err
+		}
+		for _, rep := range reps {
+			fmt.Printf("%s  %-12s %-5s %s\n", rep.ID, rep.TemplateID, rep.Format, rep.CreatedAt.Format("2006-01-02 15:04"))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown report subcommand %q", args[0])
+	}
+}
+
 func auditCmd(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
 	limit := fs.Int("limit", 50, "max events to show")
@@ -1144,6 +1211,9 @@ Commands:
   session list --project ID   list terminal sessions
   session close <id>          close a session and capture its transcript
   session evidence --id ID [--note N]  save a session transcript as evidence
+  report templates           list report templates
+  report generate --project ID [--template T] [--format html|md] [--out FILE]
+  report list --project ID    list generated reports
   audit [--limit N] [--json]  show the append-only audit trail
   proxy start --project ID [--port N]  start the intercepting proxy for a project
   proxy stop --project ID     stop the proxy

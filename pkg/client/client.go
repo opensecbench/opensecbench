@@ -166,6 +166,32 @@ func (c *Client) ProxyCACert(ctx context.Context) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// ReportTemplate is an available report template.
+type ReportTemplate struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Kind  string `json:"kind"`
+}
+
+// ListReportTemplates returns the available report templates.
+func (c *Client) ListReportTemplates(ctx context.Context) ([]ReportTemplate, error) {
+	var out []ReportTemplate
+	return out, c.do(ctx, http.MethodGet, "/v1/report-templates", nil, &out)
+}
+
+// ListReports returns a project's generated reports, newest first.
+func (c *Client) ListReports(ctx context.Context, projectID string) ([]model.Report, error) {
+	var out []model.Report
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/reports", nil, &out)
+}
+
+// GenerateReport renders a report for a project (template id + format md|html).
+func (c *Client) GenerateReport(ctx context.Context, projectID, template, format string) (model.Report, error) {
+	var out model.Report
+	body := map[string]string{"template": template, "format": format}
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/reports", body, &out)
+}
+
 // ListAudit returns recent audit events (newest first).
 func (c *Client) ListAudit(ctx context.Context, limit int) ([]model.AuditEvent, error) {
 	path := "/v1/audit"

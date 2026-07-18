@@ -48,6 +48,17 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Report is a generated engagement deliverable (ADR-0008). Its rendered bytes are a CAS artifact.
+type Report struct {
+	ID         string    `json:"id"`
+	ProjectID  string    `json:"project_id"`
+	TemplateID string    `json:"template_id"`
+	Format     string    `json:"format"`
+	Title      string    `json:"title"`
+	ArtifactID string    `json:"artifact_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // AuditEvent is one immutable, hash-chained entry in the append-only audit trail (ADR-0002).
 type AuditEvent struct {
 	Seq      uint64          `json:"seq"`
