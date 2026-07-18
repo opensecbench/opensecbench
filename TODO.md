@@ -18,6 +18,14 @@ Future work and deferred decisions. **Rule: never stub something out without add
       or run there. On a machine with `libgtk-3-dev` + `libwebkit2gtk-4.1-dev`, run `wails dev`
       and fix any wails API mismatches. The React frontend itself is verified (browser).
 
+## Cross-cutting gaps
+
+- [ ] **Wire the append-only audit log into the control plane.** `pkg/audit` exists and the Analyst
+      takes an audit callback, but scope blocks, Repeater sends, and capability runs are not yet
+      appended to a persisted audit trail — their durability currently rests on the task/exchange
+      rows. Add an `audit.Log` to the control plane + API and record these governed actions
+      (ADR-0002, ADR-0007). Until then, "audited" in ADR-0007 means the durable DB row.
+
 ## Deferred subsystems (tracked in the roadmap, not yet built)
 
 - [ ] Remote outbound-connect runner + split `opensecbench-runner` repo (P12).

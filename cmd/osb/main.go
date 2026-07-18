@@ -74,6 +74,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return contextCmd(ctx, c, args[1:])
 	case "scope":
 		return scopeCmd(ctx, c, args[1:])
+	case "repeater":
+		return repeaterCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -549,6 +551,88 @@ func scopeCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 }
 
+func repeaterCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb repeater <send|list|get|evidence>")
+	}
+	switch args[0] {
+	case "send":
+		fs := flag.NewFlagSet("repeater send", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		method := fs.String("method", "GET", "HTTP method")
+		urlStr := fs.String("url", "", "request URL (required)")
+		name := fs.String("name", "", "label for the exchange")
+		body := fs.String("body", "", "request body")
+		var headers paramFlags
+		fs.Var(&headers, "header", "request header as 'Key: value' (repeatable)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" || *urlStr == "" {
+			return errors.New("repeater send: --project and --url are required")
+		}
+		ex, err := c.CreateExchange(ctx, *project, client.NewExchange{
+			Name: *name, Method: *method, URL: *urlStr,
+			RequestHeaders: strings.Join(headers, "\n"), RequestBody: *body,
+		})
+		if err != nil {
+			return err
+		}
+		sent, err := c.SendExchange(ctx, ex.ID)
+		if err != nil {
+			return err
+		}
+		return printJSON(sent)
+	case "list":
+		fs := flag.NewFlagSet("repeater list", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("repeater list: --project is required")
+		}
+		items, err := c.ListExchanges(ctx, *project)
+		if err != nil {
+			return err
+		}
+		for _, e := range items {
+			status := "—"
+			if e.Status != nil {
+				status = fmt.Sprint(*e.Status)
+			}
+			fmt.Printf("%s  %-4s %-3s %s\n", e.ID, e.Method, status, e.URL)
+		}
+		return nil
+	case "get":
+		if len(args) < 2 {
+			return errors.New("usage: osb repeater get <id>")
+		}
+		ex, err := c.GetExchange(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(ex)
+	case "evidence":
+		fs := flag.NewFlagSet("repeater evidence", flag.ContinueOnError)
+		id := fs.String("id", "", "exchange id (required)")
+		note := fs.String("note", "", "note to attach to the observation")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" {
+			return errors.New("repeater evidence: --id is required")
+		}
+		obs, err := c.SaveExchangeEvidence(ctx, *id, *note)
+		if err != nil {
+			return err
+		}
+		return printJSON(obs)
+	default:
+		return fmt.Errorf("unknown repeater subcommand %q", args[0])
+	}
+}
+
 func mediaTypeForExt(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".txt", ".md", ".log":
@@ -761,6 +845,10 @@ Commands:
   scope add --project ID --kind host|domain|cidr --value V  add an in-scope allowlist entry
   scope list --project ID     list a project's scope allowlist
   scope delete --id ID        remove a scope entry
+  repeater send --project ID --url URL [--method M] [--header 'K: v'] [--body B]  send an HTTP request
+  repeater list --project ID  list HTTP exchanges
+  repeater get <id>           show an exchange (request + response)
+  repeater evidence --id ID [--note N]  save a response as evidence (observation)
   capability list             list available capabilities
   capability run --id ID (--dir PATH | --asset ID) [--project ID] [--param k=v]  run a capability
   playbook list               list playbooks

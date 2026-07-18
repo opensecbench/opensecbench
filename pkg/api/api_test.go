@@ -237,3 +237,80 @@ func TestCreateProjectValidation(t *testing.T) {
 		t.Fatalf("empty-name create status = %d, want 400", resp.StatusCode)
 	}
 }
+
+// postJSON is a small helper for the Repeater test: POST a JSON body and decode the response.
+func postJSON(t *testing.T, url, body string, out any) int {
+	t.Helper()
+	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if out != nil && resp.StatusCode < http.StatusBadRequest {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	}
+	return resp.StatusCode
+}
+
+func TestRepeaterScopeGuardedSend(t *testing.T) {
+	srv := newTestServer(t)
+
+	// A target that records whether it was reached.
+	hit := false
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		w.Header().Set("X-Origin", "target")
+		_, _ = w.Write([]byte("pong"))
+	}))
+	defer target.Close()
+
+	var proj model.Project
+	if code := postJSON(t, srv.URL+"/v1/projects", `{"name":"repeater"}`, &proj); code != http.StatusCreated {
+		t.Fatalf("create project = %d", code)
+	}
+
+	// Scope the project to loopback only (the httptest target host).
+	var entry model.ScopeEntry
+	if code := postJSON(t, srv.URL+"/v1/projects/"+proj.ID+"/scope", `{"kind":"host","value":"127.0.0.1"}`, &entry); code != http.StatusCreated {
+		t.Fatalf("add scope = %d", code)
+	}
+
+	// In-scope exchange sends and captures the response.
+	var ex model.HTTPExchange
+	if code := postJSON(t, srv.URL+"/v1/projects/"+proj.ID+"/exchanges",
+		`{"method":"GET","url":"`+target.URL+`"}`, &ex); code != http.StatusCreated {
+		t.Fatalf("create exchange = %d", code)
+	}
+	var sent model.HTTPExchange
+	if code := postJSON(t, srv.URL+"/v1/exchanges/"+ex.ID+"/send", ``, &sent); code != http.StatusOK {
+		t.Fatalf("send in-scope = %d, want 200", code)
+	}
+	if !hit || sent.Status == nil || *sent.Status != http.StatusOK || !strings.Contains(sent.ResponseBody, "pong") {
+		t.Fatalf("in-scope send did not capture response: hit=%v ex=%+v", hit, sent)
+	}
+
+	// Save the response as evidence → a human-origin observation.
+	var obs model.Observation
+	if code := postJSON(t, srv.URL+"/v1/exchanges/"+ex.ID+"/evidence", `{"note":"interesting header"}`, &obs); code != http.StatusCreated {
+		t.Fatalf("save evidence = %d, want 201", code)
+	}
+	if obs.Origin != model.OriginHuman || obs.ArtifactID == nil {
+		t.Fatalf("evidence observation wrong: %+v", obs)
+	}
+
+	// Out-of-scope exchange is blocked before any request is sent.
+	hit = false
+	var bad model.HTTPExchange
+	if code := postJSON(t, srv.URL+"/v1/projects/"+proj.ID+"/exchanges",
+		`{"method":"GET","url":"http://example.invalid/x"}`, &bad); code != http.StatusCreated {
+		t.Fatalf("create bad exchange = %d", code)
+	}
+	if code := postJSON(t, srv.URL+"/v1/exchanges/"+bad.ID+"/send", ``, nil); code != http.StatusForbidden {
+		t.Fatalf("out-of-scope send = %d, want 403", code)
+	}
+	if hit {
+		t.Fatal("out-of-scope target should never be reached")
+	}
+}

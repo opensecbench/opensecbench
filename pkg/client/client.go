@@ -84,6 +84,45 @@ func (c *Client) DeleteScope(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/scope/"+id, nil, nil)
 }
 
+// ListExchanges returns a project's HTTP exchanges (Repeater), newest first.
+func (c *Client) ListExchanges(ctx context.Context, projectID string) ([]model.HTTPExchange, error) {
+	var out []model.HTTPExchange
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/exchanges", nil, &out)
+}
+
+// NewExchange is a draft HTTP request to create in the Repeater.
+type NewExchange struct {
+	Name           string `json:"name,omitempty"`
+	Method         string `json:"method,omitempty"`
+	URL            string `json:"url"`
+	RequestHeaders string `json:"request_headers,omitempty"`
+	RequestBody    string `json:"request_body,omitempty"`
+}
+
+// CreateExchange records a draft request.
+func (c *Client) CreateExchange(ctx context.Context, projectID string, req NewExchange) (model.HTTPExchange, error) {
+	var out model.HTTPExchange
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/exchanges", req, &out)
+}
+
+// GetExchange returns an exchange by id.
+func (c *Client) GetExchange(ctx context.Context, id string) (model.HTTPExchange, error) {
+	var out model.HTTPExchange
+	return out, c.do(ctx, http.MethodGet, "/v1/exchanges/"+id, nil, &out)
+}
+
+// SendExchange scope-guards and issues the request, returning the exchange with its response.
+func (c *Client) SendExchange(ctx context.Context, id string) (model.HTTPExchange, error) {
+	var out model.HTTPExchange
+	return out, c.do(ctx, http.MethodPost, "/v1/exchanges/"+id+"/send", nil, &out)
+}
+
+// SaveExchangeEvidence promotes a sent response into an observation (evidence).
+func (c *Client) SaveExchangeEvidence(ctx context.Context, id, note string) (model.Observation, error) {
+	var out model.Observation
+	return out, c.do(ctx, http.MethodPost, "/v1/exchanges/"+id+"/evidence", map[string]string{"note": note}, &out)
+}
+
 // IngestContext stores content as a project context item (document, email, chat, or note).
 func (c *Client) IngestContext(ctx context.Context, projectID, name, ctype, mediaType string, content []byte) (model.ContextItem, error) {
 	u := c.baseURL + "/v1/projects/" + projectID + "/context?name=" + url.QueryEscape(name)
