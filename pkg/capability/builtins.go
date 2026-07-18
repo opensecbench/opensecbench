@@ -14,6 +14,9 @@ func BuiltIns() *Registry {
 	r.Register(sourceInventory{})
 	r.Register(semgrep{})
 	r.Register(httpProbe{})
+	r.Register(nmapScan{})
+	r.Register(grypeScan{})
+	r.Register(syftSBOM{})
 	return r
 }
 
@@ -117,5 +120,100 @@ func (httpProbe) Plan(in Input) (runner.RunSpec, error) {
 		Timeout:  1 * time.Minute,
 		MemoryMB: 256,
 		CPUs:     1,
+	}, nil
+}
+
+// nmapScan runs an nmap service scan against a target and emits XML (interpreted into open-port
+// observations). It is a network capability — scope-guarded — and is runner-agnostic: on a
+// project-bound remote runner it scans from that runner's network vantage (ADR-0004).
+type nmapScan struct{}
+
+func (nmapScan) Manifest() Manifest {
+	return Manifest{
+		ID:              "nmap",
+		Version:         "1.0.0",
+		Title:           "Nmap (service/topology scan)",
+		Description:     "Service-version scan of a target host; emits nmap XML → open-port observations. Network capability (scope-guarded).",
+		OutputName:      "nmap.xml",
+		OutputMediaType: "application/x-nmap-xml", // interpret.NmapMediaType
+		OKExitCodes:     []int{0},
+		TargetParam:     "target",
+	}
+}
+
+func (nmapScan) Plan(in Input) (runner.RunSpec, error) {
+	target, _ := in.Params["target"].(string)
+	if target == "" {
+		return runner.RunSpec{}, errors.New("nmap: a 'target' param (host/IP/CIDR) is required")
+	}
+	// The image's entrypoint is nmap, so Cmd carries args only.
+	return runner.RunSpec{
+		Image:    "instrumentisto/nmap:7.95",
+		Cmd:      []string{"-sV", "-oX", "-", "--host-timeout", "90s", target},
+		Network:  "bridge",
+		Timeout:  10 * time.Minute,
+		MemoryMB: 512,
+		CPUs:     1,
+	}, nil
+}
+
+// grypeScan is SCA: it scans a source tree for known-vulnerable dependencies and emits SARIF
+// (interpreted into observations via the existing SARIF loop). Needs network to fetch its vuln DB.
+type grypeScan struct{}
+
+func (grypeScan) Manifest() Manifest {
+	return Manifest{
+		ID:              "grype",
+		Version:         "1.0.0",
+		Title:           "Grype (SCA / dependency vulnerabilities)",
+		Description:     "Scans dependencies for known vulnerabilities; emits SARIF. Fetches its vulnerability DB over the network.",
+		OutputName:      "grype.sarif",
+		OutputMediaType: "application/sarif+json",
+		OKExitCodes:     []int{0},
+	}
+}
+
+func (grypeScan) Plan(in Input) (runner.RunSpec, error) {
+	if in.TargetDir == "" {
+		return runner.RunSpec{}, errors.New("grype: target directory required")
+	}
+	return runner.RunSpec{
+		Image:    "anchore/grype:v0.80.2",
+		Cmd:      []string{"dir:/src", "-o", "sarif", "-q"},
+		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
+		Network:  "bridge", // vuln DB download
+		Timeout:  10 * time.Minute,
+		MemoryMB: 2048,
+		CPUs:     2,
+	}, nil
+}
+
+// syftSBOM generates a CycloneDX SBOM of a source tree (offline). The dependency graph parses it.
+type syftSBOM struct{}
+
+func (syftSBOM) Manifest() Manifest {
+	return Manifest{
+		ID:              "syft",
+		Version:         "1.0.0",
+		Title:           "Syft (SBOM / dependency inventory)",
+		Description:     "Builds a CycloneDX SBOM of a source tree (offline). Feeds the dependency graph.",
+		OutputName:      "sbom.cdx.json",
+		OutputMediaType: "application/vnd.cyclonedx+json",
+		OKExitCodes:     []int{0},
+	}
+}
+
+func (syftSBOM) Plan(in Input) (runner.RunSpec, error) {
+	if in.TargetDir == "" {
+		return runner.RunSpec{}, errors.New("syft: target directory required")
+	}
+	return runner.RunSpec{
+		Image:    "anchore/syft:v1.20.0",
+		Cmd:      []string{"dir:/src", "-o", "cyclonedx-json", "-q"},
+		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
+		Network:  "none",
+		Timeout:  10 * time.Minute,
+		MemoryMB: 2048,
+		CPUs:     2,
 	}, nil
 }

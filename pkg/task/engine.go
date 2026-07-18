@@ -207,14 +207,17 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 
 	// Deterministically interpret recognized output formats into unreviewed observations
 	// (ADR-0005). Interpretation failures do not fail the task — the raw artifact is still evidence.
-	if man.OutputMediaType == interpret.SARIFMediaType {
-		if obs, ierr := interpret.SARIF(res.Stdout); ierr == nil {
-			for _, o := range obs {
-				o.TaskID = &task.ID
-				o.ArtifactID = &art.ID
-				_, _ = e.store.CreateObservation(ctx, o)
-			}
-		}
+	var interpreted []model.Observation
+	switch man.OutputMediaType {
+	case interpret.SARIFMediaType:
+		interpreted, _ = interpret.SARIF(res.Stdout)
+	case interpret.NmapMediaType:
+		interpreted, _ = interpret.NmapXML(res.Stdout)
+	}
+	for _, o := range interpreted {
+		o.TaskID = &task.ID
+		o.ArtifactID = &art.ID
+		_, _ = e.store.CreateObservation(ctx, o)
 	}
 
 	status := model.TaskSucceeded
