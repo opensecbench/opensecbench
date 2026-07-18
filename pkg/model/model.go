@@ -48,6 +48,32 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Session kinds and statuses.
+const (
+	SessionTerminal = "terminal"
+
+	SessionActive = "active"
+	SessionClosed = "closed"
+	SessionError  = "error"
+)
+
+// Session is an interactive terminal opened through a runner (ADR-0007). Its full transcript is
+// captured to the CAS on close and referenced here, so it is auditable and capturable as evidence.
+type Session struct {
+	ID                   string     `json:"id"`
+	ProjectID            string     `json:"project_id"`
+	Kind                 string     `json:"kind"`
+	Runner               string     `json:"runner"`
+	Container            string     `json:"container"`
+	Image                string     `json:"image"`
+	Status               string     `json:"status"`
+	Actor                string     `json:"actor"`
+	TranscriptArtifactID *string    `json:"transcript_artifact_id,omitempty"`
+	Error                string     `json:"error,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	ClosedAt             *time.Time `json:"closed_at,omitempty"`
+}
+
 // HTTP exchange origins.
 const (
 	ExchangeRepeater = "repeater"
