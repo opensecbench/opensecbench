@@ -997,3 +997,31 @@ select option {
 .term-history {
   margin-top: 16px;
 }
+
+/* Audit table */
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.audit-table th {
+  text-align: left;
+  color: var(--tx3);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.audit-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--bg2);
+  vertical-align: top;
+}
+.audit-table .truncate {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

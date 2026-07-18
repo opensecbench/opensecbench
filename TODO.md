@@ -20,11 +20,15 @@ Future work and deferred decisions. **Rule: never stub something out without add
 
 ## Cross-cutting gaps
 
-- [ ] **Wire the append-only audit log into the control plane.** `pkg/audit` exists and the Analyst
-      takes an audit callback, but scope blocks, Repeater sends, and capability runs are not yet
-      appended to a persisted audit trail — their durability currently rests on the task/exchange
-      rows. Add an `audit.Log` to the control plane + API and record these governed actions
-      (ADR-0002, ADR-0007). Until then, "audited" in ADR-0007 means the durable DB row.
+- [x] **Wire the append-only audit log into the control plane.** Done: a persisted, hash-chained
+      `audit_events` table (migration 0011) records governed actions — task runs + scope blocks,
+      scope changes, Repeater sends/blocks, session open/close, evidence promotions, playbook runs,
+      approval decisions, and Analyst tool calls. Exposed at `GET /v1/audit` (+ `osb audit` + an
+      Audit tab). Verified via CLI end-to-end; chain resumes across restarts.
+- [ ] **Broaden audit coverage** to remaining mutations (project/application/asset/finding CRUD)
+      and add chain-verification (`osb audit --verify`) that recomputes hashes to detect tampering.
+- [ ] **Audit-write failures are best-effort** (logged, not fatal). Decide whether a governed action
+      should hard-fail if its audit append fails (tamper-evidence vs availability) before P10 DLP.
 
 ## Deferred subsystems (tracked in the roadmap, not yet built)
 

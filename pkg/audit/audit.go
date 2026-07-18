@@ -66,10 +66,16 @@ func (l *Log) Append(actor, action, target string, data json.RawMessage) (Event,
 
 // chainHash binds an event to its predecessor over a stable field encoding.
 func chainHash(e Event) string {
+	return ChainHash(e.PrevHash, e.Seq, e.Time, e.Actor, e.Action, e.Target, e.Data)
+}
+
+// ChainHash computes an event's hash from its predecessor's hash and its fields. Any persistence
+// backend (file or database) uses this so the tamper-evidence chain is identical everywhere.
+func ChainHash(prevHash string, seq uint64, t time.Time, actor, action, target string, data []byte) string {
 	header := fmt.Sprintf("%s\n%d\n%s\n%s\n%s\n%s\n",
-		e.PrevHash, e.Seq, e.Time.Format(time.RFC3339Nano), e.Actor, e.Action, e.Target)
+		prevHash, seq, t.Format(time.RFC3339Nano), actor, action, target)
 	h := sha256.New()
 	h.Write([]byte(header))
-	h.Write(e.Data)
+	h.Write(data)
 	return hex.EncodeToString(h.Sum(nil))
 }

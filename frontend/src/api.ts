@@ -80,6 +80,17 @@ export interface CapabilityManifest {
   target_param?: string
 }
 
+export interface AuditEvent {
+  seq: number
+  time: string
+  actor: string
+  action: string
+  target?: string
+  data?: unknown
+  prev_hash: string
+  hash: string
+}
+
 export interface Session {
   id: string
   project_id: string
@@ -346,6 +357,9 @@ export const api = {
   getFinding: (id: string) => request<Finding>('GET', '/v1/findings/' + id),
   createFinding: (req: { title: string; severity?: string; cwe?: string; observation_ids: string[] }) =>
     request<Finding>('POST', '/v1/findings', req),
+
+  // audit
+  listAudit: (limit = 100) => request<AuditEvent[]>('GET', `/v1/audit?limit=${limit}`),
 
   // search
   search: (q: string) => request<SearchResult[]>('GET', '/v1/search?q=' + encodeURIComponent(q)),

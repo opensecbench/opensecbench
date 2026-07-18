@@ -102,3 +102,11 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] WebSocket terminal API + xterm.js tab; transcript captured to CAS on close, save-as-evidence
 - [ ] SSH/PTY to an external host (scoped); agent co-drive through the approval gate
 - [ ] Fragment-level response selection as evidence (byte-range)
+
+## Audit trail (cross-cutting, wired during P7)
+
+- [x] Persisted hash-chained audit_events (migration 0011) + store repos; chain resumes across restarts
+- [x] Record governed actions: task run/blocked, scope add/delete, repeater send/blocked,
+      session open/close, evidence promotions, playbook run, approval decisions, Analyst tool calls
+- [x] GET /v1/audit + client + `osb audit` CLI + Audit tab in the workbench
+- [ ] Broaden coverage to entity CRUD; `osb audit --verify` chain check; decide fail-closed policy

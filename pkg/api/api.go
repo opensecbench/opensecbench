@@ -4,10 +4,13 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/opensecbench/opensecbench/pkg/analyst"
@@ -95,6 +98,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/targets", s.createTarget)
 
 	s.mux.HandleFunc("GET /v1/search", s.search)
+	s.mux.HandleFunc("GET /v1/audit", s.listAudit)
 
 	s.mux.HandleFunc("GET /v1/templates", s.listTemplates)
 	s.mux.HandleFunc("POST /v1/projects/from-template", s.createProjectFromTemplate)
@@ -160,7 +164,11 @@ func (s *Server) routes() {
 }
 
 func (s *Server) analystService() *analyst.Service {
-	return analyst.NewService(s.store, s.engine, s.provider)
+	svc := analyst.NewService(s.store, s.engine, s.provider)
+	svc.Audit = func(action, detail string) {
+		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
+	}
+	return svc
 }
 
 func (s *Server) providerName() string {
@@ -312,7 +320,8 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "decision must be 'approve' or 'deny'")
 		return
 	}
-	res, err := s.analystService().Decide(r.Context(), r.PathValue("id"), req.Decision)
+	approvalID := r.PathValue("id")
+	res, err := s.analystService().Decide(r.Context(), approvalID, req.Decision)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "approval not found")
 		return
@@ -321,6 +330,7 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.record(r.Context(), actorOf(r), "approval."+req.Decision, approvalID, nil)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -695,11 +705,15 @@ func (s *Server) addScope(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.record(r.Context(), actorOf(r), "scope.add", entry.ID, map[string]string{
+		"project": entry.ProjectID, "kind": entry.Kind, "value": entry.Value,
+	})
 	writeJSON(w, http.StatusCreated, entry)
 }
 
 func (s *Server) deleteScope(w http.ResponseWriter, r *http.Request) {
-	err := s.store.DeleteScopeEntry(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	err := s.store.DeleteScopeEntry(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "scope entry not found")
 		return
@@ -708,7 +722,24 @@ func (s *Server) deleteScope(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.record(r.Context(), actorOf(r), "scope.delete", id, nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// listAudit returns recent audit events (append-only, hash-chained). ?limit=N caps the count.
+func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	events, err := s.store.ListAudit(r.Context(), limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 // --- Repeater / HTTP exchanges (P7) ---
@@ -790,6 +821,7 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 			rules[i] = scope.Entry{Kind: en.Kind, Value: en.Value}
 		}
 		if serr := scope.Check(rules, ex.URL); serr != nil {
+			s.record(r.Context(), actorOf(r), "repeater.blocked", ex.ID, map[string]string{"url": ex.URL, "reason": serr.Error()})
 			writeErr(w, http.StatusForbidden, "blocked by scope guard: "+serr.Error())
 			return
 		}
@@ -806,6 +838,9 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.record(r.Context(), actorOf(r), "repeater.send", ex.ID, map[string]any{
+		"method": ex.Method, "url": ex.URL, "status": resp.Status,
+	})
 	updated, _ := s.store.GetExchange(r.Context(), ex.ID)
 	writeJSON(w, http.StatusOK, updated)
 }
@@ -865,6 +900,7 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.record(r.Context(), actorOf(r), "evidence.exchange", obs.ID, map[string]string{"exchange": ex.ID})
 	writeJSON(w, http.StatusCreated, obs)
 }
 
@@ -914,6 +950,13 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	action := "task.run"
+	if errors.Is(err, task.ErrOutOfScope) {
+		action = "task.blocked"
+	}
+	s.record(r.Context(), actorOf(r), action, out.Task.ID, map[string]any{
+		"capability": req.CapabilityID, "status": out.Task.Status, "error": out.Task.Error,
+	})
 	writeJSON(w, http.StatusCreated, out)
 }
 
@@ -1011,11 +1054,15 @@ func (s *Server) runPlaybook(w http.ResponseWriter, r *http.Request) {
 	if actor == "" {
 		actor = "human"
 	}
-	res, err := playbook.NewRunner(s.engine, s.store).Run(r.Context(), r.PathValue("id"), req.AssetID, actor)
+	playbookID := r.PathValue("id")
+	res, err := playbook.NewRunner(s.engine, s.store).Run(r.Context(), playbookID, req.AssetID, actor)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.record(r.Context(), actor, "playbook.run", playbookID, map[string]any{
+		"asset": req.AssetID, "status": res.Run.Status, "tasks": len(res.Run.TaskIDs),
+	})
 	writeJSON(w, http.StatusCreated, res)
 }
 
@@ -1135,6 +1182,26 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// record appends an audit event. It is best-effort: a failed write is logged but never fails the
+// request that triggered it (a local single-user workbench should not lose work to an audit hiccup).
+func (s *Server) record(ctx context.Context, actor, action, target string, data any) {
+	var raw json.RawMessage
+	if data != nil {
+		raw, _ = json.Marshal(data)
+	}
+	if _, err := s.store.AppendAudit(ctx, actor, action, target, raw); err != nil {
+		log.Printf("audit append failed (%s %s): %v", action, target, err)
+	}
+}
+
+// actorOf returns the request's declared actor (X-OSB-Actor header), defaulting to "human".
+func actorOf(r *http.Request) string {
+	if a := r.Header.Get("X-OSB-Actor"); a != "" {
+		return a
+	}
+	return "human"
 }
 
 // decodeJSONOptional decodes a body if present, tolerating an empty body (EOF).
