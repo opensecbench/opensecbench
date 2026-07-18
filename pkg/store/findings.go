@@ -57,6 +57,27 @@ func (db *DB) ListObservationsByTask(ctx context.Context, taskID string) ([]mode
 	return scanObservations(rows)
 }
 
+// GetObservation returns one observation by id.
+func (db *DB) GetObservation(ctx context.Context, id string) (model.Observation, error) {
+	var o model.Observation
+	var task, artifact sql.NullString
+	var created string
+	err := db.QueryRowContext(ctx,
+		`SELECT id, task_id, artifact_id, origin, review_state, title, detail, severity, rule_id, location, created_at
+		 FROM observations WHERE id = ?`, id).
+		Scan(&o.ID, &task, &artifact, &o.Origin, &o.ReviewState, &o.Title, &o.Detail,
+			&o.Severity, &o.RuleID, &o.Location, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Observation{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Observation{}, err
+	}
+	o.TaskID, o.ArtifactID = ptr(task), ptr(artifact)
+	o.CreatedAt = parseTime(created)
+	return o, nil
+}
+
 func scanObservations(rows *sql.Rows) ([]model.Observation, error) {
 	var out []model.Observation
 	for rows.Next() {
