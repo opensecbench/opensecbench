@@ -13,6 +13,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 	"github.com/opensecbench/opensecbench/pkg/template"
@@ -100,6 +101,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/tasks/{id}/cancel", s.cancelTask)
 	s.mux.HandleFunc("GET /v1/tasks/{id}/artifacts", s.getTaskArtifacts)
 	s.mux.HandleFunc("GET /v1/artifacts/{id}/content", s.getArtifactContent)
+
+	s.mux.HandleFunc("GET /v1/playbooks", s.listPlaybooks)
+	s.mux.HandleFunc("POST /v1/playbooks/{id}/run", s.runPlaybook)
+	s.mux.HandleFunc("GET /v1/playbook-runs", s.listPlaybookRuns)
+	s.mux.HandleFunc("GET /v1/playbook-runs/{id}", s.getPlaybookRun)
 
 	s.mux.HandleFunc("GET /v1/tasks/{id}/observations", s.getTaskObservations)
 	s.mux.HandleFunc("POST /v1/observations/{id}/review", s.reviewObservation)
@@ -745,6 +751,62 @@ func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = rc.Close() }()
 	w.Header().Set("Content-Type", art.MediaType)
 	_, _ = io.Copy(w, rc)
+}
+
+// --- playbooks ---
+
+func (s *Server) listPlaybooks(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, playbook.BuiltIns())
+}
+
+func (s *Server) runPlaybook(w http.ResponseWriter, r *http.Request) {
+	if s.engine == nil {
+		writeErr(w, http.StatusServiceUnavailable, "engine unavailable")
+		return
+	}
+	var req struct {
+		AssetID string `json:"asset_id"`
+		Actor   string `json:"actor"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.AssetID == "" {
+		writeErr(w, http.StatusBadRequest, "asset_id is required")
+		return
+	}
+	actor := req.Actor
+	if actor == "" {
+		actor = "human"
+	}
+	res, err := playbook.NewRunner(s.engine, s.store).Run(r.Context(), r.PathValue("id"), req.AssetID, actor)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, res)
+}
+
+func (s *Server) listPlaybookRuns(w http.ResponseWriter, r *http.Request) {
+	runs, err := s.store.ListPlaybookRuns(r.Context(), 50)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, runs)
+}
+
+func (s *Server) getPlaybookRun(w http.ResponseWriter, r *http.Request) {
+	pr, err := s.store.GetPlaybookRun(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "playbook run not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, pr)
 }
 
 // --- observations & findings ---

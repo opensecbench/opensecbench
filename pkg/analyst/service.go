@@ -65,7 +65,7 @@ func (svc *Service) session() *agent.Session {
 // external LLM provider, running a capability on a private asset is blocked, because its output
 // would be summarized by the external model.
 func (svc *Service) execute(ctx context.Context, call agent.ToolCall) (string, error) {
-	if call.Tool == "run_capability" && svc.egressStrict && !svc.providerLocal {
+	if (call.Tool == "run_capability" || call.Tool == "run_playbook") && svc.egressStrict && !svc.providerLocal {
 		if assetID, _ := call.Args["asset"].(string); assetID != "" {
 			if asset, err := svc.store.GetAsset(ctx, assetID); err == nil && asset.Sensitivity == model.SensitivityPrivate {
 				return "", fmt.Errorf("blocked by data-egress policy: capability output for a private asset would be sent to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", svc.provider.Name())

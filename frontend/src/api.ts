@@ -127,6 +127,25 @@ export interface SearchResult {
   detail?: string
 }
 
+export interface Playbook {
+  id: string
+  name: string
+  description: string
+  steps: { capability: string }[]
+}
+
+export interface PlaybookRun {
+  id: string
+  playbook_id: string
+  status: string
+  task_ids: string[]
+}
+
+export interface PlaybookRunResult {
+  run: PlaybookRun
+  outcomes: TaskOutcome[]
+}
+
 export interface Thread {
   id: string
   project_id?: string
@@ -237,6 +256,9 @@ export const api = {
     request<TaskOutcome>('POST', '/v1/tasks', req),
   cancelTask: (id: string) => request<void>('POST', `/v1/tasks/${id}/cancel`),
   getTaskArtifacts: (taskId: string) => request<Artifact[]>('GET', `/v1/tasks/${taskId}/artifacts`),
+  listPlaybooks: () => request<Playbook[]>('GET', '/v1/playbooks'),
+  runPlaybook: (id: string, assetId: string) =>
+    request<PlaybookRunResult>('POST', `/v1/playbooks/${id}/run`, { asset_id: assetId }),
   listTaskObservations: (taskId: string) =>
     request<Observation[]>('GET', `/v1/tasks/${taskId}/observations`),
   artifactContent: async (id: string) => {
