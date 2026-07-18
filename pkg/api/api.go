@@ -68,6 +68,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/targets", s.listTargets)
 	s.mux.HandleFunc("POST /v1/targets", s.createTarget)
 
+	s.mux.HandleFunc("GET /v1/search", s.search)
+
 	s.mux.HandleFunc("GET /v1/templates", s.listTemplates)
 	s.mux.HandleFunc("POST /v1/projects/from-template", s.createProjectFromTemplate)
 
@@ -238,6 +240,17 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- search ---
+
+func (s *Server) search(w http.ResponseWriter, r *http.Request) {
+	results, err := s.store.Search(r.Context(), r.URL.Query().Get("q"), 25)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
 }
 
 // --- templates ---

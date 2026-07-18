@@ -41,6 +41,18 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 			return err
 		}
 		return printJSON(h)
+	case "search":
+		if len(args) < 2 {
+			return errors.New("usage: osb search <query>")
+		}
+		results, err := c.Search(ctx, strings.Join(args[1:], " "))
+		if err != nil {
+			return err
+		}
+		for _, r := range results {
+			fmt.Printf("%-12s %s  %s\n", r.Kind, r.Title, r.Detail)
+		}
+		return nil
 	case "project":
 		return projectCmd(ctx, c, args[1:])
 	case "template":
@@ -432,6 +444,7 @@ Usage:
 Commands:
   version                     print the client version
   health                      check the control plane
+  search <query>              search across projects, apps, assets, findings, observations
   project list                list projects
   project get <id>            show a project
   project create --name NAME [--template ID]  create a project

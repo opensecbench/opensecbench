@@ -24,9 +24,10 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Domain models (pkg/model) + repositories (organizations, targets, projects)
 - [x] Daemon opens DB + applies migrations on startup; `/readyz` reports DB status
 - [x] Project + organization + target CRUD over the HTTP API (v1)
-- [ ] Application + asset repositories + endpoints (incl. sensitivity default-from-location)
-- [ ] Project templates / archetypes
-- [ ] Context ingest + omni-search v1
+- [x] Application + asset repositories + endpoints (sensitivity default-from-location); asset-targeted runs
+- [x] Project templates / archetypes (scaffold project + default application)
+- [x] Omni-search v1 (projects · applications · assets · findings · observations)
+- [ ] Context ingest (docs/emails/chats into CAS) — search extends to it later
 - [x] `osb` CLI + pkg/client over the API (health, project list/create/get/delete)
 
 ## P2 — Capability & runner core

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
@@ -57,6 +58,12 @@ func (c *Client) CreateProject(ctx context.Context, req CreateProjectRequest) (m
 // DeleteProject deletes a project by id.
 func (c *Client) DeleteProject(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+id, nil, nil)
+}
+
+// Search runs omni-search across projects, applications, assets, findings, and observations.
+func (c *Client) Search(ctx context.Context, q string) ([]model.SearchResult, error) {
+	var out []model.SearchResult
+	return out, c.do(ctx, http.MethodGet, "/v1/search?q="+url.QueryEscape(q), nil, &out)
 }
 
 // Template is a project archetype reported by the control plane.
