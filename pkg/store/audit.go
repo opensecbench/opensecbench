@@ -45,6 +45,34 @@ func (db *DB) AppendAudit(ctx context.Context, actor, action, target string, dat
 	return e, nil
 }
 
+// VerifyAuditChain walks the audit trail in order, recomputing each event's hash and checking the
+// prev-hash linkage. It returns ok=false and the first broken seq if tampering is detected.
+func (db *DB) VerifyAuditChain(ctx context.Context) (ok bool, brokenSeq uint64, count int, err error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT seq, time, actor, action, target, data, prev_hash, hash FROM audit_events ORDER BY seq`)
+	if err != nil {
+		return false, 0, 0, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	prev := ""
+	for rows.Next() {
+		var e model.AuditEvent
+		var t, data string
+		if err := rows.Scan(&e.Seq, &t, &e.Actor, &e.Action, &e.Target, &data, &e.PrevHash, &e.Hash); err != nil {
+			return false, 0, count, err
+		}
+		e.Time = parseTime(t)
+		want := audit.ChainHash(e.PrevHash, e.Seq, e.Time, e.Actor, e.Action, e.Target, json.RawMessage(data))
+		if e.PrevHash != prev || e.Hash != want {
+			return false, e.Seq, count, nil
+		}
+		prev = e.Hash
+		count++
+	}
+	return true, 0, count, rows.Err()
+}
+
 // ListAudit returns the most recent audit events, newest first.
 func (db *DB) ListAudit(ctx context.Context, limit int) ([]model.AuditEvent, error) {
 	if limit <= 0 {
