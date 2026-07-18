@@ -19,9 +19,9 @@ scratch); these docs are the buildable, versioned foundation.
 | [0008](adr-0008-reporting-and-visualization.md) | Reporting & visualization | Accepted (exec+technical, MD/HTML/PDF, SVG); more types staged |
 | [0009](adr-0009-methodology-and-coverage.md) | Methodology & coverage | Accepted (packs + adoption + coverage); applicability automation staged |
 | [0010](adr-0010-knowledge-base.md) | Knowledge base | Accepted (target-anchored, inheritance, drafting, search); broader scope staged |
+| [0011](adr-0011-secrets-dlp-redaction.md) | Secrets vault, DLP & redaction | Accepted (vault, injection, redaction, DLP+canaries); KMS staged |
 
-Later subsystems (collaboration) get an ADR when their phase begins. Policy/DLP
-gets its own ADR before P10. See [`../TODO.md`](../TODO.md).
+Later subsystems (collaboration) get an ADR when their phase begins. See [`../TODO.md`](../TODO.md).
 
 ## Conventions
 
