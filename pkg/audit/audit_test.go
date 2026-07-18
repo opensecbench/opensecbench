@@ -53,7 +53,8 @@ func TestAppendChainsEvents(t *testing.T) {
 
 func TestChainHashIsDeterministic(t *testing.T) {
 	e := Event{Seq: 1, Time: time.Unix(0, 0).UTC(), Actor: "a", Action: "b", Target: "c"}
-	if chainHash(e) != chainHash(e) {
-		t.Fatal("chainHash is not deterministic")
+	same := e
+	if chainHash(e) != chainHash(same) {
+		t.Fatal("chainHash is not deterministic for equal events")
 	}
 }

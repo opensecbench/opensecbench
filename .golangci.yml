@@ -1,0 +1,14 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+# Start with golangci-lint v2 defaults (errcheck, govet, ineffassign, staticcheck,
+# unused) plus a low-noise addition. Expand deliberately as the codebase grows.
+linters:
+  enable:
+    - misspell
+
+formatters:
+  enable:
+    - gofmt
