@@ -91,6 +91,22 @@ export interface AuditEvent {
   hash: string
 }
 
+export interface KBEntry {
+  id: string
+  target_id: string
+  kind: string
+  scope: string
+  title: string
+  body?: string
+  tags?: string
+  sensitivity: string
+  origin: string
+  review_state: string
+  source_ref?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface MethodologyItem {
   id: string
   title: string
@@ -436,6 +452,15 @@ export const api = {
   stopProxy: (projectId: string) =>
     request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/stop`, {}),
   proxyCAURL: () => `${baseURL}/v1/proxy/ca`,
+
+  // knowledge base
+  listProjectKB: (projectId: string) => request<KBEntry[]>('GET', `/v1/projects/${projectId}/kb`),
+  createKBEntry: (
+    targetId: string,
+    e: { kind: string; title: string; body?: string; tags?: string },
+  ) => request<KBEntry>('POST', `/v1/targets/${targetId}/kb`, e),
+  reviewKBEntry: (id: string, state: string) =>
+    request<KBEntry>('POST', `/v1/kb/${id}/review`, { state }),
 
   // methodology
   listMethodologies: () => request<Methodology[]>('GET', '/v1/methodologies'),

@@ -132,3 +132,17 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
       coverage % on the Workbench and in reports
 - [x] Notifications: in-app feed + bell + OS-native CLI watch (approval waiting, report ready)
 - [ ] Report templates + visualizations as installable extension packages
+
+## P9 — Knowledge base
+
+- [x] ADR-0010 (knowledge base)
+- [x] KB entries anchored to durable targets (migration 0015) + model + store
+- [x] Project inheritance: a project's KB = union across the targets it references
+- [x] Provenance: agent drafts (origin=thread) unreviewed; human entries confirmed; review gate
+- [x] API + osb CLI (kb list/add/review)
+- [x] Analyst draft_kb_entry + list_targets tools; KB in omni-search
+- [x] Workbench Knowledge tab (add, AI-draft marking, confirm/reject)
+- [ ] Broader scope resolution (group/org/global-personal)
+- [ ] KB-driven methodology applicability ("auth: SAML → suggest SAML pack")
+- [ ] KB entry versioning; link entries to source evidence/findings
+- [ ] KB packs as extension packages
