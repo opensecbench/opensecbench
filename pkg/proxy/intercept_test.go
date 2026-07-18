@@ -41,7 +41,7 @@ func TestInterceptRequestEdit(t *testing.T) {
 		// forward, but rewrite the request body (a different length than the original)
 		return Decision{Method: h.Method, URL: h.URL, RequestHeaders: h.RequestHeaders, RequestBody: "EDITED-LONGER-BODY"}
 	}}
-	px := New(nil, nil, nil, fake)
+	px := New(nil, nil, nil, fake, nil)
 	client, closeProxy := proxyClient(t, px)
 	defer closeProxy()
 
@@ -65,7 +65,7 @@ func TestInterceptRequestDrop(t *testing.T) {
 	defer upstream.Close()
 
 	fake := fakeInterceptor{reqOn: true, onHold: func(Held) Decision { return Decision{Drop: true} }}
-	client, closeProxy := proxyClient(t, New(nil, nil, nil, fake))
+	client, closeProxy := proxyClient(t, New(nil, nil, nil, fake, nil))
 	defer closeProxy()
 
 	resp, err := client.Get(upstream.URL + "/x")
@@ -91,7 +91,7 @@ func TestInterceptResponseEdit(t *testing.T) {
 		return Decision{Status: 418, ResponseHeaders: h.ResponseHeaders, ResponseBody: "REWRITTEN"}
 	}}
 	var captured Exchange
-	px := New(nil, func(e Exchange) { captured = e }, nil, fake)
+	px := New(nil, func(e Exchange) { captured = e }, nil, fake, nil)
 	client, closeProxy := proxyClient(t, px)
 	defer closeProxy()
 

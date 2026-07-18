@@ -88,7 +88,7 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mgr := newInterceptManager(projectID, s.events)
-	px := proxy.New(s.proxyCA, s.proxyCapture(projectID), s.projectAllows(projectID), mgr)
+	px := proxy.New(s.proxyCA, s.proxyCapture(projectID), s.projectAllows(projectID), mgr, s.ruleEngineFor(projectID))
 	srv := &http.Server{Handler: px, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
 

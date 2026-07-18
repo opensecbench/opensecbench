@@ -158,6 +158,16 @@ export interface InterceptState {
   held: HeldItem[]
 }
 
+export interface ProxyRule {
+  id: string
+  project_id: string
+  enabled: boolean
+  target: string
+  match: string
+  replace: string
+  created_at: string
+}
+
 export interface GraphNode {
   id: string
   label: string
@@ -533,6 +543,15 @@ export const api = {
       response_body?: string
     },
   ) => request<{ status: string }>('POST', `/v1/projects/${projectId}/intercept/${holdId}`, body),
+
+  // proxy match/replace rules
+  listProxyRules: (projectId: string) =>
+    request<ProxyRule[]>('GET', `/v1/projects/${projectId}/proxy-rules`),
+  createProxyRule: (projectId: string, body: { target: string; match: string; replace: string; enabled?: boolean }) =>
+    request<ProxyRule>('POST', `/v1/projects/${projectId}/proxy-rules`, body),
+  setProxyRuleEnabled: (ruleId: string, enabled: boolean) =>
+    request<{ enabled: boolean }>('PUT', `/v1/proxy-rules/${ruleId}`, { enabled }),
+  deleteProxyRule: (ruleId: string) => request<void>('DELETE', `/v1/proxy-rules/${ruleId}`),
   saveExchangeEvidence: (id: string, note: string, itemId?: string) =>
     request<Observation>('POST', `/v1/exchanges/${id}/evidence`, { note, item_id: itemId ?? '' }),
 

@@ -1614,6 +1614,22 @@ select option {
   font-weight: 700; border-radius: 8px; padding: 7px 13px; cursor: pointer;
 }
 .proxy-toolbar button.stop { background: var(--red); border-color: var(--red); color: #fff; }
+.proxy-toolbar .ghost-btn.on { border-color: var(--acc); color: var(--acc); }
+
+.proxy-rules {
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg2);
+  padding: 8px; display: flex; flex-direction: column; gap: 6px;
+}
+.proxy-rule { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.proxy-rule.off { opacity: 0.5; }
+.proxy-rule .match, .proxy-rule .repl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proxy-rule .arrow { color: var(--tx3); }
+.proxy-rule.add { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
+.proxy-rule.add input {
+  background: var(--bg); border: 1px solid var(--line2); border-radius: 7px;
+  padding: 6px 9px; color: var(--tx); font-size: 12px;
+}
+.proxy-rule.add input.match, .proxy-rule.add input.repl { flex: 1; }
 .proxy-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .proxy-filters { display: flex; align-items: center; gap: 8px; }
