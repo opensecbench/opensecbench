@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ChangeEvent, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ChangeEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   api,
   Application,
@@ -120,7 +120,7 @@ const ASSET_ICON: Record<string, string> = {
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
 
-function explorerTitle(t: Tab): string {
+function explorerTitle(t: Tab | null): string {
   if (t === 'methodology') return 'Coverage'
   if (t === 'assets') return 'Applications'
   if (t === 'findings') return 'Findings'
@@ -135,7 +135,7 @@ function WorkbenchExplorer({
   coverage,
   onJump,
 }: {
-  tab: Tab
+  tab: Tab | null
   project: Project
   apps: AppAssets[]
   findings: Finding[]
@@ -213,7 +213,10 @@ function WorkbenchExplorer({
 
 export function Workbench({ project, conn, onHome }: { project: Project; conn: Conn; onHome: () => void }) {
   const online = conn === 'online'
-  const [tab, setTab] = useState<Tab>('methodology') // land on the coverage home (ADR-0015)
+  // Open documents are kept mounted so their state survives navigation (ADR-0015
+  // Phase 3): switching surfaces hides the inactive ones, it never tears them down.
+  const [openDocs, setOpenDocs] = useState<Tab[]>(['methodology']) // land on the coverage home
+  const [activeDoc, setActiveDoc] = useState<Tab | null>('methodology')
   const [apps, setApps] = useState<AppAssets[]>([])
   const [capabilities, setCapabilities] = useState<CapabilityManifest[]>([])
   const [context, setContext] = useState<ContextItem[]>([])
@@ -270,7 +273,58 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
     [apps],
   )
 
-  const active = SURFACES.find((s) => s.key === tab)
+  function openDoc(t: Tab) {
+    setOpenDocs((docs) => (docs.includes(t) ? docs : [...docs, t]))
+    setActiveDoc(t)
+  }
+  function closeDoc(t: Tab, e?: ReactMouseEvent) {
+    e?.stopPropagation()
+    const idx = openDocs.indexOf(t)
+    const next = openDocs.filter((d) => d !== t)
+    setOpenDocs(next)
+    if (activeDoc === t) setActiveDoc(next[idx] ?? next[idx - 1] ?? null)
+  }
+
+  // Each open document renders its surface once and stays mounted; the frame only
+  // toggles visibility. Adding a surface here makes it an openable document.
+  function renderSurface(t: Tab) {
+    switch (t) {
+      case 'assets':
+        return <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />
+      case 'methodology':
+        return <MethodologyTab project={project} online={online} onError={setError} />
+      case 'knowledge':
+        return <KnowledgeTab project={project} online={online} onError={setError} />
+      case 'context':
+        return <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />
+      case 'scope':
+        return <ScopeTab project={project} online={online} onError={setError} />
+      case 'scan':
+        return <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />
+      case 'repeater':
+        return <RepeaterTab project={project} online={online} onError={setError} />
+      case 'proxy':
+        return <ProxyTab project={project} online={online} onError={setError} />
+      case 'terminal':
+        return (
+          <Suspense fallback={<div className="empty">Loading terminal…</div>}>
+            <TerminalTab project={project} online={online} onError={setError} />
+          </Suspense>
+        )
+      case 'playbooks':
+        return <PlaybooksTab assets={allAssets} online={online} onError={setError} />
+      case 'tasks':
+        return <TasksTab online={online} onError={setError} />
+      case 'findings':
+        return <FindingsTab findings={findings} />
+      case 'reports':
+        return <ReportsTab project={project} online={online} onError={setError} />
+      case 'graph':
+        return <GraphTab project={project} online={online} onError={setError} />
+      case 'audit':
+        return <AuditTab online={online} onError={setError} />
+    }
+  }
 
   return (
     <div className="wb">
@@ -289,7 +343,7 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
       <div className="wb-body">
         <nav className="wb-activity">
           {SURFACES.filter((s) => !s.meta).map((s) => (
-            <button key={s.key} className={`wb-ic ${tab === s.key ? 'on' : ''}`} title={surfaceTitle(s.key)} onClick={() => setTab(s.key)}>
+            <button key={s.key} className={`wb-ic ${activeDoc === s.key ? 'on' : ''} ${openDocs.includes(s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => openDoc(s.key)}>
               <span>{s.icon}</span>
               {s.key === 'findings' && findings.length > 0 && <span className="n red">{findings.length}</span>}
               {s.key === 'context' && context.length > 0 && <span className="n">{context.length}</span>}
@@ -299,44 +353,35 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
           <div className="wb-actsp" />
           <div className="wb-actdiv" />
           {SURFACES.filter((s) => s.meta).map((s) => (
-            <button key={s.key} className={`wb-ic ${tab === s.key ? 'on' : ''}`} title={surfaceTitle(s.key)} onClick={() => setTab(s.key)}>
+            <button key={s.key} className={`wb-ic ${activeDoc === s.key ? 'on' : ''} ${openDocs.includes(s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => openDoc(s.key)}>
               <span>{s.icon}</span>
               <small>{s.label}</small>
             </button>
           ))}
         </nav>
 
-        <WorkbenchExplorer tab={tab} project={project} apps={apps} findings={findings} coverage={coverage} onJump={setTab} />
+        <WorkbenchExplorer tab={activeDoc} project={project} apps={apps} findings={findings} coverage={coverage} onJump={openDoc} />
 
         <div className="wb-center">
           <div className="wb-doctabs">
-            <div className="wb-doctab">
-              <span>{active?.icon}</span> {surfaceTitle(tab)}
-            </div>
+            {openDocs.map((t) => (
+              <div key={t} className={`wb-doctab ${activeDoc === t ? 'on' : ''}`} onClick={() => setActiveDoc(t)} title={surfaceTitle(t)}>
+                <span className="em">{SURFACES.find((s) => s.key === t)?.icon}</span>
+                <span className="lbl">{surfaceTitle(t)}</span>
+                <span className="x" title="Close" onClick={(e) => closeDoc(t, e)}>✕</span>
+              </div>
+            ))}
           </div>
           {error && <div className="banner error wb-banner">⚠ {error}</div>}
-          <div className="wb-work">
-            <SurfaceBoundary key={tab}>
-            {tab === 'assets' && <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />}
-            {tab === 'methodology' && <MethodologyTab project={project} online={online} onError={setError} />}
-            {tab === 'knowledge' && <KnowledgeTab project={project} online={online} onError={setError} />}
-            {tab === 'context' && <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />}
-            {tab === 'scope' && <ScopeTab project={project} online={online} onError={setError} />}
-            {tab === 'scan' && <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />}
-            {tab === 'repeater' && <RepeaterTab project={project} online={online} onError={setError} />}
-            {tab === 'proxy' && <ProxyTab project={project} online={online} onError={setError} />}
-            {tab === 'terminal' && (
-              <Suspense fallback={<div className="empty">Loading terminal…</div>}>
-                <TerminalTab project={project} online={online} onError={setError} />
-              </Suspense>
+          <div className="wb-docarea">
+            {openDocs.length === 0 && (
+              <div className="empty">No document open — pick a surface from the activity bar on the left.</div>
             )}
-            {tab === 'playbooks' && <PlaybooksTab assets={allAssets} online={online} onError={setError} />}
-            {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
-            {tab === 'findings' && <FindingsTab findings={findings} />}
-            {tab === 'reports' && <ReportsTab project={project} online={online} onError={setError} />}
-            {tab === 'graph' && <GraphTab project={project} online={online} onError={setError} />}
-            {tab === 'audit' && <AuditTab online={online} onError={setError} />}
-            </SurfaceBoundary>
+            {openDocs.map((t) => (
+              <div key={t} className="wb-doc" style={{ display: activeDoc === t ? 'block' : 'none' }}>
+                <SurfaceBoundary>{renderSurface(t)}</SurfaceBoundary>
+              </div>
+            ))}
           </div>
         </div>
 
