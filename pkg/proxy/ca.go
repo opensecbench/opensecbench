@@ -8,9 +8,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -129,6 +131,14 @@ func loadCA(crtPEM, keyPEM []byte) (*CA, error) {
 
 // CertPEM returns the CA certificate in PEM form, for the user to trust in their browser/tools.
 func (c *CA) CertPEM() []byte { return c.certPEM }
+
+// SPKISHA256 is the base64 SHA-256 of the CA's Subject Public Key Info. Chromium's
+// --ignore-certificate-errors-spki-list flag takes this value to trust exactly this CA (and
+// nothing else), so a launched browser can use the proxy without the CA in a system trust store.
+func (c *CA) SPKISHA256() string {
+	sum := sha256.Sum256(c.cert.RawSubjectPublicKeyInfo)
+	return base64.StdEncoding.EncodeToString(sum[:])
+}
 
 // LeafFor returns (creating and caching) a leaf certificate for the given host, signed by the CA.
 func (c *CA) LeafFor(host string) (*tls.Certificate, error) {

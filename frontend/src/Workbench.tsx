@@ -619,7 +619,9 @@ function ProxyTab({
       <div className="panel-head">Intercepting proxy</div>
       <p className="hint">
         Route a browser or tool through the proxy to capture traffic (scope-guarded). For HTTPS,
-        trust the CA below — it is generated locally and never installed automatically.
+        trust the CA below — it is generated locally and never installed automatically. Or skip the
+        trust step entirely: <code>osb proxy browser --project {project.id.slice(0, 8)}…</code> launches
+        a throwaway Chromium preconfigured to use this proxy and trust its CA.
       </p>
       <div className="term-toolbar">
         <button onClick={toggle} disabled={!online || busy}>

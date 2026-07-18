@@ -9,8 +9,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 
 	"github.com/opensecbench/opensecbench/pkg/client"
 	"github.com/opensecbench/opensecbench/pkg/version"
@@ -787,8 +791,115 @@ func proxyCmd(ctx context.Context, c *client.Client, args []string) error {
 		}
 		fmt.Printf("wrote CA certificate to %s — trust it in your browser/tools\n", *out)
 		return nil
+	case "browser":
+		return proxyBrowser(ctx, c, args[1:])
 	default:
 		return fmt.Errorf("unknown proxy subcommand %q", args[0])
+	}
+}
+
+// proxyBrowser launches an isolated Chromium instance preconfigured to use the project's proxy and
+// to trust only its CA (via --ignore-certificate-errors-spki-list), so no system trust change is
+// needed — the browser equivalent of Burp's embedded browser.
+func proxyBrowser(ctx context.Context, c *client.Client, args []string) error {
+	fs := flag.NewFlagSet("proxy browser", flag.ContinueOnError)
+	project := fs.String("project", "", "project id (required)")
+	startURL := fs.String("url", "about:blank", "initial URL to open")
+	browser := fs.String("browser", "", "browser binary to use (default: autodetect; or set OSB_BROWSER)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *project == "" {
+		return errors.New("proxy browser: --project is required")
+	}
+
+	st, err := c.StartProxy(ctx, *project, 0) // idempotent: returns the running proxy if any
+	if err != nil {
+		return err
+	}
+	if st.CASPKI == "" {
+		return errors.New("proxy CA unavailable; cannot configure browser trust")
+	}
+	bin, err := findBrowser(*browser)
+	if err != nil {
+		return err
+	}
+
+	profile, err := os.MkdirTemp("", "osb-browser-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(profile) }()
+
+	// Ctrl-C closes the browser and cleans up.
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	chromeArgs := []string{
+		"--user-data-dir=" + profile,
+		"--no-first-run",
+		"--no-default-browser-check",
+		fmt.Sprintf("--proxy-server=127.0.0.1:%d", st.Port),
+		"--proxy-bypass-list=<-loopback>", // also route loopback through the proxy (assess local apps)
+		"--ignore-certificate-errors-spki-list=" + st.CASPKI,
+		*startURL,
+	}
+	fmt.Printf("launching %s → proxy 127.0.0.1:%d\n", filepath.Base(bin), st.Port)
+	fmt.Println("(isolated throwaway profile; trusts the OpenSecBench CA only — no system trust change)")
+	fmt.Println("close the browser (or Ctrl-C) to return.")
+
+	cmd := exec.CommandContext(runCtx, bin, chromeArgs...)
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	if err := cmd.Run(); err != nil && runCtx.Err() == nil {
+		return fmt.Errorf("launch browser: %w", err)
+	}
+	return nil
+}
+
+// findBrowser resolves a Chromium-based browser binary: an explicit override, then OSB_BROWSER,
+// then platform defaults.
+func findBrowser(override string) (string, error) {
+	if override != "" {
+		if p, err := exec.LookPath(override); err == nil {
+			return p, nil
+		}
+		return "", fmt.Errorf("browser %q not found in PATH", override)
+	}
+	if env := os.Getenv("OSB_BROWSER"); env != "" {
+		if p, err := exec.LookPath(env); err == nil {
+			return p, nil
+		}
+	}
+	for _, cand := range browserCandidates() {
+		if filepath.IsAbs(cand) {
+			if _, err := os.Stat(cand); err == nil {
+				return cand, nil
+			}
+			continue
+		}
+		if p, err := exec.LookPath(cand); err == nil {
+			return p, nil
+		}
+	}
+	return "", errors.New("no Chromium-based browser found; set --browser or OSB_BROWSER")
+}
+
+func browserCandidates() []string {
+	switch runtime.GOOS {
+	case "darwin":
+		return []string{
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+		}
+	case "windows":
+		return []string{"chrome.exe", "msedge.exe", "brave.exe"}
+	default: // linux and other unixes
+		return []string{
+			"google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+			"brave-browser", "microsoft-edge", "microsoft-edge-stable",
+		}
 	}
 }
 
@@ -1037,6 +1148,7 @@ Commands:
   proxy start --project ID [--port N]  start the intercepting proxy for a project
   proxy stop --project ID     stop the proxy
   proxy ca [--out FILE]        fetch the proxy CA cert to trust
+  proxy browser --project ID [--url U]  launch a preconfigured throwaway browser
   capability list             list available capabilities
   capability run --id ID (--dir PATH | --asset ID) [--project ID] [--param k=v]  run a capability
   playbook list               list playbooks
