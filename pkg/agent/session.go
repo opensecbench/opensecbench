@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/llm"
 )
@@ -37,12 +38,14 @@ type Outcome struct {
 	OutputTokens int
 }
 
-// SystemPrompt is the system message for this session's tools.
-func (s *Session) SystemPrompt() string { return buildSystemPrompt(s.Tools) }
+// SystemPrompt is the system message for this session (persona only; the tool catalog is added per
+// provider at completion time — natively or by the prompted adapter, ADR-0017).
+func (s *Session) SystemPrompt() string { return buildSystemPrompt() }
 
 // Advance runs the model from the given message history until a final answer or a gated tool call.
 // Auto-approved tools execute inline; a gated tool call pauses the run.
 func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome, error) {
+	provider := llm.EnsureToolAware(s.Provider)
 	maxSteps := s.MaxSteps
 	if maxSteps <= 0 {
 		maxSteps = 8
@@ -50,13 +53,13 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 	out := Outcome{Messages: messages}
 
 	for step := 0; step < maxSteps; step++ {
-		resp, err := s.Provider.Complete(ctx, llm.CompletionRequest{Messages: out.Messages, Model: s.Model, MaxTokens: s.MaxTokens})
+		resp, err := provider.Complete(ctx, llm.CompletionRequest{Messages: out.Messages, Model: s.Model, MaxTokens: s.MaxTokens, Tools: s.Tools})
 		if err != nil {
 			return out, err
 		}
 		out.InputTokens += resp.InputTokens
 		out.OutputTokens += resp.OutputTokens
-		out.Messages = append(out.Messages, llm.Message{Role: llm.RoleAssistant, Content: resp.Text})
+		out.Messages = append(out.Messages, llm.Message{Role: llm.RoleAssistant, Content: resp.Text, ToolCalls: resp.ToolCalls})
 
 		if s.TokenBudget > 0 && out.InputTokens+out.OutputTokens >= s.TokenBudget {
 			s.audit("agent.budget.exceeded", "")
@@ -65,17 +68,13 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 			return out, nil
 		}
 
-		rep, ok := parseReply(resp.Text)
-		if !ok || rep.Tool == "" {
+		if len(resp.ToolCalls) == 0 {
 			out.Done = true
-			out.Answer = rep.Answer
-			if out.Answer == "" {
-				out.Answer = resp.Text
-			}
+			out.Answer = strings.TrimSpace(resp.Text)
 			return out, nil
 		}
 
-		call := ToolCall{Tool: rep.Tool, Args: rep.Args}
+		call := resp.ToolCalls[0]
 		s.audit("agent.tool.proposed", call.Tool)
 
 		// Validate arguments against the tool schema before gating or executing (ADR-0017).
