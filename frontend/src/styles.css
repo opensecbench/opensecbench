@@ -1207,6 +1207,17 @@ select option {
   background: var(--bg3);
   color: var(--tx2);
 }
+.wb-ic.opened:not(.on)::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--tx3);
+}
 .wb-ic.on {
   background: var(--bg4);
   color: var(--acc);
@@ -1383,23 +1394,58 @@ select option {
 .wb-doctab {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 14px;
+  gap: 7px;
+  padding: 0 10px 0 13px;
   font-size: 12.5px;
-  color: var(--tx);
+  color: var(--tx2);
   border-right: 1px solid var(--line);
+  background: var(--bg2);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.wb-doctab:hover {
+  background: var(--bg3);
+}
+.wb-doctab.on {
+  color: var(--tx);
   background: var(--bg);
   box-shadow: inset 0 -2px 0 var(--acc);
-  white-space: nowrap;
 }
-.wb-work {
+.wb-doctab .em {
+  font-size: 12px;
+}
+.wb-doctab .lbl {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-doctab .x {
+  color: var(--tx3);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-size: 11px;
+}
+.wb-doctab .x:hover {
+  background: var(--bg4);
+  color: var(--tx);
+}
+
+/* keep-alive document area: every open doc stays mounted; only the active one
+   is displayed (inline style), so surface state survives navigation */
+.wb-docarea {
   flex: 1;
-  overflow: auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wb-doc {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding: 20px 22px;
 }
-.wb-work > .panel:first-child,
-.wb-work > div > .panel:first-child {
+.wb-doc > .panel:first-child,
+.wb-doc > div > .panel:first-child {
   margin-top: 0;
 }
 
