@@ -17,6 +17,7 @@ scratch); these docs are the buildable, versioned foundation.
 | [0006](adr-0006-agent-runtime-and-providers.md) | Agent runtime & provider layer | Accepted |
 | [0007](adr-0007-http-repeater-and-sessions.md) | HTTP capture, Repeater & interactive sessions | Accepted (Repeater + Terminal + Proxy); SSH & agent co-drive staged |
 | [0008](adr-0008-reporting-and-visualization.md) | Reporting & visualization | Accepted (exec+technical, MD/HTML/PDF, SVG); more types staged |
+| [0009](adr-0009-methodology-and-coverage.md) | Methodology & coverage | Accepted (packs + adoption + coverage); applicability automation staged |
 
 Later subsystems (KB, collaboration) get an ADR when their phase begins. Policy/DLP
 gets its own ADR before P10. See [`../TODO.md`](../TODO.md).
