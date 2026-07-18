@@ -87,3 +87,16 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Engine enforcement: scope.Check before network capabilities; blocked = failed task (audited)
 - [x] Scope management API + osb CLI (scope add/list/delete); capability run --project
 - [ ] Scope enforcement for interactive sessions / proxy targets — P7
+
+## P7 — Proxy + Repeater + Terminal
+
+- [x] ADR-0007 (HTTP capture, Repeater & interactive sessions)
+- [x] http_exchange model + migration (0009) + store repos
+- [x] Repeater transport (pkg/repeater): send one request, capture response, no redirect-follow, body cap
+- [x] Scope-guarded send in the API (reuses pkg/scope); out-of-scope refused before sending
+- [x] Save-as-evidence: response → CAS artifact + human-origin observation (ADR-0005)
+- [x] API + osb CLI: repeater send/list/get/evidence
+- [ ] Repeater tab in the frontend
+- [ ] Intercepting proxy (CA/TLS capture) → http_exchange rows with origin=proxy
+- [ ] Interactive terminal (SSH/PTY via a runner; agent co-drive gated; transcript audited)
+- [ ] Fragment-level response selection as evidence (byte-range)

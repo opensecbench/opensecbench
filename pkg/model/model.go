@@ -48,6 +48,31 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// HTTP exchange origins.
+const (
+	ExchangeRepeater = "repeater"
+	ExchangeProxy    = "proxy"
+)
+
+// HTTPExchange is a request and (once sent) its response, anchored to a project (ADR-0007). The
+// Repeater edits and resends it; save-as-evidence promotes a response into the CAS.
+type HTTPExchange struct {
+	ID              string     `json:"id"`
+	ProjectID       string     `json:"project_id"`
+	Name            string     `json:"name"`
+	Origin          string     `json:"origin"`
+	Method          string     `json:"method"`
+	URL             string     `json:"url"`
+	RequestHeaders  string     `json:"request_headers"`
+	RequestBody     string     `json:"request_body"`
+	Status          *int       `json:"status,omitempty"`
+	ResponseHeaders string     `json:"response_headers"`
+	ResponseBody    string     `json:"response_body"`
+	DurationMS      *int       `json:"duration_ms,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	SentAt          *time.Time `json:"sent_at,omitempty"`
+}
+
 // Playbook run statuses.
 const (
 	PlaybookRunning   = "running"

@@ -14,6 +14,8 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
+	"github.com/opensecbench/opensecbench/pkg/repeater"
+	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 	"github.com/opensecbench/opensecbench/pkg/template"
@@ -35,11 +37,19 @@ type Server struct {
 	engine   *task.Engine
 	cas      *cas.Store
 	provider llm.Provider
+	repeater *repeater.Client
 }
 
 // New builds the API server with its routes registered.
 func New(deps Deps) *Server {
-	s := &Server{mux: http.NewServeMux(), store: deps.Store, engine: deps.Engine, cas: deps.CAS, provider: deps.Provider}
+	s := &Server{
+		mux:      http.NewServeMux(),
+		store:    deps.Store,
+		engine:   deps.Engine,
+		cas:      deps.CAS,
+		provider: deps.Provider,
+		repeater: repeater.New(0),
+	}
 	s.routes()
 	return s
 }
@@ -93,6 +103,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/projects/{id}/scope", s.listScope)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scope", s.addScope)
 	s.mux.HandleFunc("DELETE /v1/scope/{id}", s.deleteScope)
+	s.mux.HandleFunc("GET /v1/projects/{id}/exchanges", s.listExchanges)
+	s.mux.HandleFunc("POST /v1/projects/{id}/exchanges", s.createExchange)
+	s.mux.HandleFunc("GET /v1/exchanges/{id}", s.getExchange)
+	s.mux.HandleFunc("POST /v1/exchanges/{id}/send", s.sendExchange)
+	s.mux.HandleFunc("POST /v1/exchanges/{id}/evidence", s.exchangeEvidence)
 	s.mux.HandleFunc("GET /v1/applications/{id}/assets", s.listAssets)
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
@@ -681,6 +696,163 @@ func (s *Server) deleteScope(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// --- Repeater / HTTP exchanges (P7) ---
+
+func (s *Server) listExchanges(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListExchangesByProject(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) createExchange(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name           string `json:"name"`
+		Method         string `json:"method"`
+		URL            string `json:"url"`
+		RequestHeaders string `json:"request_headers"`
+		RequestBody    string `json:"request_body"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.URL == "" {
+		writeErr(w, http.StatusBadRequest, "url is required")
+		return
+	}
+	ex, err := s.store.CreateExchange(r.Context(), model.HTTPExchange{
+		ProjectID:      r.PathValue("id"),
+		Name:           req.Name,
+		Method:         req.Method,
+		URL:            req.URL,
+		RequestHeaders: req.RequestHeaders,
+		RequestBody:    req.RequestBody,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, ex)
+}
+
+func (s *Server) getExchange(w http.ResponseWriter, r *http.Request) {
+	ex, err := s.store.GetExchange(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "exchange not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ex)
+}
+
+// sendExchange scope-guards the target, issues the request, and records the response (ADR-0007).
+func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
+	ex, err := s.store.GetExchange(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "exchange not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Scope guard: an out-of-scope target is refused before anything is sent. The draft row persists
+	// as the durable record of the blocked attempt.
+	entries, err := s.store.ListScopeEntries(r.Context(), ex.ProjectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(entries) > 0 {
+		rules := make([]scope.Entry, len(entries))
+		for i, en := range entries {
+			rules[i] = scope.Entry{Kind: en.Kind, Value: en.Value}
+		}
+		if serr := scope.Check(rules, ex.URL); serr != nil {
+			writeErr(w, http.StatusForbidden, "blocked by scope guard: "+serr.Error())
+			return
+		}
+	}
+
+	resp, err := s.repeater.Send(r.Context(), repeater.Request{
+		Method: ex.Method, URL: ex.URL, Headers: ex.RequestHeaders, Body: ex.RequestBody,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "send failed: "+err.Error())
+		return
+	}
+	if err := s.store.RecordResponse(r.Context(), ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	updated, _ := s.store.GetExchange(r.Context(), ex.ID)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// exchangeEvidence promotes a sent exchange's response into the CAS as an artifact and records a
+// human-origin observation (ADR-0005), so it enters the same triage → finding path as tool output.
+func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
+	ex, err := s.store.GetExchange(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "exchange not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if ex.SentAt == nil {
+		writeErr(w, http.StatusBadRequest, "exchange has not been sent yet")
+		return
+	}
+	var req struct {
+		Note string `json:"note"`
+	}
+	_ = decodeJSONOptional(r, &req)
+
+	blob := ex.ResponseHeaders + "\n" + ex.ResponseBody
+	digest, err := s.cas.Put(bytes.NewReader([]byte(blob)))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	art, err := s.store.CreateArtifact(r.Context(), model.Artifact{
+		SHA256:    digest,
+		Size:      int64(len(blob)),
+		Kind:      model.ArtifactInput,
+		Name:      "http-response",
+		MediaType: "message/http",
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	title := ex.Method + " " + ex.URL
+	if ex.Status != nil {
+		title = title + " → " + http.StatusText(*ex.Status)
+	}
+	obs, err := s.store.CreateObservation(r.Context(), model.Observation{
+		ArtifactID:  &art.ID,
+		Origin:      model.OriginHuman,
+		ReviewState: model.ReviewUnreviewed,
+		Title:       title,
+		Detail:      req.Note,
+		Severity:    "info",
+		Location:    ex.URL,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, obs)
+}
+
 // --- capabilities, tasks, artifacts ---
 
 func (s *Server) listCapabilities(w http.ResponseWriter, _ *http.Request) {
@@ -948,6 +1120,15 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// decodeJSONOptional decodes a body if present, tolerating an empty body (EOF).
+func decodeJSONOptional(r *http.Request, v any) error {
+	err := json.NewDecoder(r.Body).Decode(v)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
