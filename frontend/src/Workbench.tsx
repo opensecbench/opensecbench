@@ -23,7 +23,7 @@ import { GraphTab } from './GraphTab'
 import { KnowledgeTab } from './KnowledgeTab'
 import { MethodologyTab } from './MethodologyTab'
 import { TasksTab } from './TasksTab'
-import { hasNativePickers, pickDirectory } from './native'
+import { hasNativePickers, hasNativeBrowserLaunch, openProxyBrowser, pickDirectory } from './native'
 
 // The terminal pulls in xterm.js; load it only when the tab is opened.
 const TerminalTab = lazy(() => import('./TerminalTab').then((m) => ({ default: m.TerminalTab })))
@@ -735,6 +735,15 @@ function ProxyTab({
           <span className="mono muted">
             listening on <b>127.0.0.1:{status.port}</b>
           </span>
+        )}
+        {status.running && hasNativeBrowserLaunch() && status.ca_spki_sha256 && (
+          <button
+            onClick={() => {
+              void openProxyBrowser(status.port ?? 0, status.ca_spki_sha256 ?? '').catch((e) => onError((e as Error).message))
+            }}
+          >
+            Open browser
+          </button>
         )}
         <a className="link" href={api.proxyCAURL()} target="_blank" rel="noreferrer">download CA cert</a>
       </div>

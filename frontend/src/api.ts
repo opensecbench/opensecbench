@@ -223,6 +223,7 @@ export interface Report {
 export interface ProxyStatus {
   running: boolean
   port?: number
+  ca_spki_sha256?: string
 }
 
 export interface Session {
