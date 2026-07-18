@@ -3,7 +3,10 @@
 // in packs ship first-party in the shape an extension pack will later provide (ADR-0003).
 package methodology
 
-import "sort"
+import (
+	"sort"
+	"sync"
+)
 
 // Item is one checklist check within a methodology.
 type Item struct {
@@ -24,27 +27,43 @@ type Methodology struct {
 	Items   []Item `json:"items"`
 }
 
-// Registry holds methodologies by id.
-type Registry struct{ packs map[string]Methodology }
+// Registry holds methodologies by id. Safe for concurrent use (runtime extension registration).
+type Registry struct {
+	mu    sync.RWMutex
+	packs map[string]Methodology
+}
 
 // Get returns a methodology by id.
-func (r *Registry) Get(id string) (Methodology, bool) { m, ok := r.packs[id]; return m, ok }
+func (r *Registry) Get(id string) (Methodology, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	m, ok := r.packs[id]
+	return m, ok
+}
 
 // Register adds (or replaces) a methodology pack — used to load extension-provided packs.
-func (r *Registry) Register(m Methodology) { r.packs[m.ID] = m }
+func (r *Registry) Register(m Methodology) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.packs[m.ID] = m
+}
 
 // All returns every methodology, sorted by id.
 func (r *Registry) All() []Methodology {
+	r.mu.RLock()
 	out := make([]Methodology, 0, len(r.packs))
 	for _, m := range r.packs {
 		out = append(out, m)
 	}
+	r.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
 // Item looks up a single item across all packs by its (pack-scoped) id.
 func (r *Registry) Item(itemID string) (Item, Methodology, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	for _, m := range r.packs {
 		for _, it := range m.Items {
 			if it.ID == itemID {

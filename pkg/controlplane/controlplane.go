@@ -157,7 +157,7 @@ func Start(opts Options) (*Instance, error) {
 	apiSrv := api.New(api.Deps{
 		Store: db, Engine: engine, CAS: blobs, Provider: provider,
 		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault,
-		Methods: methReg, Extensions: loadedExt,
+		Methods: methReg, Extensions: loadedExt, TrustStore: trust, ExtDir: extDir,
 	})
 	srv := &http.Server{
 		Handler:           apiSrv.Handler(),

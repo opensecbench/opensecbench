@@ -265,6 +265,33 @@ type ExtensionInfo struct {
 	Methodologies []string `json:"methodologies"`
 }
 
+// HubPackage is a package listed in a hub index.
+type HubPackage struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Version      string   `json:"version"`
+	Publisher    string   `json:"publisher"`
+	Description  string   `json:"description"`
+	Tags         []string `json:"tags"`
+	PublisherKey string   `json:"publisher_key"`
+}
+
+// HubIndex browses a hub's package index (via the control plane).
+func (c *Client) HubIndex(ctx context.Context, hubURL string) ([]HubPackage, error) {
+	var out struct {
+		Packages []HubPackage `json:"packages"`
+	}
+	err := c.do(ctx, http.MethodGet, "/v1/hub/index?url="+url.QueryEscape(hubURL), nil, &out)
+	return out.Packages, err
+}
+
+// HubInstall installs a package from a hub. trust=true trusts the entry's publisher key first.
+func (c *Client) HubInstall(ctx context.Context, hubURL, id string, trust, allowUnsigned bool) (ExtensionInfo, error) {
+	var out ExtensionInfo
+	body := map[string]any{"url": hubURL, "id": id, "trust": trust, "allow_unsigned": allowUnsigned}
+	return out, c.do(ctx, http.MethodPost, "/v1/hub/install", body, &out)
+}
+
 // ListExtensions returns the loaded extension packages.
 func (c *Client) ListExtensions(ctx context.Context) ([]ExtensionInfo, error) {
 	var out []ExtensionInfo
