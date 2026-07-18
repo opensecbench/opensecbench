@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/llm"
@@ -12,16 +15,36 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
-// Service drives resumable Analyst runs over persisted threads and the approval queue.
+const defaultTokenBudget = 200_000
+
+// Service drives resumable Analyst runs over persisted threads and the approval queue, enforcing
+// the token budget and data-egress policy.
 type Service struct {
-	store    *store.DB
-	engine   *task.Engine
-	provider llm.Provider
+	store         *store.DB
+	engine        *task.Engine
+	provider      llm.Provider
+	egressStrict  bool
+	providerLocal bool
+	tokenBudget   int
 }
 
-// NewService wires the Analyst service.
+// NewService wires the Analyst service. Egress policy and budget are read from OSB_EGRESS_POLICY
+// (default strict) and OSB_AGENT_MAX_TOKENS.
 func NewService(st *store.DB, engine *task.Engine, provider llm.Provider) *Service {
-	return &Service{store: st, engine: engine, provider: provider}
+	budget := defaultTokenBudget
+	if v := os.Getenv("OSB_AGENT_MAX_TOKENS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			budget = n
+		}
+	}
+	return &Service{
+		store:         st,
+		engine:        engine,
+		provider:      provider,
+		egressStrict:  os.Getenv("OSB_EGRESS_POLICY") != "open", // default: strict
+		providerLocal: provider != nil && llm.IsLocal(provider),
+		tokenBudget:   budget,
+	}
 }
 
 // Available reports whether an LLM provider is configured.
@@ -29,20 +52,37 @@ func (svc *Service) Available() bool { return svc.provider != nil }
 
 func (svc *Service) session() *agent.Session {
 	return &agent.Session{
-		Provider: svc.provider,
-		Tools:    Tools(),
-		Gate:     func(c agent.ToolCall) bool { return gatedTools[c.Tool] },
-		Execute:  Executor(svc.store, svc.engine),
-		MaxSteps: 8,
+		Provider:    svc.provider,
+		Tools:       Tools(),
+		Gate:        func(c agent.ToolCall) bool { return gatedTools[c.Tool] },
+		Execute:     svc.execute,
+		MaxSteps:    8,
+		TokenBudget: svc.tokenBudget,
 	}
+}
+
+// execute enforces the data-egress policy before running a tool: under a strict policy with an
+// external LLM provider, running a capability on a private asset is blocked, because its output
+// would be summarized by the external model.
+func (svc *Service) execute(ctx context.Context, call agent.ToolCall) (string, error) {
+	if call.Tool == "run_capability" && svc.egressStrict && !svc.providerLocal {
+		if assetID, _ := call.Args["asset"].(string); assetID != "" {
+			if asset, err := svc.store.GetAsset(ctx, assetID); err == nil && asset.Sensitivity == model.SensitivityPrivate {
+				return "", fmt.Errorf("blocked by data-egress policy: capability output for a private asset would be sent to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", svc.provider.Name())
+			}
+		}
+	}
+	return Executor(svc.store, svc.engine)(ctx, call)
 }
 
 // SendResult is the outcome of sending a message or deciding an approval.
 type SendResult struct {
-	Thread      model.Thread    `json:"thread"`
-	NewMessages []model.Message `json:"new_messages"`
-	Answer      string          `json:"answer,omitempty"`
-	Pending     *model.Approval `json:"pending_approval,omitempty"`
+	Thread       model.Thread    `json:"thread"`
+	NewMessages  []model.Message `json:"new_messages"`
+	Answer       string          `json:"answer,omitempty"`
+	Pending      *model.Approval `json:"pending_approval,omitempty"`
+	InputTokens  int             `json:"input_tokens"`
+	OutputTokens int             `json:"output_tokens"`
 }
 
 // Send appends a user message to a thread and advances the run until an answer or a gated tool
@@ -117,7 +157,7 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 
 // finish persists the messages produced this advance and updates thread status / approvals.
 func (svc *Service) finish(ctx context.Context, threadID string, priorLen int, out agent.Outcome) (SendResult, error) {
-	var res SendResult
+	res := SendResult{InputTokens: out.InputTokens, OutputTokens: out.OutputTokens}
 	for _, m := range out.Messages[priorLen:] {
 		saved, err := svc.store.AppendMessage(ctx, threadID, m.Role, m.Content)
 		if err != nil {

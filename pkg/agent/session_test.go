@@ -99,3 +99,26 @@ func TestSessionAutoRunsUngatedTool(t *testing.T) {
 		t.Fatalf("ungated tool should not pause: %+v", out)
 	}
 }
+
+type budgetProvider struct{}
+
+func (budgetProvider) Name() string { return "budget" }
+func (budgetProvider) Complete(_ context.Context, _ llm.CompletionRequest) (llm.CompletionResponse, error) {
+	return llm.CompletionResponse{Text: `{"tool":"noop","args":{}}`, OutputTokens: 100}, nil
+}
+
+func TestSessionStopsAtTokenBudget(t *testing.T) {
+	s := &Session{
+		Provider:    budgetProvider{},
+		Gate:        func(ToolCall) bool { return false },
+		Execute:     func(context.Context, ToolCall) (string, error) { return "ok", nil },
+		TokenBudget: 50,
+	}
+	out, err := s.Advance(context.Background(), []llm.Message{{Role: llm.RoleUser, Content: "go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Answer, "budget") {
+		t.Fatalf("expected budget stop, got %q", out.Answer)
+	}
+}
