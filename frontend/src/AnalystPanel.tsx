@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { api, Approval, Msg, Project, Thread } from './api'
+import { api, ActiveProvider, Approval, Msg, Project, Thread } from './api'
+import { ProviderSettings } from './ProviderSettings'
 
 export function AnalystPanel({ project, online }: { project: Project; online: boolean }) {
   const [threads, setThreads] = useState<Thread[]>([])
@@ -9,7 +10,21 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [provider, setProvider] = useState<ActiveProvider | null>(null)
+  const [showProviders, setShowProviders] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  async function loadProvider() {
+    try {
+      setProvider(await api.getActiveProvider())
+    } catch {
+      /* offline */
+    }
+  }
+  useEffect(() => {
+    if (online) void loadProvider()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online])
 
   async function loadThreads() {
     setThreads((await api.listThreads()) ?? [])
@@ -94,15 +109,32 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
     )
   }
 
+  const modelLabel = provider ? provider.model || provider.type : '…'
+
   return (
     <aside className="wb-analyst">
       <div className="wb-an-head">
         <span className="title">◆ Analyst</span>
         <span className="grow" />
+        <button className={showProviders ? 'on' : ''} onClick={() => setShowProviders((v) => !v)} title="Model / provider">⚙</button>
         <button onClick={newThread} disabled={!online} title="New thread">＋ Thread</button>
         <button onClick={() => setCollapsed(true)} title="Collapse">⟩</button>
       </div>
 
+      <button className={`wb-an-model ${provider && !provider.configured ? 'unconfigured' : ''}`} onClick={() => setShowProviders(true)} title="Change model / provider">
+        <span className={`dot ${provider?.is_local ? 'local' : ''}`} />
+        <span className="m">{modelLabel}</span>
+        {provider && !provider.configured && <span className="warn">⚠ not configured</span>}
+      </button>
+
+      {showProviders ? (
+        <ProviderSettings
+          online={online}
+          onClose={() => setShowProviders(false)}
+          onChanged={loadProvider}
+        />
+      ) : (
+      <>
       <div className="wb-an-threads">
         {threads.map((t) => (
           <button key={t.id} className={`wb-an-chip ${current?.id === t.id ? 'on' : ''}`} onClick={() => open(t)}>
@@ -155,6 +187,8 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
             </button>
           </form>
         </>
+      )}
+      </>
       )}
     </aside>
   )
