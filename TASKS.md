@@ -13,9 +13,10 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Content-addressed storage skeleton (pkg/cas)
 - [x] Append-only, hash-chained audit writer (pkg/audit)
 - [x] Reusable control-plane bootstrap (pkg/controlplane) + CORS for browser/Wails frontends
-- [x] React (Vite + TS) frontend: Global Home (projects list/create/delete) against the API
-- [ ] Wails desktop boots the control plane in-process (glue added; run locally with webkit)
-- [ ] Full Workbench surfaces (methodology/evidence/findings/Analyst) — later phases
+- [x] React (Vite + TS) frontend: Global Home (projects, template create, omni-search)
+- [x] Wails desktop boots the control plane in-process (verified locally via `wails dev`)
+- [x] Project Workbench: Applications & Assets, Context (upload), Scan (run → triage → finding), Findings
+- [ ] Methodology / Analyst (agent) surfaces — later phases
 
 ## P1 — Targets, projects, assets, templates, search
 
