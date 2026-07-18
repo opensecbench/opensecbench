@@ -13,4 +13,16 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Content-addressed storage skeleton (pkg/cas)
 - [x] Append-only, hash-chained audit writer (pkg/audit)
 - [ ] Global Home + Workbench shells (frontend, later in P0)
-- [ ] Wails desktop boots the control plane in-process (later in P0 — needs Wails CLI)
+- [ ] Wails desktop boots the control plane in-process (later in P0)
+
+## P1 — Targets, projects, assets, templates, search
+
+- [x] SQLite driver (modernc.org/sqlite) + migration applier (pkg/store)
+- [x] Core hierarchy schema: organizations, groups, targets, projects, applications, assets (0002)
+- [x] Domain models (pkg/model) + repositories (organizations, targets, projects)
+- [x] Daemon opens DB + applies migrations on startup; `/readyz` reports DB status
+- [x] Project + organization + target CRUD over the HTTP API (v1)
+- [ ] Application + asset repositories + endpoints (incl. sensitivity default-from-location)
+- [ ] Project templates / archetypes
+- [ ] Context ingest + omni-search v1
+- [ ] `osb` CLI subcommands over the API

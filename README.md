@@ -42,7 +42,8 @@ migrations/ SQLite schema migrations
 
 ## Development
 
-Requires Go 1.22+. (Docker and Wails are needed for later phases.)
+Requires the Go toolchain declared in `go.mod` (auto-managed by `GOTOOLCHAIN`). Docker and
+Wails are needed for later phases.
 
 ```sh
 go build ./...
