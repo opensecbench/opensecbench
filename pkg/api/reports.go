@@ -40,6 +40,8 @@ func reportMediaType(format report.Format) string {
 		return "text/markdown; charset=utf-8"
 	case report.FormatPDF:
 		return "application/pdf"
+	case report.FormatDOCX:
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	default:
 		return "text/html; charset=utf-8"
 	}
@@ -66,7 +68,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 	}
 	format := report.Format(req.Format)
 	switch format {
-	case report.FormatMarkdown, report.FormatHTML, report.FormatPDF:
+	case report.FormatMarkdown, report.FormatHTML, report.FormatPDF, report.FormatDOCX:
 	default:
 		format = report.FormatHTML
 	}
@@ -78,7 +80,16 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 	}
 	data.Brand = report.Brand{Name: req.BrandName, Tagline: req.BrandTagline, Color: req.BrandColor}
 
-	// PDF is the HTML render printed through a headless browser.
+	// DOCX is generated directly from Data (no browser); PDF is the HTML render printed headless.
+	if format == report.FormatDOCX {
+		docx, derr := report.DOCX(tmpl.Title, data)
+		if derr != nil {
+			writeErr(w, http.StatusInternalServerError, "docx: "+derr.Error())
+			return
+		}
+		s.storeReport(w, r, projectID, tmpl, format, docx, data.Summary.Total)
+		return
+	}
 	renderFormat := format
 	if format == report.FormatPDF {
 		renderFormat = report.FormatHTML
@@ -101,17 +112,22 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		rendered = pdf
 	}
 
+	s.storeReport(w, r, projectID, tmpl, format, rendered, data.Summary.Total)
+}
+
+// storeReport writes rendered report bytes to the CAS, records the report, audits, notifies, and
+// responds. Shared by every format path.
+func (s *Server) storeReport(w http.ResponseWriter, r *http.Request, projectID string, tmpl *report.Template, format report.Format, rendered []byte, findings int) {
 	digest, err := s.cas.Put(bytes.NewReader(rendered))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	name := tmpl.ID + "." + string(format)
 	art, err := s.store.CreateArtifact(r.Context(), model.Artifact{
 		SHA256:    digest,
 		Size:      int64(len(rendered)),
 		Kind:      model.ArtifactOutput,
-		Name:      name,
+		Name:      tmpl.ID + "." + string(format),
 		MediaType: reportMediaType(format),
 	})
 	if err != nil {
@@ -130,10 +146,10 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.record(r.Context(), actorOf(r), "report.generate", rep.ID, map[string]any{
-		"template": tmpl.ID, "format": format, "findings": data.Summary.Total,
+		"template": tmpl.ID, "format": format, "findings": findings,
 	})
 	pid := projectID
 	s.notify(r.Context(), model.NotifyReport, "Report ready",
-		tmpl.Title+" ("+string(format)+") for "+data.Project.Name, &pid, "report:"+rep.ID)
+		tmpl.Title+" ("+string(format)+") for "+projectID, &pid, "report:"+rep.ID)
 	writeJSON(w, http.StatusCreated, rep)
 }

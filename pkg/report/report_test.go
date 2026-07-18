@@ -1,8 +1,11 @@
 package report
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -246,5 +249,39 @@ func TestBrandedReport(t *testing.T) {
 		if !strings.Contains(string(html), want) {
 			t.Fatalf("branded report missing %q", want)
 		}
+	}
+}
+
+func TestDOCXIsValidZip(t *testing.T) {
+	d, _ := NewBuilder(sampleSource()).Build(context.Background(), "p1", time.Now())
+	out, err := DOCX("Technical report", d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Valid zip with the required parts.
+	zr, err := zip.NewReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("not a valid zip: %v", err)
+	}
+	need := map[string]bool{"[Content_Types].xml": false, "_rels/.rels": false, "word/document.xml": false}
+	var docXML string
+	for _, f := range zr.File {
+		if _, ok := need[f.Name]; ok {
+			need[f.Name] = true
+		}
+		if f.Name == "word/document.xml" {
+			rc, _ := f.Open()
+			b, _ := io.ReadAll(rc)
+			_ = rc.Close()
+			docXML = string(b)
+		}
+	}
+	for name, present := range need {
+		if !present {
+			t.Fatalf("docx missing required part %q", name)
+		}
+	}
+	if !strings.Contains(docXML, "Critical RCE") || !strings.Contains(docXML, "Acme Web") {
+		t.Fatalf("docx body missing content")
 	}
 }
