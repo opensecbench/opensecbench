@@ -127,7 +127,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Compliance mapping report (findings grouped by CWE)
 - [ ] More report types: client-branded
 - [x] Coverage heatmap viz (severity × remediation status) embedded in the technical report
-- [ ] More visualizations: dependency/API maps, topology (interactive workbench views)
+- [x] Interactive graph tab: project structure + traffic/endpoint map (pan/zoom/hover)
+- [ ] More graph kinds: dependency (SCA) + topology (nmap) — pending those capabilities
 - [x] Methodology coverage model + roll-up (ADR-0009): catalog packs, adoption, item status,
       coverage % on the Workbench and in reports
 - [x] Notifications: in-app feed + bell + OS-native CLI watch (approval waiting, report ready)
