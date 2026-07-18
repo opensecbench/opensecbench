@@ -49,6 +49,10 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return taskCmd(ctx, c, args[1:])
 	case "artifact":
 		return artifactCmd(ctx, c, args[1:])
+	case "observation", "obs":
+		return observationCmd(ctx, c, args[1:])
+	case "finding":
+		return findingCmd(ctx, c, args[1:])
 	default:
 		usage()
 		return fmt.Errorf("unknown command %q", args[0])
@@ -134,6 +138,102 @@ func taskCmd(ctx context.Context, c *client.Client, args []string) error {
 		return err
 	}
 	return printJSON(t)
+}
+
+func observationCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb observation <list|review>")
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("observation list", flag.ContinueOnError)
+		taskID := fs.String("task", "", "task id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *taskID == "" {
+			return errors.New("observation list: --task is required")
+		}
+		obs, err := c.ListTaskObservations(ctx, *taskID)
+		if err != nil {
+			return err
+		}
+		for _, o := range obs {
+			fmt.Printf("%s  [%s/%s] %-8s %s  %s\n", o.ID, o.Origin, o.ReviewState, o.Severity, o.Title, o.Location)
+		}
+		return nil
+	case "review":
+		if len(args) < 2 {
+			return errors.New("usage: osb observation review <id> --state confirmed|rejected")
+		}
+		id := args[1]
+		fs := flag.NewFlagSet("observation review", flag.ContinueOnError)
+		state := fs.String("state", "", "confirmed | rejected | unreviewed (required)")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		if *state == "" {
+			return errors.New("observation review: --state is required")
+		}
+		if err := c.ReviewObservation(ctx, id, *state); err != nil {
+			return err
+		}
+		fmt.Printf("observation %s -> %s\n", id, *state)
+		return nil
+	default:
+		return fmt.Errorf("unknown observation subcommand %q", args[0])
+	}
+}
+
+func findingCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb finding <list|get|create>")
+	}
+	switch args[0] {
+	case "list":
+		findings, err := c.ListFindings(ctx)
+		if err != nil {
+			return err
+		}
+		for _, f := range findings {
+			fmt.Printf("%s  %-8s %-14s %s\n", f.ID, f.Severity, f.Status, f.Title)
+		}
+		return nil
+	case "get":
+		if len(args) < 2 {
+			return errors.New("usage: osb finding get <id>")
+		}
+		f, err := c.GetFinding(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(f)
+	case "create":
+		fs := flag.NewFlagSet("finding create", flag.ContinueOnError)
+		title := fs.String("title", "", "finding title (required)")
+		severity := fs.String("severity", "", "severity (info|low|medium|high|critical)")
+		cwe := fs.String("cwe", "", "CWE identifier")
+		var obs paramFlags
+		fs.Var(&obs, "obs", "supporting (confirmed) observation id (repeatable)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *title == "" {
+			return errors.New("finding create: --title is required")
+		}
+		f, err := c.CreateFinding(ctx, client.CreateFindingRequest{
+			Title:          *title,
+			Severity:       *severity,
+			CWE:            *cwe,
+			ObservationIDs: []string(obs),
+		})
+		if err != nil {
+			return err
+		}
+		return printJSON(f)
+	default:
+		return fmt.Errorf("unknown finding subcommand %q", args[0])
+	}
 }
 
 func artifactCmd(ctx context.Context, c *client.Client, args []string) error {
@@ -222,5 +322,10 @@ Commands:
   capability run --id ID --dir PATH [--param k=v]  run a capability
   task get <id>               show a task
   artifact get <id>           write an artifact's bytes to stdout
+  observation list --task ID  list a task's observations
+  observation review <id> --state confirmed|rejected
+  finding create --title T [--severity S] [--cwe C] [--obs ID ...]
+  finding list                list findings
+  finding get <id>            show a finding
 `)
 }

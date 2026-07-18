@@ -77,6 +77,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/tasks/{id}", s.getTask)
 	s.mux.HandleFunc("GET /v1/tasks/{id}/artifacts", s.getTaskArtifacts)
 	s.mux.HandleFunc("GET /v1/artifacts/{id}/content", s.getArtifactContent)
+
+	s.mux.HandleFunc("GET /v1/tasks/{id}/observations", s.getTaskObservations)
+	s.mux.HandleFunc("POST /v1/observations/{id}/review", s.reviewObservation)
+
+	s.mux.HandleFunc("GET /v1/findings", s.listFindings)
+	s.mux.HandleFunc("POST /v1/findings", s.createFinding)
+	s.mux.HandleFunc("GET /v1/findings/{id}", s.getFinding)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -309,6 +316,90 @@ func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = rc.Close() }()
 	w.Header().Set("Content-Type", art.MediaType)
 	_, _ = io.Copy(w, rc)
+}
+
+// --- observations & findings ---
+
+func (s *Server) getTaskObservations(w http.ResponseWriter, r *http.Request) {
+	obs, err := s.store.ListObservationsByTask(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, obs)
+}
+
+func (s *Server) reviewObservation(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		State string `json:"state"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	err := s.store.ReviewObservation(r.Context(), r.PathValue("id"), req.State)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "observation not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
+	findings, err := s.store.ListFindings(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, findings)
+}
+
+func (s *Server) createFinding(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ApplicationID  *string  `json:"application_id"`
+		Title          string   `json:"title"`
+		Severity       string   `json:"severity"`
+		Description    string   `json:"description"`
+		CWE            string   `json:"cwe"`
+		ObservationIDs []string `json:"observation_ids"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Title == "" {
+		writeErr(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	f, err := s.store.CreateFinding(r.Context(), store.NewFinding{
+		ApplicationID:  req.ApplicationID,
+		Title:          req.Title,
+		Severity:       req.Severity,
+		Description:    req.Description,
+		CWE:            req.CWE,
+		ObservationIDs: req.ObservationIDs,
+	})
+	if err != nil {
+		// Rejected for unconfirmed/unknown observations, etc.
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, f)
+}
+
+func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
+	f, err := s.store.GetFinding(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "finding not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
 }
 
 // --- helpers ---

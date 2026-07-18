@@ -38,5 +38,15 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Task engine (pkg/task): capability → sandbox → CAS artifact → provenance
 - [x] API + osb CLI: capabilities list, task run/get, artifact content
 - [ ] Resolve target dir from an asset (needs asset endpoints); async task scheduling
-- [ ] Semgrep verified against a real repo (pulls image + fetches rules; run locally)
-- [ ] Observations: interpret SARIF → observations (P3)
+- [x] Semgrep verified against a real repo (offline, local rule; --config auto needs egress)
+
+## P3 — Evidence loop (SARIF → observations → findings)
+
+- [x] ADR-0005 (evidence interpretation + finding lifecycle)
+- [x] observations + findings schema (0004) + repos; only confirmed obs can back a finding
+- [x] SARIF interpreter (pkg/interpret) + engine auto-interpret on SARIF output
+- [x] Triage API + osb CLI: observation list/review, finding create/list/get
+- [x] Verified end-to-end: semgrep → observation → confirm → finding (via CLI)
+- [ ] Observation/finding views in the frontend
+- [ ] LLM interpreter (origin=thread) — P4
+- [ ] Fragment-level evidence tagging (ADR-0002 evidence entity) — later
