@@ -67,3 +67,23 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Analyst panel in the frontend (threads, chat, approve/deny)
 - [ ] Native tool-use for backends that support it (reliability on small models)
 - [ ] Concurrent-agent cap; usage/$ tracking surfaced on Home
+
+## P5 — Playbooks (tactics)
+
+- [x] Playbook definitions (pkg/playbook): sequential capability steps
+- [x] Playbook runner engine: run steps against an asset, record playbook_run + task IDs
+- [x] Schema (0007) + repos for playbook_runs
+- [x] API + osb CLI: playbook list/run, playbook-run list/get
+- [x] Analyst tools: list_playbooks / run_playbook (gated)
+- [x] Playbooks tab in the frontend
+- [ ] Playbook editor (author/edit task graphs) — later
+- [ ] Conditional steps + per-step approval gates — later
+
+## P6 — Scope guard
+
+- [x] Scope allowlist model + guard logic (pkg/scope): host / domain / cidr matching
+- [x] Schema (0008) + repos for scope_entries
+- [x] Network capability (http-probe) with Manifest.TargetParam
+- [x] Engine enforcement: scope.Check before network capabilities; blocked = failed task (audited)
+- [x] Scope management API + osb CLI (scope add/list/delete); capability run --project
+- [ ] Scope enforcement for interactive sessions / proxy targets — P7

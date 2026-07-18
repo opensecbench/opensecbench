@@ -39,6 +39,15 @@ type Project struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// ScopeEntry is one in-scope allowlist rule for a project.
+type ScopeEntry struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	Kind      string    `json:"kind"` // host | domain | cidr
+	Value     string    `json:"value"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // Playbook run statuses.
 const (
 	PlaybookRunning   = "running"

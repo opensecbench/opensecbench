@@ -66,6 +66,24 @@ func (c *Client) ListContext(ctx context.Context, projectID string) ([]model.Con
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/context", nil, &out)
 }
 
+// ListScope returns a project's in-scope allowlist entries.
+func (c *Client) ListScope(ctx context.Context, projectID string) ([]model.ScopeEntry, error) {
+	var out []model.ScopeEntry
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/scope", nil, &out)
+}
+
+// AddScope adds an in-scope allowlist entry (kind: host | domain | cidr) to a project.
+func (c *Client) AddScope(ctx context.Context, projectID, kind, value string) (model.ScopeEntry, error) {
+	var out model.ScopeEntry
+	body := map[string]string{"kind": kind, "value": value}
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/scope", body, &out)
+}
+
+// DeleteScope removes an in-scope allowlist entry.
+func (c *Client) DeleteScope(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/scope/"+id, nil, nil)
+}
+
 // IngestContext stores content as a project context item (document, email, chat, or note).
 func (c *Client) IngestContext(ctx context.Context, projectID, name, ctype, mediaType string, content []byte) (model.ContextItem, error) {
 	u := c.baseURL + "/v1/projects/" + projectID + "/context?name=" + url.QueryEscape(name)
@@ -241,6 +259,7 @@ type RunTaskRequest struct {
 	CapabilityID string         `json:"capability_id"`
 	TargetDir    string         `json:"target_dir,omitempty"`
 	AssetID      *string        `json:"asset_id,omitempty"`
+	ProjectID    *string        `json:"project_id,omitempty"`
 	Actor        string         `json:"actor,omitempty"`
 	Params       map[string]any `json:"params,omitempty"`
 }

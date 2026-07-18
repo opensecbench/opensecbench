@@ -10,13 +10,14 @@ import {
   Playbook,
   PlaybookRunResult,
   Project,
+  ScopeEntry,
   TaskOutcome,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
 import { TasksTab } from './TasksTab'
 import { hasNativePickers, pickDirectory } from './native'
 
-type Tab = 'assets' | 'context' | 'scan' | 'playbooks' | 'tasks' | 'findings' | 'analyst'
+type Tab = 'assets' | 'context' | 'scope' | 'scan' | 'playbooks' | 'tasks' | 'findings' | 'analyst'
 
 interface AppAssets {
   app: Application
@@ -74,7 +75,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="tabs">
-        {(['assets', 'context', 'scan', 'playbooks', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
+        {(['assets', 'context', 'scope', 'scan', 'playbooks', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -83,6 +84,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
 
       {tab === 'assets' && <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />}
       {tab === 'context' && <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />}
+      {tab === 'scope' && <ScopeTab project={project} online={online} onError={setError} />}
       {tab === 'scan' && <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />}
       {tab === 'playbooks' && <PlaybooksTab assets={allAssets} online={online} onError={setError} />}
       {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
@@ -246,6 +248,93 @@ function ContextTab({
               <span className="badge">{ci.type}</span>
               <span className="row-title">{ci.name}</span>
               <a className="link" href={api.artifactContentURL(ci.artifact_id)} target="_blank" rel="noreferrer">open</a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function ScopeTab({
+  project,
+  online,
+  onError,
+}: {
+  project: Project
+  online: boolean
+  onError: (m: string) => void
+}) {
+  const [entries, setEntries] = useState<ScopeEntry[]>([])
+  const [kind, setKind] = useState('host')
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function reload() {
+    setEntries((await api.listScope(project.id)) ?? [])
+  }
+
+  useEffect(() => {
+    if (online) void reload().catch((e) => onError((e as Error).message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, project.id])
+
+  async function add(e: FormEvent) {
+    e.preventDefault()
+    if (!value.trim()) return
+    setBusy(true)
+    try {
+      await api.addScope(project.id, kind, value.trim())
+      setValue('')
+      await reload()
+    } catch (err) {
+      onError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove(id: string) {
+    try {
+      await api.deleteScope(id)
+      await reload()
+    } catch (err) {
+      onError((err as Error).message)
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-head">In-scope allowlist</div>
+      <p className="hint">
+        Network capabilities (e.g. HTTP probe) may only touch targets that match an entry below. An
+        empty allowlist imposes no restriction.
+      </p>
+      <form className="create-row" onSubmit={add}>
+        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          {['host', 'domain', 'cidr'].map((k) => (
+            <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={kind === 'cidr' ? '10.0.0.0/24' : kind === 'domain' ? 'acme.com' : 'api.acme.com'}
+          disabled={!online || busy}
+        />
+        <button type="submit" disabled={!online || busy || !value.trim()}>
+          {busy ? 'Adding…' : '＋ Add'}
+        </button>
+      </form>
+      {entries.length === 0 ? (
+        <div className="empty">No scope entries — all targets are allowed.</div>
+      ) : (
+        <ul className="rows">
+          {entries.map((e) => (
+            <li key={e.id} className="row-item">
+              <span className="badge">{e.kind}</span>
+              <span className="row-title">{e.value}</span>
+              <button className="link danger" onClick={() => remove(e.id)}>remove</button>
             </li>
           ))}
         </ul>

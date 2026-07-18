@@ -90,6 +90,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/applications/{id}", s.getApplication)
 	s.mux.HandleFunc("GET /v1/projects/{id}/context", s.listContext)
 	s.mux.HandleFunc("POST /v1/projects/{id}/context", s.ingestContext)
+	s.mux.HandleFunc("GET /v1/projects/{id}/scope", s.listScope)
+	s.mux.HandleFunc("POST /v1/projects/{id}/scope", s.addScope)
+	s.mux.HandleFunc("DELETE /v1/scope/{id}", s.deleteScope)
 	s.mux.HandleFunc("GET /v1/applications/{id}/assets", s.listAssets)
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
@@ -638,6 +641,46 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, ci)
 }
 
+// --- scope allowlist (P6) ---
+
+func (s *Server) listScope(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.store.ListScopeEntries(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+func (s *Server) addScope(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Kind  string `json:"kind"`
+		Value string `json:"value"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	entry, err := s.store.AddScopeEntry(r.Context(), r.PathValue("id"), req.Kind, req.Value)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, entry)
+}
+
+func (s *Server) deleteScope(w http.ResponseWriter, r *http.Request) {
+	err := s.store.DeleteScopeEntry(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "scope entry not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // --- capabilities, tasks, artifacts ---
 
 func (s *Server) listCapabilities(w http.ResponseWriter, _ *http.Request) {
@@ -659,6 +702,7 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		Actor         string         `json:"actor"`
 		AssetID       *string        `json:"asset_id"`
 		ApplicationID *string        `json:"application_id"`
+		ProjectID     *string        `json:"project_id"`
 		Params        map[string]any `json:"params"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -674,10 +718,11 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		Actor:         req.Actor,
 		AssetID:       req.AssetID,
 		ApplicationID: req.ApplicationID,
+		ProjectID:     req.ProjectID,
 		Params:        req.Params,
 	})
-	// A validation/plan error produces no task; a run failure produces a failed task the caller
-	// still wants to inspect.
+	// A validation/plan error produces no task; a run failure (including a scope block) produces a
+	// failed task the caller still wants to inspect.
 	if err != nil && out.Task.ID == "" {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
