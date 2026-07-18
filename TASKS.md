@@ -96,7 +96,7 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Scope-guarded send in the API (reuses pkg/scope); out-of-scope refused before sending
 - [x] Save-as-evidence: response → CAS artifact + human-origin observation (ADR-0005)
 - [x] API + osb CLI: repeater send/list/get/evidence
-- [ ] Repeater tab in the frontend
+- [x] Repeater tab in the frontend (send, response view, save-as-evidence, history)
 - [ ] Intercepting proxy (CA/TLS capture) → http_exchange rows with origin=proxy
 - [ ] Interactive terminal (SSH/PTY via a runner; agent co-drive gated; transcript audited)
 - [ ] Fragment-level response selection as evidence (byte-range)

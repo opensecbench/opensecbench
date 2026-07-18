@@ -75,6 +75,23 @@ export interface CapabilityManifest {
   target_param?: string
 }
 
+export interface HTTPExchange {
+  id: string
+  project_id: string
+  name: string
+  origin: string
+  method: string
+  url: string
+  request_headers: string
+  request_body: string
+  status?: number
+  response_headers: string
+  response_body: string
+  duration_ms?: number
+  created_at: string
+  sent_at?: string
+}
+
 export interface Artifact {
   id: string
   task_id?: string
@@ -264,6 +281,17 @@ export const api = {
   addScope: (projectId: string, kind: string, value: string) =>
     request<ScopeEntry>('POST', `/v1/projects/${projectId}/scope`, { kind, value }),
   deleteScope: (id: string) => request<void>('DELETE', `/v1/scope/${id}`),
+
+  // repeater (HTTP exchanges)
+  listExchanges: (projectId: string) =>
+    request<HTTPExchange[]>('GET', `/v1/projects/${projectId}/exchanges`),
+  createExchange: (
+    projectId: string,
+    req: { name?: string; method?: string; url: string; request_headers?: string; request_body?: string },
+  ) => request<HTTPExchange>('POST', `/v1/projects/${projectId}/exchanges`, req),
+  sendExchange: (id: string) => request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, {}),
+  saveExchangeEvidence: (id: string, note: string) =>
+    request<Observation>('POST', `/v1/exchanges/${id}/evidence`, { note }),
 
   // capabilities & tasks
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
