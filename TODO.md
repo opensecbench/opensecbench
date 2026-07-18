@@ -49,8 +49,10 @@ and can later ship as plugins.
 - [x] **Live push** (Step 2) — SSE stream (`GET /v1/projects/{id}/events`) over a generic in-process
       event hub (`pkg/events`); Proxy dropped the 2.5s poll (captures appear in ~15ms). The hub is the
       reusable foundation for future task/approval/Analyst streaming.
-- [ ] **Intercept & edit** (Step 3) — hold a request/response, edit, forward/drop (needs an intercept
-      queue in pkg/proxy + a control channel; today it's passthrough capture only). The one new subsystem.
+- [x] **Intercept & edit** (Step 3) — hold requests *and* responses, edit, forward/drop. Blocking
+      `Interceptor` hook in `pkg/proxy` (both HTTP + TLS paths); in-memory hold queue in `pkg/api`
+      (resolve/drain/ctx-cancel, all tested); control endpoints + audit; live over the SSE hub; an
+      Intercept workbench surface. Verified E2E (edited body reached the upstream; drop blocked it).
 - [ ] **Match/replace + scope highlighting** (Step 4) — a traffic-processor in the pipeline; highlight
       in-scope vs out in the history.
 - [x] Server-side filtered `GET /v1/projects/{id}/exchanges` (Step 1; `origin/method/status/q/limit`).
