@@ -67,12 +67,16 @@ cd frontend && npm install && npm run dev   # in another → http://localhost:51
 **Desktop app (Wails):** boots the control plane in-process and renders the frontend in a native
 window. Needs the [Wails](https://wails.io) CLI and, on Linux, the GTK/WebKit dev libraries
 (`libgtk-3-dev`, `libwebkit2gtk-4.1-dev`). The desktop entrypoint (`main.go`) is behind the
-`desktop` build tag, which Wails sets automatically, so it never affects `go build ./...` or CI.
+`desktop` build tag so it never affects `go build ./...` or CI — **you must pass the tag to Wails**
+(the Makefile does it for you):
 
 ```sh
-wails dev     # live-reload development
-wails build   # package a desktop binary
+make dev                       # = wails dev -tags desktop
+make build                     # = wails build -tags desktop
+OSB_LLM_PROVIDER=claude-cli make dev   # with the Analyst enabled
 ```
+
+Without the tag, Wails builds a stub that prints a hint and exits.
 
 **The Analyst (AI):** the control plane owns the agent loop; providers are inference-only
 (ADR-0006). Configure one via `OSB_LLM_*` when starting the daemon (keys come from the vault in

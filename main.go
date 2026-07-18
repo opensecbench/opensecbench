@@ -4,13 +4,14 @@
 // renders the React frontend via Wails (ADR-0001: the frontend is a thin client that calls the
 // local HTTP API; Wails only provides the window/webview).
 //
-// Build/run with Wails, which sets the `desktop` build tag automatically:
+// Build/run with Wails, passing the `desktop` build tag (or use the Makefile targets `make dev`
+// / `make build`):
 //
-//	wails dev      # live-reload development
-//	wails build    # package a desktop binary
+//	wails dev -tags desktop      # live-reload development
+//	wails build -tags desktop    # package a desktop binary
 //
 // Plain `go build ./...` skips this file (see main_nondesktop.go) so CI does not need the
-// webkit/gtk desktop toolchain.
+// webkit/gtk desktop toolchain. Wails does NOT add the tag automatically — it must be passed.
 package main
 
 import (
