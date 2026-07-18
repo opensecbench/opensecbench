@@ -76,6 +76,10 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return findingCmd(ctx, c, args[1:])
 	case "analyst":
 		return analystCmd(ctx, c, args[1:])
+	case "thread":
+		return threadCmd(ctx, c, args[1:])
+	case "approval":
+		return approvalCmd(ctx, c, args[1:])
 	default:
 		usage()
 		return fmt.Errorf("unknown command %q", args[0])
@@ -165,32 +169,117 @@ func taskCmd(ctx context.Context, c *client.Client, args []string) error {
 
 func analystCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 || args[0] != "ask" {
-		return errors.New("usage: osb analyst ask [--allow run_capability] <message>")
+		return errors.New("usage: osb analyst ask <message>")
 	}
-	fs := flag.NewFlagSet("analyst ask", flag.ContinueOnError)
-	var allow paramFlags
-	fs.Var(&allow, "allow", "authorize a gated tool for this ask (e.g. run_capability); repeatable")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
-	}
-	message := strings.Join(fs.Args(), " ")
+	message := strings.Join(args[1:], " ")
 	if message == "" {
 		return errors.New("analyst ask: a message is required")
 	}
-	res, err := c.AnalystAsk(ctx, message, []string(allow))
+	res, err := c.AnalystAsk(ctx, message)
 	if err != nil {
 		return err
 	}
-	for _, s := range res.Steps {
-		status := "ok"
-		if !s.Approved {
-			status = "denied (unauthorized)"
-		} else if s.Error != "" {
-			status = "error: " + s.Error
-		}
-		fmt.Printf("  · %s [%s]\n", s.Call.Tool, status)
+	return printSendResult(res)
+}
+
+func threadCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb thread <list|show|send>")
 	}
-	fmt.Println(res.Answer)
+	switch args[0] {
+	case "list":
+		ts, err := c.ListThreads(ctx)
+		if err != nil {
+			return err
+		}
+		for _, t := range ts {
+			title := t.Title
+			if title == "" {
+				title = "(untitled)"
+			}
+			fmt.Printf("%s  %-18s %s\n", t.ID, t.Status, title)
+		}
+		return nil
+	case "show":
+		if len(args) < 2 {
+			return errors.New("usage: osb thread show <id>")
+		}
+		d, err := c.GetThread(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		for _, m := range d.Messages {
+			if m.Role == "system" {
+				continue
+			}
+			fmt.Printf("[%s] %s\n", m.Role, m.Content)
+		}
+		return nil
+	case "send":
+		if len(args) < 3 {
+			return errors.New("usage: osb thread send <id> <message>")
+		}
+		res, err := c.SendMessage(ctx, args[1], strings.Join(args[2:], " "))
+		if err != nil {
+			return err
+		}
+		return printSendResult(res)
+	default:
+		return fmt.Errorf("unknown thread subcommand %q", args[0])
+	}
+}
+
+func approvalCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb approval <list|approve|deny>")
+	}
+	switch args[0] {
+	case "list":
+		aps, err := c.ListApprovals(ctx)
+		if err != nil {
+			return err
+		}
+		if len(aps) == 0 {
+			fmt.Println("(no pending approvals)")
+			return nil
+		}
+		for _, a := range aps {
+			fmt.Printf("%s  %s %s  (thread %s)\n", a.ID, a.Tool, string(a.Args), a.ThreadID)
+		}
+		return nil
+	case "approve", "deny":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: osb approval %s <id>", args[0])
+		}
+		res, err := c.DecideApproval(ctx, args[1], args[0])
+		if err != nil {
+			return err
+		}
+		return printSendResult(res)
+	default:
+		return fmt.Errorf("unknown approval subcommand %q", args[0])
+	}
+}
+
+// printSendResult renders an Analyst turn: tool activity, then an answer or a pending approval.
+func printSendResult(res client.SendResult) error {
+	for _, m := range res.NewMessages {
+		if m.Role == "user" && strings.HasPrefix(m.Content, "Tool ") {
+			line := m.Content
+			if i := strings.IndexByte(line, '\n'); i >= 0 {
+				line = line[:i]
+			}
+			fmt.Printf("  · %s\n", line)
+		}
+	}
+	if res.Pending != nil {
+		fmt.Printf("⏸  awaiting approval — %s %s\n", res.Pending.Tool, string(res.Pending.Args))
+		fmt.Printf("   approve: osb approval approve %s\n", res.Pending.ID)
+		fmt.Printf("   deny:    osb approval deny %s\n", res.Pending.ID)
+	} else {
+		fmt.Println(res.Answer)
+	}
+	fmt.Printf("   (thread %s)\n", res.Thread.ID)
 	return nil
 }
 
@@ -569,5 +658,11 @@ Commands:
   finding list                list findings
   finding get <id>            show a finding
   analyst ask <message>       ask the Analyst (needs OSB_LLM_PROVIDER on the daemon)
+  thread list                 list Analyst threads
+  thread show <id>            show a thread's messages
+  thread send <id> <message>  continue a thread
+  approval list               list pending approvals
+  approval approve <id>       approve a gated action and resume
+  approval deny <id>          deny a gated action and resume
 `)
 }

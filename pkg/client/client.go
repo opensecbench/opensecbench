@@ -106,32 +106,60 @@ func (c *Client) Search(ctx context.Context, q string) ([]model.SearchResult, er
 	return out, c.do(ctx, http.MethodGet, "/v1/search?q="+url.QueryEscape(q), nil, &out)
 }
 
-// AgentStep is one tool interaction in an Analyst run.
-type AgentStep struct {
-	Call struct {
-		Tool string         `json:"tool"`
-		Args map[string]any `json:"args"`
-	} `json:"call"`
-	Approved bool   `json:"approved"`
-	Result   string `json:"result,omitempty"`
-	Error    string `json:"error,omitempty"`
+// SendResult is the outcome of an Analyst message or approval decision.
+type SendResult struct {
+	Thread      model.Thread    `json:"thread"`
+	NewMessages []model.Message `json:"new_messages"`
+	Answer      string          `json:"answer,omitempty"`
+	Pending     *model.Approval `json:"pending_approval,omitempty"`
 }
 
-// AnalystResult is the Analyst's answer plus the tool steps it took.
-type AnalystResult struct {
-	Answer string      `json:"answer"`
-	Steps  []AgentStep `json:"steps"`
+// ThreadDetail is a thread with its full message history.
+type ThreadDetail struct {
+	Thread   model.Thread    `json:"thread"`
+	Messages []model.Message `json:"messages"`
 }
 
-// AnalystAsk asks the Analyst a question. allow authorizes gated tools (e.g. run_capability) for
-// this ask only.
-func (c *Client) AnalystAsk(ctx context.Context, message string, allow []string) (AnalystResult, error) {
-	var out AnalystResult
-	body := map[string]any{"message": message}
-	if len(allow) > 0 {
-		body["allow"] = allow
-	}
-	return out, c.do(ctx, http.MethodPost, "/v1/analyst/ask", body, &out)
+// AnalystAsk creates a thread and sends one message.
+func (c *Client) AnalystAsk(ctx context.Context, message string) (SendResult, error) {
+	var out SendResult
+	return out, c.do(ctx, http.MethodPost, "/v1/analyst/ask", map[string]string{"message": message}, &out)
+}
+
+// ListThreads returns all Analyst threads.
+func (c *Client) ListThreads(ctx context.Context) ([]model.Thread, error) {
+	var out []model.Thread
+	return out, c.do(ctx, http.MethodGet, "/v1/threads", nil, &out)
+}
+
+// GetThread returns a thread with its messages.
+func (c *Client) GetThread(ctx context.Context, id string) (ThreadDetail, error) {
+	var out ThreadDetail
+	return out, c.do(ctx, http.MethodGet, "/v1/threads/"+id, nil, &out)
+}
+
+// SendMessage sends a message to an existing thread.
+func (c *Client) SendMessage(ctx context.Context, threadID, message string) (SendResult, error) {
+	var out SendResult
+	return out, c.do(ctx, http.MethodPost, "/v1/threads/"+threadID+"/messages", map[string]string{"message": message}, &out)
+}
+
+// ForkThread branches a thread at a message sequence.
+func (c *Client) ForkThread(ctx context.Context, id string, seq int) (model.Thread, error) {
+	var out model.Thread
+	return out, c.do(ctx, http.MethodPost, "/v1/threads/"+id+"/fork", map[string]int{"seq": seq}, &out)
+}
+
+// ListApprovals returns pending approvals.
+func (c *Client) ListApprovals(ctx context.Context) ([]model.Approval, error) {
+	var out []model.Approval
+	return out, c.do(ctx, http.MethodGet, "/v1/approvals", nil, &out)
+}
+
+// DecideApproval approves or denies an approval and resumes the run.
+func (c *Client) DecideApproval(ctx context.Context, id, decision string) (SendResult, error) {
+	var out SendResult
+	return out, c.do(ctx, http.MethodPost, "/v1/approvals/"+id+"/decide", map[string]string{"decision": decision}, &out)
 }
 
 // Template is a project archetype reported by the control plane.

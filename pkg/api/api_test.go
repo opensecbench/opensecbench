@@ -189,13 +189,11 @@ func TestAnalystAsk(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 	var out struct {
-		Answer string `json:"answer"`
-		Steps  []struct {
-			Call struct {
-				Tool string `json:"tool"`
-			} `json:"call"`
-			Approved bool `json:"approved"`
-		} `json:"steps"`
+		Answer      string `json:"answer"`
+		NewMessages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"new_messages"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
@@ -203,8 +201,15 @@ func TestAnalystAsk(t *testing.T) {
 	if !strings.Contains(out.Answer, "Acme") {
 		t.Fatalf("answer = %q", out.Answer)
 	}
-	if len(out.Steps) != 1 || out.Steps[0].Call.Tool != "list_projects" || !out.Steps[0].Approved {
-		t.Fatalf("steps = %+v", out.Steps)
+	// The transcript should record the read-only tool activity (auto-approved).
+	tooled := false
+	for _, m := range out.NewMessages {
+		if strings.Contains(m.Content, "list_projects") {
+			tooled = true
+		}
+	}
+	if !tooled {
+		t.Fatalf("no tool activity in transcript: %+v", out.NewMessages)
 	}
 }
 

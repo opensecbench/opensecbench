@@ -107,16 +107,36 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/findings/{id}", s.getFinding)
 
 	s.mux.HandleFunc("POST /v1/analyst/ask", s.analystAsk)
+
+	s.mux.HandleFunc("GET /v1/threads", s.listThreads)
+	s.mux.HandleFunc("POST /v1/threads", s.createThread)
+	s.mux.HandleFunc("GET /v1/threads/{id}", s.getThread)
+	s.mux.HandleFunc("POST /v1/threads/{id}/messages", s.sendMessage)
+	s.mux.HandleFunc("POST /v1/threads/{id}/fork", s.forkThread)
+
+	s.mux.HandleFunc("GET /v1/approvals", s.listApprovals)
+	s.mux.HandleFunc("POST /v1/approvals/{id}/decide", s.decideApproval)
 }
 
+func (s *Server) analystService() *analyst.Service {
+	return analyst.NewService(s.store, s.engine, s.provider)
+}
+
+func (s *Server) providerName() string {
+	if s.provider == nil {
+		return ""
+	}
+	return s.provider.Name()
+}
+
+// analystAsk is a convenience: create a thread and send one message.
 func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 	if s.provider == nil {
 		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured (set OSB_LLM_PROVIDER)")
 		return
 	}
 	var req struct {
-		Message string   `json:"message"`
-		Allow   []string `json:"allow"`
+		Message string `json:"message"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -125,12 +145,139 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "message is required")
 		return
 	}
-	// TODO(P4): async approval queue, thread persistence, budgets, and data-egress policy.
-	// req.Allow authorizes gated tools (e.g. run_capability) for this ask only.
-	loop := analyst.NewLoop(s.provider, s.store, s.engine, req.Allow, nil)
-	res, err := loop.Run(r.Context(), req.Message)
+	th, err := s.store.CreateThread(r.Context(), store.NewThread{Title: "ask", Provider: s.providerName()})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	res, err := s.analystService().Send(r.Context(), th.ID, req.Message)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) listThreads(w http.ResponseWriter, r *http.Request) {
+	ts, err := s.store.ListThreads(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ts)
+}
+
+func (s *Server) createThread(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectID *string `json:"project_id"`
+		Title     string  `json:"title"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	th, err := s.store.CreateThread(r.Context(), store.NewThread{ProjectID: req.ProjectID, Title: req.Title, Provider: s.providerName()})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, th)
+}
+
+func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {
+	th, err := s.store.GetThread(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "thread not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	msgs, err := s.store.ListMessages(r.Context(), th.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"thread": th, "messages": msgs})
+}
+
+func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
+	if s.provider == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured")
+		return
+	}
+	var req struct {
+		Message string `json:"message"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Message == "" {
+		writeErr(w, http.StatusBadRequest, "message is required")
+		return
+	}
+	res, err := s.analystService().Send(r.Context(), r.PathValue("id"), req.Message)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "thread not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) forkThread(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Seq int `json:"seq"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	child, err := s.store.ForkThread(r.Context(), r.PathValue("id"), req.Seq)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "thread not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, child)
+}
+
+func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
+	aps, err := s.store.ListPendingApprovals(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, aps)
+}
+
+func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
+	if s.provider == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured")
+		return
+	}
+	var req struct {
+		Decision string `json:"decision"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Decision != "approve" && req.Decision != "deny" {
+		writeErr(w, http.StatusBadRequest, "decision must be 'approve' or 'deny'")
+		return
+	}
+	res, err := s.analystService().Decide(r.Context(), r.PathValue("id"), req.Decision)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "approval not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
