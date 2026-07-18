@@ -111,6 +111,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return extCmd(ctx, c, args[1:])
 	case "hub":
 		return hubCmd(ctx, c, args[1:])
+	case "policy":
+		return policyCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -744,6 +746,41 @@ func sessionCmd(ctx context.Context, c *client.Client, args []string) error {
 		return printJSON(obs)
 	default:
 		return fmt.Errorf("unknown session subcommand %q", args[0])
+	}
+}
+
+func policyCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb policy <list|active|set>")
+	}
+	switch args[0] {
+	case "list":
+		ps, err := c.ListPolicyProfiles(ctx)
+		if err != nil {
+			return err
+		}
+		for _, p := range ps {
+			fmt.Printf("%-10s ext-private=%-5v agent-private=%-5v  %s\n", p.Name, p.AllowExternalForPrivate, p.AgentSeesPrivate, p.Description)
+		}
+		return nil
+	case "active":
+		p, err := c.GetActivePolicy(ctx)
+		if err != nil {
+			return err
+		}
+		return printJSON(p)
+	case "set":
+		if len(args) < 2 {
+			return errors.New("usage: osb policy set <personal|corporate|strict>")
+		}
+		p, err := c.SetActivePolicy(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Printf("active policy: %s\n", p.Name)
+		return nil
+	default:
+		return fmt.Errorf("unknown policy subcommand %q", args[0])
 	}
 }
 
@@ -1856,6 +1893,7 @@ Commands:
   hub browse --url URL        browse a community hub
   hub install --url URL --id ID [--trust]  install a package from a hub
   hub publish --hub DIR --dir PKG [--key K.pub]  publish to a local hub
+  policy list / set NAME      view / switch governance profile (personal|corporate|strict)
   ext list                    list loaded extension packages
   ext keygen --out NAME       generate a publisher key pair
   ext sign --dir DIR --key K  sign a package
