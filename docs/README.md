@@ -25,7 +25,8 @@ scratch); these docs are the buildable, versioned foundation.
 | [0014](adr-0014-community-hub.md) | Community extension hub | Accepted (static signed index, publish/browse/install, explicit trust); scanning/reputation staged |
 | [0015](adr-0015-workbench-ide-shell.md) | Workbench IDE shell | Accepted (Phases 1–3 delivered: frame reshape; explorer + methodology landing + coverage; persistent multi-document keep-alive + in-context Replay↔item evidence binding) |
 | [0016](adr-0016-http-traffic-toolset.md) | HTTP traffic toolset (Proxy · Replay · Intercept) | Accepted — fully delivered (rename + Steps 1–4) |
-| [0017](adr-0017-first-class-tool-use.md) | First-class tool use & provider translation | Accepted (design); phased implementation. Evolves ADR-0006 |
+| [0017](adr-0017-first-class-tool-use.md) | First-class tool use & provider translation | Accepted — fully delivered (Phases 1–5: typed schema, tool-aware providers, canonical persistence, native adapters + conformance, expanded governed toolset). Native on by default; evolves ADR-0006 |
+| [0018](adr-0018-sandboxed-cli-provider.md) | Sandboxed claude-cli inference provider | Accepted — delivered (credential-only mount, egress network, runner stdin). Opt-in; extends ADR-0006, composes ADR-0004/0011 |
 
 Later subsystems get an ADR when their phase begins. See [`../TODO.md`](../TODO.md).
 

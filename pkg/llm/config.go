@@ -3,7 +3,10 @@ package llm
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/opensecbench/opensecbench/pkg/runner"
 )
 
 // Config selects and configures a provider.
@@ -17,6 +20,12 @@ type Config struct {
 	// of the prompted text protocol. On by default in the config paths (FromEnv / the provider
 	// registry); the prompted fallback still covers backends without native tool support.
 	NativeTools bool
+	// CLISandbox runs claude-cli inside a runner container mounting only the credential file (ADR-0018).
+	// Off by default (direct host exec). CLIImage is required when on.
+	CLISandbox    bool
+	CLIImage      string // container image with the `claude` CLI installed
+	CLICredential string // host credential path (default ~/.claude/.credentials.json)
+	CLINetwork    string // egress network (default "bridge")
 }
 
 // New builds a provider from a Config, applying sensible per-type defaults.
@@ -25,7 +34,27 @@ func New(cfg Config) (Provider, error) {
 	case "", "mock":
 		return &MockProvider{}, nil
 	case "claude-cli", "cli", "claude":
-		return NewCLIProvider(cfg.Bin), nil
+		p := NewCLIProvider(cfg.Bin)
+		if cfg.CLISandbox {
+			if cfg.CLIImage == "" {
+				return nil, fmt.Errorf("llm: claude-cli sandbox requires an image (OSB_LLM_CLI_IMAGE)")
+			}
+			cred := cfg.CLICredential
+			if cred == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return nil, fmt.Errorf("llm: cannot locate ~/.claude/.credentials.json: %w", err)
+				}
+				cred = filepath.Join(home, ".claude", ".credentials.json")
+			}
+			p.Sandbox = &CLISandbox{
+				Runner:        runner.LocalRunner{},
+				Image:         cfg.CLIImage,
+				CredentialSrc: cred,
+				Network:       cfg.CLINetwork,
+			}
+		}
+		return p, nil
 	case "anthropic":
 		return &AnthropicProvider{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: orDefault(cfg.Model, "claude-sonnet-5"), UseNativeTools: cfg.NativeTools}, nil
 	case "ollama":
@@ -49,12 +78,16 @@ func New(cfg Config) (Provider, error) {
 // An unset OSB_LLM_PROVIDER yields the MockProvider.
 func FromEnv() (Provider, error) {
 	return New(Config{
-		Type:        os.Getenv("OSB_LLM_PROVIDER"),
-		BaseURL:     os.Getenv("OSB_LLM_BASE_URL"),
-		Model:       os.Getenv("OSB_LLM_MODEL"),
-		APIKey:      os.Getenv("OSB_LLM_API_KEY"),
-		Bin:         os.Getenv("OSB_LLM_BIN"),
-		NativeTools: os.Getenv("OSB_LLM_NATIVE_TOOLS") != "0", // native by default; set 0 to force prompted
+		Type:          os.Getenv("OSB_LLM_PROVIDER"),
+		BaseURL:       os.Getenv("OSB_LLM_BASE_URL"),
+		Model:         os.Getenv("OSB_LLM_MODEL"),
+		APIKey:        os.Getenv("OSB_LLM_API_KEY"),
+		Bin:           os.Getenv("OSB_LLM_BIN"),
+		NativeTools:   os.Getenv("OSB_LLM_NATIVE_TOOLS") != "0", // native by default; set 0 to force prompted
+		CLISandbox:    os.Getenv("OSB_LLM_CLI_SANDBOX") == "1",
+		CLIImage:      os.Getenv("OSB_LLM_CLI_IMAGE"),
+		CLICredential: os.Getenv("OSB_LLM_CLI_CREDENTIAL"),
+		CLINetwork:    os.Getenv("OSB_LLM_CLI_NETWORK"),
 	})
 }
 

@@ -30,7 +30,10 @@ type RunSpec struct {
 	// (`-e NAME`), so it never appears in `ps` output (ADR-0011). Transient; never persisted.
 	SecretEnv map[string]string
 	// Name, if set, names the container so it can be stopped with `docker kill <name>`.
-	Name     string
+	Name string
+	// Stdin, if set, is fed to the container's standard input (docker run -i). Used by one-shot
+	// commands that read their input on stdin rather than argv.
+	Stdin    []byte
 	Mounts   []Mount
 	Network  string // default "none"
 	Workdir  string
@@ -78,6 +81,9 @@ func (LocalRunner) Run(ctx context.Context, spec RunSpec) (Result, error) {
 		network = "none"
 	}
 	args := []string{"run", "--rm", "--network", network}
+	if len(spec.Stdin) > 0 {
+		args = append(args, "-i") // attach stdin so the container can read spec.Stdin
+	}
 	if spec.Name != "" {
 		args = append(args, "--name", spec.Name)
 	}
@@ -119,6 +125,9 @@ func (LocalRunner) Run(ctx context.Context, spec RunSpec) (Result, error) {
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	if len(secretEnv) > 0 {
 		cmd.Env = append(os.Environ(), secretEnv...)
+	}
+	if len(spec.Stdin) > 0 {
+		cmd.Stdin = bytes.NewReader(spec.Stdin)
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -44,6 +44,26 @@ func TestLocalRunnerReadOnlyMountAndStdout(t *testing.T) {
 	}
 }
 
+func TestLocalRunnerFeedsStdin(t *testing.T) {
+	requireDocker(t)
+
+	res, err := LocalRunner{}.Run(context.Background(), RunSpec{
+		Image:   "alpine:3",
+		Cmd:     []string{"cat"}, // echoes stdin back to stdout
+		Stdin:   []byte("piped-in payload"),
+		Timeout: 90 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", res.ExitCode, res.Stderr)
+	}
+	if strings.TrimSpace(string(res.Stdout)) != "piped-in payload" {
+		t.Fatalf("stdin not delivered to the container: stdout = %q", res.Stdout)
+	}
+}
+
 func TestLocalRunnerNonZeroExitIsNotAnError(t *testing.T) {
 	requireDocker(t)
 

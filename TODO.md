@@ -72,10 +72,12 @@ and can later ship as plugins.
       Now: system prompt via `--append-system-prompt`; conversation on **stdin**; `--output-format json`
       parsed for `.result`; the CLI's own tools disabled (`--disallowed-tools`) so it only generates text.
       Verified against the real CLI. It's a first-class personal option (alongside `anthropic`/OpenAI/`ollama`).
-- [ ] **Run `claude-cli` inside the runner** (governed setup) — mount only `~/.claude/.credentials.json`
-      (read-only), NOT the whole `~/.claude`; the LLM-runner needs network egress to the provider (policy-
-      gated) + an image with `claude`+node. Today the adapter execs on the host. James's home setup uses the
-      subscription this way; API keys remain the recommended default for others.
+- [x] **Run `claude-cli` inside the runner** (governed setup, ADR-0018) — `CLIProvider.Sandbox` runs the CLI
+      in a runner container mounting ONLY `~/.claude/.credentials.json` (read-only) at `$HOME/.claude/`, with
+      an egress network (default `bridge`) so it can reach the API. Opt-in via `OSB_LLM_CLI_SANDBOX=1` +
+      `OSB_LLM_CLI_IMAGE` (an image with `claude`+node; operator-provided); host exec stays the default.
+      `RunSpec` gained `Stdin`. Isolation asserted via a fake-runner test; stdin verified against a real
+      container. **Remaining:** narrow egress to just the API host (rides on runners-as-egress-endpoints).
 
 ## Small / medium follow-ups
 

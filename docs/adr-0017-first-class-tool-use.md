@@ -1,6 +1,9 @@
 # ADR-0017 — First-class tool use & provider translation
 
-Status: Accepted (design); implementation phased. Evolves ADR-0006 (agent runtime & providers).
+Status: Accepted — fully delivered (Phases 1–5). Typed tool schema + validation; tool-aware provider
+layer with prompted fallback; canonical, vendor-portable tool-message persistence; native Anthropic/OpenAI
+adapters + conformance suite (native on by default, `OSB_LLM_NATIVE_TOOLS=0` to force prompted); expanded
+governed toolset (traffic, coverage, replay, findings). Evolves ADR-0006 (agent runtime & providers).
 
 ## Context
 
