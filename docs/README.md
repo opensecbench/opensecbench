@@ -21,6 +21,7 @@ scratch); these docs are the buildable, versioned foundation.
 | [0010](adr-0010-knowledge-base.md) | Knowledge base | Accepted (target-anchored, inheritance, drafting, search); broader scope staged |
 | [0011](adr-0011-secrets-dlp-redaction.md) | Secrets vault, DLP & redaction | Accepted (vault, injection, redaction, DLP+canaries); KMS staged |
 | [0012](adr-0012-collaboration-export-import.md) | Collaboration: portable export/import | Accepted (encrypted bundle); mediated sharing + signing staged |
+| [0013](adr-0013-extension-loader.md) | Extension loader | Accepted (dir packages, container caps + methodology, ed25519 signing); more pack types staged |
 
 Later subsystems get an ADR when their phase begins. See [`../TODO.md`](../TODO.md).
 
