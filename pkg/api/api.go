@@ -24,8 +24,26 @@ func New(st *store.DB) *Server {
 	return s
 }
 
-// Handler returns the root HTTP handler.
-func (s *Server) Handler() http.Handler { return s.mux }
+// Handler returns the root HTTP handler, wrapped with CORS so a browser-based or Wails frontend
+// on another loopback origin can call the API. The API binds to loopback only, so reflecting the
+// request origin is safe for a local single-user workbench.
+func (s *Server) Handler() http.Handler { return withCORS(s.mux) }
+
+func withCORS(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.health)
