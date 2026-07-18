@@ -1480,11 +1480,61 @@ func artifactCmd(ctx context.Context, c *client.Client, args []string) error {
 	return err
 }
 
+// bundlePassphrase resolves the bundle passphrase from the flag or OSB_BUNDLE_PASSPHRASE.
+func bundlePassphrase(flag string) string {
+	if flag != "" {
+		return flag
+	}
+	return os.Getenv("OSB_BUNDLE_PASSPHRASE")
+}
+
 func projectCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: osb project <list|create|get|delete>")
+		return errors.New("usage: osb project <list|create|get|delete|export|import>")
 	}
 	switch args[0] {
+	case "export":
+		fs := flag.NewFlagSet("project export", flag.ContinueOnError)
+		id := fs.String("id", "", "project id (required)")
+		out := fs.String("out", "", "output bundle file (required)")
+		pass := fs.String("passphrase", "", "encryption passphrase (or set OSB_BUNDLE_PASSPHRASE)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		phrase := bundlePassphrase(*pass)
+		if *id == "" || *out == "" || phrase == "" {
+			return errors.New("project export: --id, --out, and a passphrase are required")
+		}
+		data, err := c.ExportProject(ctx, *id, phrase)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(*out, data, 0o600); err != nil {
+			return err
+		}
+		fmt.Printf("exported %d bytes to %s\n", len(data), *out)
+		return nil
+	case "import":
+		fs := flag.NewFlagSet("project import", flag.ContinueOnError)
+		file := fs.String("file", "", "bundle file (required)")
+		pass := fs.String("passphrase", "", "decryption passphrase (or set OSB_BUNDLE_PASSPHRASE)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		phrase := bundlePassphrase(*pass)
+		if *file == "" || phrase == "" {
+			return errors.New("project import: --file and a passphrase are required")
+		}
+		data, err := os.ReadFile(*file)
+		if err != nil {
+			return err
+		}
+		newID, err := c.ImportBundle(ctx, data, phrase)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("imported as project %s\n", newID)
+		return nil
 	case "list":
 		projects, err := c.ListProjects(ctx)
 		if err != nil {
@@ -1559,6 +1609,8 @@ Commands:
   project get <id>            show a project
   project create --name NAME [--template ID]  create a project
   project delete <id>         delete a project
+  project export --id ID --out FILE [--passphrase P]  encrypted project bundle
+  project import --file FILE [--passphrase P]          import a bundle (new project)
   template list               list project templates
   application create --project ID --name NAME
   application list --project ID

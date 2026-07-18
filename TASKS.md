@@ -160,3 +160,15 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [ ] Jira/resource watchers (schedule → notify/create task/run playbook)
 - [ ] Integrations modeled as first-class capabilities (gate/audit via the capability contract)
 - [ ] policy_profile entity (bundle agent data-access + provider routing); OS keychain / KMS key custody
+
+## P11 — Collaboration (export/import first)
+
+- [x] ADR-0012 (collaboration: portable export/import)
+- [x] pkg/bundle: encrypted (scrypt+AES-256-GCM) project bundle — findings + evidence + KB + blobs
+- [x] Export gathers the shareable graph + CAS blobs; Import remaps IDs (re-import safe), preserves
+      evidence content hashes
+- [x] API (X-OSB-Passphrase header) + osb CLI (project export/import); verified across two daemons
+- [ ] Publisher-key signing of bundles (tie to identity; reuse extension-hub trust model)
+- [ ] DefectDojo+Teams mediated sharing (reuse P10 connectors + a Teams notifier)
+- [ ] Subset export (findings-only) + full-backup mode (include tasks/audit)
+- [ ] Hosted team service (deferred until existing-platform sharing proves insufficient)

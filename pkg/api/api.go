@@ -153,6 +153,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/projects", s.createProject)
 	s.mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
 	s.mux.HandleFunc("DELETE /v1/projects/{id}", s.deleteProject)
+	s.mux.HandleFunc("POST /v1/projects/{id}/export", s.exportProject)
+	s.mux.HandleFunc("POST /v1/import", s.importBundle)
 
 	s.mux.HandleFunc("GET /v1/projects/{id}/applications", s.listApplications)
 	s.mux.HandleFunc("POST /v1/projects/{id}/applications", s.createApplication)
