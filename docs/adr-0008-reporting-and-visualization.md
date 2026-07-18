@@ -1,7 +1,7 @@
 # ADR-0008 — Reporting & visualization
 
-Status: Accepted (executive + technical reports, MD/HTML, inline-SVG figures); PDF, more types,
-and interactive views staged
+Status: Accepted (executive + technical reports; MD/HTML/PDF; inline-SVG figures). More report
+types, richer/interactive visualizations, and methodology coverage remain staged.
 
 ## Context
 

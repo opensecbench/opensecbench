@@ -91,6 +91,22 @@ export interface AuditEvent {
   hash: string
 }
 
+export interface ReportTemplate {
+  id: string
+  title: string
+  kind: string
+}
+
+export interface Report {
+  id: string
+  project_id: string
+  template_id: string
+  format: string
+  title: string
+  artifact_id: string
+  created_at: string
+}
+
 export interface ProxyStatus {
   running: boolean
   port?: number
@@ -370,6 +386,12 @@ export const api = {
   stopProxy: (projectId: string) =>
     request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/stop`, {}),
   proxyCAURL: () => `${baseURL}/v1/proxy/ca`,
+
+  // reports
+  listReportTemplates: () => request<ReportTemplate[]>('GET', '/v1/report-templates'),
+  listReports: (projectId: string) => request<Report[]>('GET', `/v1/projects/${projectId}/reports`),
+  generateReport: (projectId: string, template: string, format: string) =>
+    request<Report>('POST', `/v1/projects/${projectId}/reports`, { template, format }),
 
   // audit
   listAudit: (limit = 100) => request<AuditEvent[]>('GET', `/v1/audit?limit=${limit}`),
