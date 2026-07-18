@@ -2,7 +2,10 @@
 // control-plane packages so it can be shared freely by the store, API, and clients.
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Organization is an optional top-level grouping ("if used").
 type Organization struct {
@@ -56,4 +59,47 @@ type Asset struct {
 	Sensitivity   string    `json:"sensitivity"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// Task status values (mirrored by a CHECK constraint in the schema).
+const (
+	TaskRunning   = "running"
+	TaskSucceeded = "succeeded"
+	TaskFailed    = "failed"
+)
+
+// Task is one capability invocation and the root of a provenance chain (ADR-0004).
+type Task struct {
+	ID                string          `json:"id"`
+	CapabilityID      string          `json:"capability_id"`
+	CapabilityVersion string          `json:"capability_version"`
+	ApplicationID     *string         `json:"application_id,omitempty"`
+	AssetID           *string         `json:"asset_id,omitempty"`
+	Actor             string          `json:"actor"`
+	Runner            string          `json:"runner"`
+	Params            json.RawMessage `json:"params,omitempty"`
+	Status            string          `json:"status"`
+	ExitCode          *int            `json:"exit_code,omitempty"`
+	Error             string          `json:"error,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	StartedAt         *time.Time      `json:"started_at,omitempty"`
+	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
+}
+
+// Artifact kinds.
+const (
+	ArtifactInput  = "input"
+	ArtifactOutput = "output"
+)
+
+// Artifact is an immutable output stored in the CAS and linked to the task that produced it.
+type Artifact struct {
+	ID        string    `json:"id"`
+	TaskID    *string   `json:"task_id,omitempty"`
+	SHA256    string    `json:"sha256"`
+	MediaType string    `json:"media_type"`
+	Size      int64     `json:"size"`
+	Kind      string    `json:"kind"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
 }
