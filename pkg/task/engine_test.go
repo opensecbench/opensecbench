@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/capability"
@@ -139,6 +140,71 @@ func TestEngineMarksNonOKExitFailed(t *testing.T) {
 	}
 	if len(out.Artifacts) != 1 {
 		t.Fatalf("output should still be captured, got %d artifacts", len(out.Artifacts))
+	}
+}
+
+type sleepCap struct{}
+
+func (sleepCap) Manifest() capability.Manifest {
+	return capability.Manifest{ID: "sleep", Version: "1.0.0", OutputName: "out.txt"}
+}
+func (sleepCap) Plan(capability.Input) (runner.RunSpec, error) {
+	return runner.RunSpec{Image: "alpine:3", Cmd: []string{"sleep", "30"}, Timeout: 60 * time.Second}, nil
+}
+
+func TestEngineCancelStopsRun(t *testing.T) {
+	if !runner.Available() {
+		t.Skip("docker not available")
+	}
+	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := store.LoadMigrations(migrations.FS)
+	if _, err := db.Apply(ms); err != nil {
+		t.Fatal(err)
+	}
+	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	reg := capability.NewRegistry()
+	reg.Register(sleepCap{})
+	eng := NewEngine(db, blobs, reg, runner.LocalRunner{})
+
+	ctx := context.Background()
+	done := make(chan Outcome, 1)
+	go func() {
+		out, _ := eng.Run(ctx, RunRequest{CapabilityID: "sleep", TargetDir: "/x", Actor: "test"})
+		done <- out
+	}()
+
+	// Wait for the task to be running, then cancel it.
+	var id string
+	for i := 0; i < 120; i++ {
+		tasks, _ := db.ListTasks(ctx, 5)
+		if len(tasks) > 0 && tasks[0].Status == model.TaskRunning {
+			id = tasks[0].ID
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if id == "" {
+		t.Fatal("task never reached running state")
+	}
+	if err := eng.Cancel(id); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+
+	select {
+	case out := <-done:
+		if out.Task.Status != model.TaskFailed {
+			t.Fatalf("cancelled task status = %s, want failed", out.Task.Status)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("run did not return after cancel (container not killed)")
+	}
+
+	// Cancelling a task that is no longer running errors.
+	if err := eng.Cancel(id); err != ErrTaskNotRunning {
+		t.Fatalf("cancel finished task = %v, want ErrTaskNotRunning", err)
 	}
 }
 

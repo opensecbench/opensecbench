@@ -157,14 +157,25 @@ func capabilityCmd(ctx context.Context, c *client.Client, args []string) error {
 }
 
 func taskCmd(ctx context.Context, c *client.Client, args []string) error {
-	if len(args) < 2 || args[0] != "get" {
-		return errors.New("usage: osb task get <id>")
+	if len(args) < 2 {
+		return errors.New("usage: osb task <get|cancel> <id>")
 	}
-	t, err := c.GetTask(ctx, args[1])
-	if err != nil {
-		return err
+	switch args[0] {
+	case "get":
+		t, err := c.GetTask(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(t)
+	case "cancel":
+		if err := c.CancelTask(ctx, args[1]); err != nil {
+			return err
+		}
+		fmt.Println("cancelled", args[1])
+		return nil
+	default:
+		return fmt.Errorf("unknown task subcommand %q", args[0])
 	}
-	return printJSON(t)
 }
 
 func analystCmd(ctx context.Context, c *client.Client, args []string) error {
@@ -651,6 +662,7 @@ Commands:
   capability list             list available capabilities
   capability run --id ID (--dir PATH | --asset ID) [--param k=v]  run a capability
   task get <id>               show a task
+  task cancel <id>            stop a running task
   artifact get <id>           write an artifact's bytes to stdout
   observation list --task ID  list a task's observations
   observation review <id> --state confirmed|rejected

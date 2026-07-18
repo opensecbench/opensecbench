@@ -235,6 +235,7 @@ export const api = {
   listTasks: () => request<Task[]>('GET', '/v1/tasks'),
   runTask: (req: { capability_id: string; asset_id?: string; target_dir?: string; params?: Record<string, unknown>; actor?: string }) =>
     request<TaskOutcome>('POST', '/v1/tasks', req),
+  cancelTask: (id: string) => request<void>('POST', `/v1/tasks/${id}/cancel`),
   getTaskArtifacts: (taskId: string) => request<Artifact[]>('GET', `/v1/tasks/${taskId}/artifacts`),
   listTaskObservations: (taskId: string) =>
     request<Observation[]>('GET', `/v1/tasks/${taskId}/observations`),

@@ -42,6 +42,18 @@ export function TasksTab({ online, onError }: { online: boolean; onError: (m: st
     }
   }
 
+  async function cancel(t: Task) {
+    try {
+      await api.cancelTask(t.id)
+      const list = (await api.listTasks()) ?? []
+      setTasks(list)
+      const updated = list.find((x) => x.id === t.id)
+      if (updated) setSelected(updated)
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
   async function view(a: Artifact) {
     try {
       setContent({ name: a.name, text: await api.artifactContent(a.id) })
@@ -92,6 +104,11 @@ export function TasksTab({ online, onError }: { online: boolean; onError: (m: st
             <section className="panel">
               <div className="panel-head">
                 Task <span className={`badge ${selected.status}`}>{selected.status}</span> · {selected.capability_id} · {selected.runner}
+                {selected.status === 'running' && (
+                  <button className="ghost-btn head-right danger" onClick={() => cancel(selected)}>
+                    ✕ Cancel
+                  </button>
+                )}
               </div>
               {selected.error && <div className="banner error">⚠ {selected.error}</div>}
               <div className="rows">

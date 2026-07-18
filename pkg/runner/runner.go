@@ -21,9 +21,11 @@ type Mount struct {
 
 // RunSpec is a fully-specified sandboxed execution.
 type RunSpec struct {
-	Image    string
-	Cmd      []string
-	Env      []string
+	Image string
+	Cmd   []string
+	Env   []string
+	// Name, if set, names the container so it can be stopped with `docker kill <name>`.
+	Name     string
 	Mounts   []Mount
 	Network  string // default "none"
 	Workdir  string
@@ -71,6 +73,9 @@ func (LocalRunner) Run(ctx context.Context, spec RunSpec) (Result, error) {
 		network = "none"
 	}
 	args := []string{"run", "--rm", "--network", network}
+	if spec.Name != "" {
+		args = append(args, "--name", spec.Name)
+	}
 	if spec.MemoryMB > 0 {
 		args = append(args, "--memory", fmt.Sprintf("%dm", spec.MemoryMB))
 	}
