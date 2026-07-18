@@ -146,3 +146,17 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [ ] KB-driven methodology applicability ("auth: SAML → suggest SAML pack")
 - [ ] KB entry versioning; link entries to source evidence/findings
 - [ ] KB packs as extension packages
+
+## P10 — Secrets + integrations
+
+- [x] ADR-0011 (secrets vault, DLP & redaction)
+- [x] Encrypted vault (pkg/secret, AES-256-GCM): references-not-values, key from env or 0600 file
+- [x] Secret API/CLI (never returns plaintext) + exec-time injection into runners + output redaction
+- [x] DLP monitor (pkg/dlp): scan LLM egress for vault secrets/canaries/patterns; block external, alert
+- [x] Canaries (exfil tripwires) + dlp_events trail + API/CLI
+- [x] Integrations (pkg/integration): Jira + DefectDojo finding push, credentials from vault,
+      idempotent external_links; API + `osb finding push/links`
+- [ ] Integration pull (DefectDojo findings/scans in) + DependencyTrack SBOM
+- [ ] Jira/resource watchers (schedule → notify/create task/run playbook)
+- [ ] Integrations modeled as first-class capabilities (gate/audit via the capability contract)
+- [ ] policy_profile entity (bundle agent data-access + provider routing); OS keychain / KMS key custody

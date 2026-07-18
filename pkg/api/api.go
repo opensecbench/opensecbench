@@ -16,6 +16,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/analyst"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/dlp"
+	"github.com/opensecbench/opensecbench/pkg/integration"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -56,6 +57,7 @@ type Server struct {
 	reports  *report.Registry
 	methods  *methodology.Registry
 	vault    *secret.Vault
+	integr   *integration.Registry
 
 	sessMu   sync.Mutex
 	sessions map[string]*liveSession
@@ -78,6 +80,7 @@ func New(deps Deps) *Server {
 		reports:  report.BuiltIns(),
 		methods:  methodology.BuiltIns(),
 		vault:    deps.Vault,
+		integr:   integration.BuiltIns(),
 		sessions: make(map[string]*liveSession),
 		proxies:  make(map[string]*liveProxy),
 	}
@@ -197,6 +200,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/findings", s.listFindings)
 	s.mux.HandleFunc("POST /v1/findings", s.createFinding)
 	s.mux.HandleFunc("GET /v1/findings/{id}", s.getFinding)
+	s.mux.HandleFunc("GET /v1/integrations", s.listIntegrations)
+	s.mux.HandleFunc("GET /v1/findings/{id}/links", s.listFindingLinks)
+	s.mux.HandleFunc("POST /v1/findings/{id}/push", s.pushFinding)
 
 	s.mux.HandleFunc("POST /v1/analyst/ask", s.analystAsk)
 
