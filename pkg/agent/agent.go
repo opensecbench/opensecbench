@@ -63,7 +63,7 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 		maxSteps = 8
 	}
 	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: l.systemPrompt()},
+		{Role: llm.RoleSystem, Content: buildSystemPrompt(l.Tools)},
 		{Role: llm.RoleUser, Content: userMessage},
 	}
 	var res Result
@@ -129,13 +129,13 @@ func (l *Loop) audit(action, detail string) {
 	}
 }
 
-func (l *Loop) systemPrompt() string {
+func buildSystemPrompt(tools []Tool) string {
 	var b strings.Builder
 	b.WriteString("You are the Analyst, an application security assessment assistant. ")
 	b.WriteString("You help review evidence and, when useful, call tools. You never have a raw shell.\n\n")
-	if len(l.Tools) > 0 {
+	if len(tools) > 0 {
 		b.WriteString("Available tools:\n")
-		for _, t := range l.Tools {
+		for _, t := range tools {
 			fmt.Fprintf(&b, "- %s: %s", t.Name, t.Description)
 			if len(t.Params) > 0 {
 				parts := make([]string, 0, len(t.Params))
