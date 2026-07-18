@@ -98,6 +98,10 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return kbCmd(ctx, c, args[1:])
 	case "secret":
 		return secretCmd(ctx, c, args[1:])
+	case "canary":
+		return canaryCmd(ctx, c, args[1:])
+	case "dlp":
+		return dlpCmd(ctx, c, args[1:])
 	case "proxy":
 		return proxyCmd(ctx, c, args[1:])
 	case "observation", "obs":
@@ -870,6 +874,73 @@ func proxyBrowser(ctx context.Context, c *client.Client, args []string) error {
 	return nil
 }
 
+func canaryCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb canary <list|add|rm>")
+	}
+	switch args[0] {
+	case "list":
+		cs, err := c.ListCanaries(ctx)
+		if err != nil {
+			return err
+		}
+		for _, cn := range cs {
+			fmt.Printf("%s  %-16s %s\n", cn.ID[:8], cn.Label, cn.Token)
+		}
+		return nil
+	case "add":
+		fs := flag.NewFlagSet("canary add", flag.ContinueOnError)
+		label := fs.String("label", "", "canary label (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *label == "" {
+			return errors.New("canary add: --label is required")
+		}
+		cn, err := c.CreateCanary(ctx, *label)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("planted canary %q — place this token where exfil would grab it:\n%s\n", cn.Label, cn.Token)
+		return nil
+	case "rm":
+		fs := flag.NewFlagSet("canary rm", flag.ContinueOnError)
+		id := fs.String("id", "", "canary id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" {
+			return errors.New("canary rm: --id is required")
+		}
+		return c.DeleteCanary(ctx, *id)
+	default:
+		return fmt.Errorf("unknown canary subcommand %q", args[0])
+	}
+}
+
+func dlpCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 || args[0] != "events" {
+		return errors.New("usage: osb dlp events [--limit N]")
+	}
+	fs := flag.NewFlagSet("dlp events", flag.ContinueOnError)
+	limit := fs.Int("limit", 50, "max events")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	events, err := c.ListDLPEvents(ctx, *limit)
+	if err != nil {
+		return err
+	}
+	for _, e := range events {
+		mark := "alert"
+		if e.Blocked {
+			mark = "BLOCKED"
+		}
+		fmt.Printf("%s  %-8s %-8s %-10s %s\n", e.CreatedAt.Format("2006-01-02 15:04"), mark, e.Kind, e.Label, e.Location)
+	}
+	return nil
+}
+
 func secretCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: osb secret <set|list|rm>")
@@ -1476,6 +1547,9 @@ Commands:
   secret set --name X [--value Y]   store a secret (stdin if --value omitted)
   secret list                 list secret names
   secret rm --name X          delete a secret
+  canary add --label X        plant a canary token (exfil tripwire)
+  canary list                 list canaries
+  dlp events [--limit N]      show DLP egress events
   kb list (--project ID | --target ID)  list knowledge-base entries
   kb add --target ID --kind K --title T [--body B] [--tags t]  add a KB entry
   kb review --id ID --state confirmed|rejected  curate an agent-drafted entry

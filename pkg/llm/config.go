@@ -68,6 +68,10 @@ func orDefault(v, d string) string {
 // safe for private data under a strict egress policy). Mock and a loopback Ollama are local;
 // hosted APIs and the claude CLI (which calls the Anthropic API) are not.
 func IsLocal(p Provider) bool {
+	// Unwrap decorators (e.g. the DLP guard) so classification reflects the real backend.
+	if u, ok := p.(interface{ Unwrap() Provider }); ok {
+		return IsLocal(u.Unwrap())
+	}
 	switch v := p.(type) {
 	case *MockProvider:
 		return true
