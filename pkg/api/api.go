@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/opensecbench/opensecbench/pkg/analyst"
 	"github.com/opensecbench/opensecbench/pkg/cas"
@@ -16,6 +17,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/repeater"
 	"github.com/opensecbench/opensecbench/pkg/scope"
+	"github.com/opensecbench/opensecbench/pkg/session"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 	"github.com/opensecbench/opensecbench/pkg/template"
@@ -24,10 +26,11 @@ import (
 
 // Deps are the control-plane services the API exposes.
 type Deps struct {
-	Store    *store.DB
-	Engine   *task.Engine
-	CAS      *cas.Store
-	Provider llm.Provider
+	Store      *store.DB
+	Engine     *task.Engine
+	CAS        *cas.Store
+	Provider   llm.Provider
+	SessionMgr *session.Manager
 }
 
 // Server routes control-plane HTTP requests against the control-plane services.
@@ -38,6 +41,10 @@ type Server struct {
 	cas      *cas.Store
 	provider llm.Provider
 	repeater *repeater.Client
+	sessMgr  *session.Manager
+
+	sessMu   sync.Mutex
+	sessions map[string]*liveSession
 }
 
 // New builds the API server with its routes registered.
@@ -49,6 +56,8 @@ func New(deps Deps) *Server {
 		cas:      deps.CAS,
 		provider: deps.Provider,
 		repeater: repeater.New(0),
+		sessMgr:  deps.SessionMgr,
+		sessions: make(map[string]*liveSession),
 	}
 	s.routes()
 	return s
@@ -108,6 +117,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/exchanges/{id}", s.getExchange)
 	s.mux.HandleFunc("POST /v1/exchanges/{id}/send", s.sendExchange)
 	s.mux.HandleFunc("POST /v1/exchanges/{id}/evidence", s.exchangeEvidence)
+	s.mux.HandleFunc("GET /v1/projects/{id}/sessions", s.listSessions)
+	s.mux.HandleFunc("POST /v1/projects/{id}/sessions", s.createSession)
+	s.mux.HandleFunc("GET /v1/sessions/{id}", s.getSession)
+	s.mux.HandleFunc("GET /v1/sessions/{id}/ws", s.sessionWS)
+	s.mux.HandleFunc("POST /v1/sessions/{id}/close", s.closeSession)
+	s.mux.HandleFunc("POST /v1/sessions/{id}/evidence", s.sessionEvidence)
 	s.mux.HandleFunc("GET /v1/applications/{id}/assets", s.listAssets)
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)

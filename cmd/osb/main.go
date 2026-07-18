@@ -76,6 +76,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return scopeCmd(ctx, c, args[1:])
 	case "repeater":
 		return repeaterCmd(ctx, c, args[1:])
+	case "session":
+		return sessionCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -633,6 +635,85 @@ func repeaterCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 }
 
+// sessionCmd manages interactive terminal sessions. Interactive attach happens in the desktop app
+// (over the WebSocket); the CLI covers listing, closing, and evidence.
+//
+// TODO(P7+): `osb session attach <id>` — a raw-mode terminal client over the WebSocket.
+func sessionCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb session <list|open|get|close|evidence>")
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("session list", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("session list: --project is required")
+		}
+		items, err := c.ListSessions(ctx, *project)
+		if err != nil {
+			return err
+		}
+		for _, s := range items {
+			fmt.Printf("%s  %-7s %s\n", s.ID, s.Status, s.Container)
+		}
+		return nil
+	case "open":
+		fs := flag.NewFlagSet("session open", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		actor := fs.String("actor", "", "actor label (e.g. human:james)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("session open: --project is required")
+		}
+		s, err := c.OpenSession(ctx, *project, *actor)
+		if err != nil {
+			return err
+		}
+		return printJSON(s)
+	case "get":
+		if len(args) < 2 {
+			return errors.New("usage: osb session get <id>")
+		}
+		s, err := c.GetSession(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(s)
+	case "close":
+		if len(args) < 2 {
+			return errors.New("usage: osb session close <id>")
+		}
+		s, err := c.CloseSession(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		return printJSON(s)
+	case "evidence":
+		fs := flag.NewFlagSet("session evidence", flag.ContinueOnError)
+		id := fs.String("id", "", "session id (required)")
+		note := fs.String("note", "", "note to attach to the observation")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" {
+			return errors.New("session evidence: --id is required")
+		}
+		obs, err := c.SaveSessionEvidence(ctx, *id, *note)
+		if err != nil {
+			return err
+		}
+		return printJSON(obs)
+	default:
+		return fmt.Errorf("unknown session subcommand %q", args[0])
+	}
+}
+
 func mediaTypeForExt(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".txt", ".md", ".log":
@@ -849,6 +930,10 @@ Commands:
   repeater list --project ID  list HTTP exchanges
   repeater get <id>           show an exchange (request + response)
   repeater evidence --id ID [--note N]  save a response as evidence (observation)
+  session open --project ID   open a sandboxed terminal (attach in the desktop app)
+  session list --project ID   list terminal sessions
+  session close <id>          close a session and capture its transcript
+  session evidence --id ID [--note N]  save a session transcript as evidence
   capability list             list available capabilities
   capability run --id ID (--dir PATH | --asset ID) [--project ID] [--param k=v]  run a capability
   playbook list               list playbooks

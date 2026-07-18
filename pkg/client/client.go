@@ -123,6 +123,36 @@ func (c *Client) SaveExchangeEvidence(ctx context.Context, id, note string) (mod
 	return out, c.do(ctx, http.MethodPost, "/v1/exchanges/"+id+"/evidence", map[string]string{"note": note}, &out)
 }
 
+// ListSessions returns a project's interactive terminal sessions, newest first.
+func (c *Client) ListSessions(ctx context.Context, projectID string) ([]model.Session, error) {
+	var out []model.Session
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/sessions", nil, &out)
+}
+
+// OpenSession starts a sandboxed terminal session (attach interactively via the WebSocket).
+func (c *Client) OpenSession(ctx context.Context, projectID, actor string) (model.Session, error) {
+	var out model.Session
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/sessions", map[string]string{"actor": actor}, &out)
+}
+
+// GetSession returns a session by id.
+func (c *Client) GetSession(ctx context.Context, id string) (model.Session, error) {
+	var out model.Session
+	return out, c.do(ctx, http.MethodGet, "/v1/sessions/"+id, nil, &out)
+}
+
+// CloseSession finalizes a session, capturing its transcript.
+func (c *Client) CloseSession(ctx context.Context, id string) (model.Session, error) {
+	var out model.Session
+	return out, c.do(ctx, http.MethodPost, "/v1/sessions/"+id+"/close", nil, &out)
+}
+
+// SaveSessionEvidence promotes a closed session's transcript into an observation.
+func (c *Client) SaveSessionEvidence(ctx context.Context, id, note string) (model.Observation, error) {
+	var out model.Observation
+	return out, c.do(ctx, http.MethodPost, "/v1/sessions/"+id+"/evidence", map[string]string{"note": note}, &out)
+}
+
 // IngestContext stores content as a project context item (document, email, chat, or note).
 func (c *Client) IngestContext(ctx context.Context, projectID, name, ctype, mediaType string, content []byte) (model.ContextItem, error) {
 	u := c.baseURL + "/v1/projects/" + projectID + "/context?name=" + url.QueryEscape(name)
