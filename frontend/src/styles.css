@@ -1058,3 +1058,18 @@ select option {
 .mitem-obj{font-size:12px;color:var(--tx2)}
 .mitem-std{font-size:11px;color:var(--tx3);font-family:var(--mono)}
 .mitem select{flex-shrink:0}
+
+/* Knowledge base */
+.kb-add{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.kb-add textarea.mono{width:100%;resize:vertical;background:var(--bg3);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:8px}
+.kb-list{margin-top:4px}
+.kb-item{display:flex;align-items:flex-start;gap:12px;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;border-left:3px solid var(--line2)}
+.kb-item.review-unreviewed{border-left-color:var(--amber)}
+.kb-item.review-confirmed{border-left-color:var(--green)}
+.kb-item.review-rejected{border-left-color:var(--red);opacity:.6}
+.kb-main{flex:1;min-width:0}
+.kb-line{display:flex;align-items:center;gap:8px}
+.kb-title{font-weight:600;font-size:13px}
+.kb-body{font-size:12px;color:var(--tx2);margin-top:4px;white-space:pre-wrap}
+.kb-actions{display:flex;gap:10px;flex-shrink:0}
+.badge.ai{background:var(--acc2);color:#fff}
