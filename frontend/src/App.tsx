@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, Project } from './api'
 import { Home } from './Home'
 import { Workbench } from './Workbench'
+import { NotificationBell } from './NotificationBell'
 
 type Conn = 'connecting' | 'online' | 'offline'
 
@@ -38,6 +39,7 @@ export function App() {
             )}
           </div>
           <div className="spacer" />
+          <NotificationBell online={conn === 'online'} />
           <span className={`conn conn-${conn}`}>
             <i /> {conn === 'online' ? 'control plane online' : conn === 'offline' ? 'control plane offline' : 'connecting…'}
           </span>

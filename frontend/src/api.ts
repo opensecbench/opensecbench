@@ -91,6 +91,22 @@ export interface AuditEvent {
   hash: string
 }
 
+export interface Notification {
+  id: string
+  kind: string
+  title: string
+  body?: string
+  project_id?: string
+  link?: string
+  read: boolean
+  created_at: string
+}
+
+export interface NotificationFeed {
+  unread: number
+  notifications: Notification[]
+}
+
 export interface ReportTemplate {
   id: string
   title: string
@@ -392,6 +408,13 @@ export const api = {
   listReports: (projectId: string) => request<Report[]>('GET', `/v1/projects/${projectId}/reports`),
   generateReport: (projectId: string, template: string, format: string) =>
     request<Report>('POST', `/v1/projects/${projectId}/reports`, { template, format }),
+
+  // notifications
+  listNotifications: (limit = 50) =>
+    request<NotificationFeed>('GET', `/v1/notifications?limit=${limit}`),
+  markNotificationRead: (id: string) =>
+    request<void>('POST', `/v1/notifications/${id}/read`),
+  markAllNotificationsRead: () => request<{ marked: number }>('POST', '/v1/notifications/read-all', {}),
 
   // audit
   listAudit: (limit = 100) => request<AuditEvent[]>('GET', `/v1/audit?limit=${limit}`),
