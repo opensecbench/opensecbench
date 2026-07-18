@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -95,6 +96,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return methodologyCmd(ctx, c, args[1:])
 	case "kb":
 		return kbCmd(ctx, c, args[1:])
+	case "secret":
+		return secretCmd(ctx, c, args[1:])
 	case "proxy":
 		return proxyCmd(ctx, c, args[1:])
 	case "observation", "obs":
@@ -867,6 +870,62 @@ func proxyBrowser(ctx context.Context, c *client.Client, args []string) error {
 	return nil
 }
 
+func secretCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb secret <set|list|rm>")
+	}
+	switch args[0] {
+	case "set":
+		fs := flag.NewFlagSet("secret set", flag.ContinueOnError)
+		name := fs.String("name", "", "secret name (required)")
+		value := fs.String("value", "", "secret value (omit to read from stdin — avoids shell history)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *name == "" {
+			return errors.New("secret set: --name is required")
+		}
+		val := *value
+		if val == "" {
+			data, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return err
+			}
+			val = strings.TrimRight(string(data), "\n")
+		}
+		if val == "" {
+			return errors.New("secret set: no value provided (use --value or pipe via stdin)")
+		}
+		meta, err := c.SetSecret(ctx, *name, val)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("stored secret %q\n", meta.Name)
+		return nil
+	case "list":
+		secrets, err := c.ListSecrets(ctx)
+		if err != nil {
+			return err
+		}
+		for _, s := range secrets {
+			fmt.Printf("%s  (updated %s)\n", s.Name, s.UpdatedAt.Format("2006-01-02 15:04"))
+		}
+		return nil
+	case "rm":
+		fs := flag.NewFlagSet("secret rm", flag.ContinueOnError)
+		name := fs.String("name", "", "secret name (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *name == "" {
+			return errors.New("secret rm: --name is required")
+		}
+		return c.DeleteSecret(ctx, *name)
+	default:
+		return fmt.Errorf("unknown secret subcommand %q", args[0])
+	}
+}
+
 func kbCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: osb kb <list|add|review>")
@@ -1414,6 +1473,9 @@ Commands:
   session list --project ID   list terminal sessions
   session close <id>          close a session and capture its transcript
   session evidence --id ID [--note N]  save a session transcript as evidence
+  secret set --name X [--value Y]   store a secret (stdin if --value omitted)
+  secret list                 list secret names
+  secret rm --name X          delete a secret
   kb list (--project ID | --target ID)  list knowledge-base entries
   kb add --target ID --kind K --title T [--body B] [--tags t]  add a KB entry
   kb review --id ID --state confirmed|rejected  curate an agent-drafted entry
