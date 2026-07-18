@@ -91,6 +91,25 @@ func (db *DB) CreateTarget(ctx context.Context, name, description string, organi
 }
 
 // ListTargets returns all targets ordered by name.
+// GetTarget returns one target by id.
+func (db *DB) GetTarget(ctx context.Context, id string) (model.Target, error) {
+	var t model.Target
+	var org sql.NullString
+	var created, updated string
+	err := db.QueryRowContext(ctx,
+		`SELECT id, organization_id, name, description, created_at, updated_at FROM targets WHERE id = ?`, id).
+		Scan(&t.ID, &org, &t.Name, &t.Description, &created, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Target{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Target{}, err
+	}
+	t.OrganizationID = ptr(org)
+	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
+	return t, nil
+}
+
 func (db *DB) ListTargets(ctx context.Context) ([]model.Target, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, organization_id, name, description, created_at, updated_at FROM targets ORDER BY name`)
