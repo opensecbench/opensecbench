@@ -42,10 +42,35 @@ migrations/ SQLite schema migrations
 
 ## Development
 
-Requires the Go toolchain declared in `go.mod` (auto-managed by `GOTOOLCHAIN`). Docker and
-Wails are needed for later phases.
+Requires the Go toolchain declared in `go.mod` (auto-managed by `GOTOOLCHAIN`).
 
 ```sh
-go build ./...
+go build ./...      # core packages (the desktop app is excluded — see below)
 go test ./...
 ```
+
+**Headless control plane + CLI:**
+
+```sh
+go run ./cmd/daemon                       # serves the API on 127.0.0.1:7373
+go run ./cmd/osb project create --name X  # thin client against the API
+go run ./cmd/osb project list
+```
+
+**Frontend in a browser** (no desktop toolchain needed):
+
+```sh
+go run ./cmd/daemon                # in one terminal
+cd frontend && npm install && npm run dev   # in another → http://localhost:5173
+```
+
+**Desktop app (Wails):** boots the control plane in-process and renders the frontend in a native
+window. Needs the [Wails](https://wails.io) CLI and, on Linux, the GTK/WebKit dev libraries
+(`libgtk-3-dev`, `libwebkit2gtk-4.1-dev`). The desktop entrypoint (`main.go`) is behind the
+`desktop` build tag, which Wails sets automatically, so it never affects `go build ./...` or CI.
+
+```sh
+wails dev     # live-reload development
+wails build   # package a desktop binary
+```
+

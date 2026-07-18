@@ -12,8 +12,11 @@ Future work and deferred decisions. **Rule: never stub something out without add
 
 ## Setup / environment
 
-- [ ] Install Wails CLI (needed for the desktop shell in P0).
-- [ ] Create the `opensecbench` GitHub org + private repo; wire the remote and push.
+- [x] Install Wails CLI; create the GitHub org/repo and wire the remote.
+- [ ] **Verify the Wails desktop build locally.** The build environment lacks
+      `libwebkit2gtk`, so `main.go` (the `desktop`-tagged Wails entrypoint) could not be compiled
+      or run there. On a machine with `libgtk-3-dev` + `libwebkit2gtk-4.1-dev`, run `wails dev`
+      and fix any wails API mismatches. The React frontend itself is verified (browser).
 
 ## Deferred subsystems (tracked in the roadmap, not yet built)
 
