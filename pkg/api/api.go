@@ -23,6 +23,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/repeater"
 	"github.com/opensecbench/opensecbench/pkg/report"
 	"github.com/opensecbench/opensecbench/pkg/scope"
+	"github.com/opensecbench/opensecbench/pkg/secret"
 	"github.com/opensecbench/opensecbench/pkg/session"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
@@ -38,6 +39,7 @@ type Deps struct {
 	Provider   llm.Provider
 	SessionMgr *session.Manager
 	ProxyCA    *proxy.CA
+	Vault      *secret.Vault
 }
 
 // Server routes control-plane HTTP requests against the control-plane services.
@@ -52,6 +54,7 @@ type Server struct {
 	proxyCA  *proxy.CA
 	reports  *report.Registry
 	methods  *methodology.Registry
+	vault    *secret.Vault
 
 	sessMu   sync.Mutex
 	sessions map[string]*liveSession
@@ -73,6 +76,7 @@ func New(deps Deps) *Server {
 		proxyCA:  deps.ProxyCA,
 		reports:  report.BuiltIns(),
 		methods:  methodology.BuiltIns(),
+		vault:    deps.Vault,
 		sessions: make(map[string]*liveSession),
 		proxies:  make(map[string]*liveProxy),
 	}
@@ -122,6 +126,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/kb/{id}", s.getKBEntry)
 	s.mux.HandleFunc("PUT /v1/kb/{id}", s.updateKBEntry)
 	s.mux.HandleFunc("POST /v1/kb/{id}/review", s.reviewKBEntry)
+	s.mux.HandleFunc("GET /v1/secrets", s.listSecrets)
+	s.mux.HandleFunc("POST /v1/secrets", s.setSecret)
+	s.mux.HandleFunc("DELETE /v1/secrets/{name}", s.deleteSecret)
 	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)
 	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/adopt", s.adoptMethodology)

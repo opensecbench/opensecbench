@@ -192,6 +192,23 @@ func (c *Client) MarkAllNotificationsRead(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/v1/notifications/read-all", nil, nil)
 }
 
+// ListSecrets returns vault secret metadata (names only).
+func (c *Client) ListSecrets(ctx context.Context) ([]model.Secret, error) {
+	var out []model.Secret
+	return out, c.do(ctx, http.MethodGet, "/v1/secrets", nil, &out)
+}
+
+// SetSecret seals a value into the vault under name (value is never returned).
+func (c *Client) SetSecret(ctx context.Context, name, value string) (model.Secret, error) {
+	var out model.Secret
+	return out, c.do(ctx, http.MethodPost, "/v1/secrets", map[string]string{"name": name, "value": value}, &out)
+}
+
+// DeleteSecret removes a secret by name.
+func (c *Client) DeleteSecret(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/secrets/"+name, nil, nil)
+}
+
 // ListProjectKB returns the KB a project inherits from its targets.
 func (c *Client) ListProjectKB(ctx context.Context, projectID string) ([]model.KBEntry, error) {
 	var out []model.KBEntry

@@ -18,6 +18,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/runner"
+	"github.com/opensecbench/opensecbench/pkg/secret"
 	"github.com/opensecbench/opensecbench/pkg/session"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
@@ -105,13 +106,21 @@ func Start(opts Options) (*Instance, error) {
 		proxyCA = nil
 	}
 
+	// The vault master key is resolved from OSB_VAULT_KEY or a 0600 key file beside the DB; a
+	// failure disables the vault (secret endpoints report unavailable) but never blocks startup.
+	vault, err := secret.LoadVault(filepath.Dir(opts.DBPath))
+	if err != nil {
+		vault = nil
+	}
+
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	apiSrv := api.New(api.Deps{
-		Store: db, Engine: engine, CAS: blobs, Provider: provider, SessionMgr: sessMgr, ProxyCA: proxyCA,
+		Store: db, Engine: engine, CAS: blobs, Provider: provider,
+		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault,
 	})
 	srv := &http.Server{
 		Handler:           apiSrv.Handler(),

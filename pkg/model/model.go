@@ -48,6 +48,14 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Secret is vault metadata (ADR-0011). The sealed value is never exposed through this type.
+type Secret struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // KB entry kinds and scopes (ADR-0010).
 const (
 	KBArchitecture = "architecture"
