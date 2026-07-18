@@ -141,6 +141,40 @@ export interface CoverageView {
   }
 }
 
+export interface MethodologySuggestion {
+  methodology_id: string
+  title: string
+  reason: string
+}
+
+export interface ExtensionInfo {
+  id: string
+  name: string
+  version: string
+  publisher: string
+  trusted: boolean
+  digest: string
+  capabilities?: string[]
+  methodologies?: string[]
+}
+
+export interface HubPackage {
+  id: string
+  name: string
+  version: string
+  publisher: string
+  description?: string
+  tags?: string[]
+  publisher_key?: string
+}
+
+export interface PolicyProfile {
+  name: string
+  description: string
+  allow_external_for_private: boolean
+  agent_sees_private: boolean
+}
+
 export interface Notification {
   id: string
   kind: string
@@ -472,6 +506,18 @@ export const api = {
     request<void>('POST', `/v1/projects/${projectId}/methodology/unadopt`, { methodology_id: methodologyId }),
   setCoverage: (projectId: string, itemId: string, status: string, note = '') =>
     request<void>('POST', `/v1/projects/${projectId}/coverage`, { item_id: itemId, status, note }),
+
+  methodologySuggestions: (projectId: string) =>
+    request<MethodologySuggestion[]>('GET', `/v1/projects/${projectId}/methodology/suggestions`),
+
+  // extensions, hub, policy
+  listExtensions: () => request<ExtensionInfo[]>('GET', '/v1/extensions'),
+  hubIndex: (url: string) => request<{ packages: HubPackage[] }>('GET', `/v1/hub/index?url=${encodeURIComponent(url)}`),
+  hubInstall: (url: string, id: string, trust: boolean, allowUnsigned: boolean) =>
+    request<ExtensionInfo>('POST', '/v1/hub/install', { url, id, trust, allow_unsigned: allowUnsigned }),
+  listPolicyProfiles: () => request<PolicyProfile[]>('GET', '/v1/policy/profiles'),
+  getActivePolicy: () => request<PolicyProfile>('GET', '/v1/policy/active'),
+  setActivePolicy: (profile: string) => request<PolicyProfile>('PUT', '/v1/policy/active', { profile }),
 
   // reports
   listReportTemplates: () => request<ReportTemplate[]>('GET', '/v1/report-templates'),
