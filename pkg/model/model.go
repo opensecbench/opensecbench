@@ -4,6 +4,7 @@ package model
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -38,6 +39,15 @@ type Project struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// Application is a service/app under a project (engagement).
+type Application struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Asset sensitivity and type enums (mirrored by CHECK constraints in the schema).
 const (
 	SensitivityOpenSource = "open_source"
@@ -49,6 +59,20 @@ const (
 	AssetDocument        = "document"
 	AssetCorrespondence  = "correspondence"
 )
+
+// InferSensitivity guesses an asset's sensitivity from its location, defaulting to private (the
+// safe default for a security tool). Callers may override the result.
+//
+// TODO(P1+): smarter inference (e.g. resolve a git remote against known public hosts).
+func InferSensitivity(location string) string {
+	l := strings.ToLower(location)
+	for _, hint := range []string{"/oss/", "/opensource/", "/open-source/", "/public/", "/third_party/", "/third-party/", "/vendor/"} {
+		if strings.Contains(l, hint) {
+			return SensitivityOpenSource
+		}
+	}
+	return SensitivityPrivate
+}
 
 // Asset is a scoped item under an application (a repo, cloud deployment, doc, ...).
 type Asset struct {

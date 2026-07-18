@@ -49,6 +49,10 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return taskCmd(ctx, c, args[1:])
 	case "artifact":
 		return artifactCmd(ctx, c, args[1:])
+	case "application", "app":
+		return applicationCmd(ctx, c, args[1:])
+	case "asset":
+		return assetCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -101,6 +105,7 @@ func capabilityCmd(ctx context.Context, c *client.Client, args []string) error {
 		fs := flag.NewFlagSet("capability run", flag.ContinueOnError)
 		id := fs.String("id", "", "capability id (required)")
 		dir := fs.String("dir", "", "target directory to analyze")
+		asset := fs.String("asset", "", "asset id to target (source_repo) instead of --dir")
 		actor := fs.String("actor", "", "actor label (e.g. human:james)")
 		var params paramFlags
 		fs.Var(&params, "param", "capability parameter as key=value (repeatable)")
@@ -114,12 +119,11 @@ func capabilityCmd(ctx context.Context, c *client.Client, args []string) error {
 		if err != nil {
 			return err
 		}
-		out, err := c.RunTask(ctx, client.RunTaskRequest{
-			CapabilityID: *id,
-			TargetDir:    *dir,
-			Actor:        *actor,
-			Params:       p,
-		})
+		req := client.RunTaskRequest{CapabilityID: *id, TargetDir: *dir, Actor: *actor, Params: p}
+		if *asset != "" {
+			req.AssetID = asset
+		}
+		out, err := c.RunTask(ctx, req)
 		if err != nil {
 			return err
 		}
@@ -138,6 +142,96 @@ func taskCmd(ctx context.Context, c *client.Client, args []string) error {
 		return err
 	}
 	return printJSON(t)
+}
+
+func applicationCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb application <list|create>")
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("application list", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("application list: --project is required")
+		}
+		apps, err := c.ListApplications(ctx, *project)
+		if err != nil {
+			return err
+		}
+		for _, a := range apps {
+			fmt.Printf("%s  %s\n", a.ID, a.Name)
+		}
+		return nil
+	case "create":
+		fs := flag.NewFlagSet("application create", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		name := fs.String("name", "", "application name (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" || *name == "" {
+			return errors.New("application create: --project and --name are required")
+		}
+		app, err := c.CreateApplication(ctx, *project, *name)
+		if err != nil {
+			return err
+		}
+		return printJSON(app)
+	default:
+		return fmt.Errorf("unknown application subcommand %q", args[0])
+	}
+}
+
+func assetCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb asset <list|create>")
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("asset list", flag.ContinueOnError)
+		app := fs.String("app", "", "application id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *app == "" {
+			return errors.New("asset list: --app is required")
+		}
+		assets, err := c.ListAssets(ctx, *app)
+		if err != nil {
+			return err
+		}
+		for _, a := range assets {
+			fmt.Printf("%s  %-16s %-11s %s\n", a.ID, a.Type, a.Sensitivity, a.Location)
+		}
+		return nil
+	case "create":
+		fs := flag.NewFlagSet("asset create", flag.ContinueOnError)
+		app := fs.String("app", "", "application id (required)")
+		typ := fs.String("type", "source_repo", "asset type")
+		location := fs.String("location", "", "asset location/path (required)")
+		sensitivity := fs.String("sensitivity", "", "open_source | private (inferred if empty)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *app == "" || *location == "" {
+			return errors.New("asset create: --app and --location are required")
+		}
+		asset, err := c.CreateAsset(ctx, *app, client.CreateAssetRequest{
+			Type:        *typ,
+			Location:    *location,
+			Sensitivity: *sensitivity,
+		})
+		if err != nil {
+			return err
+		}
+		return printJSON(asset)
+	default:
+		return fmt.Errorf("unknown asset subcommand %q", args[0])
+	}
 }
 
 func observationCmd(ctx context.Context, c *client.Client, args []string) error {
@@ -318,8 +412,12 @@ Commands:
   project get <id>            show a project
   project create --name NAME  create a project
   project delete <id>         delete a project
+  application create --project ID --name NAME
+  application list --project ID
+  asset create --app ID --type source_repo --location PATH [--sensitivity S]
+  asset list --app ID
   capability list             list available capabilities
-  capability run --id ID --dir PATH [--param k=v]  run a capability
+  capability run --id ID (--dir PATH | --asset ID) [--param k=v]  run a capability
   task get <id>               show a task
   artifact get <id>           write an artifact's bytes to stdout
   observation list --task ID  list a task's observations
