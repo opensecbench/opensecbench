@@ -49,6 +49,17 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] SARIF interpreter (pkg/interpret) + engine auto-interpret on SARIF output
 - [x] Triage API + osb CLI: observation list/review, finding create/list/get
 - [x] Verified end-to-end: semgrep → observation → confirm → finding (via CLI)
-- [ ] Observation/finding views in the frontend
-- [ ] LLM interpreter (origin=thread) — P4
+- [x] Observation/finding views in the frontend (Scan + Findings tabs)
+- [ ] LLM interpreter (origin=thread) — P4+
 - [ ] Fragment-level evidence tagging (ADR-0002 evidence entity) — later
+
+## P4 — Analyst (agent runtime + providers)
+
+- [x] ADR-0006 (agent runtime & providers)
+- [x] Provider abstraction (pkg/llm): Mock, Claude CLI, OpenAI-compat (Ollama/DeepSeek/Grok), Anthropic
+- [x] Agent loop (pkg/agent): structured tool-calling + approval gate + audit + step cap
+- [x] Analyst service: read-only tools over the store; POST /v1/analyst/ask; osb analyst ask
+- [x] Provider configured via OSB_LLM_* (ollama/deepseek/grok/claude-cli/anthropic)
+- [ ] Gated capability-execution tools (agent runs scans behind approval)
+- [ ] Threads + fork persistence; budgets; data-egress policy by sensitivity
+- [ ] Analyst panel in the frontend

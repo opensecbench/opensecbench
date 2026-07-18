@@ -9,7 +9,9 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/opensecbench/opensecbench/pkg/analyst"
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
@@ -19,22 +21,24 @@ import (
 
 // Deps are the control-plane services the API exposes.
 type Deps struct {
-	Store  *store.DB
-	Engine *task.Engine
-	CAS    *cas.Store
+	Store    *store.DB
+	Engine   *task.Engine
+	CAS      *cas.Store
+	Provider llm.Provider
 }
 
 // Server routes control-plane HTTP requests against the control-plane services.
 type Server struct {
-	mux    *http.ServeMux
-	store  *store.DB
-	engine *task.Engine
-	cas    *cas.Store
+	mux      *http.ServeMux
+	store    *store.DB
+	engine   *task.Engine
+	cas      *cas.Store
+	provider llm.Provider
 }
 
 // New builds the API server with its routes registered.
 func New(deps Deps) *Server {
-	s := &Server{mux: http.NewServeMux(), store: deps.Store, engine: deps.Engine, cas: deps.CAS}
+	s := &Server{mux: http.NewServeMux(), store: deps.Store, engine: deps.Engine, cas: deps.CAS, provider: deps.Provider}
 	s.routes()
 	return s
 }
@@ -101,6 +105,33 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/findings", s.listFindings)
 	s.mux.HandleFunc("POST /v1/findings", s.createFinding)
 	s.mux.HandleFunc("GET /v1/findings/{id}", s.getFinding)
+
+	s.mux.HandleFunc("POST /v1/analyst/ask", s.analystAsk)
+}
+
+func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
+	if s.provider == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured (set OSB_LLM_PROVIDER)")
+		return
+	}
+	var req struct {
+		Message string `json:"message"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Message == "" {
+		writeErr(w, http.StatusBadRequest, "message is required")
+		return
+	}
+	// TODO(P4): thread persistence, budgets, and wiring audit + data-egress policy.
+	loop := analyst.NewLoop(s.provider, s.store, nil)
+	res, err := loop.Run(r.Context(), req.Message)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {

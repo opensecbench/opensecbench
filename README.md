@@ -74,3 +74,25 @@ wails dev     # live-reload development
 wails build   # package a desktop binary
 ```
 
+**The Analyst (AI):** the control plane owns the agent loop; providers are inference-only
+(ADR-0006). Configure one via `OSB_LLM_*` when starting the daemon (keys come from the vault in
+production — env is a dev convenience):
+
+```sh
+# local, no key, no egress:
+OSB_LLM_PROVIDER=ollama OSB_LLM_MODEL=llama3.1 go run ./cmd/daemon
+# hosted, OpenAI-compatible:
+OSB_LLM_PROVIDER=deepseek OSB_LLM_API_KEY=... go run ./cmd/daemon
+OSB_LLM_PROVIDER=grok     OSB_LLM_API_KEY=... go run ./cmd/daemon
+# Claude via the CLI (one-shot inference):
+OSB_LLM_PROVIDER=claude-cli go run ./cmd/daemon
+# Anthropic API:
+OSB_LLM_PROVIDER=anthropic OSB_LLM_API_KEY=... go run ./cmd/daemon
+
+osb analyst ask "how many findings are there, and which are high severity?"
+```
+
+Providers: `ollama`, `deepseek`, `grok`, `openai`/`azure` (set `OSB_LLM_BASE_URL`), `anthropic`,
+`claude-cli`. The Analyst calls read-only tools over your data (auto-approved); gated capability
+execution is added next.
+

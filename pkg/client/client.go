@@ -106,6 +106,29 @@ func (c *Client) Search(ctx context.Context, q string) ([]model.SearchResult, er
 	return out, c.do(ctx, http.MethodGet, "/v1/search?q="+url.QueryEscape(q), nil, &out)
 }
 
+// AgentStep is one tool interaction in an Analyst run.
+type AgentStep struct {
+	Call struct {
+		Tool string         `json:"tool"`
+		Args map[string]any `json:"args"`
+	} `json:"call"`
+	Approved bool   `json:"approved"`
+	Result   string `json:"result,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// AnalystResult is the Analyst's answer plus the tool steps it took.
+type AnalystResult struct {
+	Answer string      `json:"answer"`
+	Steps  []AgentStep `json:"steps"`
+}
+
+// AnalystAsk asks the Analyst a question about the assessment.
+func (c *Client) AnalystAsk(ctx context.Context, message string) (AnalystResult, error) {
+	var out AnalystResult
+	return out, c.do(ctx, http.MethodPost, "/v1/analyst/ask", map[string]string{"message": message}, &out)
+}
+
 // Template is a project archetype reported by the control plane.
 type Template struct {
 	ID                    string   `json:"id"`

@@ -74,6 +74,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
 		return findingCmd(ctx, c, args[1:])
+	case "analyst":
+		return analystCmd(ctx, c, args[1:])
 	default:
 		usage()
 		return fmt.Errorf("unknown command %q", args[0])
@@ -159,6 +161,27 @@ func taskCmd(ctx context.Context, c *client.Client, args []string) error {
 		return err
 	}
 	return printJSON(t)
+}
+
+func analystCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) < 2 || args[0] != "ask" {
+		return errors.New("usage: osb analyst ask <message>")
+	}
+	res, err := c.AnalystAsk(ctx, strings.Join(args[1:], " "))
+	if err != nil {
+		return err
+	}
+	for _, s := range res.Steps {
+		status := "ok"
+		if !s.Approved {
+			status = "denied"
+		} else if s.Error != "" {
+			status = "error: " + s.Error
+		}
+		fmt.Printf("  · %s [%s]\n", s.Call.Tool, status)
+	}
+	fmt.Println(res.Answer)
+	return nil
 }
 
 func templateCmd(ctx context.Context, c *client.Client, args []string) error {
@@ -535,5 +558,6 @@ Commands:
   finding create --title T [--severity S] [--cwe C] [--obs ID ...]
   finding list                list findings
   finding get <id>            show a finding
+  analyst ask <message>       ask the Analyst (needs OSB_LLM_PROVIDER on the daemon)
 `)
 }
