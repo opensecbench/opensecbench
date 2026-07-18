@@ -60,6 +60,10 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Agent loop (pkg/agent): structured tool-calling + approval gate + audit + step cap
 - [x] Analyst service: read-only tools over the store; POST /v1/analyst/ask; osb analyst ask
 - [x] Provider configured via OSB_LLM_* (ollama/deepseek/grok/claude-cli/anthropic)
-- [ ] Gated capability-execution tools (agent runs scans behind approval)
-- [ ] Threads + fork persistence; budgets; data-egress policy by sensitivity
-- [ ] Analyst panel in the frontend
+- [x] Gated capability-execution tools (agent runs scans behind approval)
+- [x] Async approval queue + resumable agent runs (Session Advance/Resume)
+- [x] Threads + fork persistence (schema + store + fork)
+- [x] Budgets (token) + data-egress policy by sensitivity
+- [x] Analyst panel in the frontend (threads, chat, approve/deny)
+- [ ] Native tool-use for backends that support it (reliability on small models)
+- [ ] Concurrent-agent cap; usage/$ tracking surfaced on Home
