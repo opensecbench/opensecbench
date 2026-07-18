@@ -59,6 +59,37 @@ func (c *Client) DeleteProject(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+id, nil, nil)
 }
 
+// ListApplications returns a project's applications.
+func (c *Client) ListApplications(ctx context.Context, projectID string) ([]model.Application, error) {
+	var out []model.Application
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/applications", nil, &out)
+}
+
+// CreateApplication creates an application under a project.
+func (c *Client) CreateApplication(ctx context.Context, projectID, name string) (model.Application, error) {
+	var out model.Application
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/applications", map[string]string{"name": name}, &out)
+}
+
+// ListAssets returns an application's assets.
+func (c *Client) ListAssets(ctx context.Context, applicationID string) ([]model.Asset, error) {
+	var out []model.Asset
+	return out, c.do(ctx, http.MethodGet, "/v1/applications/"+applicationID+"/assets", nil, &out)
+}
+
+// CreateAssetRequest is the payload for creating an asset (sensitivity may be empty to infer).
+type CreateAssetRequest struct {
+	Type        string `json:"type"`
+	Location    string `json:"location"`
+	Sensitivity string `json:"sensitivity,omitempty"`
+}
+
+// CreateAsset creates an asset under an application.
+func (c *Client) CreateAsset(ctx context.Context, applicationID string, req CreateAssetRequest) (model.Asset, error) {
+	var out model.Asset
+	return out, c.do(ctx, http.MethodPost, "/v1/applications/"+applicationID+"/assets", req, &out)
+}
+
 // CapabilityManifest is a capability as reported by the control plane.
 type CapabilityManifest struct {
 	ID          string `json:"id"`
@@ -73,10 +104,11 @@ func (c *Client) ListCapabilities(ctx context.Context) ([]CapabilityManifest, er
 	return out, c.do(ctx, http.MethodGet, "/v1/capabilities", nil, &out)
 }
 
-// RunTaskRequest asks the control plane to run a capability against a target directory.
+// RunTaskRequest asks the control plane to run a capability against a target directory or asset.
 type RunTaskRequest struct {
 	CapabilityID string         `json:"capability_id"`
 	TargetDir    string         `json:"target_dir,omitempty"`
+	AssetID      *string        `json:"asset_id,omitempty"`
 	Actor        string         `json:"actor,omitempty"`
 	Params       map[string]any `json:"params,omitempty"`
 }

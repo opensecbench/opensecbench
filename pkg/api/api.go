@@ -72,6 +72,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
 	s.mux.HandleFunc("DELETE /v1/projects/{id}", s.deleteProject)
 
+	s.mux.HandleFunc("GET /v1/projects/{id}/applications", s.listApplications)
+	s.mux.HandleFunc("POST /v1/projects/{id}/applications", s.createApplication)
+	s.mux.HandleFunc("GET /v1/applications/{id}", s.getApplication)
+	s.mux.HandleFunc("GET /v1/applications/{id}/assets", s.listAssets)
+	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
+	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
+
 	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
 	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
 	s.mux.HandleFunc("GET /v1/tasks/{id}", s.getTask)
@@ -227,6 +234,93 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- applications & assets ---
+
+func (s *Server) listApplications(w http.ResponseWriter, r *http.Request) {
+	apps, err := s.store.ListApplicationsByProject(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apps)
+}
+
+func (s *Server) createApplication(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	app, err := s.store.CreateApplication(r.Context(), r.PathValue("id"), req.Name)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, app)
+}
+
+func (s *Server) getApplication(w http.ResponseWriter, r *http.Request) {
+	app, err := s.store.GetApplication(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "application not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, app)
+}
+
+func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
+	assets, err := s.store.ListAssetsByApplication(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, assets)
+}
+
+func (s *Server) createAsset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Type        string `json:"type"`
+		Location    string `json:"location"`
+		Sensitivity string `json:"sensitivity"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	asset, err := s.store.CreateAsset(r.Context(), store.NewAsset{
+		ApplicationID: r.PathValue("id"),
+		Type:          req.Type,
+		Location:      req.Location,
+		Sensitivity:   req.Sensitivity,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, asset)
+}
+
+func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
+	asset, err := s.store.GetAsset(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "asset not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, asset)
 }
 
 // --- capabilities, tasks, artifacts ---

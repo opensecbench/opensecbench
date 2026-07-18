@@ -60,7 +60,25 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 	}
 	man := c.Manifest()
 
-	spec, err := c.Plan(capability.Input{TargetDir: req.TargetDir, Params: req.Params})
+	// Resolve the target directory from a source-repo asset when not given explicitly, and carry
+	// the asset's application onto the task for provenance.
+	targetDir := req.TargetDir
+	applicationID := req.ApplicationID
+	if targetDir == "" && req.AssetID != nil {
+		asset, err := e.store.GetAsset(ctx, *req.AssetID)
+		if err != nil {
+			return Outcome{}, fmt.Errorf("resolve asset: %w", err)
+		}
+		if asset.Type != model.AssetSourceRepo {
+			return Outcome{}, fmt.Errorf("asset %s is %s; only source_repo assets have a target directory", asset.ID, asset.Type)
+		}
+		targetDir = asset.Location
+		if applicationID == nil {
+			applicationID = &asset.ApplicationID
+		}
+	}
+
+	spec, err := c.Plan(capability.Input{TargetDir: targetDir, Params: req.Params})
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -73,7 +91,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 	task, err := e.store.CreateTask(ctx, store.NewTask{
 		CapabilityID:      man.ID,
 		CapabilityVersion: man.Version,
-		ApplicationID:     req.ApplicationID,
+		ApplicationID:     applicationID,
 		AssetID:           req.AssetID,
 		Actor:             actor,
 		Runner:            e.runner.Name(),
