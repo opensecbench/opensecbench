@@ -1239,6 +1239,130 @@ select option {
   min-height: 6px;
 }
 
+/* contextual explorer (Phase 2) */
+.wb-explorer {
+  width: 220px;
+  min-width: 220px;
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.wb-exp-head {
+  height: 37px;
+  min-height: 37px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  border-bottom: 1px solid var(--line);
+}
+.wb-exp-head .r {
+  margin-left: auto;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+.wb-exp-body {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 0;
+}
+.wb-exp-empty {
+  padding: 16px 12px;
+  color: var(--tx3);
+  font-size: 12px;
+}
+.wb-exp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  color: var(--tx2);
+}
+.wb-exp-row .lbl {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-exp-row.grp {
+  color: var(--tx);
+  font-weight: 600;
+  margin-top: 4px;
+}
+.wb-exp-row.ind {
+  padding-left: 26px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.wb-exp-row.ind .ic {
+  font-family: var(--sans);
+}
+.wb-exp-bar {
+  margin-left: auto;
+  width: 52px;
+  min-width: 52px;
+  height: 5px;
+  background: var(--bg4);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.wb-exp-bar b {
+  display: block;
+  height: 100%;
+  background: var(--acc);
+}
+.wb-exp-row .pct {
+  width: 30px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--tx3);
+  font-family: var(--mono);
+}
+.wb-exp-project {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wb-exp-fact {
+  font-size: 12px;
+  color: var(--tx2);
+}
+.wb-exp-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.wb-exp-links button {
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--tx2);
+  padding: 5px 7px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.wb-exp-links button:hover {
+  background: var(--bg3);
+  color: var(--tx);
+}
+
 /* document center */
 .wb-center {
   flex: 1;

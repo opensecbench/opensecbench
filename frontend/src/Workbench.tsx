@@ -5,6 +5,7 @@ import {
   Asset,
   CapabilityManifest,
   ContextItem,
+  CoverageView,
   AuditEvent,
   Finding,
   HTTPExchange,
@@ -99,13 +100,125 @@ class SurfaceBoundary extends Component<{ children: ReactNode }, { error: Error 
   }
 }
 
+// ── Contextual explorer (ADR-0015 Phase 2) ──────────────────────────────
+// Left panel between the activity bar and the document center. Its content is
+// scoped to the active surface, using data already loaded by the Workbench —
+// no per-surface refetch, no surface refactor. Rows can jump between surfaces.
+
+function packPct(items: { status: string }[]): number {
+  if (!items.length) return 0
+  return Math.round((items.filter((i) => i.status === 'covered').length / items.length) * 100)
+}
+
+const ASSET_ICON: Record<string, string> = {
+  source_repo: '🗄',
+  cloud_deployment: '☁',
+  infrastructure: '🖧',
+  document: '📄',
+  correspondence: '✉',
+}
+
+const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
+
+function explorerTitle(t: Tab): string {
+  if (t === 'methodology') return 'Coverage'
+  if (t === 'assets') return 'Applications'
+  if (t === 'findings') return 'Findings'
+  return 'Project'
+}
+
+function WorkbenchExplorer({
+  tab,
+  project,
+  apps,
+  findings,
+  coverage,
+  onJump,
+}: {
+  tab: Tab
+  project: Project
+  apps: AppAssets[]
+  findings: Finding[]
+  coverage: CoverageView | null
+  onJump: (t: Tab) => void
+}) {
+  return (
+    <aside className="wb-explorer">
+      <div className="wb-exp-head">
+        {explorerTitle(tab)} <span className="r">{project.name}</span>
+      </div>
+      <div className="wb-exp-body">
+        {tab === 'methodology' ? (
+          !coverage || coverage.packs.length === 0 ? (
+            <div className="wb-exp-empty">No methodology adopted yet.</div>
+          ) : (
+            coverage.packs.map((p) => {
+              const pct = packPct(p.items)
+              return (
+                <div key={p.id} className="wb-exp-row">
+                  <span className="lbl">{p.title}</span>
+                  <span className="wb-exp-bar"><b style={{ width: `${pct}%` }} /></span>
+                  <span className="pct">{pct}%</span>
+                </div>
+              )
+            })
+          )
+        ) : tab === 'assets' ? (
+          apps.length === 0 ? (
+            <div className="wb-exp-empty">No applications yet.</div>
+          ) : (
+            apps.map((a) => (
+              <div key={a.app.id}>
+                <div className="wb-exp-row grp">📦 {a.app.name}</div>
+                {a.assets.map((as) => (
+                  <div key={as.id} className="wb-exp-row ind" title={as.location}>
+                    <span className="ic">{ASSET_ICON[as.type] ?? '•'}</span>
+                    <span className="lbl">{as.location}</span>
+                  </div>
+                ))}
+              </div>
+            ))
+          )
+        ) : tab === 'findings' ? (
+          findings.length === 0 ? (
+            <div className="wb-exp-empty">No findings yet.</div>
+          ) : (
+            SEVERITIES.map((sev) => {
+              const n = findings.filter((f) => f.severity === sev).length
+              if (!n) return null
+              return (
+                <div key={sev} className="wb-exp-row">
+                  <span className={`sev sev-${sev}`}>{sev}</span>
+                  <span className="pct">{n}</span>
+                </div>
+              )
+            })
+          )
+        ) : (
+          <div className="wb-exp-project">
+            <div className="wb-exp-fact"><span className={`badge ${project.status}`}>{project.status}</span></div>
+            <div className="wb-exp-fact">{apps.length} app{apps.length === 1 ? '' : 's'} · {findings.length} finding{findings.length === 1 ? '' : 's'}</div>
+            {coverage && <div className="wb-exp-fact">Coverage {coverage.summary.covered_pct}%</div>}
+            <div className="wb-exp-links">
+              {(['methodology', 'assets', 'findings', 'repeater'] as Tab[]).map((t) => (
+                <button key={t} onClick={() => onJump(t)}>{SURFACES.find((s) => s.key === t)?.icon} {surfaceTitle(t)}</button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </aside>
+  )
+}
+
 export function Workbench({ project, conn, onHome }: { project: Project; conn: Conn; onHome: () => void }) {
   const online = conn === 'online'
-  const [tab, setTab] = useState<Tab>('assets')
+  const [tab, setTab] = useState<Tab>('methodology') // land on the coverage home (ADR-0015)
   const [apps, setApps] = useState<AppAssets[]>([])
   const [capabilities, setCapabilities] = useState<CapabilityManifest[]>([])
   const [context, setContext] = useState<ContextItem[]>([])
   const [findings, setFindings] = useState<Finding[]>([])
+  const [coverage, setCoverage] = useState<CoverageView | null>(null)
   const [approvals, setApprovals] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
@@ -123,6 +236,7 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
       setCapabilities((await api.listCapabilities()) ?? [])
       setContext((await api.listContext(project.id)) ?? [])
       setFindings((await api.listFindings()) ?? [])
+      setCoverage(await api.getMethodologyCoverage(project.id))
       setError(null)
     } catch (e) {
       setError((e as Error).message)
@@ -192,6 +306,8 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
           ))}
         </nav>
 
+        <WorkbenchExplorer tab={tab} project={project} apps={apps} findings={findings} coverage={coverage} onJump={setTab} />
+
         <div className="wb-center">
           <div className="wb-doctabs">
             <div className="wb-doctab">
@@ -234,6 +350,9 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
           <span className="sdot" /> {online ? 'control plane online' : conn === 'offline' ? 'control plane offline' : 'connecting…'}
         </span>
         <span className="b good">⛨ egress governed</span>
+        {coverage && coverage.summary.total > 0 && (
+          <span className="b">coverage {coverage.summary.covered_pct}%</span>
+        )}
         <span className="sp" />
         {approvals > 0 && (
           <span className="warnpill">⏸ {approvals} approval{approvals === 1 ? '' : 's'} waiting</span>
