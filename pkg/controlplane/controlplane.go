@@ -15,6 +15,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/api"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
@@ -71,13 +72,20 @@ func Start(opts Options) (*Instance, error) {
 	}
 	engine := task.NewEngine(db, blobs, capability.BuiltIns(), runner.LocalRunner{})
 
+	// The LLM provider is configured via OSB_LLM_* (ollama/deepseek/grok/claude-cli/anthropic);
+	// unset yields a mock. A misconfiguration disables the Analyst but never blocks startup.
+	provider, err := llm.FromEnv()
+	if err != nil {
+		provider = nil
+	}
+
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	srv := &http.Server{
-		Handler:           api.New(api.Deps{Store: db, Engine: engine, CAS: blobs}).Handler(),
+		Handler:           api.New(api.Deps{Store: db, Engine: engine, CAS: blobs, Provider: provider}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() { _ = srv.Serve(ln) }()

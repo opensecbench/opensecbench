@@ -2,15 +2,18 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
@@ -150,6 +153,71 @@ func TestProjectAPI(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("get missing status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestAnalystAsk(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, err := store.LoadMigrations(migrations.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Apply(ms); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateProject(context.Background(), store.NewProject{Name: "Acme"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Scripted provider: call the list_projects tool, then answer.
+	mock := &llm.MockProvider{Responses: []string{
+		`{"tool":"list_projects","args":{}}`,
+		`{"answer":"There is 1 project named Acme."}`,
+	}}
+	srv := httptest.NewServer(New(Deps{Store: db, Provider: mock}).Handler())
+	defer func() { srv.Close(); _ = db.Close() }()
+
+	resp, err := http.Post(srv.URL+"/v1/analyst/ask", "application/json", bytes.NewBufferString(`{"message":"how many projects?"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	var out struct {
+		Answer string `json:"answer"`
+		Steps  []struct {
+			Call struct {
+				Tool string `json:"tool"`
+			} `json:"call"`
+			Approved bool `json:"approved"`
+		} `json:"steps"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Answer, "Acme") {
+		t.Fatalf("answer = %q", out.Answer)
+	}
+	if len(out.Steps) != 1 || out.Steps[0].Call.Tool != "list_projects" || !out.Steps[0].Approved {
+		t.Fatalf("steps = %+v", out.Steps)
+	}
+}
+
+func TestAnalystAskWithoutProvider(t *testing.T) {
+	srv := httptest.NewServer(New(Deps{}).Handler())
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/v1/analyst/ask", "application/json", bytes.NewBufferString(`{"message":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 when no provider", resp.StatusCode)
 	}
 }
 
