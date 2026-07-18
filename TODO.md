@@ -39,8 +39,7 @@ infrastructure pieces that warrant their own focused efforts.
 - [x] Report templates as extension packs; playbook/visualization pack types still to add.
 - [ ] Integration **pull** (DefectDojo findings/scans in; DependencyTrack SBOM) + **watchers**
       (schedule → notify / create task / run playbook).
-- [x] Interactive graph tab (structure + traffic/endpoint maps, pan/zoom/hover); more graph
-      kinds (dependency/topology from SCA/nmap output) follow as those capabilities land.
+- [x] Interactive graph tab: structure, traffic, topology (nmap), dependency (SBOM) kinds
 - [ ] Runtime extension **uninstall** + update/version-constraint flow.
 
 ## Large subsystems (own effort each)

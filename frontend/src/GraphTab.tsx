@@ -84,7 +84,7 @@ export function GraphTab({
   online: boolean
   onError: (m: string) => void
 }) {
-  const [kind, setKind] = useState<'structure' | 'traffic'>('structure')
+  const [kind, setKind] = useState<'structure' | 'traffic' | 'topology' | 'dependency'>('structure')
   const [graph, setGraph] = useState<Graph | null>(null)
   const [hover, setHover] = useState<Placed | null>(null)
   const [tx, setTx] = useState(0)
@@ -118,14 +118,21 @@ export function GraphTab({
       <div className="panel-head">
         Graph
         <span className="graph-tabs">
-          <button className={`tab ${kind === 'structure' ? 'on' : ''}`} onClick={() => setKind('structure')}>Structure</button>
-          <button className={`tab ${kind === 'traffic' ? 'on' : ''}`} onClick={() => setKind('traffic')}>Traffic</button>
+          {(['structure', 'traffic', 'topology', 'dependency'] as const).map((k) => (
+            <button key={k} className={`tab ${kind === k ? 'on' : ''}`} onClick={() => setKind(k)}>
+              {k[0].toUpperCase() + k.slice(1)}
+            </button>
+          ))}
         </span>
       </div>
       <p className="hint">
-        {kind === 'structure'
-          ? 'Project → applications → assets & findings. Drag to pan, scroll to zoom.'
-          : 'Hosts → endpoints from captured traffic (proxy + repeater). Drag to pan, scroll to zoom.'}
+        {{
+          structure: 'Project → applications → assets & findings.',
+          traffic: 'Hosts → endpoints from captured traffic (proxy + repeater).',
+          topology: 'Hosts → open ports from nmap scans.',
+          dependency: 'Components → dependencies from the latest syft SBOM.',
+        }[kind]}{' '}
+        Drag to pan, scroll to zoom.
       </p>
 
       {!graph || graph.nodes.length === 0 ? (

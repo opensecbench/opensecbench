@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -39,6 +41,10 @@ func (s *Server) projectGraph(w http.ResponseWriter, r *http.Request) {
 		resp, err = s.structureGraph(r, projectID)
 	case "traffic":
 		resp, err = s.trafficGraph(r, projectID)
+	case "topology":
+		resp, err = s.topologyGraph(r, projectID)
+	case "dependency":
+		resp, err = s.dependencyGraph(r, projectID)
 	default:
 		writeErr(w, http.StatusBadRequest, "unknown graph kind "+kind)
 		return
@@ -138,6 +144,96 @@ func (s *Server) trafficGraph(r *http.Request, projectID string) (graphResp, err
 		}
 		g.Nodes = append(g.Nodes, graphNode{ID: epID, Label: ex.Method + " " + path, Kind: "endpoint", Group: status, Meta: ex.Origin})
 		g.Edges = append(g.Edges, graphEdge{From: hostID, To: epID})
+	}
+	return g, nil
+}
+
+// topologyGraph builds host → open-port nodes from nmap observations (location "host:port/proto").
+func (s *Server) topologyGraph(r *http.Request, projectID string) (graphResp, error) {
+	obs, err := s.store.ListObservationsByProject(r.Context(), projectID)
+	if err != nil {
+		return graphResp{}, err
+	}
+	g := graphResp{Kind: "topology"}
+	hostSeen := map[string]bool{}
+	for _, o := range obs {
+		if o.RuleID != "nmap/open-port" || o.Location == "" {
+			continue
+		}
+		host, port, ok := strings.Cut(o.Location, ":")
+		if !ok {
+			continue
+		}
+		hostID := "h:" + host
+		if !hostSeen[host] {
+			hostSeen[host] = true
+			g.Nodes = append(g.Nodes, graphNode{ID: hostID, Label: host, Kind: "host"})
+		}
+		pid := "port:" + o.Location
+		g.Nodes = append(g.Nodes, graphNode{ID: pid, Label: port, Kind: "endpoint", Group: "2xx", Meta: o.Detail})
+		g.Edges = append(g.Edges, graphEdge{From: hostID, To: pid})
+	}
+	return g, nil
+}
+
+// cycloneDX is the subset of a CycloneDX SBOM the dependency graph consumes.
+type cycloneDX struct {
+	Components []struct {
+		BOMRef  string `json:"bom-ref"`
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	} `json:"components"`
+	Dependencies []struct {
+		Ref       string   `json:"ref"`
+		DependsOn []string `json:"dependsOn"`
+	} `json:"dependencies"`
+}
+
+// dependencyGraph parses the project's latest syft SBOM into a component/dependency graph.
+func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, error) {
+	g := graphResp{Kind: "dependency"}
+	sha, err := s.store.LatestArtifactSHA(r.Context(), projectID, "syft")
+	if err != nil {
+		return g, nil // no SBOM yet → empty graph
+	}
+	rc, err := s.cas.Open(sha)
+	if err != nil {
+		return g, nil
+	}
+	defer func() { _ = rc.Close() }()
+	raw, _ := io.ReadAll(rc)
+
+	var sbom cycloneDX
+	if err := json.Unmarshal(raw, &sbom); err != nil {
+		return g, nil
+	}
+	const maxNodes = 400
+	label := map[string]string{} // ref -> label
+	for _, c := range sbom.Components {
+		if len(g.Nodes) >= maxNodes {
+			break
+		}
+		ref := c.BOMRef
+		if ref == "" {
+			ref = c.Name
+		}
+		l := c.Name
+		if c.Version != "" {
+			l += "@" + c.Version
+		}
+		label[ref] = l
+		g.Nodes = append(g.Nodes, graphNode{ID: "c:" + ref, Label: l, Kind: "asset", Meta: c.Version})
+	}
+	for _, d := range sbom.Dependencies {
+		if _, ok := label[d.Ref]; !ok {
+			continue
+		}
+		for _, dep := range d.DependsOn {
+			if _, ok := label[dep]; !ok {
+				continue
+			}
+			g.Edges = append(g.Edges, graphEdge{From: "c:" + d.Ref, To: "c:" + dep})
+		}
 	}
 	return g, nil
 }
