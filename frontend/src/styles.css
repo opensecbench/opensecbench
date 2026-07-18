@@ -1564,6 +1564,12 @@ select option {
 }
 .prov-add-btn:disabled { opacity: 0.5; }
 .prov-hint { font-size: 11px; color: var(--tx3); line-height: 1.4; }
+.prov-usage { padding: 10px 12px; border-top: 1px solid var(--line); }
+.prov-usage-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+.prov-usage-table th { text-align: right; color: var(--tx3); font-weight: 600; text-transform: uppercase; font-size: 9px; padding: 2px 4px; }
+.prov-usage-table th:first-child { text-align: left; }
+.prov-usage-table td { text-align: right; padding: 3px 4px; border-top: 1px solid var(--line); color: var(--tx2); }
+.prov-usage-table td:first-child { text-align: left; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
 
 .wb-an-threads {
   display: flex;

@@ -231,6 +231,19 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "latency_ms": time.Since(start).Milliseconds(), "sample": sample})
 }
 
+// projectUsage returns a project's Analyst token usage grouped by provider/model, for comparison.
+func (s *Server) projectUsage(w http.ResponseWriter, r *http.Request) {
+	u, err := s.store.UsageByModel(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if u == nil {
+		u = []model.UsageByModel{}
+	}
+	writeJSON(w, http.StatusOK, u)
+}
+
 func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.store.DeleteProvider(r.Context(), id); err != nil {

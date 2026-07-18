@@ -186,6 +186,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/analyst/providers/{id}/activate", s.activateProvider)
 	s.mux.HandleFunc("POST /v1/analyst/providers/{id}/test", s.testProvider)
 	s.mux.HandleFunc("DELETE /v1/analyst/providers/{id}", s.deleteProvider)
+	s.mux.HandleFunc("GET /v1/projects/{id}/usage", s.projectUsage)
 	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology/suggestions", s.methodologySuggestions)
@@ -358,6 +359,7 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.recordUsage(r.Context(), res)
 	s.notifyIfPending(r.Context(), res)
 	writeJSON(w, http.StatusOK, res)
 }
@@ -429,8 +431,24 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.recordUsage(r.Context(), res)
 	s.notifyIfPending(r.Context(), res)
 	writeJSON(w, http.StatusOK, res)
+}
+
+// recordUsage persists a run's token usage tagged with the active provider/model + the run's project,
+// so usage can be compared across models and vendors (the plan's usage_record).
+func (s *Server) recordUsage(ctx context.Context, res analyst.SendResult) {
+	info := s.activeInfo()
+	projectID := ""
+	if res.Thread.ProjectID != nil {
+		projectID = *res.Thread.ProjectID
+	}
+	_ = s.store.RecordUsage(ctx, model.UsageRecord{
+		ProjectID: projectID, ThreadID: res.Thread.ID,
+		Provider: info.Type, Model: info.Model,
+		InputTokens: res.InputTokens, OutputTokens: res.OutputTokens,
+	})
 }
 
 // notifyIfPending raises an approval notification when an Analyst run pauses on a gated tool.
@@ -500,6 +518,7 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.record(r.Context(), actorOf(r), "approval."+req.Decision, approvalID, nil)
+	s.recordUsage(r.Context(), res)
 	s.notifyIfPending(r.Context(), res)
 	writeJSON(w, http.StatusOK, res)
 }

@@ -176,6 +176,13 @@ export interface ProviderView {
   active: boolean
   created_at: string
 }
+export interface UsageByModel {
+  provider: string
+  model: string
+  runs: number
+  input_tokens: number
+  output_tokens: number
+}
 
 export interface ProxyRule {
   id: string
@@ -681,6 +688,7 @@ export const api = {
   testProvider: (id: string) =>
     request<{ ok: boolean; latency_ms?: number; sample?: string; error?: string }>('POST', `/v1/analyst/providers/${id}/test`, {}),
   deleteProvider: (id: string) => request<void>('DELETE', `/v1/analyst/providers/${id}`),
+  getProjectUsage: (projectId: string) => request<UsageByModel[]>('GET', `/v1/projects/${projectId}/usage`),
 
   listThreads: () => request<Thread[]>('GET', '/v1/threads'),
   createThread: (projectId?: string, title?: string) =>
