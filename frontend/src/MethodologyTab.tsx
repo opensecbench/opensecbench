@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, CoverageView, Methodology, Project } from './api'
+import { api, CoverageView, Methodology, MethodologySuggestion, Project } from './api'
 
 const STATUSES = ['not_started', 'in_progress', 'covered', 'not_applicable']
 
@@ -14,11 +14,13 @@ export function MethodologyTab({
 }) {
   const [catalog, setCatalog] = useState<Methodology[]>([])
   const [view, setView] = useState<CoverageView | null>(null)
+  const [suggestions, setSuggestions] = useState<MethodologySuggestion[]>([])
   const [adopt, setAdopt] = useState('')
 
   async function reload() {
     try {
       setView(await api.getMethodologyCoverage(project.id))
+      setSuggestions((await api.methodologySuggestions(project.id)) ?? [])
     } catch (e) {
       onError((e as Error).message)
     }
@@ -40,15 +42,18 @@ export function MethodologyTab({
   const adoptedIds = new Set((view?.packs ?? []).map((p) => p.id))
   const available = catalog.filter((m) => !adoptedIds.has(m.id))
 
-  async function doAdopt() {
-    if (!adopt) return
+  async function doAdoptID(id: string) {
+    if (!id) return
     try {
-      await api.adoptMethodology(project.id, adopt)
+      await api.adoptMethodology(project.id, id)
       setAdopt('')
       await reload()
     } catch (e) {
       onError((e as Error).message)
     }
+  }
+  async function doAdopt() {
+    await doAdoptID(adopt)
   }
 
   async function setStatus(itemId: string, status: string) {
@@ -75,6 +80,17 @@ export function MethodologyTab({
             <b>{s.covered_pct}%</b> covered · {s.covered} covered · {s.in_progress} in progress ·{' '}
             {s.not_started} not started · {s.not_applicable} n/a
           </div>
+        </div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div className="banner">
+          Suggested from the knowledge base:{' '}
+          {suggestions.map((s) => (
+            <button key={s.methodology_id} className="link" title={s.reason} onClick={() => { void doAdoptID(s.methodology_id) }}>
+              adopt {s.title}
+            </button>
+          ))}
         </div>
       )}
 
