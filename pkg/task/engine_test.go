@@ -95,6 +95,37 @@ func TestEngineRecordsProvenance(t *testing.T) {
 	}
 }
 
+const sarifOutput = `{"version":"2.1.0","runs":[{"results":[
+  {"ruleId":"r1","level":"error","message":{"text":"Hardcoded secret"},
+   "locations":[{"physicalLocation":{"artifactLocation":{"uri":"config.py"},"region":{"startLine":12}}}]},
+  {"ruleId":"r2","level":"warning","message":{"text":"Weak hash"},"locations":[]}
+]}]}`
+
+func TestEngineInterpretsSARIFIntoObservations(t *testing.T) {
+	// semgrep declares SARIF output, so the engine interprets the run's stdout into unreviewed
+	// tool observations. The fake runner returns a SARIF document with two results.
+	eng, _ := newEngine(t, fakeRunner{out: []byte(sarifOutput), code: 0})
+
+	out, err := eng.Run(context.Background(), RunRequest{CapabilityID: "semgrep", TargetDir: "/x", Actor: "human:test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Task.Status != model.TaskSucceeded {
+		t.Fatalf("status = %s (err=%q)", out.Task.Status, out.Task.Error)
+	}
+	if len(out.Observations) != 2 {
+		t.Fatalf("got %d observations, want 2", len(out.Observations))
+	}
+	for _, o := range out.Observations {
+		if o.Origin != model.OriginTool || o.ReviewState != model.ReviewUnreviewed {
+			t.Fatalf("observation not tool/unreviewed: %+v", o)
+		}
+		if o.TaskID == nil || *o.TaskID != out.Task.ID {
+			t.Fatalf("observation not linked to task: %+v", o)
+		}
+	}
+}
+
 func TestEngineMarksNonOKExitFailed(t *testing.T) {
 	// source-inventory only accepts exit 0; exit 2 must be recorded as failed, with the output
 	// still captured as an artifact for debugging.

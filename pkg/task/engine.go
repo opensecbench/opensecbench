@@ -11,6 +11,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/interpret"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
@@ -42,10 +43,11 @@ type RunRequest struct {
 	Params        map[string]any
 }
 
-// Outcome is a completed task with its artifacts.
+// Outcome is a completed task with its artifacts and any observations interpreted from them.
 type Outcome struct {
-	Task      model.Task       `json:"task"`
-	Artifacts []model.Artifact `json:"artifacts"`
+	Task         model.Task          `json:"task"`
+	Artifacts    []model.Artifact    `json:"artifacts"`
+	Observations []model.Observation `json:"observations"`
 }
 
 // Run plans the capability, executes it in the sandbox, stores its stdout as an output artifact
@@ -93,16 +95,29 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 		_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, "store artifact: "+err.Error())
 		return e.outcome(ctx, task.ID), err
 	}
-	if _, err := e.store.CreateArtifact(ctx, model.Artifact{
+	art, err := e.store.CreateArtifact(ctx, model.Artifact{
 		TaskID:    &task.ID,
 		SHA256:    digest,
 		Size:      int64(len(res.Stdout)),
 		Kind:      model.ArtifactOutput,
 		Name:      man.OutputName,
 		MediaType: man.OutputMediaType,
-	}); err != nil {
+	})
+	if err != nil {
 		_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, "record artifact: "+err.Error())
 		return e.outcome(ctx, task.ID), err
+	}
+
+	// Deterministically interpret recognized output formats into unreviewed observations
+	// (ADR-0005). Interpretation failures do not fail the task — the raw artifact is still evidence.
+	if man.OutputMediaType == interpret.SARIFMediaType {
+		if obs, ierr := interpret.SARIF(res.Stdout); ierr == nil {
+			for _, o := range obs {
+				o.TaskID = &task.ID
+				o.ArtifactID = &art.ID
+				_, _ = e.store.CreateObservation(ctx, o)
+			}
+		}
 	}
 
 	status := model.TaskSucceeded
@@ -121,7 +136,8 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 func (e *Engine) outcome(ctx context.Context, taskID string) Outcome {
 	t, _ := e.store.GetTask(ctx, taskID)
 	a, _ := e.store.ListArtifactsByTask(ctx, taskID)
-	return Outcome{Task: t, Artifacts: a}
+	o, _ := e.store.ListObservationsByTask(ctx, taskID)
+	return Outcome{Task: t, Artifacts: a, Observations: o}
 }
 
 func tail(b []byte, n int) string {
