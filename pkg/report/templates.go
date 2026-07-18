@@ -145,6 +145,7 @@ const execHTML = `<!doctype html><html><head><meta charset="utf-8">
 asset(s), running <b>{{.Summary.TasksRun}}</b> analysis task(s). <b>{{.Summary.Total}}</b> finding(s)
 with supporting evidence are reported.</p>
 <h2>Findings by severity</h2>
+<figure class="chart">{{.SeverityChart}}</figure>
 <table><tr><th>Severity</th><th>Count</th></tr>
 {{range sevs}}<tr><td><span class="sev sev-{{.}}">{{sevfmt .}}</span></td><td>{{index $.Summary.BySeverity .}}</td></tr>{{end}}
 </table>
@@ -166,6 +167,8 @@ const techHTML = `<!doctype html><html><head><meta charset="utf-8">
 <li>Tasks run: {{.Summary.TasksRun}}</li>
 <li>Capabilities exercised: {{if .Summary.Capabilities}}{{range $i, $c := .Summary.Capabilities}}{{if $i}}, {{end}}<code>{{$c}}</code>{{end}}{{else}}none{{end}}</li>
 </ul>
+<h2>Findings by severity</h2>
+<figure class="chart">{{.SeverityChart}}</figure>
 <h2>Findings</h2>
 {{if .Findings}}{{range .Findings}}<div class="finding">
 <h3><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}}</h3>
@@ -193,4 +196,5 @@ code{background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:13px}
 .fmeta{color:#6b7280;font-size:13px;margin:2px 0 8px}
 .evlabel{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:#6b7280;margin:8px 0 2px}
 .evidence{margin:0}.prov{color:#9ca3af;font-size:12px}
+figure.chart{margin:12px 0}
 `

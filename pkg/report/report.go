@@ -5,10 +5,12 @@ package report
 
 import (
 	"context"
+	htmltemplate "html/template"
 	"sort"
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/viz"
 )
 
 // Format is an output format.
@@ -33,11 +35,12 @@ type Source interface {
 
 // Data is the immutable snapshot a report renders from.
 type Data struct {
-	Project     model.Project
-	GeneratedAt time.Time
-	Scope       []model.ScopeEntry
-	Summary     Summary
-	Findings    []Finding
+	Project       model.Project
+	GeneratedAt   time.Time
+	Scope         []model.ScopeEntry
+	Summary       Summary
+	Findings      []Finding
+	SeverityChart htmltemplate.HTML // self-contained inline SVG figure (HTML reports)
 }
 
 // Summary is the coverage + severity roll-up.
@@ -142,10 +145,11 @@ func (b *Builder) Build(ctx context.Context, projectID string, now time.Time) (D
 	tasksRun, caps := b.coverage(ctx, appName)
 
 	return Data{
-		Project:     proj,
-		GeneratedAt: now.UTC(),
-		Scope:       scope,
-		Findings:    findings,
+		Project:       proj,
+		GeneratedAt:   now.UTC(),
+		Scope:         scope,
+		Findings:      findings,
+		SeverityChart: htmltemplate.HTML(viz.SeverityChart(bySeverity)), //nolint:gosec // generated SVG, no user HTML
 		Summary: Summary{
 			Applications: len(apps),
 			Assets:       assetCount,
