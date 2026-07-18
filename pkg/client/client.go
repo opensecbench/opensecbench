@@ -209,6 +209,50 @@ func (c *Client) DeleteSecret(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/secrets/"+name, nil, nil)
 }
 
+// ExportProject returns an encrypted bundle of the project (passphrase sent out-of-band).
+func (c *Client) ExportProject(ctx context.Context, projectID, passphrase string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/projects/"+projectID+"/export", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-OSB-Passphrase", passphrase)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, fmt.Errorf("export: %s", resp.Status)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// ImportBundle imports an encrypted bundle and returns the new project id.
+func (c *Client) ImportBundle(ctx context.Context, data []byte, passphrase string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/import", bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("X-OSB-Passphrase", passphrase)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("import: %s: %s", resp.Status, string(body))
+	}
+	var out struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	return out.ProjectID, nil
+}
+
 // ListIntegrations returns available integration connector names.
 func (c *Client) ListIntegrations(ctx context.Context) ([]string, error) {
 	var out []string
