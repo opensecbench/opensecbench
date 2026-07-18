@@ -39,6 +39,14 @@ type Project struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// SearchResult is one hit from omni-search, across entity kinds.
+type SearchResult struct {
+	Kind   string `json:"kind"` // project | application | asset | finding | observation
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Detail string `json:"detail,omitempty"`
+}
+
 // Application is a service/app under a project (engagement).
 type Application struct {
 	ID        string    `json:"id"`
