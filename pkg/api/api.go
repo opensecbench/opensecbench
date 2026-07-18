@@ -978,13 +978,14 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		CapabilityID  string         `json:"capability_id"`
-		TargetDir     string         `json:"target_dir"`
-		Actor         string         `json:"actor"`
-		AssetID       *string        `json:"asset_id"`
-		ApplicationID *string        `json:"application_id"`
-		ProjectID     *string        `json:"project_id"`
-		Params        map[string]any `json:"params"`
+		CapabilityID  string            `json:"capability_id"`
+		TargetDir     string            `json:"target_dir"`
+		Actor         string            `json:"actor"`
+		AssetID       *string           `json:"asset_id"`
+		ApplicationID *string           `json:"application_id"`
+		ProjectID     *string           `json:"project_id"`
+		SecretRefs    map[string]string `json:"secret_refs"`
+		Params        map[string]any    `json:"params"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -1000,6 +1001,7 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		AssetID:       req.AssetID,
 		ApplicationID: req.ApplicationID,
 		ProjectID:     req.ProjectID,
+		SecretRefs:    req.SecretRefs,
 		Params:        req.Params,
 	})
 	// A validation/plan error produces no task; a run failure (including a scope block) produces a

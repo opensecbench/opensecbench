@@ -293,3 +293,80 @@ func TestEngineSourceInventoryInDocker(t *testing.T) {
 		t.Fatalf("inventory missing files: %q", content)
 	}
 }
+
+// capturingRunner records the spec it was given and echoes a canned stdout.
+type capturingRunner struct {
+	spec runner.RunSpec
+	out  []byte
+}
+
+func (c *capturingRunner) Name() string { return "capturing" }
+func (c *capturingRunner) Run(_ context.Context, spec runner.RunSpec) (runner.Result, error) {
+	c.spec = spec
+	return runner.Result{Stdout: c.out, ExitCode: 0}, nil
+}
+
+func TestEngineInjectsSecretsAndRedactsOutput(t *testing.T) {
+	// http-probe (network cap) with a secret ref; the fake runner echoes output containing the value.
+	const secretVal = "TOKEN-abc-123"
+	cr := &capturingRunner{out: []byte("Authorization: Bearer " + secretVal + "\nok\n")}
+	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := store.LoadMigrations(migrations.FS)
+	if _, err := db.Apply(ms); err != nil {
+		t.Fatal(err)
+	}
+	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	t.Cleanup(func() { _ = db.Close() })
+	eng := NewEngine(db, blobs, capability.BuiltIns(), cr)
+	eng.Secrets = func(_ context.Context, name string) (string, error) {
+		if name == "api_token" {
+			return secretVal, nil
+		}
+		return "", store.ErrNotFound
+	}
+
+	out, err := eng.Run(context.Background(), RunRequest{
+		CapabilityID: "http-probe",
+		Params:       map[string]any{"target": "https://api.example/health"},
+		SecretRefs:   map[string]string{"AUTH_TOKEN": "api_token"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The secret was injected by name only (value in SecretEnv, not on the command line).
+	if cr.spec.SecretEnv["AUTH_TOKEN"] != secretVal {
+		t.Fatalf("secret not injected into SecretEnv: %+v", cr.spec.SecretEnv)
+	}
+	// The captured artifact has the value redacted.
+	rc, err := blobs.Open(out.Artifacts[0].SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rc.Close() }()
+	content, _ := io.ReadAll(rc)
+	if strings.Contains(string(content), secretVal) {
+		t.Fatalf("secret value leaked into stored artifact: %q", content)
+	}
+	if !strings.Contains(string(content), "«redacted:api_token»") {
+		t.Fatalf("expected redaction marker, got: %q", content)
+	}
+}
+
+func TestEngineSecretRefsWithoutVaultFails(t *testing.T) {
+	eng, _ := newEngine(t, fakeRunner{out: []byte("x"), code: 0})
+	// No eng.Secrets configured.
+	out, err := eng.Run(context.Background(), RunRequest{
+		CapabilityID: "http-probe",
+		Params:       map[string]any{"target": "https://x/"},
+		SecretRefs:   map[string]string{"T": "tok"},
+	})
+	if err == nil {
+		t.Fatal("expected error when secret refs requested without a vault")
+	}
+	if out.Task.Status != model.TaskFailed {
+		t.Fatalf("task should be failed, got %s", out.Task.Status)
+	}
+}
