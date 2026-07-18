@@ -167,7 +167,13 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 func (svc *Service) finish(ctx context.Context, threadID string, priorLen int, out agent.Outcome) (SendResult, error) {
 	res := SendResult{InputTokens: out.InputTokens, OutputTokens: out.OutputTokens}
 	for _, m := range out.Messages[priorLen:] {
-		saved, err := svc.store.AppendMessage(ctx, threadID, m.Role, m.Content)
+		rec := model.Message{ThreadID: threadID, Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, ToolError: m.ToolError}
+		if len(m.ToolCalls) > 0 {
+			if b, err := json.Marshal(m.ToolCalls); err == nil {
+				rec.ToolCalls = b
+			}
+		}
+		saved, err := svc.store.AppendMessageFull(ctx, rec)
 		if err != nil {
 			return SendResult{}, err
 		}
@@ -206,7 +212,11 @@ func (svc *Service) loadMessages(ctx context.Context, threadID string) ([]llm.Me
 	}
 	msgs := make([]llm.Message, 0, len(stored))
 	for _, m := range stored {
-		msgs = append(msgs, llm.Message{Role: m.Role, Content: m.Content})
+		lm := llm.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, ToolError: m.ToolError}
+		if len(m.ToolCalls) > 0 {
+			_ = json.Unmarshal(m.ToolCalls, &lm.ToolCalls)
+		}
+		msgs = append(msgs, lm)
 	}
 	return msgs, nil
 }

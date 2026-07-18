@@ -17,9 +17,11 @@ type PromptedToolProvider struct {
 
 func (p *PromptedToolProvider) Name() string { return p.Raw.Name() }
 
-// Complete injects the tool protocol (when tools are offered), delegates to the raw backend, and parses
-// the reply into a tool call or a final answer.
+// Complete renders the canonical conversation into the prompted text form (flattening tool turns),
+// injects the tool protocol when tools are offered, delegates to the raw backend, and parses the reply
+// back into a canonical tool call or a final answer.
 func (p *PromptedToolProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
+	req.Messages = flattenForPrompt(req.Messages)
 	if len(req.Tools) > 0 {
 		req.Messages = injectToolPrompt(req.Messages, req.Tools)
 	}
@@ -28,15 +30,56 @@ func (p *PromptedToolProvider) Complete(ctx context.Context, req CompletionReque
 	if err != nil {
 		return resp, err
 	}
-	// The reply is one JSON object: a tool call or a final answer. Keep resp.Text as the raw assistant
-	// turn (transcript continuity); set ToolCalls / the answer text from the parse.
+	// The reply is one JSON object: a tool call or a final answer.
 	tool, answer, ok := parseReply(resp.Text)
 	if ok && tool.Tool != "" {
 		resp.ToolCalls = []ToolCall{tool}
+		resp.Text = "" // canonical: a tool-call turn carries no natural-language text
 	} else if ok {
 		resp.Text = answer
 	}
 	return resp, nil
+}
+
+// flattenForPrompt renders the canonical tool turns (assistant ToolCalls, RoleTool results) into the
+// plain text form a tool-blind backend understands: the assistant's call becomes its JSON protocol
+// line, and each tool result becomes a user message. Single-call-per-turn means a result always
+// follows its call, so the tool name for framing comes from the preceding call.
+func flattenForPrompt(msgs []Message) []Message {
+	out := make([]Message, 0, len(msgs))
+	var lastTool string
+	for _, m := range msgs {
+		switch {
+		case m.Role == RoleAssistant && len(m.ToolCalls) > 0:
+			c := m.ToolCalls[0]
+			lastTool = c.Tool
+			out = append(out, Message{Role: RoleAssistant, Content: encodeToolCall(c)})
+		case m.Role == RoleTool:
+			out = append(out, Message{Role: RoleUser, Content: renderToolResult(lastTool, m)})
+		default:
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func encodeToolCall(c ToolCall) string {
+	b, err := json.Marshal(struct {
+		Tool string         `json:"tool"`
+		Args map[string]any `json:"args"`
+	}{c.Tool, c.Args})
+	if err != nil {
+		return `{"tool":"` + c.Tool + `","args":{}}`
+	}
+	return string(b)
+}
+
+func renderToolResult(tool string, m Message) string {
+	// Error/denial/invalid-argument turns already carry a complete instruction; pass them through.
+	if m.ToolError {
+		return m.Content
+	}
+	return fmt.Sprintf("Tool %q result:\n%s", tool, m.Content)
 }
 
 // injectToolPrompt appends the tool catalog + JSON protocol to the conversation's system message (or

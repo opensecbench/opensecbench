@@ -5,20 +5,25 @@ package llm
 
 import "context"
 
-// Message roles.
+// Message roles. RoleTool is a tool-result turn (ADR-0017): its Content is the tool's output (or an
+// error, when ToolError), and ToolCallID links it to the assistant ToolCall it answers.
 const (
 	RoleSystem    = "system"
 	RoleUser      = "user"
 	RoleAssistant = "assistant"
+	RoleTool      = "tool"
 )
 
-// Message is one turn in a conversation. ToolCalls/ToolCallID carry the canonical tool-call and
-// tool-result turns (ADR-0017); the prompted path leaves them empty and represents tools as text.
+// Message is one turn in a conversation. The canonical tool turns (ADR-0017) are: an assistant turn
+// carrying ToolCalls, followed by a RoleTool turn carrying the result (ToolCallID + Content, ToolError
+// on failure). This form is vendor-portable — each provider adapter renders it to its own wire format
+// (native tool blocks, or the prompted text protocol).
 type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant turn: structured calls (native)
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant turn: structured calls
 	ToolCallID string     `json:"tool_call_id,omitempty"` // tool turn: the call this result answers
+	ToolError  bool       `json:"tool_error,omitempty"`   // tool turn: the call failed / was denied
 }
 
 // CompletionRequest asks a provider for the next assistant message. Tools, when set, are the tools the

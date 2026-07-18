@@ -196,22 +196,25 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
 }
 
 function Message({ m }: { m: Msg }) {
-  if (m.role === 'user' && m.content.startsWith('Tool ')) {
-    return <div className="msg tool">🔧 {m.content.split('\n')[0]}</div>
+  // A tool-result turn (canonical, ADR-0017): its content is the tool's output or an error.
+  if (m.role === 'tool') {
+    const label = m.content.startsWith('Tool ') ? m.content.split('\n')[0] : 'tool result'
+    return <div className={'msg tool' + (m.tool_error ? ' error' : '')}>🔧 {label}</div>
   }
   if (m.role === 'assistant') {
-    const parsed = tryParse(m.content)
-    if (parsed?.tool) {
+    // An assistant turn that requested a tool carries structured tool_calls (no prose).
+    if (m.tool_calls && m.tool_calls.length > 0) {
+      const c = m.tool_calls[0]
       return (
         <div className="msg propose">
-          ⚙ wants to run <b>{parsed.tool}</b>
+          ⚙ wants to run <b>{c.tool}</b>
         </div>
       )
     }
     return (
       <div className="msg analyst">
         <b>Analyst</b>
-        <div>{parsed?.answer ?? m.content}</div>
+        <div>{m.content}</div>
       </div>
     )
   }
@@ -221,15 +224,4 @@ function Message({ m }: { m: Msg }) {
       <div>{m.content}</div>
     </div>
   )
-}
-
-function tryParse(s: string): { tool?: string; answer?: string } | null {
-  const i = s.indexOf('{')
-  const j = s.lastIndexOf('}')
-  if (i < 0 || j <= i) return null
-  try {
-    return JSON.parse(s.slice(i, j + 1))
-  } catch {
-    return null
-  }
 }

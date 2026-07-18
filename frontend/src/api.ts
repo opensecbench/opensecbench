@@ -401,12 +401,21 @@ export interface Thread {
   updated_at: string
 }
 
+export interface ToolCall {
+  id?: string
+  tool: string
+  args: Record<string, unknown>
+}
+
 export interface Msg {
   id: string
   thread_id: string
   seq: number
   role: string
   content: string
+  tool_calls?: ToolCall[]
+  tool_call_id?: string
+  tool_error?: boolean
   created_at: string
 }
 

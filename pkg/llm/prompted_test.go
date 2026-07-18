@@ -94,6 +94,45 @@ func TestEnsureToolAwareRespectsNativeAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestPromptedFlattensCanonicalToolHistory(t *testing.T) {
+	// A canonical, vendor-portable history: assistant requested a tool (structured), a tool result came
+	// back, an error result, then the user asked a follow-up. A tool-blind backend must see the text form.
+	raw := &captureProvider{reply: `{"answer":"ok"}`}
+	p := EnsureToolAware(raw)
+	_, err := p.Complete(context.Background(), CompletionRequest{Messages: []Message{
+		{Role: RoleSystem, Content: "persona"},
+		{Role: RoleUser, Content: "how many projects?"},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{Tool: "list_projects", Args: map[string]any{}}}},
+		{Role: RoleTool, Content: "Acme"},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{Tool: "get_finding", Args: map[string]any{"id": "x"}}}},
+		{Role: RoleTool, Content: `Tool "get_finding" errored: not found`, ToolError: true},
+	}, Tools: toolset()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := raw.req.Messages
+	// system(+catalog), user, assistant-json, user(result), assistant-json, user(error) = 6 turns.
+	if len(got) != 6 {
+		t.Fatalf("expected 6 flattened turns, got %d: %+v", len(got), got)
+	}
+	if got[2].Role != RoleAssistant || !strings.Contains(got[2].Content, `"tool":"list_projects"`) {
+		t.Fatalf("tool call not rendered as JSON: %+v", got[2])
+	}
+	if got[3].Role != RoleUser || got[3].Content != "Tool \"list_projects\" result:\nAcme" {
+		t.Fatalf("tool result not framed for the prompt: %q", got[3].Content)
+	}
+	if got[5].Role != RoleUser || !strings.Contains(got[5].Content, "errored: not found") {
+		t.Fatalf("tool error not passed through: %q", got[5].Content)
+	}
+	// The backend must never see raw structured calls — everything is flattened to text.
+	for _, m := range got {
+		if len(m.ToolCalls) != 0 {
+			t.Fatalf("structured ToolCalls leaked to a tool-blind backend: %+v", m)
+		}
+	}
+}
+
 type nativeProvider struct{}
 
 func (nativeProvider) Name() string      { return "native" }
