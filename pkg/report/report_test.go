@@ -128,6 +128,10 @@ func TestRenderTemplates(t *testing.T) {
 		if !strings.Contains(string(html), "<!doctype html>") || !strings.Contains(string(html), "Critical RCE") {
 			t.Fatalf("%s html missing content", id)
 		}
+		// The inline-SVG severity figure is embedded (not escaped) in HTML reports.
+		if !strings.Contains(string(html), "<svg") || strings.Contains(string(html), "&lt;svg") {
+			t.Fatalf("%s html missing inline severity chart", id)
+		}
 	}
 
 	// Technical report shows evidence + scope; executive does not need the evidence detail.
