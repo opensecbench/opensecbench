@@ -12,6 +12,8 @@ const baseURL: string =
   (import.meta.env.VITE_OSB_API as string | undefined) ||
   'http://127.0.0.1:7373'
 
+// --- types (mirror pkg/model JSON) ---
+
 export interface Project {
   id: string
   name: string
@@ -21,6 +23,111 @@ export interface Project {
   created_at: string
   updated_at: string
 }
+
+export interface Template {
+  id: string
+  name: string
+  description: string
+  default_application: string
+  suggested_capabilities: string[]
+}
+
+export interface Application {
+  id: string
+  project_id: string
+  name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Asset {
+  id: string
+  application_id: string
+  type: string
+  location: string
+  sensitivity: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ContextItem {
+  id: string
+  project_id: string
+  type: string
+  name: string
+  artifact_id: string
+  created_at: string
+}
+
+export interface CapabilityManifest {
+  id: string
+  version: string
+  title: string
+  description: string
+}
+
+export interface Artifact {
+  id: string
+  task_id?: string
+  sha256: string
+  media_type: string
+  size: number
+  kind: string
+  name: string
+}
+
+export interface Task {
+  id: string
+  capability_id: string
+  capability_version: string
+  actor: string
+  runner: string
+  status: string
+  exit_code?: number
+  error?: string
+  application_id?: string
+  asset_id?: string
+  created_at: string
+}
+
+export interface Observation {
+  id: string
+  task_id?: string
+  artifact_id?: string
+  origin: string
+  review_state: string
+  title: string
+  detail?: string
+  severity: string
+  rule_id?: string
+  location?: string
+}
+
+export interface Finding {
+  id: string
+  title: string
+  severity: string
+  status: string
+  description?: string
+  cwe?: string
+  observation_ids: string[]
+  created_at: string
+}
+
+export interface TaskOutcome {
+  task: Task
+  artifacts: Artifact[]
+  observations: Observation[]
+}
+
+export interface SearchResult {
+  kind: string
+  id: string
+  title: string
+  detail?: string
+}
+
+// --- request helper ---
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(baseURL + path, {
@@ -34,7 +141,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       const err = await res.json()
       if (err?.error) message = err.error
     } catch {
-      // response had no JSON error body
+      // no JSON error body
     }
     throw new Error(message)
   }
@@ -44,8 +151,62 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   baseURL,
+  artifactContentURL: (id: string) => `${baseURL}/v1/artifacts/${id}/content`,
+
   health: () => request<Record<string, string>>('GET', '/healthz'),
+
+  // projects & templates
   listProjects: () => request<Project[]>('GET', '/v1/projects'),
+  getProject: (id: string) => request<Project>('GET', '/v1/projects/' + id),
   createProject: (name: string) => request<Project>('POST', '/v1/projects', { name }),
   deleteProject: (id: string) => request<void>('DELETE', '/v1/projects/' + id),
+  listTemplates: () => request<Template[]>('GET', '/v1/templates'),
+  createProjectFromTemplate: (template_id: string, name: string) =>
+    request<{ project: Project; application?: Application; template: Template }>(
+      'POST',
+      '/v1/projects/from-template',
+      { template_id, name },
+    ),
+
+  // applications & assets
+  listApplications: (projectId: string) =>
+    request<Application[]>('GET', `/v1/projects/${projectId}/applications`),
+  createApplication: (projectId: string, name: string) =>
+    request<Application>('POST', `/v1/projects/${projectId}/applications`, { name }),
+  listAssets: (appId: string) => request<Asset[]>('GET', `/v1/applications/${appId}/assets`),
+  createAsset: (appId: string, type: string, location: string, sensitivity: string) =>
+    request<Asset>('POST', `/v1/applications/${appId}/assets`, { type, location, sensitivity }),
+
+  // context
+  listContext: (projectId: string) =>
+    request<ContextItem[]>('GET', `/v1/projects/${projectId}/context`),
+  ingestContext: async (projectId: string, name: string, type: string, file: File) => {
+    const url =
+      `${baseURL}/v1/projects/${projectId}/context?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText)
+    return (await res.json()) as ContextItem
+  },
+
+  // capabilities & tasks
+  listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
+  runTask: (req: { capability_id: string; asset_id?: string; target_dir?: string; params?: Record<string, unknown>; actor?: string }) =>
+    request<TaskOutcome>('POST', '/v1/tasks', req),
+  listTaskObservations: (taskId: string) =>
+    request<Observation[]>('GET', `/v1/tasks/${taskId}/observations`),
+
+  // observations & findings
+  reviewObservation: (id: string, state: string) =>
+    request<void>('POST', `/v1/observations/${id}/review`, { state }),
+  listFindings: () => request<Finding[]>('GET', '/v1/findings'),
+  getFinding: (id: string) => request<Finding>('GET', '/v1/findings/' + id),
+  createFinding: (req: { title: string; severity?: string; cwe?: string; observation_ids: string[] }) =>
+    request<Finding>('POST', '/v1/findings', req),
+
+  // search
+  search: (q: string) => request<SearchResult[]>('GET', '/v1/search?q=' + encodeURIComponent(q)),
 }
