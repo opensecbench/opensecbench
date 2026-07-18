@@ -123,9 +123,10 @@ they keep working as-is. Tool results returning to the model remain a DLP egress
      native provider. A **conformance suite** runs the same two scenarios (model requests a tool; model
      answers over a tool history) through the prompted and both native adapters against fake vendor servers,
      asserting identical canonical behavior and paired tool ids on the wire.
-     **Native tool-use is opt-in** (`OSB_LLM_NATIVE_TOOLS=1`, or `Config.NativeTools`), default **off**: the
-     prompted path is the one proven against live backends, and the native wire format is verified only at
-     the conformance level (no live API keys here). Flip it on once validated against a real key.
+     **Native tool-use is ON by default** in the config paths (FromEnv / the provider registry);
+     `OSB_LLM_NATIVE_TOOLS=0` forces the prompted fallback. It was verified at the conformance level (fake
+     vendor servers) rather than against live keys; the prompted fallback still covers backends without
+     native tool support (claude-cli, plain completion, tool-less local models).
   5. Then expand the toolset (read exchanges, send_request, get/set_coverage, create_finding) on the solid base.
 - **Out of scope now** (not precluded): streaming tool-use; full JSON-Schema (a subset suffices).
 

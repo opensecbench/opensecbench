@@ -89,3 +89,26 @@ func TestConfigSelectsProvider(t *testing.T) {
 		t.Error("expected error for unknown provider")
 	}
 }
+
+func TestFromEnvNativeToolsDefault(t *testing.T) {
+	// Native tool-use is on by default in the config path; OSB_LLM_NATIVE_TOOLS=0 forces prompted.
+	t.Setenv("OSB_LLM_PROVIDER", "anthropic")
+
+	t.Setenv("OSB_LLM_NATIVE_TOOLS", "")
+	p, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ta, ok := p.(ToolAware); !ok || !ta.NativeTools() {
+		t.Fatal("native tools should be ON by default")
+	}
+
+	t.Setenv("OSB_LLM_NATIVE_TOOLS", "0")
+	p, err = FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ta, ok := p.(ToolAware); ok && ta.NativeTools() {
+		t.Fatal("OSB_LLM_NATIVE_TOOLS=0 should force the prompted fallback")
+	}
+}

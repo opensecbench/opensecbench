@@ -21,7 +21,8 @@ type OpenAIProvider struct {
 	Model   string
 	HTTP    *http.Client
 	// UseNativeTools sends tools and tool turns as native tool_calls / role:"tool" messages
-	// (ADR-0017) instead of the prompted text protocol. Off by default: the prompted path is proven.
+	// (ADR-0017) instead of the prompted text protocol. The config paths enable it by default
+	// (OSB_LLM_NATIVE_TOOLS=0 forces the prompted fallback).
 	UseNativeTools bool
 }
 
