@@ -113,12 +113,19 @@ they keep working as-is. Tool results returning to the model remain a DLP egress
 - **Ripple**: the messages schema, thread persistence, `Advance`/`Resume`, and the chat UI all change to
   carry tool turns. This is the real cost and must not be shortcut.
 - **Build order (phased, each verifiable):**
-  1. Typed `ToolDef` schema + arg validation (pure, unit-tested); migrate `analyst.Tools()` to it.
-  2. Tool-aware provider interface + canonical tool messages + the **prompted adapter** (behavior identical
-     to today, but structured) — prove parity end-to-end via claude-cli/mock.
-  3. Persistence + `Advance`/`Resume` + UI for tool turns.
-  4. Native adapters: OpenAI-compatible, then Anthropic; conformance suite (same scenario, every adapter,
-     via fake vendor servers) + env-gated real-provider tests.
+  1. ✅ Typed `ToolDef` schema + arg validation (pure, unit-tested); migrate `analyst.Tools()` to it.
+  2. ✅ Tool-aware provider interface + canonical tool messages + the **prompted adapter** (behavior identical
+     to today, but structured) — parity proven end-to-end via claude-cli/mock.
+  3. ✅ Persistence + `Advance`/`Resume` + UI for tool turns (canonical `tool` role + `tool_calls`/
+     `tool_call_id`/`tool_error` persisted; migration 0026; frontend renders from the structured fields).
+  4. ✅ Native adapters: Anthropic (`tool_use`/`tool_result`) and OpenAI (`tool_calls`/`role:"tool"`), with a
+     shared JSON-Schema renderer and positional id-normalization so a prompted-origin thread ports to a
+     native provider. A **conformance suite** runs the same two scenarios (model requests a tool; model
+     answers over a tool history) through the prompted and both native adapters against fake vendor servers,
+     asserting identical canonical behavior and paired tool ids on the wire.
+     **Native tool-use is opt-in** (`OSB_LLM_NATIVE_TOOLS=1`, or `Config.NativeTools`), default **off**: the
+     prompted path is the one proven against live backends, and the native wire format is verified only at
+     the conformance level (no live API keys here). Flip it on once validated against a real key.
   5. Then expand the toolset (read exchanges, send_request, get/set_coverage, create_finding) on the solid base.
 - **Out of scope now** (not precluded): streaming tool-use; full JSON-Schema (a subset suffices).
 

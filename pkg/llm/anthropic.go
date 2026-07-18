@@ -17,10 +17,16 @@ type AnthropicProvider struct {
 	APIKey  string
 	Model   string
 	HTTP    *http.Client
+	// UseNativeTools sends tools and tool turns as native tool_use/tool_result blocks (ADR-0017)
+	// instead of the prompted text protocol. Off by default: the prompted path is the proven one.
+	UseNativeTools bool
 }
 
 // Name identifies the provider.
 func (a *AnthropicProvider) Name() string { return "anthropic" }
+
+// NativeTools reports whether this provider handles tools natively (ToolAware).
+func (a *AnthropicProvider) NativeTools() bool { return a.UseNativeTools }
 
 // Complete calls the Messages API.
 func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
@@ -40,20 +46,30 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 		maxTokens = 4096
 	}
 
-	var system string
-	msgs := make([]Message, 0, len(req.Messages))
-	for _, m := range req.Messages {
-		if m.Role == RoleSystem {
-			system += m.Content + "\n"
-			continue
-		}
-		msgs = append(msgs, m)
-	}
-
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": maxTokens,
-		"messages":   msgs,
+	}
+	var system string
+	if a.UseNativeTools {
+		// Native path: translate canonical tool turns into tool_use/tool_result content blocks.
+		var msgs []map[string]any
+		system, msgs = anthropicMessages(req.Messages)
+		payload["messages"] = msgs
+		if len(req.Tools) > 0 {
+			payload["tools"] = anthropicTools(req.Tools)
+		}
+	} else {
+		// Prompted path: messages are already flattened to plain text upstream.
+		msgs := make([]Message, 0, len(req.Messages))
+		for _, m := range req.Messages {
+			if m.Role == RoleSystem {
+				system += m.Content + "\n"
+				continue
+			}
+			msgs = append(msgs, m)
+		}
+		payload["messages"] = msgs
 	}
 	if system != "" {
 		payload["system"] = system
@@ -86,11 +102,8 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	}
 
 	var out struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		Usage struct {
+		Content []anthropicContentBlock `json:"content"`
+		Usage   struct {
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
@@ -98,11 +111,6 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return CompletionResponse{}, err
 	}
-	var text string
-	for _, c := range out.Content {
-		if c.Type == "text" {
-			text += c.Text
-		}
-	}
-	return CompletionResponse{Text: text, InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens}, nil
+	text, calls := parseAnthropicContent(out.Content)
+	return CompletionResponse{Text: text, ToolCalls: calls, InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens}, nil
 }

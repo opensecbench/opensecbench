@@ -13,6 +13,9 @@ type Config struct {
 	Model   string
 	APIKey  string
 	Bin     string // for claude-cli
+	// NativeTools opts anthropic/openai-compatible providers into native tool-use (ADR-0017) instead
+	// of the prompted text protocol. Off by default; the prompted path is the proven one.
+	NativeTools bool
 }
 
 // New builds a provider from a Config, applying sensible per-type defaults.
@@ -23,18 +26,18 @@ func New(cfg Config) (Provider, error) {
 	case "claude-cli", "cli", "claude":
 		return NewCLIProvider(cfg.Bin), nil
 	case "anthropic":
-		return &AnthropicProvider{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: orDefault(cfg.Model, "claude-sonnet-5")}, nil
+		return &AnthropicProvider{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: orDefault(cfg.Model, "claude-sonnet-5"), UseNativeTools: cfg.NativeTools}, nil
 	case "ollama":
-		return openAICompat("ollama", orDefault(cfg.BaseURL, "http://127.0.0.1:11434/v1"), cfg.APIKey, cfg.Model), nil
+		return openAICompat("ollama", orDefault(cfg.BaseURL, "http://127.0.0.1:11434/v1"), cfg.APIKey, cfg.Model, cfg.NativeTools), nil
 	case "deepseek":
-		return openAICompat("deepseek", orDefault(cfg.BaseURL, "https://api.deepseek.com/v1"), cfg.APIKey, orDefault(cfg.Model, "deepseek-chat")), nil
+		return openAICompat("deepseek", orDefault(cfg.BaseURL, "https://api.deepseek.com/v1"), cfg.APIKey, orDefault(cfg.Model, "deepseek-chat"), cfg.NativeTools), nil
 	case "grok", "xai":
-		return openAICompat("grok", orDefault(cfg.BaseURL, "https://api.x.ai/v1"), cfg.APIKey, orDefault(cfg.Model, "grok-2-latest")), nil
+		return openAICompat("grok", orDefault(cfg.BaseURL, "https://api.x.ai/v1"), cfg.APIKey, orDefault(cfg.Model, "grok-2-latest"), cfg.NativeTools), nil
 	case "openai", "azure", "openai-compat":
 		if cfg.BaseURL == "" {
 			return nil, fmt.Errorf("llm: %s requires a base URL", cfg.Type)
 		}
-		return openAICompat(cfg.Type, cfg.BaseURL, cfg.APIKey, cfg.Model), nil
+		return openAICompat(cfg.Type, cfg.BaseURL, cfg.APIKey, cfg.Model, cfg.NativeTools), nil
 	default:
 		return nil, fmt.Errorf("llm: unknown provider type %q", cfg.Type)
 	}
@@ -45,16 +48,17 @@ func New(cfg Config) (Provider, error) {
 // An unset OSB_LLM_PROVIDER yields the MockProvider.
 func FromEnv() (Provider, error) {
 	return New(Config{
-		Type:    os.Getenv("OSB_LLM_PROVIDER"),
-		BaseURL: os.Getenv("OSB_LLM_BASE_URL"),
-		Model:   os.Getenv("OSB_LLM_MODEL"),
-		APIKey:  os.Getenv("OSB_LLM_API_KEY"),
-		Bin:     os.Getenv("OSB_LLM_BIN"),
+		Type:        os.Getenv("OSB_LLM_PROVIDER"),
+		BaseURL:     os.Getenv("OSB_LLM_BASE_URL"),
+		Model:       os.Getenv("OSB_LLM_MODEL"),
+		APIKey:      os.Getenv("OSB_LLM_API_KEY"),
+		Bin:         os.Getenv("OSB_LLM_BIN"),
+		NativeTools: os.Getenv("OSB_LLM_NATIVE_TOOLS") == "1",
 	})
 }
 
-func openAICompat(label, baseURL, apiKey, model string) *OpenAIProvider {
-	return &OpenAIProvider{Label: label, BaseURL: baseURL, APIKey: apiKey, Model: model}
+func openAICompat(label, baseURL, apiKey, model string, nativeTools bool) *OpenAIProvider {
+	return &OpenAIProvider{Label: label, BaseURL: baseURL, APIKey: apiKey, Model: model, UseNativeTools: nativeTools}
 }
 
 func orDefault(v, d string) string {

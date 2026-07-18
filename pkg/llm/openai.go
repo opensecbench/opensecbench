@@ -20,6 +20,9 @@ type OpenAIProvider struct {
 	APIKey  string // empty for keyless local servers
 	Model   string
 	HTTP    *http.Client
+	// UseNativeTools sends tools and tool turns as native tool_calls / role:"tool" messages
+	// (ADR-0017) instead of the prompted text protocol. Off by default: the prompted path is proven.
+	UseNativeTools bool
 }
 
 // Name identifies the provider.
@@ -29,6 +32,9 @@ func (p *OpenAIProvider) Name() string {
 	}
 	return "openai-compat"
 }
+
+// NativeTools reports whether this provider handles tools natively (ToolAware).
+func (p *OpenAIProvider) NativeTools() bool { return p.UseNativeTools }
 
 // Complete calls the chat/completions endpoint.
 func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
@@ -40,9 +46,15 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		model = p.Model
 	}
 
-	payload := map[string]any{
-		"model":    model,
-		"messages": req.Messages,
+	payload := map[string]any{"model": model}
+	if p.UseNativeTools {
+		payload["messages"] = openAIMessages(req.Messages)
+		if len(req.Tools) > 0 {
+			payload["tools"] = openAITools(req.Tools)
+		}
+	} else {
+		// Prompted path: messages are already flattened to plain text upstream.
+		payload["messages"] = req.Messages
 	}
 	if req.MaxTokens > 0 {
 		payload["max_tokens"] = req.MaxTokens
@@ -79,7 +91,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	var out struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string           `json:"content"`
+				ToolCalls []openAIToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
@@ -93,8 +106,13 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	if len(out.Choices) == 0 {
 		return CompletionResponse{}, errors.New("llm openai: no choices in response")
 	}
+	calls, err := parseOpenAIToolCalls(out.Choices[0].Message.ToolCalls)
+	if err != nil {
+		return CompletionResponse{}, fmt.Errorf("llm %s: %w", p.Name(), err)
+	}
 	return CompletionResponse{
 		Text:         out.Choices[0].Message.Content,
+		ToolCalls:    calls,
 		InputTokens:  out.Usage.PromptTokens,
 		OutputTokens: out.Usage.CompletionTokens,
 	}, nil
