@@ -17,6 +17,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/runner"
+	"github.com/opensecbench/opensecbench/pkg/session"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
@@ -88,13 +89,22 @@ func Start(opts Options) (*Instance, error) {
 		provider = nil
 	}
 
+	// Interactive terminals need Docker; without it the session endpoints report unavailable
+	// rather than blocking startup.
+	var sessMgr *session.Manager
+	if session.Available() {
+		sessMgr = session.NewManager("")
+	}
+
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	srv := &http.Server{
-		Handler:           api.New(api.Deps{Store: db, Engine: engine, CAS: blobs, Provider: provider}).Handler(),
+		Handler: api.New(api.Deps{
+			Store: db, Engine: engine, CAS: blobs, Provider: provider, SessionMgr: sessMgr,
+		}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() { _ = srv.Serve(ln) }()
