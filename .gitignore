@@ -1,0 +1,29 @@
+# Build output
+/bin/
+/build/
+/dist/
+*.exe
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# Node / frontend
+node_modules/
+frontend/dist/
+
+# Local runtime data (never commit engagement data or secrets)
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
