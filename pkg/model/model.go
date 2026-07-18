@@ -48,6 +48,23 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Methodology coverage statuses (ADR-0009).
+const (
+	CoverageNotStarted    = "not_started"
+	CoverageInProgress    = "in_progress"
+	CoverageCovered       = "covered"
+	CoverageNotApplicable = "not_applicable"
+)
+
+// CoverageEntry is a project's recorded status for one methodology item.
+type CoverageEntry struct {
+	ProjectID string    `json:"project_id"`
+	ItemID    string    `json:"item_id"`
+	Status    string    `json:"status"`
+	Note      string    `json:"note,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Notification kinds.
 const (
 	NotifyApproval = "approval"
