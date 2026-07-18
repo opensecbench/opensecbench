@@ -133,6 +133,26 @@ func (db *DB) CreateArtifact(ctx context.Context, a model.Artifact) (model.Artif
 	return a, nil
 }
 
+// GetArtifact returns an artifact by id.
+func (db *DB) GetArtifact(ctx context.Context, id string) (model.Artifact, error) {
+	var a model.Artifact
+	var task sql.NullString
+	var created string
+	err := db.QueryRowContext(ctx,
+		`SELECT id, task_id, sha256, media_type, size, kind, name, created_at
+		 FROM artifacts WHERE id = ?`, id).
+		Scan(&a.ID, &task, &a.SHA256, &a.MediaType, &a.Size, &a.Kind, &a.Name, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Artifact{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Artifact{}, err
+	}
+	a.TaskID = ptr(task)
+	a.CreatedAt = parseTime(created)
+	return a, nil
+}
+
 // ListArtifactsByTask returns a task's artifacts, oldest first.
 func (db *DB) ListArtifactsByTask(ctx context.Context, taskID string) ([]model.Artifact, error) {
 	rows, err := db.QueryContext(ctx,

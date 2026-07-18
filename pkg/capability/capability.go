@@ -11,14 +11,14 @@ import (
 
 // Manifest describes a capability.
 type Manifest struct {
-	ID              string
-	Version         string
-	Title           string
-	Description     string
-	OutputName      string // logical name of the primary output artifact
-	OutputMediaType string
+	ID              string `json:"id"`
+	Version         string `json:"version"`
+	Title           string `json:"title"`
+	Description     string `json:"description"`
+	OutputName      string `json:"output_name"`       // logical name of the primary output artifact
+	OutputMediaType string `json:"output_media_type"` //
 	// OKExitCodes lists exit codes that count as success. Empty means only 0.
-	OKExitCodes []int
+	OKExitCodes []int `json:"ok_exit_codes,omitempty"`
 }
 
 // ExitOK reports whether an exit code counts as a successful run.
