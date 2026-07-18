@@ -130,6 +130,7 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
       {showProviders ? (
         <ProviderSettings
           online={online}
+          projectId={project.id}
           onClose={() => setShowProviders(false)}
           onChanged={loadProvider}
         />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, ProviderView } from './api'
+import { api, ProviderView, UsageByModel } from './api'
 
 // Provider types offered in the add form. needsBase/needsKey drive which fields show; the hint steers
 // the operator (API keys recommended, claude-cli uses the local subscription, ollama is local).
@@ -16,14 +16,17 @@ type TestState = { ok?: boolean; latency_ms?: number; sample?: string; error?: s
 
 export function ProviderSettings({
   online,
+  projectId,
   onClose,
   onChanged,
 }: {
   online: boolean
+  projectId: string
   onClose: () => void
   onChanged: () => void
 }) {
   const [providers, setProviders] = useState<ProviderView[]>([])
+  const [usage, setUsage] = useState<UsageByModel[]>([])
   const [type, setType] = useState('anthropic')
   const [name, setName] = useState('')
   const [model, setModel] = useState('')
@@ -35,6 +38,7 @@ export function ProviderSettings({
   async function load() {
     try {
       setProviders((await api.listProviders()) ?? [])
+      setUsage((await api.getProjectUsage(projectId)) ?? [])
     } catch (e) {
       setError((e as Error).message)
     }
@@ -42,7 +46,7 @@ export function ProviderSettings({
   useEffect(() => {
     if (online) void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online])
+  }, [online, projectId])
 
   const cfg = PROVIDER_TYPES.find((t) => t.value === type)
 
@@ -121,6 +125,27 @@ export function ProviderSettings({
           )
         })}
       </div>
+
+      {usage.length > 0 && (
+        <div className="prov-usage">
+          <div className="prov-add-title">Token usage · this project</div>
+          <table className="prov-usage-table">
+            <thead>
+              <tr><th>vendor · model</th><th>runs</th><th>in</th><th>out</th></tr>
+            </thead>
+            <tbody>
+              {usage.map((u) => (
+                <tr key={u.provider + u.model}>
+                  <td className="mono">{u.provider}{u.model ? ` · ${u.model}` : ''}</td>
+                  <td>{u.runs}</td>
+                  <td>{u.input_tokens.toLocaleString()}</td>
+                  <td>{u.output_tokens.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="prov-add">
         <div className="prov-add-title">Add provider</div>

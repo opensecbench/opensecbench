@@ -57,6 +57,27 @@ const (
 	RuleTargetResponseBody   = "response_body"
 )
 
+// UsageRecord is one Analyst run's token usage, tagged for per-project, per-model/vendor comparison.
+type UsageRecord struct {
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id,omitempty"`
+	ThreadID     string    `json:"thread_id,omitempty"`
+	Provider     string    `json:"provider"` // vendor/type
+	Model        string    `json:"model"`
+	InputTokens  int       `json:"input_tokens"`
+	OutputTokens int       `json:"output_tokens"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// UsageByModel aggregates token usage for one (provider, model) pair.
+type UsageByModel struct {
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	Runs         int    `json:"runs"`
+	InputTokens  int    `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+}
+
 // Provider is a registered LLM backend for the Analyst (ADR-0006). KeySealed is the vault-sealed
 // credential and is never serialized to clients.
 type Provider struct {
