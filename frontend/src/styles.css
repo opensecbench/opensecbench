@@ -1085,3 +1085,18 @@ select option {
 .graph-svg{width:100%;height:520px;display:block;cursor:grab}
 .graph-svg:active{cursor:grabbing}
 .graph-tip{position:absolute;left:12px;bottom:12px;background:var(--bg3);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px;pointer-events:none;max-width:80%}
+
+/* Toolbar buttons (proxy/terminal): primary style like .create-row buttons */
+.term-toolbar button:not(.link):not(.ghost-btn) {
+  background: var(--acc);
+  border: 1px solid var(--acc);
+  color: #04101f;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 7px 13px;
+  cursor: pointer;
+}
+.term-toolbar button:not(.link):not(.ghost-btn):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

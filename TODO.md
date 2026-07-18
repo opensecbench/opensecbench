@@ -31,6 +31,24 @@ infrastructure pieces that warrant their own focused efforts.
       the GUI (`make dev`) on a desktop session — needs a display, so do it locally.
 - [x] Desktop "Open browser" button in the Proxy tab (Wails binding → browser.Launch).
 
+## Proxy — make it a first-class tool (not an add-on)
+
+The Proxy tab is currently minimal (a live-polled list of captured exchanges). It's meant to be a
+primary daily-driver on par with Burp's proxy history, so build it out:
+
+- [ ] **Full history UI** — searchable/filterable table (by host, method, status, path, origin,
+      time), column sort, and live streaming without losing scroll/selection.
+- [ ] **Request/response detail view** — click an exchange to see full headers + body (pretty-print
+      JSON/HTML), with syntax highlighting and copy.
+- [ ] **Send to Repeater** — one click from a captured exchange → a prefilled Repeater draft (clone
+      request into an editable exchange).
+- [ ] **Save-as-evidence** from a captured exchange (already exists for Repeater; wire it here).
+- [ ] **Intercept & edit** — hold a request/response, edit, forward/drop (needs a proxy intercept
+      queue in pkg/proxy + a control channel; today it's passthrough capture only).
+- [ ] **Match/replace + scope filtering** in the history; highlight in-scope vs out.
+- [ ] Server-side: paginated/filtered `GET /v1/projects/{id}/exchanges` (query by host/status/method);
+      today it returns all. WebSocket/live push for new captures instead of polling.
+
 ## Small / medium follow-ups
 
 - [ ] Broaden audit coverage to remaining entity CRUD (project/app/asset/finding create/update).
