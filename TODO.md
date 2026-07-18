@@ -24,12 +24,11 @@ infrastructure pieces that warrant their own focused efforts.
       browse/install with explicit trust).
 - [x] Governance profiles (personal/corporate/strict); webhook (Teams/Slack) notifications.
 
-## Cannot verify in this environment
+## Desktop app
 
-- [ ] **Wails desktop build.** The build box lacks `libwebkit2gtk`, so the `desktop`-tagged Wails
-      entrypoint can't be compiled/run here. On a machine with `libgtk-3-dev` + `libwebkit2gtk-4.1-dev`,
-      run `wails dev` and fix any API mismatches. The React frontend builds (tsc/vite); the daemon
-      + CLI paths are all verified end-to-end.
+- [x] **Wails desktop build compiles + vets** with `CGO_ENABLED=1 go build -tags "desktop webkit2_41"`
+      (webkit2gtk-4.1 2.52 + gtk3 present); `frontend/dist` embeds. The remaining step is *running*
+      the GUI (`make dev`) on a desktop session — needs a display, so do it locally.
 - [ ] Desktop **"Open browser"** button in the Proxy tab (Wails binding; today it's `osb proxy browser`).
 
 ## Small / medium follow-ups
