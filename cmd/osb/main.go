@@ -90,6 +90,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return notifyCmd(ctx, c, args[1:])
 	case "report":
 		return reportCmd(ctx, c, args[1:])
+	case "methodology", "method":
+		return methodologyCmd(ctx, c, args[1:])
 	case "proxy":
 		return proxyCmd(ctx, c, args[1:])
 	case "observation", "obs":
@@ -862,6 +864,81 @@ func proxyBrowser(ctx context.Context, c *client.Client, args []string) error {
 	return nil
 }
 
+func methodologyCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb methodology <catalog|coverage|adopt|set>")
+	}
+	switch args[0] {
+	case "catalog":
+		packs, err := c.ListMethodologies(ctx)
+		if err != nil {
+			return err
+		}
+		for _, p := range packs {
+			fmt.Printf("%s  (%s) — %s [%d items]\n", p.ID, p.Tech, p.Title, len(p.Items))
+			for _, it := range p.Items {
+				fmt.Printf("    %s  %s\n", it.ID, it.Title)
+			}
+		}
+		return nil
+	case "coverage":
+		fs := flag.NewFlagSet("methodology coverage", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("methodology coverage: --project is required")
+		}
+		cov, err := c.GetMethodologyCoverage(ctx, *project)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("coverage: %d%% (%d/%d covered)\n", cov.Summary.CoveredPct, cov.Summary.Covered, cov.Summary.Total)
+		for _, p := range cov.Packs {
+			fmt.Printf("\n%s — %s\n", p.ID, p.Title)
+			for _, it := range p.Items {
+				fmt.Printf("  [%-14s] %s\n", it.Status, it.Item.Title)
+			}
+		}
+		return nil
+	case "adopt":
+		fs := flag.NewFlagSet("methodology adopt", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		id := fs.String("id", "", "methodology pack id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" || *id == "" {
+			return errors.New("methodology adopt: --project and --id are required")
+		}
+		if err := c.AdoptMethodology(ctx, *project, *id); err != nil {
+			return err
+		}
+		fmt.Printf("adopted %s\n", *id)
+		return nil
+	case "set":
+		fs := flag.NewFlagSet("methodology set", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		item := fs.String("item", "", "item id, e.g. web-app/xss (required)")
+		status := fs.String("status", "", "not_started | in_progress | covered | not_applicable (required)")
+		note := fs.String("note", "", "optional note")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" || *item == "" || *status == "" {
+			return errors.New("methodology set: --project, --item, and --status are required")
+		}
+		if err := c.SetCoverage(ctx, *project, *item, *status, *note); err != nil {
+			return err
+		}
+		fmt.Printf("%s -> %s\n", *item, *status)
+		return nil
+	default:
+		return fmt.Errorf("unknown methodology subcommand %q", args[0])
+	}
+}
+
 func reportCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: osb report <templates|generate|list>")
@@ -1267,6 +1344,10 @@ Commands:
   session list --project ID   list terminal sessions
   session close <id>          close a session and capture its transcript
   session evidence --id ID [--note N]  save a session transcript as evidence
+  methodology catalog        list methodology packs + items
+  methodology adopt --project ID --id PACK   adopt a methodology pack
+  methodology coverage --project ID          show coverage + roll-up
+  methodology set --project ID --item ID --status S [--note N]  set item status
   report templates           list report templates
   report generate --project ID [--template T] [--format html|md] [--out FILE]
   report list --project ID    list generated reports
