@@ -8,6 +8,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/extension"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
@@ -138,5 +139,33 @@ func TestWrongPassphraseFails(t *testing.T) {
 	dst, dstBlobs := newStore(t)
 	if _, err := Import(ctx, dst, dstBlobs, blob, "wrong"); err == nil {
 		t.Fatal("import with wrong passphrase should fail")
+	}
+}
+
+func TestBundleSignVerify(t *testing.T) {
+	pub, priv, err := extension.GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("an encrypted bundle blob")
+	sc, err := Sign(data, "acme", priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.Publisher != "acme" || sc.PublicKey != pub {
+		t.Fatalf("sidecar wrong: %+v", sc)
+	}
+	if err := sc.Verify(data); err != nil {
+		t.Fatalf("valid signature should verify: %v", err)
+	}
+	// Tampered bundle fails.
+	if err := sc.Verify([]byte("tampered blob")); err == nil {
+		t.Fatal("tampered bundle should fail verification")
+	}
+	// Round-trips through JSON.
+	raw, _ := MarshalSidecar(sc)
+	got, err := ParseSidecar(raw)
+	if err != nil || got.Verify(data) != nil {
+		t.Fatalf("sidecar json round trip failed: %v", err)
 	}
 }

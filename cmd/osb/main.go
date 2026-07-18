@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/browser"
+	"github.com/opensecbench/opensecbench/pkg/bundle"
 	"github.com/opensecbench/opensecbench/pkg/client"
 	"github.com/opensecbench/opensecbench/pkg/extension"
 	"github.com/opensecbench/opensecbench/pkg/hub"
@@ -1669,6 +1670,8 @@ func projectCmd(ctx context.Context, c *client.Client, args []string) error {
 		id := fs.String("id", "", "project id (required)")
 		out := fs.String("out", "", "output bundle file (required)")
 		pass := fs.String("passphrase", "", "encryption passphrase (or set OSB_BUNDLE_PASSPHRASE)")
+		signKey := fs.String("sign-key", "", "private key file to sign the bundle (from 'osb ext keygen')")
+		publisher := fs.String("publisher", "", "publisher name recorded in the signature")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -1684,11 +1687,27 @@ func projectCmd(ctx context.Context, c *client.Client, args []string) error {
 			return err
 		}
 		fmt.Printf("exported %d bytes to %s\n", len(data), *out)
+		if *signKey != "" {
+			key, err := os.ReadFile(*signKey)
+			if err != nil {
+				return err
+			}
+			sc, err := bundle.Sign(data, *publisher, strings.TrimSpace(string(key)))
+			if err != nil {
+				return err
+			}
+			raw, _ := bundle.MarshalSidecar(sc)
+			if err := os.WriteFile(*out+".sig", raw, 0o600); err != nil {
+				return err
+			}
+			fmt.Printf("signed → %s.sig (publisher %q)\n", *out, *publisher)
+		}
 		return nil
 	case "import":
 		fs := flag.NewFlagSet("project import", flag.ContinueOnError)
 		file := fs.String("file", "", "bundle file (required)")
 		pass := fs.String("passphrase", "", "decryption passphrase (or set OSB_BUNDLE_PASSPHRASE)")
+		verify := fs.Bool("verify", false, "verify the bundle signature (<file>.sig) before importing")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -1699,6 +1718,20 @@ func projectCmd(ctx context.Context, c *client.Client, args []string) error {
 		data, err := os.ReadFile(*file)
 		if err != nil {
 			return err
+		}
+		if *verify {
+			sigRaw, err := os.ReadFile(*file + ".sig")
+			if err != nil {
+				return fmt.Errorf("verify: %w", err)
+			}
+			sc, err := bundle.ParseSidecar(sigRaw)
+			if err != nil {
+				return err
+			}
+			if err := sc.Verify(data); err != nil {
+				return err
+			}
+			fmt.Printf("signature OK — publisher %q, key %s…\n", sc.Publisher, sc.PublicKey[:16])
 		}
 		newID, err := c.ImportBundle(ctx, data, phrase)
 		if err != nil {
