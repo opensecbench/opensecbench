@@ -81,10 +81,11 @@ type RunTaskRequest struct {
 	Params       map[string]any `json:"params,omitempty"`
 }
 
-// TaskOutcome is a completed task with its artifacts.
+// TaskOutcome is a completed task with its artifacts and interpreted observations.
 type TaskOutcome struct {
-	Task      model.Task       `json:"task"`
-	Artifacts []model.Artifact `json:"artifacts"`
+	Task         model.Task          `json:"task"`
+	Artifacts    []model.Artifact    `json:"artifacts"`
+	Observations []model.Observation `json:"observations"`
 }
 
 // RunTask runs a capability and returns the resulting task and artifacts.
@@ -97,6 +98,44 @@ func (c *Client) RunTask(ctx context.Context, req RunTaskRequest) (TaskOutcome, 
 func (c *Client) GetTask(ctx context.Context, id string) (model.Task, error) {
 	var out model.Task
 	return out, c.do(ctx, http.MethodGet, "/v1/tasks/"+id, nil, &out)
+}
+
+// ListTaskObservations returns the observations interpreted from a task's outputs.
+func (c *Client) ListTaskObservations(ctx context.Context, taskID string) ([]model.Observation, error) {
+	var out []model.Observation
+	return out, c.do(ctx, http.MethodGet, "/v1/tasks/"+taskID+"/observations", nil, &out)
+}
+
+// ReviewObservation sets an observation's review state (confirmed | rejected | unreviewed).
+func (c *Client) ReviewObservation(ctx context.Context, id, state string) error {
+	return c.do(ctx, http.MethodPost, "/v1/observations/"+id+"/review", map[string]string{"state": state}, nil)
+}
+
+// CreateFindingRequest assembles a finding from confirmed observations.
+type CreateFindingRequest struct {
+	Title          string   `json:"title"`
+	Severity       string   `json:"severity,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	CWE            string   `json:"cwe,omitempty"`
+	ObservationIDs []string `json:"observation_ids,omitempty"`
+}
+
+// CreateFinding creates a finding.
+func (c *Client) CreateFinding(ctx context.Context, req CreateFindingRequest) (model.Finding, error) {
+	var out model.Finding
+	return out, c.do(ctx, http.MethodPost, "/v1/findings", req, &out)
+}
+
+// ListFindings returns all findings.
+func (c *Client) ListFindings(ctx context.Context) ([]model.Finding, error) {
+	var out []model.Finding
+	return out, c.do(ctx, http.MethodGet, "/v1/findings", nil, &out)
+}
+
+// GetFinding returns a finding by id.
+func (c *Client) GetFinding(ctx context.Context, id string) (model.Finding, error) {
+	var out model.Finding
+	return out, c.do(ctx, http.MethodGet, "/v1/findings/"+id, nil, &out)
 }
 
 // ArtifactContent fetches an artifact's raw bytes from the CAS.
