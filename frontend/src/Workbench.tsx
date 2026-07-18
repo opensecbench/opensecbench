@@ -10,6 +10,7 @@ import {
   HTTPExchange,
   Observation,
   Playbook,
+  ProxyStatus,
   PlaybookRunResult,
   Project,
   ScopeEntry,
@@ -28,6 +29,7 @@ type Tab =
   | 'scope'
   | 'scan'
   | 'repeater'
+  | 'proxy'
   | 'terminal'
   | 'playbooks'
   | 'tasks'
@@ -91,7 +93,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="tabs">
-        {(['assets', 'context', 'scope', 'scan', 'repeater', 'terminal', 'playbooks', 'tasks', 'findings', 'analyst', 'audit'] as Tab[]).map((t) => (
+        {(['assets', 'context', 'scope', 'scan', 'repeater', 'proxy', 'terminal', 'playbooks', 'tasks', 'findings', 'analyst', 'audit'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -103,6 +105,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {tab === 'scope' && <ScopeTab project={project} online={online} onError={setError} />}
       {tab === 'scan' && <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />}
       {tab === 'repeater' && <RepeaterTab project={project} online={online} onError={setError} />}
+      {tab === 'proxy' && <ProxyTab project={project} online={online} onError={setError} />}
       {tab === 'terminal' && (
         <Suspense fallback={<div className="empty">Loading terminal…</div>}>
           <TerminalTab project={project} online={online} onError={setError} />
@@ -566,6 +569,95 @@ function statusClass(status?: number): string {
   if (status >= 400) return 'failed'
   if (status >= 200 && status < 300) return 'succeeded'
   return 'active'
+}
+
+function ProxyTab({
+  project,
+  online,
+  onError,
+}: {
+  project: Project
+  online: boolean
+  onError: (m: string) => void
+}) {
+  const [status, setStatus] = useState<ProxyStatus>({ running: false })
+  const [captured, setCaptured] = useState<HTTPExchange[]>([])
+  const [busy, setBusy] = useState(false)
+
+  async function refresh() {
+    try {
+      setStatus(await api.getProxy(project.id))
+      const all = (await api.listExchanges(project.id)) ?? []
+      setCaptured(all.filter((e) => e.origin === 'proxy'))
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
+  useEffect(() => {
+    if (!online) return
+    void refresh()
+    const timer = setInterval(refresh, 2500) // poll so captured traffic streams in
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, project.id])
+
+  async function toggle() {
+    setBusy(true)
+    try {
+      setStatus(status.running ? await api.stopProxy(project.id) : await api.startProxy(project.id))
+      await refresh()
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-head">Intercepting proxy</div>
+      <p className="hint">
+        Route a browser or tool through the proxy to capture traffic (scope-guarded). For HTTPS,
+        trust the CA below — it is generated locally and never installed automatically.
+      </p>
+      <div className="term-toolbar">
+        <button onClick={toggle} disabled={!online || busy}>
+          {busy ? '…' : status.running ? 'Stop proxy' : 'Start proxy'}
+        </button>
+        {status.running && (
+          <span className="mono muted">
+            listening on <b>127.0.0.1:{status.port}</b>
+          </span>
+        )}
+        <a className="link" href={api.proxyCAURL()} target="_blank" rel="noreferrer">download CA cert</a>
+      </div>
+      {captured.length === 0 ? (
+        <div className="empty">No captured traffic yet.</div>
+      ) : (
+        <table className="audit-table">
+          <thead>
+            <tr>
+              <th>status</th>
+              <th>method</th>
+              <th>url</th>
+              <th>ms</th>
+            </tr>
+          </thead>
+          <tbody>
+            {captured.map((e) => (
+              <tr key={e.id}>
+                <td><span className={`badge ${statusClass(e.status)}`}>{e.status ?? '—'}</span></td>
+                <td className="kind">{e.method}</td>
+                <td className="mono truncate">{e.url}</td>
+                <td className="muted">{e.duration_ms ?? ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  )
 }
 
 function ScanTab({

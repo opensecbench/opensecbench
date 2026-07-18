@@ -91,6 +91,11 @@ export interface AuditEvent {
   hash: string
 }
 
+export interface ProxyStatus {
+  running: boolean
+  port?: number
+}
+
 export interface Session {
   id: string
   project_id: string
@@ -357,6 +362,14 @@ export const api = {
   getFinding: (id: string) => request<Finding>('GET', '/v1/findings/' + id),
   createFinding: (req: { title: string; severity?: string; cwe?: string; observation_ids: string[] }) =>
     request<Finding>('POST', '/v1/findings', req),
+
+  // proxy
+  getProxy: (projectId: string) => request<ProxyStatus>('GET', `/v1/projects/${projectId}/proxy`),
+  startProxy: (projectId: string, port = 0) =>
+    request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/start`, { port }),
+  stopProxy: (projectId: string) =>
+    request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/stop`, {}),
+  proxyCAURL: () => `${baseURL}/v1/proxy/ca`,
 
   // audit
   listAudit: (limit = 100) => request<AuditEvent[]>('GET', `/v1/audit?limit=${limit}`),

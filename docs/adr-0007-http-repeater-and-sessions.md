@@ -1,7 +1,7 @@
 # ADR-0007 — HTTP capture, Repeater & interactive sessions
 
-Status: Accepted — Repeater and Terminal (sandboxed container) shipped; the intercepting Proxy and
-SSH-to-external-host / agent co-drive remain staged
+Status: Accepted — Repeater, Terminal (sandboxed container), and the intercepting Proxy shipped;
+SSH-to-external-host and agent co-drive remain staged
 
 ## Context
 
