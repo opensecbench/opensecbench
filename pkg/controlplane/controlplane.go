@@ -112,6 +112,17 @@ func Start(opts Options) (*Instance, error) {
 	if err != nil {
 		vault = nil
 	}
+	// Let the engine resolve secret references at exec time (ADR-0011).
+	if vault != nil {
+		engine.Secrets = func(ctx context.Context, name string) (string, error) {
+			sealed, err := db.GetSealed(ctx, name)
+			if err != nil {
+				return "", err
+			}
+			v, err := vault.Open(sealed)
+			return string(v), err
+		}
+	}
 
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -24,6 +25,10 @@ type RunSpec struct {
 	Image string
 	Cmd   []string
 	Env   []string
+	// SecretEnv holds sensitive env vars (name→value) injected without exposing values on the
+	// command line: the value is placed in the docker CLI's environment and passed through by name
+	// (`-e NAME`), so it never appears in `ps` output (ADR-0011). Transient; never persisted.
+	SecretEnv map[string]string
 	// Name, if set, names the container so it can be stopped with `docker kill <name>`.
 	Name     string
 	Mounts   []Mount
@@ -95,6 +100,13 @@ func (LocalRunner) Run(ctx context.Context, spec RunSpec) (Result, error) {
 	for _, e := range spec.Env {
 		args = append(args, "-e", e)
 	}
+	// Secrets: pass by name only so the value stays out of the process argv; the value rides in the
+	// docker CLI's own environment (see cmd.Env below).
+	var secretEnv []string
+	for k, v := range spec.SecretEnv {
+		args = append(args, "-e", k)
+		secretEnv = append(secretEnv, k+"="+v)
+	}
 	args = append(args, spec.Image)
 	args = append(args, spec.Cmd...)
 
@@ -105,6 +117,9 @@ func (LocalRunner) Run(ctx context.Context, spec RunSpec) (Result, error) {
 	}
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	if len(secretEnv) > 0 {
+		cmd.Env = append(os.Environ(), secretEnv...)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

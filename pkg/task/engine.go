@@ -31,6 +31,10 @@ type Engine struct {
 	registry *capability.Registry
 	runner   runner.Runner
 
+	// Secrets, if set, resolves a vault secret name to its plaintext for exec-time injection
+	// (ADR-0011). nil disables secret injection.
+	Secrets func(ctx context.Context, name string) (string, error)
+
 	mu      sync.Mutex
 	running map[string]runState
 }
@@ -71,7 +75,8 @@ type RunRequest struct {
 	TargetDir     string
 	AssetID       *string
 	ApplicationID *string
-	ProjectID     *string // scope context for network capabilities; resolved from the asset if unset
+	ProjectID     *string           // scope context for network capabilities; resolved from the asset if unset
+	SecretRefs    map[string]string // envVar -> vault secret name, injected at exec time (ADR-0011)
 	Params        map[string]any
 }
 
@@ -145,6 +150,14 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 		}
 	}
 
+	// Resolve secret references and inject them at exec time — never persisted, never logged; the
+	// returned redactor scrubs their values from captured output (ADR-0011).
+	redact, injErr := e.injectSecrets(ctx, req, &spec)
+	if injErr != nil {
+		_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, injErr.Error())
+		return e.outcome(ctx, task.ID), injErr
+	}
+
 	// Name the container and register the run so Cancel can stop it.
 	spec.Name = "osb-" + task.ID
 	runCtx, cancel := context.WithCancel(ctx)
@@ -158,6 +171,10 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 	delete(e.running, task.ID)
 	e.mu.Unlock()
 	cancel()
+
+	// Scrub any injected secret values from captured output before it is stored anywhere.
+	res.Stdout = redact(res.Stdout)
+	res.Stderr = redact(res.Stderr)
 
 	if runErr != nil {
 		msg := runErr.Error()
@@ -211,6 +228,40 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 		return e.outcome(ctx, task.ID), err
 	}
 	return e.outcome(ctx, task.ID), nil
+}
+
+// injectSecrets resolves req.SecretRefs through the vault into spec.SecretEnv and returns a redactor
+// that scrubs those values from bytes. With no refs it is a no-op; refs without a configured vault
+// resolver are an error (fail closed rather than run without the requested secrets).
+func (e *Engine) injectSecrets(ctx context.Context, req RunRequest, spec *runner.RunSpec) (func([]byte) []byte, error) {
+	noop := func(b []byte) []byte { return b }
+	if len(req.SecretRefs) == 0 {
+		return noop, nil
+	}
+	if e.Secrets == nil {
+		return nil, errors.New("task: secret injection requested but no vault is configured")
+	}
+	if spec.SecretEnv == nil {
+		spec.SecretEnv = make(map[string]string, len(req.SecretRefs))
+	}
+	type rep struct{ val, name string }
+	var reps []rep
+	for env, name := range req.SecretRefs {
+		val, err := e.Secrets(ctx, name)
+		if err != nil {
+			return nil, fmt.Errorf("resolve secret %q: %w", name, err)
+		}
+		spec.SecretEnv[env] = val
+		if val != "" {
+			reps = append(reps, rep{val, name})
+		}
+	}
+	return func(b []byte) []byte {
+		for _, r := range reps {
+			b = bytes.ReplaceAll(b, []byte(r.val), []byte("«redacted:"+r.name+"»"))
+		}
+		return b
+	}, nil
 }
 
 // checkScope resolves the project for a run and enforces its in-scope allowlist against the
