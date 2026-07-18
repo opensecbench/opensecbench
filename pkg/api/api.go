@@ -80,30 +80,34 @@ type Server struct {
 
 	proxyMu sync.Mutex
 	proxies map[string]*liveProxy
+
+	ruleMu       sync.Mutex
+	matchReplace map[string]*ruleEngine // per-project match/replace engines (ADR-0016 Step 4)
 }
 
 // New builds the API server with its routes registered.
 func New(deps Deps) *Server {
 	s := &Server{
-		mux:      http.NewServeMux(),
-		store:    deps.Store,
-		engine:   deps.Engine,
-		cas:      deps.CAS,
-		provider: deps.Provider,
-		replay:   replay.New(0),
-		events:   events.NewHub(),
-		sessMgr:  deps.SessionMgr,
-		proxyCA:  deps.ProxyCA,
-		reports:  deps.Reports,
-		methods:  deps.Methods,
-		vault:    deps.Vault,
-		integr:   integration.BuiltIns(),
-		trust:    deps.TrustStore,
-		extDir:   deps.ExtDir,
-		hubCli:   hub.NewClient(0),
-		exts:     deps.Extensions,
-		sessions: make(map[string]*liveSession),
-		proxies:  make(map[string]*liveProxy),
+		mux:          http.NewServeMux(),
+		store:        deps.Store,
+		engine:       deps.Engine,
+		cas:          deps.CAS,
+		provider:     deps.Provider,
+		replay:       replay.New(0),
+		events:       events.NewHub(),
+		sessMgr:      deps.SessionMgr,
+		proxyCA:      deps.ProxyCA,
+		reports:      deps.Reports,
+		methods:      deps.Methods,
+		vault:        deps.Vault,
+		integr:       integration.BuiltIns(),
+		trust:        deps.TrustStore,
+		extDir:       deps.ExtDir,
+		hubCli:       hub.NewClient(0),
+		exts:         deps.Extensions,
+		sessions:     make(map[string]*liveSession),
+		proxies:      make(map[string]*liveProxy),
+		matchReplace: make(map[string]*ruleEngine),
 	}
 	if s.methods == nil {
 		s.methods = methodology.BuiltIns()
@@ -205,6 +209,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/projects/{id}/intercept", s.getIntercept)
 	s.mux.HandleFunc("PUT /v1/projects/{id}/intercept", s.setIntercept)
 	s.mux.HandleFunc("POST /v1/projects/{id}/intercept/{holdId}", s.resolveIntercept)
+	s.mux.HandleFunc("GET /v1/projects/{id}/proxy-rules", s.listProxyRules)
+	s.mux.HandleFunc("POST /v1/projects/{id}/proxy-rules", s.createProxyRule)
+	s.mux.HandleFunc("PUT /v1/proxy-rules/{ruleId}", s.updateProxyRule)
+	s.mux.HandleFunc("DELETE /v1/proxy-rules/{ruleId}", s.deleteProxyRule)
 	s.mux.HandleFunc("GET /v1/projects/{id}/exchanges", s.listExchanges)
 	s.mux.HandleFunc("POST /v1/projects/{id}/exchanges", s.createExchange)
 	s.mux.HandleFunc("GET /v1/exchanges/{id}", s.getExchange)

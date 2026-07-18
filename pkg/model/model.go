@@ -48,6 +48,26 @@ type ScopeEntry struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Proxy match/replace rule targets (ADR-0016 Step 4).
+const (
+	RuleTargetURL            = "url"
+	RuleTargetRequestHeader  = "request_header"
+	RuleTargetRequestBody    = "request_body"
+	RuleTargetResponseHeader = "response_header"
+	RuleTargetResponseBody   = "response_body"
+)
+
+// ProxyRule is a per-project match/replace rule applied by the proxy's traffic-processor pipeline.
+type ProxyRule struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	Enabled   bool      `json:"enabled"`
+	Target    string    `json:"target"`
+	Match     string    `json:"match"` // regular expression
+	Replace   string    `json:"replace"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // ExternalLink ties an OSB finding to an issue in an external tracker (idempotent per integration).
 type ExternalLink struct {
 	ID          string    `json:"id"`

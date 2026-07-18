@@ -38,12 +38,14 @@ type Proxy struct {
 	onExchange func(Exchange)
 	allow      func(host string) bool
 	intercept  Interceptor
+	process    Processor
 	transport  *http.Transport
 }
 
 // New builds a proxy. onExchange persists captures; allow gates hosts (nil allows all); intercept
-// holds traffic for operator edit/forward/drop (nil disables interception — pure capture).
-func New(ca *CA, onExchange func(Exchange), allow func(host string) bool, intercept Interceptor) *Proxy {
+// holds traffic for operator edit/forward/drop (nil disables interception); process applies automatic
+// match/replace-style transforms (nil = no transforms).
+func New(ca *CA, onExchange func(Exchange), allow func(host string) bool, intercept Interceptor, process Processor) *Proxy {
 	if onExchange == nil {
 		onExchange = func(Exchange) {}
 	}
@@ -53,11 +55,15 @@ func New(ca *CA, onExchange func(Exchange), allow func(host string) bool, interc
 	if intercept == nil {
 		intercept = noopInterceptor{}
 	}
+	if process == nil {
+		process = noopProcessor{}
+	}
 	return &Proxy{
 		ca:         ca,
 		onExchange: onExchange,
 		allow:      allow,
 		intercept:  intercept,
+		process:    process,
 		transport: &http.Transport{
 			Proxy:               nil,
 			TLSHandshakeTimeout: 10 * time.Second,
@@ -96,6 +102,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	reqOn, respOn := p.intercept.Enabled()
 	method, url, header, body := r.Method, r.URL.String(), r.Header, reqBody
+	method, url, header, body = p.applyRequestRules(method, url, header, body) // auto match/replace
 	if reqOn {
 		var dropped bool
 		if method, url, header, body, dropped = p.holdRequest(ctx, method, url, header, body); dropped {
@@ -120,20 +127,24 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if respOn {
+	// Buffer when a rule or the operator needs the full response body.
+	if respOn || p.process.NeedsResponseBody() {
 		respBody, _ := io.ReadAll(resp.Body)
-		status, respHeader, outBody, dropped := p.holdResponse(ctx, method, url, resp.StatusCode, resp.Header, respBody)
-		if dropped {
-			http.Error(w, "response dropped by operator", http.StatusForbidden)
-			p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start)
-			return
+		status, respHeader, outBody := p.applyResponseRules(resp.StatusCode, resp.Header, respBody) // auto
+		if respOn {
+			var dropped bool
+			if status, respHeader, outBody, dropped = p.holdResponse(ctx, method, url, status, respHeader, outBody); dropped {
+				http.Error(w, "response dropped by operator", http.StatusForbidden)
+				p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start)
+				return
+			}
 		}
 		writeBufferedResponse(w, status, respHeader, outBody)
 		p.capture(method, url, header, body, status, respHeader, outBody, start)
 		return
 	}
 
-	// Not intercepting responses: stream through, capturing a bounded copy.
+	// Otherwise stream through, capturing a bounded copy.
 	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	cw := &capWriter{max: MaxCaptureBytes}
@@ -209,6 +220,7 @@ func (p *Proxy) forwardTLS(ctx context.Context, clientConn net.Conn, req *http.R
 	keepOpen := !req.Close && strings.ToLower(req.Header.Get("Connection")) != "close"
 	reqOn, respOn := p.intercept.Enabled()
 	method, url, header, body := req.Method, "https://"+authority+req.URL.RequestURI(), req.Header, reqBody
+	method, url, header, body = p.applyRequestRules(method, url, header, body) // auto match/replace
 	if reqOn {
 		var dropped bool
 		if method, url, header, body, dropped = p.holdRequest(ctx, method, url, header, body); dropped {
@@ -231,14 +243,17 @@ func (p *Proxy) forwardTLS(ctx context.Context, clientConn net.Conn, req *http.R
 		return false
 	}
 
-	if respOn {
+	if respOn || p.process.NeedsResponseBody() {
 		respBody, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		status, respHeader, outBody, dropped := p.holdResponse(ctx, method, url, resp.StatusCode, resp.Header, respBody)
-		if dropped {
-			_, _ = fmt.Fprintf(clientConn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
-			p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start)
-			return keepOpen
+		status, respHeader, outBody := p.applyResponseRules(resp.StatusCode, resp.Header, respBody) // auto
+		if respOn {
+			var dropped bool
+			if status, respHeader, outBody, dropped = p.holdResponse(ctx, method, url, status, respHeader, outBody); dropped {
+				_, _ = fmt.Fprintf(clientConn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+				p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start)
+				return keepOpen
+			}
 		}
 		respHeader.Del("Transfer-Encoding")
 		respHeader.Set("Content-Length", strconv.Itoa(len(outBody)))
