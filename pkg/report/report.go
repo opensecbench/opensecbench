@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/viz"
 )
@@ -31,6 +32,8 @@ type Source interface {
 	GetObservation(ctx context.Context, id string) (model.Observation, error)
 	ListScopeEntries(ctx context.Context, projectID string) ([]model.ScopeEntry, error)
 	ListTasks(ctx context.Context, limit int) ([]model.Task, error)
+	ListAdoptedMethodologies(ctx context.Context, projectID string) ([]string, error)
+	ListCoverage(ctx context.Context, projectID string) ([]model.CoverageEntry, error)
 }
 
 // Data is the immutable snapshot a report renders from.
@@ -40,6 +43,7 @@ type Data struct {
 	Scope         []model.ScopeEntry
 	Summary       Summary
 	Findings      []Finding
+	Methodology   methodology.View  // adopted checklist coverage + roll-up
 	SeverityChart htmltemplate.HTML // self-contained inline SVG figure (HTML reports)
 	CoverageChart htmltemplate.HTML // severity × status heatmap (inline SVG)
 }
@@ -181,12 +185,14 @@ func (b *Builder) Build(ctx context.Context, projectID string, now time.Time) (D
 	})
 
 	tasksRun, caps := b.coverage(ctx, appName)
+	methodView := b.methodologyCoverage(ctx, projectID)
 
 	return Data{
 		Project:       proj,
 		GeneratedAt:   now.UTC(),
 		Scope:         scope,
 		Findings:      findings,
+		Methodology:   methodView,
 		SeverityChart: htmltemplate.HTML(viz.SeverityChart(bySeverity)), //nolint:gosec // generated SVG, no user HTML
 		CoverageChart: htmltemplate.HTML(coverageHeatmap(findings)),     //nolint:gosec // generated SVG, no user HTML
 		Summary: Summary{
@@ -198,6 +204,23 @@ func (b *Builder) Build(ctx context.Context, projectID string, now time.Time) (D
 			BySeverity:   bySeverity,
 		},
 	}, nil
+}
+
+// methodologyCoverage assembles the project's adopted-checklist coverage for the report.
+func (b *Builder) methodologyCoverage(ctx context.Context, projectID string) methodology.View {
+	adopted, err := b.src.ListAdoptedMethodologies(ctx, projectID)
+	if err != nil || len(adopted) == 0 {
+		return methodology.View{}
+	}
+	entries, err := b.src.ListCoverage(ctx, projectID)
+	if err != nil {
+		return methodology.View{}
+	}
+	states := make(map[string]methodology.State, len(entries))
+	for _, e := range entries {
+		states[e.ItemID] = methodology.State{Status: e.Status, Note: e.Note}
+	}
+	return methodology.BuildCoverage(methodology.BuiltIns(), adopted, states)
 }
 
 // coverageHeatmap builds a severity × status matrix over the reportable findings as an SVG figure.

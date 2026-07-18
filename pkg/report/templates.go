@@ -110,6 +110,9 @@ _Generated {{date .GeneratedAt}}_
 This engagement covered **{{.Summary.Applications}}** application(s) and **{{.Summary.Assets}}** asset(s),
 running **{{.Summary.TasksRun}}** analysis task(s). **{{.Summary.Total}}** finding(s) with supporting
 evidence are reported below.
+{{if .Methodology.Summary.Total}}
+Methodology coverage: **{{.Methodology.Summary.CoveredPct}}%** — {{.Methodology.Summary.Covered}} of {{.Methodology.Summary.Total}} items covered ({{.Methodology.Summary.NotApplicable}} n/a).
+{{end}}
 
 ## Findings by severity
 
@@ -141,7 +144,15 @@ _Generated {{date .GeneratedAt}}_
 - Tasks run: {{.Summary.TasksRun}}
 - Capabilities exercised: {{if .Summary.Capabilities}}{{range $i, $c := .Summary.Capabilities}}{{if $i}}, {{end}}{{$c}}{{end}}{{else}}none{{end}}
 
-## Findings
+{{if .Methodology.Summary.Total}}## Methodology coverage
+
+**{{.Methodology.Summary.CoveredPct}}%** covered ({{.Methodology.Summary.Covered}}/{{.Methodology.Summary.Total}}; {{.Methodology.Summary.NotApplicable}} n/a).
+
+{{range .Methodology.Packs}}### {{.Title}}
+
+{{range .Items}}- [{{.Status}}] {{.Item.Title}}
+{{end}}
+{{end}}{{end}}## Findings
 
 {{if .Findings}}{{range .Findings}}### [{{sevfmt .Severity}}] {{.Title}}
 
@@ -234,6 +245,7 @@ const execHTML = `<!doctype html><html><head><meta charset="utf-8">
 <p>This engagement covered <b>{{.Summary.Applications}}</b> application(s) and <b>{{.Summary.Assets}}</b>
 asset(s), running <b>{{.Summary.TasksRun}}</b> analysis task(s). <b>{{.Summary.Total}}</b> finding(s)
 with supporting evidence are reported.</p>
+{{if .Methodology.Summary.Total}}<p>Methodology coverage: <b>{{.Methodology.Summary.CoveredPct}}%</b> — {{.Methodology.Summary.Covered}} of {{.Methodology.Summary.Total}} items covered ({{.Methodology.Summary.NotApplicable}} n/a).</p>{{end}}
 <h2>Findings by severity</h2>
 <figure class="chart">{{.SeverityChart}}</figure>
 <table><tr><th>Severity</th><th>Count</th></tr>
@@ -261,6 +273,9 @@ const techHTML = `<!doctype html><html><head><meta charset="utf-8">
 <figure class="chart">{{.SeverityChart}}</figure>
 <h2>Remediation coverage</h2>
 <figure class="chart">{{.CoverageChart}}</figure>
+{{if .Methodology.Summary.Total}}<h2>Methodology coverage</h2>
+<p><b>{{.Methodology.Summary.CoveredPct}}%</b> covered ({{.Methodology.Summary.Covered}}/{{.Methodology.Summary.Total}}; {{.Methodology.Summary.NotApplicable}} n/a)</p>
+{{range .Methodology.Packs}}<div class="finding"><h3>{{.Title}}</h3><ul class="findlist">{{range .Items}}<li><span class="cwe">{{.Status}}</span> {{.Item.Title}}</li>{{end}}</ul></div>{{end}}{{end}}
 <h2>Findings</h2>
 {{if .Findings}}{{range .Findings}}<div class="finding">
 <h3><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}}</h3>
