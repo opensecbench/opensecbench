@@ -1516,8 +1516,20 @@ func auditCmd(ctx context.Context, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
 	limit := fs.Int("limit", 50, "max events to show")
 	jsonOut := fs.Bool("json", false, "emit raw JSON")
+	verify := fs.Bool("verify", false, "verify the hash-chain integrity (tamper detection)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *verify {
+		v, err := c.VerifyAudit(ctx)
+		if err != nil {
+			return err
+		}
+		if v.OK {
+			fmt.Printf("audit chain intact — %d events verified\n", v.Events)
+			return nil
+		}
+		return fmt.Errorf("AUDIT CHAIN BROKEN at seq %d (tampering detected)", v.BrokenAt)
 	}
 	events, err := c.ListAudit(ctx, *limit)
 	if err != nil {

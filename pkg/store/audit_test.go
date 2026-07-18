@@ -69,3 +69,26 @@ func openAt(t *testing.T, path string) *DB {
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
+
+func TestVerifyAuditChain(t *testing.T) {
+	ctx := context.Background()
+	db := openAt(t, filepath.Join(t.TempDir(), "a.db"))
+	for i := 0; i < 3; i++ {
+		if _, err := db.AppendAudit(ctx, "human", "act", "t", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ok, broken, count, err := db.VerifyAuditChain(ctx)
+	if err != nil || !ok || count != 3 || broken != 0 {
+		t.Fatalf("intact chain: ok=%v broken=%d count=%d err=%v", ok, broken, count, err)
+	}
+
+	// Tamper with a row's action → hash no longer matches.
+	if _, err := db.ExecContext(ctx, `UPDATE audit_events SET action='tampered' WHERE seq=2`); err != nil {
+		t.Fatal(err)
+	}
+	ok, broken, _, _ = db.VerifyAuditChain(ctx)
+	if ok || broken != 2 {
+		t.Fatalf("tamper not detected: ok=%v broken=%d", ok, broken)
+	}
+}

@@ -141,6 +141,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /v1/search", s.search)
 	s.mux.HandleFunc("GET /v1/audit", s.listAudit)
+	s.mux.HandleFunc("GET /v1/audit/verify", s.verifyAudit)
 	s.mux.HandleFunc("GET /v1/notifications", s.listNotifications)
 	s.mux.HandleFunc("POST /v1/notifications/{id}/read", s.markNotificationRead)
 	s.mux.HandleFunc("POST /v1/notifications/read-all", s.markAllNotificationsRead)
@@ -877,6 +878,20 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, events)
+}
+
+// verifyAudit recomputes the audit hash chain and reports whether it is intact (tamper detection).
+func (s *Server) verifyAudit(w http.ResponseWriter, r *http.Request) {
+	ok, broken, count, err := s.store.VerifyAuditChain(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp := map[string]any{"ok": ok, "events": count}
+	if !ok {
+		resp["broken_at_seq"] = broken
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // --- Repeater / HTTP exchanges (P7) ---

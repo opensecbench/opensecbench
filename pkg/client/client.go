@@ -505,6 +505,19 @@ func (c *Client) GenerateReport(ctx context.Context, projectID, template, format
 	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/reports", body, &out)
 }
 
+// AuditVerification is the result of a hash-chain integrity check.
+type AuditVerification struct {
+	OK       bool   `json:"ok"`
+	Events   int    `json:"events"`
+	BrokenAt uint64 `json:"broken_at_seq"`
+}
+
+// VerifyAudit recomputes the audit hash chain and reports whether it is intact.
+func (c *Client) VerifyAudit(ctx context.Context) (AuditVerification, error) {
+	var out AuditVerification
+	return out, c.do(ctx, http.MethodGet, "/v1/audit/verify", nil, &out)
+}
+
 // ListAudit returns recent audit events (newest first).
 func (c *Client) ListAudit(ctx context.Context, limit int) ([]model.AuditEvent, error) {
 	path := "/v1/audit"
