@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/methodology"
 )
@@ -29,6 +30,29 @@ func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) 
 		states[e.ItemID] = methodology.State{Status: e.Status, Note: e.Note}
 	}
 	writeJSON(w, http.StatusOK, methodology.BuildCoverage(s.methods, adopted, states))
+}
+
+// methodologySuggestions recommends packs to adopt based on the project's inherited knowledge base.
+func (s *Server) methodologySuggestions(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	kb, err := s.store.ListKBByProject(r.Context(), projectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var sb strings.Builder
+	for _, e := range kb {
+		sb.WriteString(e.Kind)
+		sb.WriteByte(' ')
+		sb.WriteString(e.Title)
+		sb.WriteByte(' ')
+		sb.WriteString(e.Body)
+		sb.WriteByte(' ')
+		sb.WriteString(e.Tags)
+		sb.WriteByte('\n')
+	}
+	adopted, _ := s.store.ListAdoptedMethodologies(r.Context(), projectID)
+	writeJSON(w, http.StatusOK, methodology.Suggest(s.methods, sb.String(), adopted))
 }
 
 func (s *Server) adoptMethodology(w http.ResponseWriter, r *http.Request) {

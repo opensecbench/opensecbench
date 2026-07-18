@@ -24,7 +24,10 @@ type Methodology struct {
 	Title   string `json:"title"`
 	Tech    string `json:"tech"`
 	Version string `json:"version"`
-	Items   []Item `json:"items"`
+	// Keywords let the pack self-describe applicability: if any appears in a target's knowledge
+	// base, the pack is suggested for adoption (ADR-0009/ADR-0010 tie-in).
+	Keywords []string `json:"keywords,omitempty"`
+	Items    []Item   `json:"items"`
 }
 
 // Registry holds methodologies by id. Safe for concurrent use (runtime extension registration).
@@ -85,6 +88,7 @@ func BuiltIns() *Registry {
 
 var webApp = Methodology{
 	ID: "web-app", Title: "Web Application", Tech: "web", Version: "1.0.0",
+	Keywords: []string{"web", "http", "https", "browser", "cookie", "xss", "csrf", "html", "frontend", "webapp"},
 	Items: []Item{
 		{ID: "web-app/access-control-idor", Title: "Broken access control / IDOR",
 			Objective: "Confirm object-level and function-level authorization is enforced server-side.",
@@ -123,6 +127,7 @@ var webApp = Methodology{
 
 var restAPI = Methodology{
 	ID: "rest-api", Title: "REST API", Tech: "api", Version: "1.0.0",
+	Keywords: []string{"rest", "api", "graphql", "openapi", "swagger", "endpoint", "microservice", "grpc"},
 	Items: []Item{
 		{ID: "rest-api/authz-per-endpoint", Title: "Per-endpoint authorization",
 			Objective: "Every endpoint enforces authentication and authorization.",
@@ -146,6 +151,7 @@ var restAPI = Methodology{
 
 var oidcOAuth = Methodology{
 	ID: "oidc-oauth", Title: "OIDC / OAuth 2.0", Tech: "auth", Version: "1.0.0",
+	Keywords: []string{"oauth", "oidc", "openid", "saml", "sso", "jwt", "bearer", "okta", "auth0", "keycloak", "identity provider"},
 	Items: []Item{
 		{ID: "oidc-oauth/redirect-uri", Title: "Redirect URI validation",
 			Objective: "Authorization server strictly validates redirect_uri.",

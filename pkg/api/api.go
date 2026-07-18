@@ -162,6 +162,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/hub/install", s.hubInstall)
 	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)
+	s.mux.HandleFunc("GET /v1/projects/{id}/methodology/suggestions", s.methodologySuggestions)
 	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/adopt", s.adoptMethodology)
 	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/unadopt", s.unadoptMethodology)
 	s.mux.HandleFunc("POST /v1/projects/{id}/coverage", s.setCoverage)

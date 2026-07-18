@@ -428,6 +428,19 @@ func (c *Client) GetMethodologyCoverage(ctx context.Context, projectID string) (
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/methodology", nil, &out)
 }
 
+// MethodologySuggestion recommends adopting a pack based on the KB.
+type MethodologySuggestion struct {
+	MethodologyID string `json:"methodology_id"`
+	Title         string `json:"title"`
+	Reason        string `json:"reason"`
+}
+
+// MethodologySuggestions returns KB-driven pack suggestions for a project.
+func (c *Client) MethodologySuggestions(ctx context.Context, projectID string) ([]MethodologySuggestion, error) {
+	var out []MethodologySuggestion
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/methodology/suggestions", nil, &out)
+}
+
 // AdoptMethodology adopts a methodology pack for a project.
 func (c *Client) AdoptMethodology(ctx context.Context, projectID, methodologyID string) error {
 	return c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/methodology/adopt",
