@@ -29,7 +29,7 @@ infrastructure pieces that warrant their own focused efforts.
 - [x] **Wails desktop build compiles + vets** with `CGO_ENABLED=1 go build -tags "desktop webkit2_41"`
       (webkit2gtk-4.1 2.52 + gtk3 present); `frontend/dist` embeds. The remaining step is *running*
       the GUI (`make dev`) on a desktop session — needs a display, so do it locally.
-- [ ] Desktop **"Open browser"** button in the Proxy tab (Wails binding; today it's `osb proxy browser`).
+- [x] Desktop "Open browser" button in the Proxy tab (Wails binding → browser.Launch).
 
 ## Small / medium follow-ups
 

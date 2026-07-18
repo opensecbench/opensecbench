@@ -6,6 +6,8 @@ import (
 	"context"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"github.com/opensecbench/opensecbench/pkg/browser"
 )
 
 // App holds the Wails context and exposes OS-native operations to the frontend. Per ADR-0001,
@@ -25,4 +27,11 @@ func (a *App) SelectDirectory() (string, error) {
 // SelectFile opens a native file picker and returns the chosen path ("" if cancelled).
 func (a *App) SelectFile() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select a file"})
+}
+
+// OpenProxyBrowser launches a throwaway Chromium preconfigured to use the project's intercepting
+// proxy (port) and trust only its CA (spki) — the desktop equivalent of `osb proxy browser`. This
+// is an OS-native action (launching a local process), which is why it's a Wails binding.
+func (a *App) OpenProxyBrowser(port int, spki string) error {
+	return browser.Launch(port, spki, "about:blank")
 }

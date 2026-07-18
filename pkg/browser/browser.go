@@ -4,6 +4,7 @@ package browser
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +40,46 @@ func Resolve(override string) (string, error) {
 		}
 	}
 	return "", ErrNotFound
+}
+
+// ProxyArgs builds the Chromium flags for a throwaway browser pointed at the intercepting proxy and
+// trusting only its CA (via --ignore-certificate-errors-spki-list) — no system trust change.
+func ProxyArgs(profileDir string, port int, spki, url string) []string {
+	if url == "" {
+		url = "about:blank"
+	}
+	return []string{
+		"--user-data-dir=" + profileDir,
+		"--no-first-run",
+		"--no-default-browser-check",
+		fmt.Sprintf("--proxy-server=127.0.0.1:%d", port),
+		"--proxy-bypass-list=<-loopback>", // route loopback through the proxy too
+		"--ignore-certificate-errors-spki-list=" + spki,
+		url,
+	}
+}
+
+// Launch starts a preconfigured throwaway browser detached (non-blocking) and cleans up its temp
+// profile after it exits. Used by the desktop "Open browser" binding.
+func Launch(port int, spki, url string) error {
+	bin, err := Resolve("")
+	if err != nil {
+		return err
+	}
+	profile, err := os.MkdirTemp("", "osb-browser-")
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(bin, ProxyArgs(profile, port, spki, url)...)
+	if err := cmd.Start(); err != nil {
+		_ = os.RemoveAll(profile)
+		return err
+	}
+	go func() {
+		_ = cmd.Wait()
+		_ = os.RemoveAll(profile)
+	}()
+	return nil
 }
 
 // Candidates lists the browser binaries tried, most-preferred first, for the current platform.

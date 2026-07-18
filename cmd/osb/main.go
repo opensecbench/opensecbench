@@ -1042,15 +1042,7 @@ func proxyBrowser(ctx context.Context, c *client.Client, args []string) error {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	chromeArgs := []string{
-		"--user-data-dir=" + profile,
-		"--no-first-run",
-		"--no-default-browser-check",
-		fmt.Sprintf("--proxy-server=127.0.0.1:%d", st.Port),
-		"--proxy-bypass-list=<-loopback>", // also route loopback through the proxy (assess local apps)
-		"--ignore-certificate-errors-spki-list=" + st.CASPKI,
-		*startURL,
-	}
+	chromeArgs := browser.ProxyArgs(profile, st.Port, st.CASPKI, *startURL)
 	fmt.Printf("launching %s → proxy 127.0.0.1:%d\n", filepath.Base(bin), st.Port)
 	fmt.Println("(isolated throwaway profile; trusts the OpenSecBench CA only — no system trust change)")
 	fmt.Println("close the browser (or Ctrl-C) to return.")

@@ -8,6 +8,7 @@ declare global {
         App?: {
           SelectDirectory?: () => Promise<string>
           SelectFile?: () => Promise<string>
+          OpenProxyBrowser?: (port: number, spki: string) => Promise<void>
         }
       }
     }
@@ -33,4 +34,16 @@ export async function pickFile(): Promise<string | null> {
   if (!fn) return null
   const path = await fn()
   return path || null
+}
+
+/** hasNativeBrowserLaunch reports whether the desktop app can launch a preconfigured browser. */
+export function hasNativeBrowserLaunch(): boolean {
+  return !!window.go?.main?.App?.OpenProxyBrowser
+}
+
+/** openProxyBrowser launches a throwaway browser through the proxy (desktop app only). */
+export async function openProxyBrowser(port: number, spki: string): Promise<void> {
+  const fn = window.go?.main?.App?.OpenProxyBrowser
+  if (!fn) return
+  await fn(port, spki)
 }
