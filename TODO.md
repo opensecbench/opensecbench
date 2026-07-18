@@ -46,7 +46,9 @@ and can later ship as plugins.
 - [x] **Send to Replay** (Step 1) — one click from a captured exchange → a Replay document seeded with
       the request (via the shared action registry + the doc-seed model).
 - [x] **Save-as-evidence** from a captured exchange (Step 1; registry action).
-- [ ] **Live push** (Step 2) — WebSocket/SSE for new captures instead of the 2.5s poll.
+- [x] **Live push** (Step 2) — SSE stream (`GET /v1/projects/{id}/events`) over a generic in-process
+      event hub (`pkg/events`); Proxy dropped the 2.5s poll (captures appear in ~15ms). The hub is the
+      reusable foundation for future task/approval/Analyst streaming.
 - [ ] **Intercept & edit** (Step 3) — hold a request/response, edit, forward/drop (needs an intercept
       queue in pkg/proxy + a control channel; today it's passthrough capture only). The one new subsystem.
 - [ ] **Match/replace + scope highlighting** (Step 4) — a traffic-processor in the pipeline; highlight
