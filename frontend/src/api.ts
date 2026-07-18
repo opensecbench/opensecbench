@@ -232,10 +232,17 @@ export const api = {
 
   // capabilities & tasks
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
+  listTasks: () => request<Task[]>('GET', '/v1/tasks'),
   runTask: (req: { capability_id: string; asset_id?: string; target_dir?: string; params?: Record<string, unknown>; actor?: string }) =>
     request<TaskOutcome>('POST', '/v1/tasks', req),
+  getTaskArtifacts: (taskId: string) => request<Artifact[]>('GET', `/v1/tasks/${taskId}/artifacts`),
   listTaskObservations: (taskId: string) =>
     request<Observation[]>('GET', `/v1/tasks/${taskId}/observations`),
+  artifactContent: async (id: string) => {
+    const res = await fetch(baseURL + '/v1/artifacts/' + id + '/content')
+    if (!res.ok) throw new Error(res.statusText)
+    return res.text()
+  },
 
   // observations & findings
   reviewObservation: (id: string, state: string) =>

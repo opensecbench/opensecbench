@@ -94,6 +94,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
 
 	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
+	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)
 	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
 	s.mux.HandleFunc("GET /v1/tasks/{id}", s.getTask)
 	s.mux.HandleFunc("GET /v1/tasks/{id}/artifacts", s.getTaskArtifacts)
@@ -675,6 +676,15 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, out)
+}
+
+func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
+	tasks, err := s.store.ListTasks(r.Context(), 50)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, tasks)
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {

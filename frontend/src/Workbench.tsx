@@ -11,9 +11,10 @@ import {
   TaskOutcome,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
+import { TasksTab } from './TasksTab'
 import { hasNativePickers, pickDirectory } from './native'
 
-type Tab = 'assets' | 'context' | 'scan' | 'findings' | 'analyst'
+type Tab = 'assets' | 'context' | 'scan' | 'tasks' | 'findings' | 'analyst'
 
 interface AppAssets {
   app: Application
@@ -71,7 +72,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="tabs">
-        {(['assets', 'context', 'scan', 'findings', 'analyst'] as Tab[]).map((t) => (
+        {(['assets', 'context', 'scan', 'tasks', 'findings', 'analyst'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -81,6 +82,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {tab === 'assets' && <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />}
       {tab === 'context' && <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />}
       {tab === 'scan' && <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />}
+      {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
       {tab === 'findings' && <FindingsTab findings={findings} />}
       {tab === 'analyst' && <AnalystPanel project={project} online={online} />}
     </div>
