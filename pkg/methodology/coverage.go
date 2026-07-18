@@ -16,9 +16,10 @@ type State struct {
 
 // ItemCoverage is a catalog item paired with its project status.
 type ItemCoverage struct {
-	Item   Item   `json:"item"`
-	Status string `json:"status"`
-	Note   string `json:"note,omitempty"`
+	Item          Item   `json:"item"`
+	Status        string `json:"status"`
+	Note          string `json:"note,omitempty"`
+	EvidenceCount int    `json:"evidence_count,omitempty"` // observations attached to this item (ADR-0015 P3b)
 }
 
 // PackCoverage is an adopted methodology and its items' statuses.

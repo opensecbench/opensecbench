@@ -1,7 +1,8 @@
 # ADR-0009 — Methodology & coverage
 
-Status: Accepted (built-in packs, per-project adoption + item status, coverage roll-up); applicability
-automation and packs-as-extensions staged
+Status: Accepted (built-in packs, per-project adoption + item status, coverage roll-up; evidence↔item
+linking via `coverage_observations`, migration 0021, see ADR-0015 Phase 3b); applicability automation and
+packs-as-extensions staged
 
 ## Context
 

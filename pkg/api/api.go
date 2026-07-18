@@ -1019,7 +1019,8 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Note string `json:"note"`
+		Note   string `json:"note"`
+		ItemID string `json:"item_id"` // optional: attach this evidence to a methodology item (ADR-0015 P3b)
 	}
 	_ = decodeJSONOptional(r, &req)
 
@@ -1057,7 +1058,15 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.record(r.Context(), actorOf(r), "evidence.exchange", obs.ID, map[string]string{"exchange": ex.ID})
+	if req.ItemID != "" {
+		if err := s.store.LinkCoverageObservation(r.Context(), ex.ProjectID, req.ItemID, obs.ID); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.record(r.Context(), actorOf(r), "evidence.exchange", obs.ID, map[string]string{"exchange": ex.ID, "item": req.ItemID})
+	} else {
+		s.record(r.Context(), actorOf(r), "evidence.exchange", obs.ID, map[string]string{"exchange": ex.ID})
+	}
 	writeJSON(w, http.StatusCreated, obs)
 }
 

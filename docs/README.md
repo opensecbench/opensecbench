@@ -23,7 +23,7 @@ scratch); these docs are the buildable, versioned foundation.
 | [0012](adr-0012-collaboration-export-import.md) | Collaboration: portable export/import | Accepted (encrypted bundle); mediated sharing + signing staged |
 | [0013](adr-0013-extension-loader.md) | Extension loader | Accepted (dir packages, container caps + methodology, ed25519 signing); more pack types staged |
 | [0014](adr-0014-community-hub.md) | Community extension hub | Accepted (static signed index, publish/browse/install, explicit trust); scanning/reputation staged |
-| [0015](adr-0015-workbench-ide-shell.md) | Workbench IDE shell | Accepted (Phase 1 — frame reshape; Phase 2 — contextual explorer + methodology landing + coverage); persistent document tabs (Phase 3) staged |
+| [0015](adr-0015-workbench-ide-shell.md) | Workbench IDE shell | Accepted (Phases 1–3 delivered: frame reshape; explorer + methodology landing + coverage; persistent multi-document keep-alive + in-context Repeater↔item evidence binding) |
 
 Later subsystems get an ADR when their phase begins. See [`../TODO.md`](../TODO.md).
 

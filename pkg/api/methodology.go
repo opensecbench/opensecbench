@@ -29,7 +29,21 @@ func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) 
 	for _, e := range entries {
 		states[e.ItemID] = methodology.State{Status: e.Status, Note: e.Note}
 	}
-	writeJSON(w, http.StatusOK, methodology.BuildCoverage(s.methods, adopted, states))
+	view := methodology.BuildCoverage(s.methods, adopted, states)
+
+	// Enrich items with attached-evidence counts (ADR-0015 P3b). Done here rather than in
+	// BuildCoverage so the dependency-free coverage builder and its other callers stay unchanged.
+	evidence, err := s.store.CountCoverageEvidence(r.Context(), projectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for pi := range view.Packs {
+		for ii := range view.Packs[pi].Items {
+			view.Packs[pi].Items[ii].EvidenceCount = evidence[view.Packs[pi].Items[ii].Item.ID]
+		}
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // methodologySuggestions recommends packs to adopt based on the project's inherited knowledge base.
