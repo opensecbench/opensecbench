@@ -271,6 +271,7 @@ export interface HTTPExchange {
   duration_ms?: number
   created_at: string
   sent_at?: string
+  in_scope?: boolean // computed by the server against the project scope allowlist
 }
 
 export interface Artifact {

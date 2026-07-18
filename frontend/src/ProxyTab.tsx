@@ -177,10 +177,10 @@ export function ProxyTab({
               </thead>
               <tbody>
                 {captured.map((e) => (
-                  <tr key={e.id} className={selectedId === e.id ? 'sel' : ''} onClick={() => setSelectedId(e.id)}>
+                  <tr key={e.id} className={`${selectedId === e.id ? 'sel' : ''} ${e.in_scope === false ? 'oos' : ''}`} onClick={() => setSelectedId(e.id)}>
                     <td><span className={`badge ${statusClass(e.status)}`}>{e.status ?? '—'}</span></td>
                     <td className="kind">{e.method}</td>
-                    <td className="mono url">{e.url}</td>
+                    <td className="mono url">{e.in_scope === false && <span className="oos-tag" title="out of scope">out</span>}{e.url}</td>
                     <td className="muted">{e.duration_ms ?? ''}</td>
                   </tr>
                 ))}
