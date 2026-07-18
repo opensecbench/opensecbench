@@ -127,6 +127,44 @@ export interface SearchResult {
   detail?: string
 }
 
+export interface Thread {
+  id: string
+  project_id?: string
+  parent_thread_id?: string
+  title: string
+  status: string
+  provider: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Msg {
+  id: string
+  thread_id: string
+  seq: number
+  role: string
+  content: string
+  created_at: string
+}
+
+export interface Approval {
+  id: string
+  thread_id: string
+  tool: string
+  args: Record<string, unknown>
+  status: string
+  created_at: string
+}
+
+export interface SendResult {
+  thread: Thread
+  new_messages: Msg[]
+  answer?: string
+  pending_approval?: Approval
+  input_tokens?: number
+  output_tokens?: number
+}
+
 // --- request helper ---
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -209,4 +247,15 @@ export const api = {
 
   // search
   search: (q: string) => request<SearchResult[]>('GET', '/v1/search?q=' + encodeURIComponent(q)),
+
+  // analyst threads & approvals
+  listThreads: () => request<Thread[]>('GET', '/v1/threads'),
+  createThread: (projectId?: string, title?: string) =>
+    request<Thread>('POST', '/v1/threads', { project_id: projectId, title }),
+  getThread: (id: string) => request<{ thread: Thread; messages: Msg[] }>('GET', '/v1/threads/' + id),
+  sendMessage: (id: string, message: string) =>
+    request<SendResult>('POST', `/v1/threads/${id}/messages`, { message }),
+  listApprovals: () => request<Approval[]>('GET', '/v1/approvals'),
+  decideApproval: (id: string, decision: 'approve' | 'deny') =>
+    request<SendResult>('POST', `/v1/approvals/${id}/decide`, { decision }),
 }

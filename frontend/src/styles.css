@@ -588,3 +588,191 @@ a.link,
   opacity: 0.4;
   cursor: default;
 }
+
+/* --- analyst panel --- */
+.analyst {
+  display: flex;
+  gap: 14px;
+  margin-top: 16px;
+  height: 560px;
+}
+.threads {
+  width: 210px;
+  min-width: 210px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: auto;
+}
+.new-thread {
+  background: var(--acc);
+  color: #04101f;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.thread-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--tx2);
+  padding: 8px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12.5px;
+}
+.thread-item.on {
+  background: var(--bg4);
+  color: var(--tx);
+}
+.tstatus {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tx3);
+  flex: 0 0 8px;
+}
+.tstatus-active {
+  background: var(--green);
+}
+.tstatus-awaiting_approval {
+  background: var(--amber);
+}
+.tstatus-error {
+  background: var(--red);
+}
+.tname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+}
+.messages {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.msg {
+  font-size: 13px;
+}
+.msg b {
+  font-size: 11px;
+  color: var(--tx3);
+  display: block;
+  margin-bottom: 2px;
+}
+.msg.user > div {
+  color: var(--tx);
+}
+.msg.analyst > div {
+  color: var(--tx);
+  background: var(--bg4);
+  padding: 9px 11px;
+  border-radius: 9px;
+  white-space: pre-wrap;
+}
+.msg.tool {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--tx3);
+}
+.msg.propose {
+  color: var(--amber);
+  font-size: 12.5px;
+}
+.approval-card {
+  margin: 0 14px 10px;
+  border: 1px solid var(--amber);
+  background: var(--amber-bg, #2a2114);
+  border-radius: 9px;
+  padding: 11px;
+}
+.ac-title {
+  color: var(--amber);
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 7px;
+}
+.approval-card code {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--tx);
+  background: #00000030;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+.ac-btns {
+  display: flex;
+  gap: 8px;
+}
+.ac-btns .ok {
+  background: var(--green);
+  border: 0;
+  color: #04140b;
+  font-weight: 700;
+  border-radius: 7px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.ac-btns .no {
+  background: transparent;
+  border: 1px solid var(--line2);
+  color: var(--tx2);
+  border-radius: 7px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+}
+.composer input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  padding: 9px 12px;
+  color: var(--tx);
+  font-size: 13px;
+}
+.composer button {
+  background: var(--acc);
+  color: #04101f;
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.composer button:disabled {
+  opacity: 0.5;
+}
