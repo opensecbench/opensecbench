@@ -226,6 +226,20 @@ func (db *DB) GetFinding(ctx context.Context, id string) (model.Finding, error) 
 	return f, rows.Err()
 }
 
+// SetFindingStatus updates a finding's status (open | confirmed | remediated | accepted |
+// false_positive).
+func (db *DB) SetFindingStatus(ctx context.Context, id, status string) error {
+	res, err := db.ExecContext(ctx,
+		`UPDATE findings SET status = ?, updated_at = ? WHERE id = ?`, status, nowString(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListFindings returns all findings, newest first (without supporting-observation ids).
 func (db *DB) ListFindings(ctx context.Context) ([]model.Finding, error) {
 	rows, err := db.QueryContext(ctx,
