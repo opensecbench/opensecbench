@@ -36,11 +36,11 @@ func (s *Store) Put(r io.Reader) (digest string, err error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	h := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(tmp, h), r); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return "", err
 	}
 	if err := tmp.Close(); err != nil {

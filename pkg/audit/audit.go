@@ -66,10 +66,10 @@ func (l *Log) Append(actor, action, target string, data json.RawMessage) (Event,
 
 // chainHash binds an event to its predecessor over a stable field encoding.
 func chainHash(e Event) string {
+	header := fmt.Sprintf("%s\n%d\n%s\n%s\n%s\n%s\n",
+		e.PrevHash, e.Seq, e.Time.Format(time.RFC3339Nano), e.Actor, e.Action, e.Target)
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\n%d\n%s\n%s\n%s\n",
-		e.PrevHash, e.Seq, e.Time.Format(time.RFC3339Nano), e.Actor, e.Action)
-	fmt.Fprintf(h, "%s\n", e.Target)
+	h.Write([]byte(header))
 	h.Write(e.Data)
 	return hex.EncodeToString(h.Sum(nil))
 }
