@@ -91,6 +91,40 @@ export interface AuditEvent {
   hash: string
 }
 
+export interface MethodologyItem {
+  id: string
+  title: string
+  objective?: string
+  procedure?: string
+  standards?: string[]
+  suggested_capabilities?: string[]
+}
+
+export interface Methodology {
+  id: string
+  title: string
+  tech: string
+  version: string
+  items: MethodologyItem[]
+}
+
+export interface CoverageView {
+  packs: {
+    id: string
+    title: string
+    tech: string
+    items: { item: MethodologyItem; status: string; note?: string }[]
+  }[]
+  summary: {
+    total: number
+    covered: number
+    in_progress: number
+    not_applicable: number
+    not_started: number
+    covered_pct: number
+  }
+}
+
 export interface Notification {
   id: string
   kind: string
@@ -402,6 +436,17 @@ export const api = {
   stopProxy: (projectId: string) =>
     request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/stop`, {}),
   proxyCAURL: () => `${baseURL}/v1/proxy/ca`,
+
+  // methodology
+  listMethodologies: () => request<Methodology[]>('GET', '/v1/methodologies'),
+  getMethodologyCoverage: (projectId: string) =>
+    request<CoverageView>('GET', `/v1/projects/${projectId}/methodology`),
+  adoptMethodology: (projectId: string, methodologyId: string) =>
+    request<void>('POST', `/v1/projects/${projectId}/methodology/adopt`, { methodology_id: methodologyId }),
+  unadoptMethodology: (projectId: string, methodologyId: string) =>
+    request<void>('POST', `/v1/projects/${projectId}/methodology/unadopt`, { methodology_id: methodologyId }),
+  setCoverage: (projectId: string, itemId: string, status: string, note = '') =>
+    request<void>('POST', `/v1/projects/${projectId}/coverage`, { item_id: itemId, status, note }),
 
   // reports
   listReportTemplates: () => request<ReportTemplate[]>('GET', '/v1/report-templates'),
