@@ -41,6 +41,7 @@ type Data struct {
 	Summary       Summary
 	Findings      []Finding
 	SeverityChart htmltemplate.HTML // self-contained inline SVG figure (HTML reports)
+	CoverageChart htmltemplate.HTML // severity × status heatmap (inline SVG)
 }
 
 // Summary is the coverage + severity roll-up.
@@ -58,6 +59,43 @@ type Finding struct {
 	model.Finding
 	AppName  string
 	Evidence []model.Observation
+}
+
+// CWEGroup is a set of findings sharing a CWE, for the compliance/mapping report.
+type CWEGroup struct {
+	CWE      string
+	Findings []Finding
+}
+
+// CWEGroups partitions findings by CWE, most-severe group first; unmapped findings group last.
+func CWEGroups(findings []Finding) []CWEGroup {
+	byCWE := map[string][]Finding{}
+	var order []string
+	for _, f := range findings {
+		key := f.CWE
+		if key == "" {
+			key = "Unmapped"
+		}
+		if _, seen := byCWE[key]; !seen {
+			order = append(order, key)
+		}
+		byCWE[key] = append(byCWE[key], f)
+	}
+	// Order groups by their most-severe finding (findings are already severity-sorted), Unmapped last.
+	sort.SliceStable(order, func(i, j int) bool {
+		if order[i] == "Unmapped" {
+			return false
+		}
+		if order[j] == "Unmapped" {
+			return true
+		}
+		return rankOf(byCWE[order[i]][0].Severity) < rankOf(byCWE[order[j]][0].Severity)
+	})
+	out := make([]CWEGroup, 0, len(order))
+	for _, k := range order {
+		out = append(out, CWEGroup{CWE: k, Findings: byCWE[k]})
+	}
+	return out
 }
 
 // severityRank orders severities most-severe first; unknown severities sort last.
@@ -150,6 +188,7 @@ func (b *Builder) Build(ctx context.Context, projectID string, now time.Time) (D
 		Scope:         scope,
 		Findings:      findings,
 		SeverityChart: htmltemplate.HTML(viz.SeverityChart(bySeverity)), //nolint:gosec // generated SVG, no user HTML
+		CoverageChart: htmltemplate.HTML(coverageHeatmap(findings)),     //nolint:gosec // generated SVG, no user HTML
 		Summary: Summary{
 			Applications: len(apps),
 			Assets:       assetCount,
@@ -159,6 +198,34 @@ func (b *Builder) Build(ctx context.Context, projectID string, now time.Time) (D
 			BySeverity:   bySeverity,
 		},
 	}, nil
+}
+
+// coverageHeatmap builds a severity × status matrix over the reportable findings as an SVG figure.
+func coverageHeatmap(findings []Finding) string {
+	sevRows := []string{"critical", "high", "medium", "low", "info"}
+	statusCols := []string{model.FindingOpen, model.FindingConfirmed, model.FindingRemediated, model.FindingAccepted}
+	sevIdx := map[string]int{}
+	for i, s := range sevRows {
+		sevIdx[s] = i
+	}
+	statusIdx := map[string]int{}
+	for i, s := range statusCols {
+		statusIdx[s] = i
+	}
+	counts := make([][]int, len(sevRows))
+	for i := range counts {
+		counts[i] = make([]int, len(statusCols))
+	}
+	for _, f := range findings {
+		ri, rok := sevIdx[f.Severity]
+		ci, cok := statusIdx[f.Status]
+		if rok && cok {
+			counts[ri][ci]++
+		}
+	}
+	rowLabels := []string{"CRIT", "HIGH", "MED", "LOW", "INFO"}
+	colLabels := []string{"open", "confirmed", "remediated", "accepted"}
+	return viz.Heatmap(rowLabels, colLabels, counts)
 }
 
 // coverage counts tasks run against the project's applications and the distinct capabilities used.

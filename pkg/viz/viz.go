@@ -79,3 +79,75 @@ func barOpacity(count int) string {
 	}
 	return "1"
 }
+
+// Heatmap renders a labelled grid of counts as inline SVG, cell intensity scaled to the max count.
+// counts is row-major: counts[r][c] aligns with rowLabels[r] and colLabels[c].
+func Heatmap(rowLabels, colLabels []string, counts [][]int) string {
+	const (
+		cell     = 46
+		rowLabW  = 74
+		colLabH  = 22
+		pad      = 4
+		fontSize = 12
+	)
+	cols := len(colLabels)
+	rows := len(rowLabels)
+	width := rowLabW + cols*cell + pad
+	height := colLabH + rows*cell + pad
+
+	max := 0
+	for _, r := range counts {
+		for _, v := range r {
+			if v > max {
+				max = v
+			}
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-label="Coverage heatmap" font-family="sans-serif" font-size="%d">`,
+		width, height, width, height, fontSize)
+
+	// Column headers.
+	for c, label := range colLabels {
+		x := rowLabW + c*cell + cell/2
+		fmt.Fprintf(&b, `<text x="%d" y="%d" fill="#6b7280" text-anchor="middle">%s</text>`,
+			x, colLabH-6, html.EscapeString(label))
+	}
+	for r, rlabel := range rowLabels {
+		y := colLabH + r*cell
+		fmt.Fprintf(&b, `<text x="0" y="%d" fill="#374151" font-weight="600">%s</text>`,
+			y+cell/2+4, html.EscapeString(rlabel))
+		for c := range colLabels {
+			v := 0
+			if r < len(counts) && c < len(counts[r]) {
+				v = counts[r][c]
+			}
+			x := rowLabW + c*cell
+			fmt.Fprintf(&b, `<rect x="%d" y="%d" width="%d" height="%d" rx="4" fill="#3b82f6" opacity="%s" stroke="#e5e7eb"/>`,
+				x+2, y+2, cell-4, cell-4, cellOpacity(v, max))
+			if v > 0 {
+				fmt.Fprintf(&b, `<text x="%d" y="%d" fill="%s" text-anchor="middle" font-weight="600">%d</text>`,
+					x+cell/2, y+cell/2+4, cellText(v, max), v)
+			}
+		}
+	}
+	b.WriteString(`</svg>`)
+	return b.String()
+}
+
+func cellOpacity(v, max int) string {
+	if v == 0 || max == 0 {
+		return "0.06"
+	}
+	// 0.25..1.0 scaled by intensity.
+	o := 0.25 + 0.75*float64(v)/float64(max)
+	return fmt.Sprintf("%.2f", o)
+}
+
+func cellText(v, max int) string {
+	if max > 0 && float64(v)/float64(max) > 0.55 {
+		return "#fff"
+	}
+	return "#1f2937"
+}

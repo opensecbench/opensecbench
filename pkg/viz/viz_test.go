@@ -31,3 +31,21 @@ func TestSeverityChartEmpty(t *testing.T) {
 		t.Fatalf("empty chart should say 'No findings': %s", svg)
 	}
 }
+
+func TestHeatmapRenders(t *testing.T) {
+	svg := Heatmap([]string{"CRIT", "HIGH"}, []string{"open", "fixed"}, [][]int{{2, 0}, {1, 3}})
+	if !strings.HasPrefix(svg, "<svg") || !strings.HasSuffix(svg, "</svg>") {
+		t.Fatalf("not a self-contained svg")
+	}
+	for _, bad := range []string{"<script", "xlink:href", "<image", "url("} {
+		if strings.Contains(svg, bad) {
+			t.Fatalf("svg contains %q", bad)
+		}
+	}
+	// Labels + non-zero cell values present.
+	for _, want := range []string{"CRIT", "HIGH", "open", "fixed", ">2<", ">3<"} {
+		if !strings.Contains(svg, want) {
+			t.Fatalf("heatmap missing %q", want)
+		}
+	}
+}
