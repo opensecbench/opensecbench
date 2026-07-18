@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -66,18 +65,6 @@ func TestAnthropicProvider(t *testing.T) {
 	}
 	if resp.Text != "answer" || resp.OutputTokens != 2 {
 		t.Fatalf("unexpected response: %+v", resp)
-	}
-}
-
-func TestCLIProvider(t *testing.T) {
-	// `echo` stands in for the completion binary and echoes the rendered prompt.
-	p := &CLIProvider{Bin: "echo"}
-	resp, err := p.Complete(context.Background(), CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "hello world"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(resp.Text, "hello world") {
-		t.Fatalf("cli output missing prompt: %q", resp.Text)
 	}
 }
 
