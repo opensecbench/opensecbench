@@ -3,12 +3,14 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 	"github.com/opensecbench/opensecbench/pkg/template"
@@ -81,6 +83,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/projects/{id}/applications", s.listApplications)
 	s.mux.HandleFunc("POST /v1/projects/{id}/applications", s.createApplication)
 	s.mux.HandleFunc("GET /v1/applications/{id}", s.getApplication)
+	s.mux.HandleFunc("GET /v1/projects/{id}/context", s.listContext)
+	s.mux.HandleFunc("POST /v1/projects/{id}/context", s.ingestContext)
 	s.mux.HandleFunc("GET /v1/applications/{id}/assets", s.listAssets)
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
@@ -380,6 +384,70 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, asset)
+}
+
+// --- context items ---
+
+func (s *Server) listContext(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListContextItemsByProject(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+// ingestContext stores a request body in the CAS as an input artifact and records a context item.
+// Metadata comes from query params (name, type); content type is taken from the header.
+func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, "name query parameter is required")
+		return
+	}
+	ctype := r.URL.Query().Get("type")
+	if ctype == "" {
+		ctype = model.ContextDocument
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<20) // 64 MiB cap
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "read body: "+err.Error())
+		return
+	}
+
+	digest, err := s.cas.Put(bytes.NewReader(data))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	mediaType := r.Header.Get("Content-Type")
+	if mediaType == "" {
+		mediaType = "application/octet-stream"
+	}
+	art, err := s.store.CreateArtifact(r.Context(), model.Artifact{
+		SHA256:    digest,
+		Size:      int64(len(data)),
+		Kind:      model.ArtifactInput,
+		Name:      name,
+		MediaType: mediaType,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	ci, err := s.store.CreateContextItem(r.Context(), model.ContextItem{
+		ProjectID:  r.PathValue("id"),
+		Type:       ctype,
+		Name:       name,
+		ArtifactID: art.ID,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, ci)
 }
 
 // --- capabilities, tasks, artifacts ---

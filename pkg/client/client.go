@@ -60,6 +60,46 @@ func (c *Client) DeleteProject(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+id, nil, nil)
 }
 
+// ListContext returns a project's ingested context items.
+func (c *Client) ListContext(ctx context.Context, projectID string) ([]model.ContextItem, error) {
+	var out []model.ContextItem
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/context", nil, &out)
+}
+
+// IngestContext stores content as a project context item (document, email, chat, or note).
+func (c *Client) IngestContext(ctx context.Context, projectID, name, ctype, mediaType string, content []byte) (model.ContextItem, error) {
+	u := c.baseURL + "/v1/projects/" + projectID + "/context?name=" + url.QueryEscape(name)
+	if ctype != "" {
+		u += "&type=" + url.QueryEscape(ctype)
+	}
+	if mediaType == "" {
+		mediaType = "application/octet-stream"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(content))
+	if err != nil {
+		return model.ContextItem{}, err
+	}
+	req.Header.Set("Content-Type", mediaType)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return model.ContextItem{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusBadRequest {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error == "" {
+			e.Error = resp.Status
+		}
+		return model.ContextItem{}, fmt.Errorf("ingest context: %s", e.Error)
+	}
+	var out model.ContextItem
+	return out, json.NewDecoder(resp.Body).Decode(&out)
+}
+
 // Search runs omni-search across projects, applications, assets, findings, and observations.
 func (c *Client) Search(ctx context.Context, q string) ([]model.SearchResult, error) {
 	var out []model.SearchResult
