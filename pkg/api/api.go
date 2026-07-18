@@ -11,6 +11,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
+	"github.com/opensecbench/opensecbench/pkg/template"
 	"github.com/opensecbench/opensecbench/pkg/version"
 )
 
@@ -66,6 +67,9 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /v1/targets", s.listTargets)
 	s.mux.HandleFunc("POST /v1/targets", s.createTarget)
+
+	s.mux.HandleFunc("GET /v1/templates", s.listTemplates)
+	s.mux.HandleFunc("POST /v1/projects/from-template", s.createProjectFromTemplate)
 
 	s.mux.HandleFunc("GET /v1/projects", s.listProjects)
 	s.mux.HandleFunc("POST /v1/projects", s.createProject)
@@ -234,6 +238,48 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- templates ---
+
+func (s *Server) listTemplates(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, template.BuiltIns())
+}
+
+func (s *Server) createProjectFromTemplate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TemplateID string `json:"template_id"`
+		Name       string `json:"name"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	tmpl, ok := template.Get(req.TemplateID)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "unknown template "+req.TemplateID)
+		return
+	}
+
+	proj, err := s.store.CreateProject(r.Context(), store.NewProject{Name: req.Name})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := map[string]any{"project": proj, "template": tmpl}
+	if tmpl.DefaultApplication != "" {
+		app, err := s.store.CreateApplication(r.Context(), proj.ID, tmpl.DefaultApplication)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		resp["application"] = app
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // --- applications & assets ---

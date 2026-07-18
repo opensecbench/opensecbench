@@ -43,6 +43,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return printJSON(h)
 	case "project":
 		return projectCmd(ctx, c, args[1:])
+	case "template":
+		return templateCmd(ctx, c, args[1:])
 	case "capability", "cap":
 		return capabilityCmd(ctx, c, args[1:])
 	case "task":
@@ -142,6 +144,20 @@ func taskCmd(ctx context.Context, c *client.Client, args []string) error {
 		return err
 	}
 	return printJSON(t)
+}
+
+func templateCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 || args[0] != "list" {
+		return errors.New("usage: osb template list")
+	}
+	tmpls, err := c.ListTemplates(ctx)
+	if err != nil {
+		return err
+	}
+	for _, t := range tmpls {
+		fmt.Printf("%-12s %-22s %s\n", t.ID, t.Name, t.Description)
+	}
+	return nil
 }
 
 func applicationCmd(ctx context.Context, c *client.Client, args []string) error {
@@ -374,11 +390,19 @@ func projectCmd(ctx context.Context, c *client.Client, args []string) error {
 	case "create":
 		fs := flag.NewFlagSet("project create", flag.ContinueOnError)
 		name := fs.String("name", "", "project name (required)")
+		tmpl := fs.String("template", "", "scaffold from a template (see 'osb template list')")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if *name == "" {
 			return errors.New("project create: --name is required")
+		}
+		if *tmpl != "" {
+			res, err := c.CreateProjectFromTemplate(ctx, *tmpl, *name)
+			if err != nil {
+				return err
+			}
+			return printJSON(res)
 		}
 		p, err := c.CreateProject(ctx, client.CreateProjectRequest{Name: *name})
 		if err != nil {
@@ -410,8 +434,9 @@ Commands:
   health                      check the control plane
   project list                list projects
   project get <id>            show a project
-  project create --name NAME  create a project
+  project create --name NAME [--template ID]  create a project
   project delete <id>         delete a project
+  template list               list project templates
   application create --project ID --name NAME
   application list --project ID
   asset create --app ID --type source_repo --location PATH [--sensitivity S]
