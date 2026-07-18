@@ -11,6 +11,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
@@ -23,12 +24,19 @@ var gatedTools = map[string]bool{"run_capability": true, "run_playbook": true}
 func Tools() []agent.Tool {
 	return []agent.Tool{
 		{Name: "list_projects", Description: "List all assessment projects."},
+		{Name: "list_targets", Description: "List durable targets (id, name) — the systems the knowledge base is anchored to."},
 		{Name: "list_findings", Description: "List all findings (id, title, severity, status)."},
 		{Name: "list_assets", Description: "List all source assets available to scan (id, type, location)."},
 		{Name: "list_capabilities", Description: "List the security capabilities you can run."},
 		{Name: "list_playbooks", Description: "List playbooks (named sequences of capabilities)."},
 		{Name: "search", Description: "Search across projects, applications, assets, findings, observations, and context.", Params: map[string]string{"q": "query text"}},
 		{Name: "get_finding", Description: "Get one finding by id, including its supporting observation ids.", Params: map[string]string{"id": "finding id"}},
+		{Name: "draft_kb_entry", Description: "Draft a knowledge-base entry about a target (architecture, auth, endpoint, tech_stack, environment, data_flow, convention, gotcha, tactic). Saved as an unreviewed draft for human confirmation.", Params: map[string]string{
+			"target": "target id (from list_targets)",
+			"kind":   "one of: architecture|auth|endpoint|tech_stack|environment|data_flow|convention|gotcha|tactic",
+			"title":  "short entry title",
+			"body":   "the knowledge (what was learned)",
+		}},
 		{Name: "run_capability", Description: "Run a security capability against a source asset. GATED — requires human authorization; if unauthorized it will be denied.", Params: map[string]string{
 			"capability": "capability id (from list_capabilities)",
 			"asset":      "asset id (from list_assets)",
@@ -62,6 +70,8 @@ func Executor(st *store.DB, engine *task.Engine) func(context.Context, agent.Too
 		switch call.Tool {
 		case "list_projects":
 			return jsonify(st.ListProjects(ctx))
+		case "list_targets":
+			return jsonify(st.ListTargets(ctx))
 		case "list_findings":
 			return jsonify(st.ListFindings(ctx))
 		case "list_assets":
@@ -72,6 +82,8 @@ func Executor(st *store.DB, engine *task.Engine) func(context.Context, agent.Too
 		case "get_finding":
 			id, _ := call.Args["id"].(string)
 			return jsonify(st.GetFinding(ctx, id))
+		case "draft_kb_entry":
+			return draftKBEntry(ctx, st, call)
 		case "list_capabilities":
 			if engine == nil {
 				return "", errors.New("capability engine unavailable")
@@ -87,6 +99,26 @@ func Executor(st *store.DB, engine *task.Engine) func(context.Context, agent.Too
 			return "", fmt.Errorf("unknown tool %q", call.Tool)
 		}
 	}
+}
+
+// draftKBEntry writes an unreviewed, agent-origin knowledge-base entry (ADR-0010). It only records
+// a draft for human confirmation, so it is not gated.
+func draftKBEntry(ctx context.Context, st *store.DB, call agent.ToolCall) (string, error) {
+	target, _ := call.Args["target"].(string)
+	kind, _ := call.Args["kind"].(string)
+	title, _ := call.Args["title"].(string)
+	body, _ := call.Args["body"].(string)
+	if target == "" || kind == "" || title == "" {
+		return "", errors.New("draft_kb_entry requires 'target', 'kind', and 'title'")
+	}
+	return jsonify(st.CreateKBEntry(ctx, model.KBEntry{
+		TargetID:  target,
+		Kind:      kind,
+		Title:     title,
+		Body:      body,
+		Origin:    model.OriginThread,
+		SourceRef: "thread:analyst",
+	}))
 }
 
 func runCapability(ctx context.Context, engine *task.Engine, call agent.ToolCall) (string, error) {

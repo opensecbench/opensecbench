@@ -192,6 +192,39 @@ func (c *Client) MarkAllNotificationsRead(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/v1/notifications/read-all", nil, nil)
 }
 
+// ListProjectKB returns the KB a project inherits from its targets.
+func (c *Client) ListProjectKB(ctx context.Context, projectID string) ([]model.KBEntry, error) {
+	var out []model.KBEntry
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/kb", nil, &out)
+}
+
+// ListTargetKB returns a target's KB entries.
+func (c *Client) ListTargetKB(ctx context.Context, targetID string) ([]model.KBEntry, error) {
+	var out []model.KBEntry
+	return out, c.do(ctx, http.MethodGet, "/v1/targets/"+targetID+"/kb", nil, &out)
+}
+
+// NewKBEntry is a human-authored KB entry to create.
+type NewKBEntry struct {
+	Kind        string `json:"kind"`
+	Title       string `json:"title"`
+	Body        string `json:"body,omitempty"`
+	Tags        string `json:"tags,omitempty"`
+	Sensitivity string `json:"sensitivity,omitempty"`
+}
+
+// CreateKBEntry adds a KB entry to a target.
+func (c *Client) CreateKBEntry(ctx context.Context, targetID string, e NewKBEntry) (model.KBEntry, error) {
+	var out model.KBEntry
+	return out, c.do(ctx, http.MethodPost, "/v1/targets/"+targetID+"/kb", e, &out)
+}
+
+// ReviewKBEntry sets a KB entry's review state (confirmed | rejected | unreviewed).
+func (c *Client) ReviewKBEntry(ctx context.Context, id, state string) (model.KBEntry, error) {
+	var out model.KBEntry
+	return out, c.do(ctx, http.MethodPost, "/v1/kb/"+id+"/review", map[string]string{"state": state}, &out)
+}
+
 // ListMethodologies returns the methodology catalog (raw JSON packs).
 func (c *Client) ListMethodologies(ctx context.Context) ([]methodologyPack, error) {
 	var out []methodologyPack
