@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"embed"
+	"log"
 	"time"
 
 	"github.com/wailsapp/wails/v2"
@@ -34,7 +35,9 @@ func main() {
 	// so we boot it there in-process.
 	cp, err := controlplane.Start(controlplane.Options{Addr: "127.0.0.1:7373"})
 	if err != nil {
-		panic(err)
+		log.Fatalf("could not start the control plane on 127.0.0.1:7373: %v\n"+
+			"Is another OpenSecBench daemon or desktop instance already running? "+
+			"Free the port (e.g. `lsof -ti tcp:7373 | xargs -r kill`) and retry.", err)
 	}
 
 	err = wails.Run(&options.App{
