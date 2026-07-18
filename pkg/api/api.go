@@ -20,6 +20,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/repeater"
+	"github.com/opensecbench/opensecbench/pkg/report"
 	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/session"
 	"github.com/opensecbench/opensecbench/pkg/store"
@@ -48,6 +49,7 @@ type Server struct {
 	repeater *repeater.Client
 	sessMgr  *session.Manager
 	proxyCA  *proxy.CA
+	reports  *report.Registry
 
 	sessMu   sync.Mutex
 	sessions map[string]*liveSession
@@ -67,6 +69,7 @@ func New(deps Deps) *Server {
 		repeater: repeater.New(0),
 		sessMgr:  deps.SessionMgr,
 		proxyCA:  deps.ProxyCA,
+		reports:  report.BuiltIns(),
 		sessions: make(map[string]*liveSession),
 		proxies:  make(map[string]*liveProxy),
 	}
@@ -107,6 +110,9 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /v1/search", s.search)
 	s.mux.HandleFunc("GET /v1/audit", s.listAudit)
+	s.mux.HandleFunc("GET /v1/report-templates", s.listReportTemplates)
+	s.mux.HandleFunc("GET /v1/projects/{id}/reports", s.listReports)
+	s.mux.HandleFunc("POST /v1/projects/{id}/reports", s.generateReport)
 
 	s.mux.HandleFunc("GET /v1/templates", s.listTemplates)
 	s.mux.HandleFunc("POST /v1/projects/from-template", s.createProjectFromTemplate)
