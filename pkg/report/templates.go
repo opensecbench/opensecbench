@@ -64,6 +64,7 @@ var funcs = map[string]any{
 	"stillopen":  func(fs []Finding) []Finding { return filterStatus(fs, "open", "confirmed") },
 	"accepted":   func(fs []Finding) []Finding { return filterStatus(fs, "accepted") },
 	"count":      func(fs []Finding) int { return len(fs) },
+	"cwegroups":  CWEGroups,
 }
 
 func filterStatus(fs []Finding, statuses ...string) []Finding {
@@ -86,6 +87,7 @@ func BuiltIns() *Registry {
 	r.tmpls["executive"] = mustTemplate("executive", "Executive summary", "exec_summary", execMD, execHTML)
 	r.tmpls["technical"] = mustTemplate("technical", "Technical report", "technical", techMD, techHTML)
 	r.tmpls["retest"] = mustTemplate("retest", "Retest report", "retest", retestMD, retestHTML)
+	r.tmpls["compliance"] = mustTemplate("compliance", "Compliance mapping (CWE)", "compliance_standard", complianceMD, complianceHTML)
 	return r
 }
 
@@ -199,6 +201,31 @@ const retestHTML = `<!doctype html><html><head><meta charset="utf-8">
 {{$a := accepted .Findings}}{{if $a}}<ul class="findlist">{{range $a}}<li><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}} <span class="app">{{.AppName}}</span></li>{{end}}</ul>{{else}}<p><em>None.</em></p>{{end}}
 </body></html>`
 
+const complianceMD = `# {{.Project.Name}} — Compliance Mapping (CWE)
+
+_Generated {{date .GeneratedAt}}_
+
+Reportable findings grouped by CWE weakness class.
+
+{{range cwegroups .Findings}}## {{.CWE}}
+
+{{range .Findings}}- **[{{sevfmt .Severity}}]** {{.Title}} — _{{.AppName}}_ ({{.Status}})
+{{end}}
+{{else}}_No reportable findings._
+{{end}}`
+
+const complianceHTML = `<!doctype html><html><head><meta charset="utf-8">
+<title>{{.Project.Name}} — Compliance Mapping</title>
+<style>` + reportCSS + `</style></head><body>
+<h1>{{.Project.Name}}<span class="sub">Compliance Mapping (CWE)</span></h1>
+<p class="meta">Generated {{date .GeneratedAt}}</p>
+<p>Reportable findings grouped by CWE weakness class.</p>
+{{range cwegroups .Findings}}<div class="finding">
+<h3>{{.CWE}}</h3>
+<ul class="findlist">{{range .Findings}}<li><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}} <span class="cwe">{{.Status}}</span> <span class="app">{{.AppName}}</span></li>{{end}}</ul>
+</div>{{else}}<p><em>No reportable findings.</em></p>{{end}}
+</body></html>`
+
 const execHTML = `<!doctype html><html><head><meta charset="utf-8">
 <title>{{.Project.Name}} — Executive Summary</title>
 <style>` + reportCSS + `</style></head><body>
@@ -232,6 +259,8 @@ const techHTML = `<!doctype html><html><head><meta charset="utf-8">
 </ul>
 <h2>Findings by severity</h2>
 <figure class="chart">{{.SeverityChart}}</figure>
+<h2>Remediation coverage</h2>
+<figure class="chart">{{.CoverageChart}}</figure>
 <h2>Findings</h2>
 {{if .Findings}}{{range .Findings}}<div class="finding">
 <h3><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}}</h3>

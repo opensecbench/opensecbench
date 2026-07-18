@@ -124,8 +124,10 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] PDF via headless Chromium (pkg/browser shared with proxy); degrades if no browser
 - [x] Reports tab in the workbench (template + format, generate, open)
 - [x] Retest report type (findings grouped by remediation status)
-- [ ] More report types: compliance mapping, client-branded
-- [ ] More visualizations: coverage heatmap, dependency/API maps, topology (interactive workbench views)
+- [x] Compliance mapping report (findings grouped by CWE)
+- [ ] More report types: client-branded
+- [x] Coverage heatmap viz (severity × remediation status) embedded in the technical report
+- [ ] More visualizations: dependency/API maps, topology (interactive workbench views)
 - [ ] Methodology coverage model + roll-up (needs a methodology/checklist entity)
 - [x] Notifications: in-app feed + bell + OS-native CLI watch (approval waiting, report ready)
 - [ ] Report templates + visualizations as installable extension packages

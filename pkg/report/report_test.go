@@ -167,6 +167,33 @@ func TestRetestGroupsByStatus(t *testing.T) {
 	}
 }
 
+func TestComplianceGroupsByCWE(t *testing.T) {
+	src := sampleSource()
+	// f1 has CWE-89, f2 has none → "Unmapped".
+	d, _ := NewBuilder(src).Build(context.Background(), "p1", time.Now())
+	groups := CWEGroups(d.Findings)
+	// Most-severe group first (f2 critical is Unmapped, f1 high is CWE-89) → Unmapped sorts LAST
+	// despite severity, by rule.
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d, want 2: %+v", len(groups), groups)
+	}
+	if groups[len(groups)-1].CWE != "Unmapped" {
+		t.Fatalf("Unmapped should sort last: %+v", groups)
+	}
+
+	tmpl, ok := BuiltIns().Get("compliance")
+	if !ok {
+		t.Fatal("compliance template missing")
+	}
+	out, err := tmpl.Render(d, FormatMarkdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "CWE-89") || !strings.Contains(string(out), "Unmapped") {
+		t.Fatalf("compliance report missing CWE grouping:\n%s", out)
+	}
+}
+
 func titles(fs []Finding) []string {
 	var out []string
 	for _, f := range fs {
