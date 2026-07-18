@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -140,6 +141,59 @@ func TestEngineMarksNonOKExitFailed(t *testing.T) {
 	}
 	if len(out.Artifacts) != 1 {
 		t.Fatalf("output should still be captured, got %d artifacts", len(out.Artifacts))
+	}
+}
+
+func TestEngineScopeGuard(t *testing.T) {
+	// A network capability (http-probe) is blocked when its target is not in the project's
+	// allowlist, allowed when it matches, and unrestricted when the project has no allowlist.
+	eng, _ := newEngine(t, fakeRunner{out: []byte("HTTP/2 200\n"), code: 0})
+	proj, err := eng.store.CreateProject(context.Background(), store.NewProject{Name: "engagement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.store.AddScopeEntry(context.Background(), proj.ID, "domain", "acme.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Out of scope: blocked before the runner, recorded as a failed task.
+	out, err := eng.Run(context.Background(), RunRequest{
+		CapabilityID: "http-probe",
+		ProjectID:    &proj.ID,
+		Params:       map[string]any{"target": "https://evil.example/"},
+	})
+	if !errors.Is(err, ErrOutOfScope) {
+		t.Fatalf("out-of-scope run err = %v, want ErrOutOfScope", err)
+	}
+	if out.Task.Status != model.TaskFailed || len(out.Artifacts) != 0 {
+		t.Fatalf("blocked task should be failed with no artifacts, got %+v / %d artifacts", out.Task, len(out.Artifacts))
+	}
+
+	// In scope: proceeds to the runner and succeeds.
+	out, err = eng.Run(context.Background(), RunRequest{
+		CapabilityID: "http-probe",
+		ProjectID:    &proj.ID,
+		Params:       map[string]any{"target": "https://www.acme.com/health"},
+	})
+	if err != nil {
+		t.Fatalf("in-scope run err = %v", err)
+	}
+	if out.Task.Status != model.TaskSucceeded {
+		t.Fatalf("in-scope status = %s (err=%q)", out.Task.Status, out.Task.Error)
+	}
+
+	// A project with no scope entries imposes no restriction.
+	empty, err := eng.store.CreateProject(context.Background(), store.NewProject{Name: "unscoped"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = eng.Run(context.Background(), RunRequest{
+		CapabilityID: "http-probe",
+		ProjectID:    &empty.ID,
+		Params:       map[string]any{"target": "https://anything.example/"},
+	})
+	if err != nil || out.Task.Status != model.TaskSucceeded {
+		t.Fatalf("unscoped run should succeed, got status=%s err=%v", out.Task.Status, err)
 	}
 }
 

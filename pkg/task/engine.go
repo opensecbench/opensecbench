@@ -17,6 +17,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/interpret"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
+	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
@@ -70,8 +71,12 @@ type RunRequest struct {
 	TargetDir     string
 	AssetID       *string
 	ApplicationID *string
+	ProjectID     *string // scope context for network capabilities; resolved from the asset if unset
 	Params        map[string]any
 }
+
+// ErrOutOfScope is returned when a network capability's target is not in the project allowlist.
+var ErrOutOfScope = errors.New("task: target out of scope")
 
 // Outcome is a completed task with its artifacts and any observations interpreted from them.
 type Outcome struct {
@@ -129,6 +134,15 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 	})
 	if err != nil {
 		return Outcome{}, err
+	}
+
+	// Scope guard: a network capability may only touch in-scope targets (P6). The task record
+	// above captures the blocked attempt for the audit trail.
+	if man.TargetParam != "" {
+		if scopeErr := e.checkScope(ctx, req, applicationID, man.TargetParam); scopeErr != nil {
+			_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, scopeErr.Error())
+			return e.outcome(ctx, task.ID), scopeErr
+		}
 	}
 
 	// Name the container and register the run so Cancel can stop it.
@@ -197,6 +211,39 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 		return e.outcome(ctx, task.ID), err
 	}
 	return e.outcome(ctx, task.ID), nil
+}
+
+// checkScope resolves the project for a run and enforces its in-scope allowlist against the
+// target param. No project context or an empty allowlist means no restriction (allow).
+func (e *Engine) checkScope(ctx context.Context, req RunRequest, applicationID *string, targetParam string) error {
+	projectID := ""
+	switch {
+	case req.ProjectID != nil:
+		projectID = *req.ProjectID
+	case applicationID != nil:
+		if app, err := e.store.GetApplication(ctx, *applicationID); err == nil {
+			projectID = app.ProjectID
+		}
+	}
+	if projectID == "" {
+		return nil
+	}
+	entries, err := e.store.ListScopeEntries(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("load scope: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	target, _ := req.Params[targetParam].(string)
+	rules := make([]scope.Entry, len(entries))
+	for i, en := range entries {
+		rules[i] = scope.Entry{Kind: en.Kind, Value: en.Value}
+	}
+	if err := scope.Check(rules, target); err != nil {
+		return fmt.Errorf("%w: %v", ErrOutOfScope, err)
+	}
+	return nil
 }
 
 func (e *Engine) outcome(ctx context.Context, taskID string) Outcome {

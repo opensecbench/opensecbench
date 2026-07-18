@@ -19,6 +19,9 @@ type Manifest struct {
 	OutputMediaType string `json:"output_media_type"` //
 	// OKExitCodes lists exit codes that count as success. Empty means only 0.
 	OKExitCodes []int `json:"ok_exit_codes,omitempty"`
+	// TargetParam names the input param holding a network target (host/URL). When set, the
+	// capability touches the network and the engine enforces the scope allowlist against it.
+	TargetParam string `json:"target_param,omitempty"`
 }
 
 // ExitOK reports whether an exit code counts as a successful run.

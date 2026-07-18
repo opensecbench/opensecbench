@@ -59,11 +59,20 @@ export interface ContextItem {
   created_at: string
 }
 
+export interface ScopeEntry {
+  id: string
+  project_id: string
+  kind: string
+  value: string
+  created_at: string
+}
+
 export interface CapabilityManifest {
   id: string
   version: string
   title: string
   description: string
+  target_param?: string
 }
 
 export interface Artifact {
@@ -249,10 +258,17 @@ export const api = {
     return (await res.json()) as ContextItem
   },
 
+  // scope
+  listScope: (projectId: string) =>
+    request<ScopeEntry[]>('GET', `/v1/projects/${projectId}/scope`),
+  addScope: (projectId: string, kind: string, value: string) =>
+    request<ScopeEntry>('POST', `/v1/projects/${projectId}/scope`, { kind, value }),
+  deleteScope: (id: string) => request<void>('DELETE', `/v1/scope/${id}`),
+
   // capabilities & tasks
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
   listTasks: () => request<Task[]>('GET', '/v1/tasks'),
-  runTask: (req: { capability_id: string; asset_id?: string; target_dir?: string; params?: Record<string, unknown>; actor?: string }) =>
+  runTask: (req: { capability_id: string; asset_id?: string; target_dir?: string; project_id?: string; params?: Record<string, unknown>; actor?: string }) =>
     request<TaskOutcome>('POST', '/v1/tasks', req),
   cancelTask: (id: string) => request<void>('POST', `/v1/tasks/${id}/cancel`),
   getTaskArtifacts: (taskId: string) => request<Artifact[]>('GET', `/v1/tasks/${taskId}/artifacts`),

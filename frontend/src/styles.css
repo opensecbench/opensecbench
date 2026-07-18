@@ -456,6 +456,20 @@ a.link,
   margin-left: auto;
   font-size: 12px;
 }
+.link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.link.danger {
+  color: var(--danger, #e5484d);
+}
+.hint {
+  color: var(--tx2);
+  font-size: 12px;
+  margin: 0 0 12px;
+}
 
 .kind {
   font-size: 10px;

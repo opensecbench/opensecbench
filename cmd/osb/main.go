@@ -72,6 +72,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return assetCmd(ctx, c, args[1:])
 	case "context":
 		return contextCmd(ctx, c, args[1:])
+	case "scope":
+		return scopeCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -131,6 +133,7 @@ func capabilityCmd(ctx context.Context, c *client.Client, args []string) error {
 		id := fs.String("id", "", "capability id (required)")
 		dir := fs.String("dir", "", "target directory to analyze")
 		asset := fs.String("asset", "", "asset id to target (source_repo) instead of --dir")
+		project := fs.String("project", "", "project id for scope enforcement (network capabilities)")
 		actor := fs.String("actor", "", "actor label (e.g. human:james)")
 		var params paramFlags
 		fs.Var(&params, "param", "capability parameter as key=value (repeatable)")
@@ -147,6 +150,9 @@ func capabilityCmd(ctx context.Context, c *client.Client, args []string) error {
 		req := client.RunTaskRequest{CapabilityID: *id, TargetDir: *dir, Actor: *actor, Params: p}
 		if *asset != "" {
 			req.AssetID = asset
+		}
+		if *project != "" {
+			req.ProjectID = project
 		}
 		out, err := c.RunTask(ctx, req)
 		if err != nil {
@@ -490,6 +496,59 @@ func contextCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 }
 
+func scopeCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb scope <list|add|delete>")
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("scope list", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("scope list: --project is required")
+		}
+		entries, err := c.ListScope(ctx, *project)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			fmt.Printf("%s  %-7s %s\n", e.ID, e.Kind, e.Value)
+		}
+		return nil
+	case "add":
+		fs := flag.NewFlagSet("scope add", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		kind := fs.String("kind", "", "entry kind: host | domain | cidr (required)")
+		value := fs.String("value", "", "the host, domain, or CIDR (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" || *kind == "" || *value == "" {
+			return errors.New("scope add: --project, --kind, and --value are required")
+		}
+		entry, err := c.AddScope(ctx, *project, *kind, *value)
+		if err != nil {
+			return err
+		}
+		return printJSON(entry)
+	case "delete", "rm":
+		fs := flag.NewFlagSet("scope delete", flag.ContinueOnError)
+		id := fs.String("id", "", "scope entry id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" {
+			return errors.New("scope delete: --id is required")
+		}
+		return c.DeleteScope(ctx, *id)
+	default:
+		return fmt.Errorf("unknown scope subcommand %q", args[0])
+	}
+}
+
 func mediaTypeForExt(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".txt", ".md", ".log":
@@ -699,8 +758,11 @@ Commands:
   asset list --app ID
   context add --project ID --file PATH [--type document] [--name NAME]
   context list --project ID
+  scope add --project ID --kind host|domain|cidr --value V  add an in-scope allowlist entry
+  scope list --project ID     list a project's scope allowlist
+  scope delete --id ID        remove a scope entry
   capability list             list available capabilities
-  capability run --id ID (--dir PATH | --asset ID) [--param k=v]  run a capability
+  capability run --id ID (--dir PATH | --asset ID) [--project ID] [--param k=v]  run a capability
   playbook list               list playbooks
   playbook run --id ID --asset ID  run a playbook against an asset
   task get <id>               show a task

@@ -13,6 +13,7 @@ func BuiltIns() *Registry {
 	r := NewRegistry()
 	r.Register(sourceInventory{})
 	r.Register(semgrep{})
+	r.Register(httpProbe{})
 	return r
 }
 
@@ -82,5 +83,39 @@ func (semgrep) Plan(in Input) (runner.RunSpec, error) {
 		Timeout:  10 * time.Minute,
 		MemoryMB: 4096,
 		CPUs:     2,
+	}, nil
+}
+
+// httpProbe fetches a URL's response headers. It touches the network against a caller-supplied
+// target, so its manifest declares TargetParam and the engine enforces the scope allowlist first.
+type httpProbe struct{}
+
+const curlImage = "curlimages/curl:8.11.1"
+
+func (httpProbe) Manifest() Manifest {
+	return Manifest{
+		ID:              "http-probe",
+		Version:         "1.0.0",
+		Title:           "HTTP probe",
+		Description:     "Fetches a target URL's response headers (scope-guarded network capability).",
+		OutputName:      "response-headers.txt",
+		OutputMediaType: "text/plain",
+		OKExitCodes:     []int{0},
+		TargetParam:     "target",
+	}
+}
+
+func (httpProbe) Plan(in Input) (runner.RunSpec, error) {
+	target, _ := in.Params["target"].(string)
+	if target == "" {
+		return runner.RunSpec{}, errors.New("http-probe: a 'target' param (host or URL) is required")
+	}
+	return runner.RunSpec{
+		Image:    curlImage,
+		Cmd:      []string{"-sS", "-I", "--max-time", "20", target},
+		Network:  "bridge",
+		Timeout:  1 * time.Minute,
+		MemoryMB: 256,
+		CPUs:     1,
 	}, nil
 }
