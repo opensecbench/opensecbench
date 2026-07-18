@@ -13,8 +13,9 @@ type Config struct {
 	Model   string
 	APIKey  string
 	Bin     string // for claude-cli
-	// NativeTools opts anthropic/openai-compatible providers into native tool-use (ADR-0017) instead
-	// of the prompted text protocol. Off by default; the prompted path is the proven one.
+	// NativeTools uses native tool-use (ADR-0017) for anthropic/openai-compatible providers instead
+	// of the prompted text protocol. On by default in the config paths (FromEnv / the provider
+	// registry); the prompted fallback still covers backends without native tool support.
 	NativeTools bool
 }
 
@@ -53,7 +54,7 @@ func FromEnv() (Provider, error) {
 		Model:       os.Getenv("OSB_LLM_MODEL"),
 		APIKey:      os.Getenv("OSB_LLM_API_KEY"),
 		Bin:         os.Getenv("OSB_LLM_BIN"),
-		NativeTools: os.Getenv("OSB_LLM_NATIVE_TOOLS") == "1",
+		NativeTools: os.Getenv("OSB_LLM_NATIVE_TOOLS") != "0", // native by default; set 0 to force prompted
 	})
 }
 

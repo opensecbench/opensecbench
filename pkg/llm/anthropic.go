@@ -18,7 +18,8 @@ type AnthropicProvider struct {
 	Model   string
 	HTTP    *http.Client
 	// UseNativeTools sends tools and tool turns as native tool_use/tool_result blocks (ADR-0017)
-	// instead of the prompted text protocol. Off by default: the prompted path is the proven one.
+	// instead of the prompted text protocol. The config paths enable it by default (OSB_LLM_NATIVE_TOOLS=0
+	// forces the prompted fallback).
 	UseNativeTools bool
 }
 
