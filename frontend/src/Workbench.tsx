@@ -19,6 +19,7 @@ import {
   TaskOutcome,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
+import { GraphTab } from './GraphTab'
 import { KnowledgeTab } from './KnowledgeTab'
 import { MethodologyTab } from './MethodologyTab'
 import { TasksTab } from './TasksTab'
@@ -41,6 +42,7 @@ type Tab =
   | 'tasks'
   | 'findings'
   | 'reports'
+  | 'graph'
   | 'analyst'
   | 'audit'
 
@@ -100,7 +102,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="tabs">
-        {(['assets', 'methodology', 'knowledge', 'context', 'scope', 'scan', 'repeater', 'proxy', 'terminal', 'playbooks', 'tasks', 'findings', 'reports', 'analyst', 'audit'] as Tab[]).map((t) => (
+        {(['assets', 'methodology', 'knowledge', 'context', 'scope', 'scan', 'repeater', 'proxy', 'terminal', 'playbooks', 'tasks', 'findings', 'reports', 'graph', 'analyst', 'audit'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
             {t === 'assets' ? 'Applications & Assets' : t === 'scan' ? 'Scan' : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -124,6 +126,7 @@ export function Workbench({ project, online }: { project: Project; online: boole
       {tab === 'tasks' && <TasksTab online={online} onError={setError} />}
       {tab === 'findings' && <FindingsTab findings={findings} />}
       {tab === 'reports' && <ReportsTab project={project} online={online} onError={setError} />}
+      {tab === 'graph' && <GraphTab project={project} online={online} onError={setError} />}
       {tab === 'analyst' && <AnalystPanel project={project} online={online} />}
       {tab === 'audit' && <AuditTab online={online} onError={setError} />}
     </div>

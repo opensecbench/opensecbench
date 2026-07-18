@@ -141,6 +141,19 @@ export interface CoverageView {
   }
 }
 
+export interface GraphNode {
+  id: string
+  label: string
+  kind: string
+  group?: string
+  meta?: string
+}
+export interface Graph {
+  kind: string
+  nodes: GraphNode[]
+  edges: { from: string; to: string }[]
+}
+
 export interface MethodologySuggestion {
   methodology_id: string
   title: string
@@ -509,6 +522,8 @@ export const api = {
 
   methodologySuggestions: (projectId: string) =>
     request<MethodologySuggestion[]>('GET', `/v1/projects/${projectId}/methodology/suggestions`),
+  projectGraph: (projectId: string, kind: string) =>
+    request<Graph>('GET', `/v1/projects/${projectId}/graph?kind=${kind}`),
 
   // extensions, hub, policy
   listExtensions: () => request<ExtensionInfo[]>('GET', '/v1/extensions'),

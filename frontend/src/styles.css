@@ -1077,3 +1077,11 @@ select option {
 /* Extensions/policy view */
 .row-item.on{border-left:2px solid var(--acc)}
 .row-item input[type=radio]{margin-right:8px}
+
+/* Graph visualization */
+.graph-tabs{margin-left:auto;display:inline-flex;gap:4px}
+.graph-tabs .tab{font-size:12px;padding:3px 10px}
+.graph-wrap{position:relative;border:1px solid var(--line);border-radius:8px;background:var(--bg);overflow:hidden}
+.graph-svg{width:100%;height:520px;display:block;cursor:grab}
+.graph-svg:active{cursor:grabbing}
+.graph-tip{position:absolute;left:12px;bottom:12px;background:var(--bg3);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px;pointer-events:none;max-width:80%}
