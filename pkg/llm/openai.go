@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // OpenAIProvider talks to any OpenAI-compatible chat/completions API. This covers OpenAI, Azure
@@ -51,7 +52,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		return CompletionResponse{}, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL+"/chat/completions", bytes.NewReader(body))
+	endpoint := strings.TrimRight(p.BaseURL, "/") + "/chat/completions"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return CompletionResponse{}, err
 	}

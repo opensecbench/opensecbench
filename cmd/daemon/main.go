@@ -34,6 +34,7 @@ func run(addr, dbPath string) error {
 	}
 	schemaVersion, _ := cp.SchemaVersion()
 	log.Printf("opensecbench control plane %s ready at %s (schema version %d)", version.Version, cp.BaseURL, schemaVersion)
+	log.Printf("Analyst provider: %s (configure via OSB_LLM_PROVIDER / OSB_LLM_BASE_URL / OSB_LLM_MODEL / OSB_LLM_API_KEY)", cp.ProviderName())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
