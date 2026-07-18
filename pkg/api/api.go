@@ -902,7 +902,19 @@ func (s *Server) verifyAudit(w http.ResponseWriter, r *http.Request) {
 // --- Replay / HTTP exchanges (P7) ---
 
 func (s *Server) listExchanges(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListExchangesByProject(r.Context(), r.PathValue("id"))
+	q := r.URL.Query()
+	f := store.ExchangeFilter{
+		Origin: q.Get("origin"),
+		Method: q.Get("method"),
+		Query:  q.Get("q"),
+	}
+	if v := q.Get("status"); v != "" {
+		f.Status, _ = strconv.Atoi(v)
+	}
+	if v := q.Get("limit"); v != "" {
+		f.Limit, _ = strconv.Atoi(v)
+	}
+	items, err := s.store.ListExchangesFiltered(r.Context(), r.PathValue("id"), f)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

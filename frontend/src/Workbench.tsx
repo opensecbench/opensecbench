@@ -11,7 +11,6 @@ import {
   HTTPExchange,
   Observation,
   Playbook,
-  ProxyStatus,
   Report,
   ReportTemplate,
   PlaybookRunResult,
@@ -24,8 +23,9 @@ import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
 import { KnowledgeTab } from './KnowledgeTab'
 import { MethodologyTab } from './MethodologyTab'
+import { ProxyTab } from './ProxyTab'
 import { TasksTab } from './TasksTab'
-import { hasNativePickers, hasNativeBrowserLaunch, openProxyBrowser, pickDirectory } from './native'
+import { hasNativePickers, pickDirectory } from './native'
 
 // The terminal pulls in xterm.js; load it only when the tab is opened.
 const TerminalTab = lazy(() => import('./TerminalTab').then((m) => ({ default: m.TerminalTab })))
@@ -106,7 +106,7 @@ class SurfaceBoundary extends Component<{ children: ReactNode }, { error: Error 
 // no per-surface refetch, no surface refactor. Rows can jump between surfaces.
 
 function packPct(items: { status: string }[]): number {
-  if (!items.length) return 0
+  if (!items?.length) return 0
   return Math.round((items.filter((i) => i.status === 'covered').length / items.length) * 100)
 }
 
@@ -149,11 +149,11 @@ function WorkbenchExplorer({
       </div>
       <div className="wb-exp-body">
         {tab === 'methodology' ? (
-          !coverage || coverage.packs.length === 0 ? (
+          (coverage?.packs ?? []).length === 0 ? (
             <div className="wb-exp-empty">No methodology adopted yet.</div>
           ) : (
-            coverage.packs.map((p) => {
-              const pct = packPct(p.items)
+            (coverage?.packs ?? []).map((p) => {
+              const pct = packPct(p.items ?? [])
               return (
                 <div key={p.id} className="wb-exp-row">
                   <span className="lbl">{p.title}</span>
@@ -219,6 +219,15 @@ interface Doc {
   surface: Tab
   title: string
   bind?: { itemId: string; itemTitle: string }
+  seed?: HTTPExchange // prefill a Replay from a captured request (Send to Replay)
+}
+
+function replayLabel(ex: HTTPExchange): string {
+  try {
+    return `Replay · ${ex.method} ${new URL(ex.url).pathname}`
+  } catch {
+    return `Replay · ${ex.method}`
+  }
 }
 
 export function Workbench({ project, conn, onHome }: { project: Project; conn: Conn; onHome: () => void }) {
@@ -309,6 +318,10 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
   function openBoundReplay(itemId: string, itemTitle: string) {
     focusOrAdd({ key: `replay:${itemId}`, surface: 'replay', title: itemTitle, bind: { itemId, itemTitle } })
   }
+  // Send to Replay: open a Replay document seeded with a captured request (ADR-0016 action).
+  function openReplayFromExchange(ex: HTTPExchange) {
+    focusOrAdd({ key: `replay:ex:${ex.id}`, surface: 'replay', title: replayLabel(ex), seed: ex })
+  }
   function closeDoc(key: string, e?: ReactMouseEvent) {
     e?.stopPropagation()
     const idx = openDocs.findIndex((d) => d.key === key)
@@ -334,9 +347,9 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
       case 'scan':
         return <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />
       case 'replay':
-        return <ReplayTab project={project} online={online} onError={setError} boundItem={doc.bind} onEvidenceLinked={afterEvidenceLinked} />
+        return <ReplayTab project={project} online={online} onError={setError} boundItem={doc.bind} seed={doc.seed} onEvidenceLinked={afterEvidenceLinked} />
       case 'proxy':
-        return <ProxyTab project={project} online={online} onError={setError} />
+        return <ProxyTab project={project} online={online} onError={setError} onSendToReplay={openReplayFromExchange} />
       case 'terminal':
         return (
           <Suspense fallback={<div className="empty">Loading terminal…</div>}>
@@ -394,7 +407,9 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
           ))}
         </nav>
 
-        <WorkbenchExplorer tab={activeSurface} project={project} apps={apps} findings={findings} coverage={coverage} onJump={openSurface} />
+        <SurfaceBoundary>
+          <WorkbenchExplorer tab={activeSurface} project={project} apps={apps} findings={findings} coverage={coverage} onJump={openSurface} />
+        </SurfaceBoundary>
 
         <div className="wb-center">
           <div className="wb-doctabs">
@@ -842,19 +857,23 @@ function ReplayTab({
   online,
   onError,
   boundItem,
+  seed,
   onEvidenceLinked,
 }: {
   project: Project
   online: boolean
   onError: (m: string) => void
   boundItem?: { itemId: string; itemTitle: string }
+  seed?: HTTPExchange
   onEvidenceLinked?: () => void
 }) {
   const [history, setHistory] = useState<HTTPExchange[]>([])
-  const [method, setMethod] = useState('GET')
-  const [url, setUrl] = useState('')
-  const [headers, setHeaders] = useState('')
-  const [body, setBody] = useState('')
+  // Seed prefills the editor from a captured request (Send to Replay); the doc stays mounted so
+  // this initial state is set once and then freely edited.
+  const [method, setMethod] = useState(seed?.method ?? 'GET')
+  const [url, setUrl] = useState(seed?.url ?? '')
+  const [headers, setHeaders] = useState(seed?.request_headers ?? '')
+  const [body, setBody] = useState(seed?.request_body ?? '')
   const [current, setCurrent] = useState<HTTPExchange | null>(null)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -995,106 +1014,6 @@ function statusClass(status?: number): string {
   if (status >= 400) return 'failed'
   if (status >= 200 && status < 300) return 'succeeded'
   return 'active'
-}
-
-function ProxyTab({
-  project,
-  online,
-  onError,
-}: {
-  project: Project
-  online: boolean
-  onError: (m: string) => void
-}) {
-  const [status, setStatus] = useState<ProxyStatus>({ running: false })
-  const [captured, setCaptured] = useState<HTTPExchange[]>([])
-  const [busy, setBusy] = useState(false)
-
-  async function refresh() {
-    try {
-      setStatus(await api.getProxy(project.id))
-      const all = (await api.listExchanges(project.id)) ?? []
-      setCaptured(all.filter((e) => e.origin === 'proxy'))
-    } catch (e) {
-      onError((e as Error).message)
-    }
-  }
-
-  useEffect(() => {
-    if (!online) return
-    void refresh()
-    const timer = setInterval(refresh, 2500) // poll so captured traffic streams in
-    return () => clearInterval(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, project.id])
-
-  async function toggle() {
-    setBusy(true)
-    try {
-      setStatus(status.running ? await api.stopProxy(project.id) : await api.startProxy(project.id))
-      await refresh()
-    } catch (e) {
-      onError((e as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <section className="panel">
-      <div className="panel-head">Intercepting proxy</div>
-      <p className="hint">
-        Route a browser or tool through the proxy to capture traffic (scope-guarded). For HTTPS,
-        trust the CA below — it is generated locally and never installed automatically. Or skip the
-        trust step entirely: <code>osb proxy browser --project {project.id.slice(0, 8)}…</code> launches
-        a throwaway Chromium preconfigured to use this proxy and trust its CA.
-      </p>
-      <div className="term-toolbar">
-        <button onClick={toggle} disabled={!online || busy}>
-          {busy ? '…' : status.running ? 'Stop proxy' : 'Start proxy'}
-        </button>
-        {status.running && (
-          <span className="mono muted">
-            listening on <b>127.0.0.1:{status.port}</b>
-          </span>
-        )}
-        {status.running && hasNativeBrowserLaunch() && status.ca_spki_sha256 && (
-          <button
-            onClick={() => {
-              void openProxyBrowser(status.port ?? 0, status.ca_spki_sha256 ?? '').catch((e) => onError((e as Error).message))
-            }}
-          >
-            Open browser
-          </button>
-        )}
-        <a className="link" href={api.proxyCAURL()} target="_blank" rel="noreferrer">download CA cert</a>
-      </div>
-      {captured.length === 0 ? (
-        <div className="empty">No captured traffic yet.</div>
-      ) : (
-        <table className="audit-table">
-          <thead>
-            <tr>
-              <th>status</th>
-              <th>method</th>
-              <th>url</th>
-              <th>ms</th>
-            </tr>
-          </thead>
-          <tbody>
-            {captured.map((e) => (
-              <tr key={e.id}>
-                <td><span className={`badge ${statusClass(e.status)}`}>{e.status ?? '—'}</span></td>
-                <td className="kind">{e.method}</td>
-                <td className="mono truncate">{e.url}</td>
-                <td className="muted">{e.duration_ms ?? ''}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </section>
-  )
 }
 
 function ScanTab({

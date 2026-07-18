@@ -1605,6 +1605,74 @@ select option {
   border-top: 0;
 }
 
+/* ===== Proxy — first-class history (ADR-0016) ===== */
+.proxy { display: flex; flex-direction: column; gap: 12px; }
+.proxy-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.proxy-toolbar .spacer { flex: 1; }
+.proxy-toolbar button:not(.ghost-btn):not(.link) {
+  background: var(--acc); border: 1px solid var(--acc); color: #04101f;
+  font-weight: 700; border-radius: 8px; padding: 7px 13px; cursor: pointer;
+}
+.proxy-toolbar button.stop { background: var(--red); border-color: var(--red); color: #fff; }
+.proxy-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.proxy-filters { display: flex; align-items: center; gap: 8px; }
+.proxy-filters .grow { flex: 1; }
+.proxy-filters input {
+  background: var(--bg); border: 1px solid var(--line2); border-radius: 8px;
+  padding: 7px 10px; color: var(--tx); font-size: 12.5px;
+}
+.proxy-filters input::placeholder { color: var(--tx3); }
+
+.proxy-split { display: flex; gap: 12px; align-items: flex-start; }
+@media (max-width: 1100px) {
+  .proxy-split { flex-direction: column; }
+  .proxy-list, .proxy-detail { width: 100%; }
+}
+.proxy-list {
+  flex: 1.15; min-width: 0; max-height: 64vh; overflow: auto;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg2);
+}
+.proxy-detail {
+  flex: 1; min-width: 0; max-height: 64vh; overflow: auto;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg2);
+  display: flex; flex-direction: column;
+}
+.proxy-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+.proxy-table th {
+  position: sticky; top: 0; z-index: 1; background: var(--bg2); text-align: left;
+  color: var(--tx3); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em;
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+}
+.proxy-table th:first-child { width: 56px; }
+.proxy-table th:nth-child(2) { width: 62px; }
+.proxy-table th:last-child { width: 44px; }
+.proxy-table td { padding: 5px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.proxy-table tbody tr { cursor: pointer; }
+.proxy-table tbody tr:hover { background: var(--bg3); }
+.proxy-table tbody tr.sel { background: var(--bg4); box-shadow: inset 2px 0 0 var(--acc); }
+.proxy-table .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.proxy-actions {
+  display: flex; gap: 6px; flex-wrap: wrap; padding: 10px;
+  border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg2); z-index: 1;
+}
+.proxy-pane { padding: 0 0 8px; }
+.proxy-lbl {
+  padding: 8px 12px 4px; font-size: 10px; font-weight: 800; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--tx3); display: flex; align-items: center; gap: 8px;
+}
+.proxy-detail pre {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--tx2);
+  padding: 0 12px 8px; white-space: pre-wrap; word-break: break-word; margin: 0;
+}
+.proxy-toast {
+  position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+  background: var(--bg4); border: 1px solid var(--line2); color: var(--tx);
+  padding: 8px 16px; border-radius: 8px; font-size: 12.5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); z-index: 100;
+}
+
 /* Toolbar buttons (proxy/terminal): primary style like .create-row buttons */
 .term-toolbar button:not(.link):not(.ghost-btn) {
   background: var(--acc);

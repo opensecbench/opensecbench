@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -92,8 +93,46 @@ func (db *DB) GetExchange(ctx context.Context, id string) (model.HTTPExchange, e
 
 // ListExchangesByProject returns a project's exchanges, newest first.
 func (db *DB) ListExchangesByProject(ctx context.Context, projectID string) ([]model.HTTPExchange, error) {
-	rows, err := db.QueryContext(ctx,
-		`SELECT `+exchangeCols+` FROM http_exchanges WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+	return db.ListExchangesFiltered(ctx, projectID, ExchangeFilter{})
+}
+
+// ExchangeFilter narrows a project's exchange history. Zero-value fields are ignored.
+type ExchangeFilter struct {
+	Origin string // "" | "proxy" | "replay"
+	Method string // exact HTTP method
+	Status int    // 0 = any; exact status code otherwise
+	Query  string // case-insensitive substring of the URL
+	Limit  int    // 0 = default (200)
+}
+
+// ListExchangesFiltered returns a project's exchanges, newest first, narrowed by filter and capped.
+func (db *DB) ListExchangesFiltered(ctx context.Context, projectID string, f ExchangeFilter) ([]model.HTTPExchange, error) {
+	q := `SELECT ` + exchangeCols + ` FROM http_exchanges WHERE project_id = ?`
+	args := []any{projectID}
+	if f.Origin != "" {
+		q += ` AND origin = ?`
+		args = append(args, f.Origin)
+	}
+	if f.Method != "" {
+		q += ` AND method = ?`
+		args = append(args, f.Method)
+	}
+	if f.Status != 0 {
+		q += ` AND status = ?`
+		args = append(args, f.Status)
+	}
+	if f.Query != "" {
+		q += ` AND url LIKE ? ESCAPE '\'`
+		args = append(args, "%"+escapeLike(f.Query)+"%")
+	}
+	q += ` ORDER BY created_at DESC LIMIT ?`
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+	args = append(args, limit)
+
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -108,4 +147,10 @@ func (db *DB) ListExchangesByProject(ctx context.Context, projectID string) ([]m
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// escapeLike neutralizes LIKE wildcards in user input so a query is a literal substring match.
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
 }
