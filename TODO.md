@@ -2,42 +2,56 @@
 
 Future work and deferred decisions. **Rule: never stub something out without adding a TODO here**
 (and a matching `// TODO:` in code). Items graduate into [TASKS.md](TASKS.md) when we pick them up.
+Roadmap phases P0–P12 are substantially delivered; what remains is reach, polish, and a few large
+infrastructure pieces that warrant their own focused efforts.
 
 ## Decisions to confirm
 
 - [ ] **OSS license** — Apache-2.0 (patent grant, common for security tooling) vs MIT. No LICENSE
       committed yet; decide before the repo goes public.
-- [ ] Name for the chat/thread container concept (the Analyst works in threads — call them
-      "investigations", "cases", or keep "threads"?).
+- [ ] Name for the chat/thread container concept (Analyst threads — "investigations"? keep "threads"?).
 
-## Setup / environment
+## Delivered (kept for provenance)
 
-- [x] Install Wails CLI; create the GitHub org/repo and wire the remote.
-- [ ] **Verify the Wails desktop build locally.** The build environment lacks
-      `libwebkit2gtk`, so `main.go` (the `desktop`-tagged Wails entrypoint) could not be compiled
-      or run there. On a machine with `libgtk-3-dev` + `libwebkit2gtk-4.1-dev`, run `wails dev`
-      and fix any wails API mismatches. The React frontend itself is verified (browser).
+- [x] Append-only, hash-chained audit trail wired into the control plane; `osb audit --verify`
+      recomputes the chain (tamper detection).
+- [x] Encrypted vault + exec-time secret injection + output redaction; DLP egress monitor + canaries.
+- [x] Multi-type reports (executive/technical/retest/compliance/branded) in MD/HTML/PDF/DOCX with
+      inline-SVG figures.
+- [x] Methodology & coverage model; KB-driven methodology applicability suggestions.
+- [x] Knowledge base (durable, target-anchored, inherited); portable encrypted export/import + signing.
+- [x] Extension loader (signed, digest-pinned, sandboxed) + community hub (static index, publish/
+      browse/install with explicit trust).
+- [x] Governance profiles (personal/corporate/strict); webhook (Teams/Slack) notifications.
 
-## Cross-cutting gaps
+## Cannot verify in this environment
 
-- [x] **Wire the append-only audit log into the control plane.** Done: a persisted, hash-chained
-      `audit_events` table (migration 0011) records governed actions — task runs + scope blocks,
-      scope changes, Repeater sends/blocks, session open/close, evidence promotions, playbook runs,
-      approval decisions, and Analyst tool calls. Exposed at `GET /v1/audit` (+ `osb audit` + an
-      Audit tab). Verified via CLI end-to-end; chain resumes across restarts.
-- [ ] **Broaden audit coverage** to remaining mutations (project/application/asset/finding CRUD)
-      and add chain-verification (`osb audit --verify`) that recomputes hashes to detect tampering.
-- [ ] **Audit-write failures are best-effort** (logged, not fatal). Decide whether a governed action
-      should hard-fail if its audit append fails (tamper-evidence vs availability) before P10 DLP.
+- [ ] **Wails desktop build.** The build box lacks `libwebkit2gtk`, so the `desktop`-tagged Wails
+      entrypoint can't be compiled/run here. On a machine with `libgtk-3-dev` + `libwebkit2gtk-4.1-dev`,
+      run `wails dev` and fix any API mismatches. The React frontend builds (tsc/vite); the daemon
+      + CLI paths are all verified end-to-end.
+- [ ] Desktop **"Open browser"** button in the Proxy tab (Wails binding; today it's `osb proxy browser`).
 
-- [ ] Desktop **"Open browser"** button in the Proxy tab (Wails binding to launch the
-      preconfigured Chromium; today it is the `osb proxy browser` CLI command).
+## Small / medium follow-ups
 
-## Deferred subsystems (tracked in the roadmap, not yet built)
+- [ ] Broaden audit coverage to remaining entity CRUD (project/app/asset/finding create/update).
+- [ ] Decide fail-closed vs best-effort on an audit-append failure (currently logged, not fatal).
+- [ ] Interpret TruffleHog JSON output into observations (currently captured as a raw artifact).
+- [ ] Report/playbook/visualization **extension pack types** (loader does capabilities + methodology now).
+- [ ] Integration **pull** (DefectDojo findings/scans in; DependencyTrack SBOM) + **watchers**
+      (schedule → notify / create task / run playbook).
+- [ ] Interactive visualizations (topology, dependency/API maps) as workbench tabs (static SVG today).
+- [ ] Runtime extension **uninstall** + update/version-constraint flow.
 
-- [ ] Remote outbound-connect runner + split `opensecbench-runner` repo (P12).
-- [ ] Community extension hub with publisher verification / signing / scanning (P12).
-- [ ] Hosted team service (only if existing-platform sharing proves insufficient).
-- [ ] RDP/VNC remote-desktop sessions (P12); terminal (SSH/PTY) first in P7.
-- [ ] RAG index for large corpora (P12); tool-based read/grep retrieval first.
-- [ ] DOCX report export (P12); MD/HTML + PDF first.
+## Large subsystems (own effort each)
+
+- [ ] **Remote outbound-connect runner** + split `opensecbench-runner` repo — a runner agent that
+      dials home and executes tasks over the runner protocol (ADR-0004 is additive-ready).
+- [ ] **Hosted team hub service** — accounts, uploads, submission scanning, reputation, moderation
+      (the static-index hub + signed format is the foundation).
+- [ ] **RDP/VNC** interactive sessions (terminal shipped in P7).
+- [ ] **RAG index** for large corpora (tool-based read/grep retrieval today).
+- [ ] **SSH-to-external-host** terminal + Analyst co-drive of terminals (sandboxed container terminal
+      shipped; scope + DLP + audit already apply).
+- [ ] **KMS / OS-keychain** vault key custody (env var or 0600 key file today).
+- [ ] Hosted team **collaboration/sync** (portable export/import + webhook sharing today).
