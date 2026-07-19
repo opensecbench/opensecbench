@@ -101,15 +101,18 @@ and can later ship as plugins.
 
 ## Large subsystems (own effort each)
 
-- [ ] **Remote outbound-connect runner** + split `opensecbench-runner` repo — a runner agent that
-      dials home and executes tasks over the runner protocol (ADR-0004 is additive-ready).
-  - [ ] **Runners as request-egress endpoints** (builds on the above + ADR-0016) — route Proxy/Replay
-        (and network capabilities') outbound requests *through a selected remote runner* instead of the
-        local host. Unlocks **distributed/geo-distributed testing** (observe a target from different
-        regions/source IPs) and **origination from inside the target's network** (a runner deployed in
-        their environment) — high-value for internal assessments and egress/segmentation testing. Needs a
-        per-tool/per-request "egress via runner X" selector; scope guard + DLP + audit still governed by the
-        control plane (the runner is only the exit point). Idea from James, 2026-07-18.
+- [x] **Remote outbound-connect runner** — Phase 1 delivered (ADR-0024): `osb-runner` agent dials home,
+      ed25519-enrolled over a separate `--runner-addr` listener; `pkg/runnerhub` broker + engine
+      runner-selection (`RunRequest.RunnerID` → durable `tasks.runner_target`); network capabilities run
+      from the runner's vantage; scope enforced control-plane-side before dispatch. *Remaining:* source-scan
+      caps on remote runners (ship `/src`), built-in TLS + cert-pinning, split `opensecbench-runner` repo,
+      Runners UI.
+  - [ ] **Runners as request-egress endpoints (Phase 2)** (builds on the above + ADR-0016) — route
+        Proxy/Replay's *host-opened* outbound requests *through a selected remote runner* (network
+        capabilities already egress from the runner in Phase 1). Unlocks distributed/geo-distributed
+        testing and origination from inside the target's network. Needs a per-tool/per-request "egress via
+        runner X" selector; scope guard + DLP + audit still governed by the control plane (the runner is
+        only the exit point). Idea from James, 2026-07-18.
 - [ ] **Hosted team hub service** — accounts, uploads, submission scanning, reputation, moderation
       (the static-index hub + signed format is the foundation).
 - [ ] **RDP/VNC** interactive sessions (terminal shipped in P7).
