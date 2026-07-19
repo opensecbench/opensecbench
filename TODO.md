@@ -99,6 +99,11 @@ and can later ship as plugins.
       existing licenses (`pro=true` + `SEMGREP_APP_TOKEN` secret → Pro engine). *Remaining: build the
       **Checkmarx** capability (Checkmarx One `cx` CLI, credential-gated — needs a tenant to build/test);
       verify the Semgrep-Pro path against a real license; per-project default-engine setting; arm64 image.*
+- [x] **Observation & investigation dedup polish** (ADR-0037, from live E2E testing) —
+      `GET /v1/projects/{id}/observations` (+`osb obs list --project`); **refresh-on-rescan** (a deduped
+      observation's severity/attributes update, preserving review_state, no re-dispose); **cross-tool vuln
+      dedup** (`investigation_vulns`: same CVE via grype GHSA + govulncheck CVE → one investigation).
+      *Remaining: cross-tool observation merge; re-route a refreshed obs that newly crosses a threshold.*
 - [x] **Post-run disposition routing** (ADR-0028) — tool-declared rules (`pkg/disposition`, manifest +
       project overrides) route interpreted observations: auto-finding / investigation / review. Observations
       gained structured `attributes`; investigations are human-triggered vuln-validator threads (findings

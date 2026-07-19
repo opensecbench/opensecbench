@@ -85,6 +85,22 @@ func (db *DB) GetObservation(ctx context.Context, id string) (model.Observation,
 	return o, nil
 }
 
+// RefreshObservation updates a re-seen observation's mutable, interpreter-derived fields — severity, detail,
+// and attributes — without disturbing its review_state or id (ADR-0037). This keeps a deduped finding's
+// data current across re-scans (e.g. a corrected severity or a changed reachability/exposure signal) while
+// preserving human triage; the caller does not re-run dispositions.
+func (db *DB) RefreshObservation(ctx context.Context, id, severity, detail string, attrs map[string]string) error {
+	a := ""
+	if len(attrs) > 0 {
+		b, _ := json.Marshal(attrs)
+		a = string(b)
+	}
+	_, err := db.ExecContext(ctx,
+		`UPDATE observations SET severity = ?, detail = ?, attributes = ? WHERE id = ?`,
+		severity, detail, a, id)
+	return err
+}
+
 // ObservationByFingerprint returns the id of an existing observation with the same content fingerprint in
 // the project, if any. The engine uses it to dedup re-scans so the same finding is not re-created or
 // re-dispositioned (ADR-0029). An empty fingerprint or project never matches.
