@@ -44,7 +44,7 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Task engine (pkg/task): capability → sandbox → CAS artifact → provenance
 - [x] API + osb CLI: capabilities list, task run/get, artifact content
 - [x] Resolve target dir from an asset (task engine resolves AssetID→location; asset endpoints shipped)
-- [ ] Async capability scheduling — capabilities still run synchronously (agent playbooks run async via the plan runner + scheduler, ADR-0019)
+- [x] Async capability execution (ADR-0022) — enqueue + bounded worker pool; `POST /v1/tasks` → 202, client polls; playbooks async too. Durable queue (ADR-0023): the tasks row IS the queue, pending work survives restart, interrupted runs resume (at-least-once, retry cap)
 - [x] Semgrep verified against a real repo (offline, local rule; --config auto needs egress)
 
 ## P3 — Evidence loop (SARIF → observations → findings)
