@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, ProviderView, UsageByModel } from './api'
+import { ApprovalPolicy } from './ApprovalPolicy'
 
 // Provider types offered in the add form. needsBase/needsKey drive which fields show; the hint steers
 // the operator (API keys recommended, claude-cli uses the local subscription, ollama is local).
@@ -165,6 +166,8 @@ export function ProviderSettings({
               : 'An API key is the most reliable path. Keys are sealed in the vault, never stored in the clear.'}
         </div>
       </div>
+
+      <ApprovalPolicy online={online} />
     </div>
   )
 }

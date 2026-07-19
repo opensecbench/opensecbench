@@ -413,6 +413,12 @@ export interface AgentProfile {
   description: string
 }
 
+export interface ApprovalRule {
+  tool: string
+  profile?: string
+  decision: 'auto' | 'approve'
+}
+
 export interface AgentPlaybook {
   id: string
   name: string
@@ -734,6 +740,11 @@ export const api = {
     request<{ ok: boolean; latency_ms?: number; sample?: string; error?: string }>('POST', `/v1/analyst/providers/${id}/test`, {}),
   deleteProvider: (id: string) => request<void>('DELETE', `/v1/analyst/providers/${id}`),
   getProjectUsage: (projectId: string) => request<UsageByModel[]>('GET', `/v1/projects/${projectId}/usage`),
+
+  getApprovalPolicy: () =>
+    request<{ sensitive_tools: string[]; rules: ApprovalRule[] }>('GET', '/v1/analyst/approval-policy'),
+  setApprovalPolicy: (rules: ApprovalRule[]) =>
+    request<{ rules: ApprovalRule[] }>('PUT', '/v1/analyst/approval-policy', { rules }),
 
   listAgentPlaybooks: () =>
     request<{ playbooks: AgentPlaybook[] }>('GET', '/v1/analyst/playbooks').then((r) => r.playbooks ?? []),
