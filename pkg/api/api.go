@@ -279,7 +279,7 @@ func (s *Server) routes() {
 }
 
 func (s *Server) analystService() *analyst.Service {
-	svc := analyst.NewService(s.store, s.engine, s.guardedProvider())
+	svc := analyst.NewService(s.store, s.engine, s.cas, s.guardedProvider())
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}
