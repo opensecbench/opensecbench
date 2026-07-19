@@ -16,9 +16,9 @@ func (svc *Service) StartPlan(ctx context.Context, projectID, playbookID string)
 	if svc.provider == nil {
 		return model.Plan{}, errors.New("no LLM provider configured")
 	}
-	pb, ok := PlaybookByID(playbookID)
-	if !ok {
-		return model.Plan{}, fmt.Errorf("unknown playbook %q", playbookID)
+	pb, err := svc.resolvePlaybook(ctx, playbookID)
+	if err != nil {
+		return model.Plan{}, err
 	}
 	plan := model.Plan{ProjectID: projectID, PlaybookID: pb.ID, Goal: pb.Goal, Status: model.PlanRunning}
 	for _, s := range pb.Steps {

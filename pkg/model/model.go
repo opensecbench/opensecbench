@@ -354,6 +354,18 @@ const (
 	StepSkipped = "skipped"
 )
 
+// SavedPlaybook is a user-saved agent playbook (ADR-0019): recorded from a run or authored directly.
+// Steps is a JSON array of {key, profile, instruction, depends_on}.
+type SavedPlaybook struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Goal        string          `json:"goal"`
+	Steps       json.RawMessage `json:"steps"`
+	Source      string          `json:"source,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
 // Plan is a running agent playbook — a DAG of steps executed in dependency order (ADR-0019).
 type Plan struct {
 	ID         string     `json:"id"`

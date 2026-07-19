@@ -9,10 +9,17 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
   const [selected, setSelected] = useState<Plan | null>(null)
   const [busy, setBusy] = useState('')
 
+  const loadPlaybooks = useCallback(async () => {
+    try {
+      setPlaybooks(await api.listAgentPlaybooks())
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }, [onError])
+
   useEffect(() => {
-    if (online) void api.listAgentPlaybooks().then(setPlaybooks).catch((e) => onError((e as Error).message))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online])
+    if (online) void loadPlaybooks()
+  }, [online, loadPlaybooks])
 
   const loadPlans = useCallback(async () => {
     try {
@@ -63,6 +70,26 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
     }
   }
 
+  async function deletePlaybook(id: string) {
+    try {
+      await api.deleteAgentPlaybook(id)
+      await loadPlaybooks()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
+  async function saveAsPlaybook(plan: Plan) {
+    const name = window.prompt('Save this run as a reusable playbook. Name:')
+    if (!name) return
+    try {
+      await api.savePlanAsPlaybook(plan.id, name, `Recorded from a ${plan.playbook_id} run.`)
+      await loadPlaybooks()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
   return (
     <div className="orch-tab">
       <div className="orch-left">
@@ -71,6 +98,13 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
           <div key={pb.id} className="orch-pb">
             <div className="orch-pb-h">
               <b>{pb.name}</b>
+              {!pb.builtin && <span className="orch-saved">saved</span>}
+              <span className="grow" />
+              {!pb.builtin && (
+                <button className="orch-del" title="Delete this saved playbook" disabled={!online} onClick={() => deletePlaybook(pb.id)}>
+                  ×
+                </button>
+              )}
               <button disabled={!online || !!busy} onClick={() => run(pb)}>{busy === pb.id ? '…' : '▷ Run'}</button>
             </div>
             <div className="orch-pb-d">{pb.description}</div>
@@ -105,6 +139,10 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
               <span className={`orch-dot s-${selected.status}`} />
               <b>{selected.playbook_id}</b>
               <span className="plan-goal">{selected.goal}</span>
+              <span className="grow" />
+              <button className="ghost-btn" disabled={!online} onClick={() => saveAsPlaybook(selected)} title="Record this run as a reusable playbook">
+                ＋ Save as playbook
+              </button>
             </div>
             {(selected.steps ?? []).map((s) => (
               <div key={s.id} className={`plan-step st-${s.status}`}>

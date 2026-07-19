@@ -10,10 +10,10 @@ package analyst
 
 // PlaybookStep is one step of a playbook template.
 type PlaybookStep struct {
-	Key         string
-	Profile     string
-	Instruction string
-	DependsOn   []string
+	Key         string   `json:"key"`
+	Profile     string   `json:"profile"`
+	Instruction string   `json:"instruction"`
+	DependsOn   []string `json:"depends_on"`
 }
 
 // Playbook is a triggerable, engagement-shaped process.

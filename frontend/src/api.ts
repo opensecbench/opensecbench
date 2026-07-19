@@ -425,6 +425,8 @@ export interface AgentPlaybook {
   description: string
   goal: string
   steps: { key: string; profile: string; depends_on: string[] }[]
+  builtin?: boolean
+  source?: string
 }
 
 export interface PlanStep {
@@ -748,6 +750,9 @@ export const api = {
 
   listAgentPlaybooks: () =>
     request<{ playbooks: AgentPlaybook[] }>('GET', '/v1/analyst/playbooks').then((r) => r.playbooks ?? []),
+  deleteAgentPlaybook: (id: string) => request<void>('DELETE', '/v1/analyst/playbooks/' + id),
+  savePlanAsPlaybook: (planId: string, name: string, description: string) =>
+    request<{ id: string }>('POST', `/v1/plans/${planId}/save-as-playbook`, { name, description }),
   startPlan: (projectId: string, playbookId: string) =>
     request<Plan>('POST', `/v1/projects/${projectId}/plans`, { playbook_id: playbookId }),
   getPlan: (id: string) => request<Plan>('GET', '/v1/plans/' + id),

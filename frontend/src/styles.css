@@ -1894,3 +1894,10 @@ select option {
 .policy-toggle button.on { background: var(--bg4); color: var(--amber); font-weight: 700; }
 .policy-toggle button.on.auto { color: var(--green); }
 .policy-toggle button:disabled { cursor: default; }
+
+/* saved playbooks + record-as-playbook */
+.orch-pb-h .grow, .plan-h .grow { flex: 1; }
+.orch-saved { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 800; color: var(--acc); background: var(--bg4); border-radius: 10px; padding: 1px 6px; }
+.orch-del { border: 0; background: transparent; color: var(--tx3); font-size: 15px; line-height: 1; padding: 0 6px; cursor: pointer; }
+.orch-del:hover { color: var(--red); }
+.plan-h .ghost-btn { font-size: 11.5px; }
