@@ -184,6 +184,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/hub/index", s.hubIndex)
 	s.mux.HandleFunc("POST /v1/hub/install", s.hubInstall)
 	s.mux.HandleFunc("GET /v1/analyst/profiles", s.listAgentProfiles)
+	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
+	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
 	s.mux.HandleFunc("GET /v1/analyst/provider", s.getActiveProvider)
 	s.mux.HandleFunc("GET /v1/analyst/providers", s.listProviders)
 	s.mux.HandleFunc("POST /v1/analyst/providers", s.addProvider)
@@ -392,6 +394,47 @@ func (s *Server) createThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, th)
+}
+
+// getApprovalPolicy returns the sensitive tools (approve-by-default) and the current override rules
+// (ADR-0019 §5). The rules promote or demote a tool [+profile] between auto and approve.
+func (s *Server) getApprovalPolicy(w http.ResponseWriter, r *http.Request) {
+	raw, _ := s.store.GetSetting(r.Context(), analyst.ApprovalPolicySetting)
+	rules := []analyst.Rule{}
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &rules)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sensitive_tools": analyst.SensitiveTools(), "rules": rules})
+}
+
+// setApprovalPolicy replaces the override rules. Scope and DLP are enforced separately and unaffected.
+func (s *Server) setApprovalPolicy(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Rules []analyst.Rule `json:"rules"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	for _, rl := range req.Rules {
+		if rl.Tool == "" {
+			writeErr(w, http.StatusBadRequest, "each rule needs a tool")
+			return
+		}
+		if rl.Decision != analyst.DecisionAuto && rl.Decision != analyst.DecisionApprove {
+			writeErr(w, http.StatusBadRequest, "each rule's decision must be 'auto' or 'approve'")
+			return
+		}
+	}
+	b, err := json.Marshal(req.Rules)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.store.SetSetting(r.Context(), analyst.ApprovalPolicySetting, string(b)); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rules": req.Rules})
 }
 
 // listAgentProfiles returns the built-in agent profiles for the thread-creation picker (ADR-0019).

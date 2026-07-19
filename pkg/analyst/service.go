@@ -66,16 +66,33 @@ func (svc *Service) Available() bool { return svc.provider != nil }
 // strict, capability output for a private asset is not sent to an external provider.
 func (svc *Service) SetEgressStrict(strict bool) { svc.egressStrict = strict }
 
-func (svc *Service) session(projectID string, profile Profile) *agent.Session {
+func (svc *Service) session(projectID string, profile Profile, policy Policy) *agent.Session {
 	return &agent.Session{
 		Provider:    svc.provider,
 		Tools:       profile.ToolSet(),
-		Gate:        func(c agent.ToolCall) bool { return gatedTools[c.Tool] },
+		Gate:        func(c agent.ToolCall) bool { return policy.NeedsApproval(c.Tool, profile.ID) },
 		Execute:     svc.executeFor(projectID),
 		MaxSteps:    8,
 		TokenBudget: svc.tokenBudget,
 		Audit:       svc.Audit,
 	}
+}
+
+// ApprovalPolicySetting is the settings key holding the trust-curve override rules as a JSON array (ADR-0019 §5).
+const ApprovalPolicySetting = "analyst_approval_rules"
+
+// loadPolicy reads the configured approval policy; an unset or unparseable setting yields the
+// conservative default (every sensitive tool asks).
+func (svc *Service) loadPolicy(ctx context.Context) Policy {
+	raw, err := svc.store.GetSetting(ctx, ApprovalPolicySetting)
+	if err != nil || raw == "" {
+		return DefaultPolicy()
+	}
+	var rules []Rule
+	if err := json.Unmarshal([]byte(raw), &rules); err != nil {
+		return DefaultPolicy()
+	}
+	return NewPolicy(rules)
 }
 
 // executeFor builds the tool executor for a thread's project, wrapped with the data-egress policy:
@@ -132,7 +149,7 @@ func (svc *Service) Send(ctx context.Context, threadID, userMessage string) (Sen
 		return SendResult{}, err
 	}
 	profile := ProfileByID(th.AgentType)
-	sess := svc.session(projectOf(th), profile)
+	sess := svc.session(projectOf(th), profile, svc.loadPolicy(ctx))
 
 	existing, err := svc.store.ListMessages(ctx, threadID)
 	if err != nil {
@@ -190,7 +207,7 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 	_ = json.Unmarshal(ap.Args, &args)
 	call := agent.ToolCall{Tool: ap.Tool, Args: args}
 
-	out, err := svc.session(projectOf(th), profile).Resume(ctx, prior, call, approved)
+	out, err := svc.session(projectOf(th), profile, svc.loadPolicy(ctx)).Resume(ctx, prior, call, approved)
 	if err != nil {
 		_ = svc.store.UpdateThreadStatus(ctx, ap.ThreadID, model.ThreadError)
 		return SendResult{}, err

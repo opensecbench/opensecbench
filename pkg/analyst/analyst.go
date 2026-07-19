@@ -23,17 +23,6 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
-// gatedTools require explicit per-run authorization; everything else is read-only and safe. Anything
-// that sends traffic or mutates assessment state is gated; reads are auto-approved.
-var gatedTools = map[string]bool{
-	"run_capability": true,
-	"run_playbook":   true,
-	"send_request":   true,
-	"set_coverage":   true,
-	"create_finding": true,
-	"run_code":       true,
-}
-
 // assetEgressTools take an 'asset' argument and would send that asset's contents (its scan output, or
 // its source read directly) to the model. Under a strict egress policy with an external provider, they
 // are blocked for a private asset (ADR-0011, ADR-0020) — enforced in service.executeFor.
@@ -152,15 +141,17 @@ func Tools() []agent.Tool {
 	}
 }
 
-// Approver auto-approves read-only tools and approves gated tools only when the tool name is in
-// the per-run allow list (the human's explicit authorization for this ask).
+// Approver is the synchronous Loop path (e.g. `analyst ask`): it auto-approves non-sensitive tools and
+// approves a sensitive tool only when its name is in the per-run allow list (the human's explicit
+// authorization for this ask). The configurable trust-curve policy applies on the resumable workbench
+// path (Session); this one-shot Loop stays conservative.
 func Approver(allow []string) func(context.Context, agent.ToolCall) (bool, error) {
 	allowed := make(map[string]bool, len(allow))
 	for _, a := range allow {
 		allowed[a] = true
 	}
 	return func(_ context.Context, call agent.ToolCall) (bool, error) {
-		if gatedTools[call.Tool] {
+		if sensitiveTools[call.Tool] {
 			return allowed[call.Tool], nil
 		}
 		return true, nil
