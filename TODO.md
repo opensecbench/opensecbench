@@ -116,8 +116,12 @@ and can later ship as plugins.
       `store.ReconcileObservedRoutes` confirms them against captured traffic and records traffic-only routes
       (works with no source). A finding whose handler file declares an exposed route gets `exposed_route` +
       a 🌐 triage pill (file-level proximity). *Remaining: call-graph route→sink reachability; a routes
-      graph/surface; make exposed_route a disposition gate; broader framework coverage; ship the ruleset to
-      remote runners; Flask methods=[…] inference.*
+      graph/surface; broader framework coverage; ship the ruleset to remote runners; Flask methods=[…]
+      inference.*
+- [x] **Route-confirmed escalation** (ADR-0034) — `route_observed` is now a routing gate: a finding in a
+      traffic-confirmed exposed route's handler escalates to investigate at medium+ even without a
+      reachability proof (escalate-only, never downgrades on a missing route; grype's authoritative
+      `reachable:false` still wins). *Remaining: escalate on merely-declared routes; call-graph route→sink.*
 - [x] Report templates as extension packs; playbook/visualization pack types still to add.
 - [x] Integration **pull** — DefectDojo findings → observations into triage (ADR-0027); reusable
       per-project configs (push uses them too); external-id dedup; `observations.project_id` for task-less
