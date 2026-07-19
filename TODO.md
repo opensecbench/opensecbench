@@ -84,8 +84,10 @@ and can later ship as plugins.
 - [ ] Decide fail-closed vs best-effort on an audit-append failure (currently logged, not fatal).
 - [ ] Interpret TruffleHog JSON output into observations (currently captured as a raw artifact).
 - [x] Report templates as extension packs; playbook/visualization pack types still to add.
-- [ ] Integration **pull** (DefectDojo findings/scans in; DependencyTrack SBOM) + **watchers**
-      (schedule → notify / create task / run playbook).
+- [x] Integration **pull** — DefectDojo findings → observations into triage (ADR-0027); reusable
+      per-project configs (push uses them too); external-id dedup; `observations.project_id` for task-less
+      evidence. *Remaining: DependencyTrack/SBOM; **watchers** (schedule → notify / create task / run
+      playbook); DefectDojo pagination beyond 200; two-way status sync.*
 - [x] Interactive graph tab: structure, traffic, topology (nmap), dependency (SBOM) kinds
 - [ ] Runtime extension **uninstall** + update/version-constraint flow.
 

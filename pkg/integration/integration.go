@@ -35,6 +35,23 @@ type Connector interface {
 	PushFinding(ctx context.Context, cfg Config, f model.Finding) (Ref, error)
 }
 
+// ExternalFinding is a normalized finding pulled from an external tracker (ADR-0027). Severity is
+// lowercased to OSB's scale; Confirmed reflects the source's verified/triaged state.
+type ExternalFinding struct {
+	ExternalID string
+	Title      string
+	Severity   string
+	Detail     string
+	URL        string
+	Confirmed  bool
+}
+
+// Puller is the optional inbound half of a connector: list findings from the tracker. Push-only
+// connectors don't implement it.
+type Puller interface {
+	Pull(ctx context.Context, cfg Config) ([]ExternalFinding, error)
+}
+
 // Registry holds connectors by name.
 type Registry struct{ conns map[string]Connector }
 
@@ -67,6 +84,24 @@ func postJSON(ctx context.Context, client *http.Client, url string, body any, se
 		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	setAuth(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return out, resp.StatusCode, nil
+}
+
+// getJSON does an authenticated GET and decodes a single JSON object (e.g. a list wrapper {"results":...}).
+func getJSON(ctx context.Context, client *http.Client, url string, setAuth func(*http.Request)) (map[string]any, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
 	req.Header.Set("Accept", "application/json")
 	setAuth(req)
 	resp, err := client.Do(req)
