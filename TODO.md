@@ -113,8 +113,15 @@ and can later ship as plugins.
       `report-writer` + `pentester` profiles (post-confirmation roles), deliberately NOT in the propose-only
       assessment playbook. Closes the loop: assess → human confirms findings → report. *Later: PDF/DOCX from
       the agent; a preview (render-without-store) tool; agent-attached executive narrative on top.*
-- [ ] **Analyst autonomy — remaining** (ADR-0035): parallel plan steps + deeper delegation + raise the
-      8-step sub-agent cap (the last autonomy item — mid-run approval and report generation are done).
+- [x] **Parallel plan steps** (ADR-0046) — the plan runner runs **all ready steps concurrently** per wave
+      (bounded by `maxParallelSteps`=4) instead of one at a time, so independent steps (SAST/SCA/secrets
+      scanners, per-repo recon) overlap — wall-clock = slowest branch, not the sum. Shared state folded under
+      a mutex (race-clean via `go test -race`); ADR-0044 gate pause/resume + failure-skip preserved. Fan-out
+      test proves real concurrency. Live-validated (root→{a,b,c}→join completed through the daemon).
+- [ ] **Analyst autonomy — remaining** (ADR-0035): a **pipelined** scheduler (start a step the moment its own
+      deps finish, dropping the per-wave barrier); a configurable/per-playbook concurrency cap; cancel
+      in-flight steps on a sibling failure; **deeper delegation** (a sub-agent delegating further) + raise the
+      8-step sub-agent cap.
 
 ## Analyst provider / model management
 

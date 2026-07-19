@@ -5,9 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
+
+// maxParallelSteps bounds how many plan steps run concurrently in one wave (ADR-0046). Steps often run
+// Docker-heavy capabilities, so this is deliberately modest; a plan with a wider ready set just takes more
+// waves. Independent steps (e.g. the SAST/SCA/secrets scanners) still overlap instead of running serially.
+const maxParallelSteps = 4
 
 // StartPlan creates a plan from a playbook and runs it in the background, executing steps in dependency
 // order via delegation. It returns the created plan (status running) immediately; the client polls
@@ -33,12 +39,14 @@ func (svc *Service) StartPlan(ctx context.Context, projectID, playbookID string)
 }
 
 // runPlan executes a plan's steps in dependency order via delegation, persisting each step's outcome as
-// it goes (so a poll of GetPlan shows live progress). Sequential in v1. Runs on a background context.
+// it goes (so a poll of GetPlan shows live progress). Runs on a background context.
 //
-// It is resume-safe (ADR-0044): it reloads the plan and reconstructs progress from persisted step statuses,
-// so it can be relaunched after a mid-run approval pause and pick up exactly where it left off. When it
-// reaches a not-yet-approved gate step whose dependencies are complete, it parks the plan in 'waiting' and
-// returns; a human's ResolvePlanGate clears (or denies) the gate and relaunches the run.
+// It schedules in waves: each pass runs ALL currently-ready steps concurrently (bounded by
+// maxParallelSteps), so independent steps overlap instead of running one at a time (ADR-0046). It is
+// resume-safe (ADR-0044): it reloads the plan and reconstructs progress from persisted step statuses, so it
+// can be relaunched after a mid-run approval pause and pick up exactly where it left off. When a
+// not-yet-approved gate step's dependencies are complete, it parks the plan in 'waiting' and returns; a
+// human's ResolvePlanGate clears (or denies) the gate and relaunches the run.
 func (svc *Service) runPlan(plan model.Plan) {
 	ctx := context.Background()
 	// Reload so a resumed run sees the persisted step ids/statuses/results (and any just-resolved gate).
@@ -63,24 +71,15 @@ func (svc *Service) runPlan(plan model.Plan) {
 
 	for {
 		progressed := false
+
+		// Collect the ready set (dependencies satisfied), skipping steps whose dependency failed.
+		var ready []*model.PlanStep
 		for i := range plan.Steps {
 			s := &plan.Steps[i]
 			if done[s.Key] || failed[s.Key] {
 				continue
 			}
-			ready, depFailed := true, false
-			for _, d := range s.DependsOn {
-				switch {
-				case failed[d]:
-					depFailed = true
-				case !done[d]:
-					ready = false
-				}
-			}
-			if !ready {
-				continue
-			}
-
+			isReady, depFailed := stepReady(s, done, failed)
 			if depFailed {
 				failed[s.Key] = true
 				anyFailed = true
@@ -88,41 +87,48 @@ func (svc *Service) runPlan(plan model.Plan) {
 				_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepSkipped, "", "skipped: a dependency did not complete")
 				continue
 			}
+			if isReady {
+				ready = append(ready, s)
+			}
+		}
 
-			// A gate is a human-approval checkpoint, not a delegated task. Uncleared, it parks the plan:
-			// record the pause and stop the run (a later ResolvePlanGate approves or denies it, then
-			// relaunches runPlan). Once approved, it resolves as done immediately, carrying its note forward.
-			if s.Gate {
-				if !s.GateApproved {
-					_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepWaiting, "", "awaiting human approval")
-					_ = svc.store.UpdatePlanStatus(ctx, plan.ID, model.PlanWaiting)
-					svc.notifyPlanWaiting(ctx, plan, *s)
-					return
-				}
+		// Approved gates are checkpoints, not tasks — resolve them as done (carrying the note forward) and
+		// re-evaluate, so their dependents become ready without consuming a delegation wave.
+		clearedGate := false
+		for _, s := range ready {
+			if s.Gate && s.GateApproved {
 				done[s.Key] = true
 				results[s.Key] = s.Result
-				progressed = true
+				clearedGate = true
 				_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepDone, s.Result, "")
-				continue
 			}
-
-			progressed = true
-			_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepRunning, "", "")
-			task := s.Instruction
-			if c := planContext(s.DependsOn, results); c != "" {
-				task += "\n\n" + c
-			}
-			res, err := svc.Delegate(ctx, plan.ProjectID, s.Profile, task, profileToolNames(svc.resolveProfile(ctx, s.Profile)))
-			if err != nil {
-				failed[s.Key] = true
-				anyFailed = true
-				_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepFailed, "", err.Error())
-				continue
-			}
-			done[s.Key] = true
-			results[s.Key] = res.Answer
-			_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepDone, res.Answer, "")
 		}
+		if clearedGate {
+			continue
+		}
+
+		// An uncleared gate parks the whole plan: record the pause and stop (a later ResolvePlanGate approves
+		// or denies it, then relaunches runPlan). We pause before starting new work so nothing runs that a
+		// human might veto.
+		for _, s := range ready {
+			if s.Gate {
+				_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepWaiting, "", "awaiting human approval")
+				_ = svc.store.UpdatePlanStatus(ctx, plan.ID, model.PlanWaiting)
+				svc.notifyPlanWaiting(ctx, plan, *s)
+				return
+			}
+		}
+
+		// Run all ready (non-gate) steps concurrently as one wave.
+		var wave []*model.PlanStep
+		for _, s := range ready {
+			wave = append(wave, s)
+		}
+		if len(wave) > 0 {
+			svc.runWave(ctx, plan.ProjectID, wave, results, done, failed, &anyFailed)
+			progressed = true
+		}
+
 		if allResolved(plan.Steps, done, failed) {
 			break
 		}
@@ -144,6 +150,63 @@ func (svc *Service) runPlan(plan model.Plan) {
 		status = model.PlanFailed
 	}
 	_ = svc.store.UpdatePlanStatus(ctx, plan.ID, status)
+}
+
+// stepReady reports whether a step's dependencies are all satisfied (isReady), or whether any dependency
+// failed/was skipped (depFailed — the step can never run and should be skipped).
+func stepReady(s *model.PlanStep, done, failed map[string]bool) (isReady, depFailed bool) {
+	isReady = true
+	for _, d := range s.DependsOn {
+		switch {
+		case failed[d]:
+			depFailed = true
+		case !done[d]:
+			isReady = false
+		}
+	}
+	return isReady, depFailed
+}
+
+// runWave delegates a set of independent, ready steps concurrently (bounded by maxParallelSteps) and blocks
+// until all finish, folding their outcomes back into the shared done/failed/results maps under a mutex. Each
+// step's dependency context is read (also under the mutex) before its delegation — dependencies are from
+// earlier waves, so their results are stable while this wave runs.
+func (svc *Service) runWave(ctx context.Context, projectID string, wave []*model.PlanStep, results map[string]string, done, failed map[string]bool, anyFailed *bool) {
+	sem := make(chan struct{}, maxParallelSteps)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, s := range wave {
+		s := s
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepRunning, "", "")
+			mu.Lock()
+			task := s.Instruction
+			if c := planContext(s.DependsOn, results); c != "" {
+				task += "\n\n" + c
+			}
+			mu.Unlock()
+
+			res, err := svc.Delegate(ctx, projectID, s.Profile, task, profileToolNames(svc.resolveProfile(ctx, s.Profile)))
+
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				failed[s.Key] = true
+				*anyFailed = true
+				_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepFailed, "", err.Error())
+				return
+			}
+			done[s.Key] = true
+			results[s.Key] = res.Answer
+			_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepDone, res.Answer, "")
+		}()
+	}
+	wg.Wait()
 }
 
 func allResolved(steps []model.PlanStep, done, failed map[string]bool) bool {
