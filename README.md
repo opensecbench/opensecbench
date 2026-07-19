@@ -12,6 +12,10 @@ dramatically more effective — and that a community can extend and share.
 > Status: early development (phase P0 — foundation). Repository is private during the build and
 > will be open-sourced at release.
 
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
+
 ## Architecture (at a glance)
 
 - **Go control plane** — a standalone headless daemon exposing a local HTTP API. All clients

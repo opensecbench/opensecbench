@@ -50,6 +50,12 @@ func Tools() []agent.Tool {
 		{Name: "get_finding", Description: "Get one finding by id, including its supporting observation ids.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "finding id"},
 		}},
+		{Name: "create_observation", Description: "Record an observation from your analysis — an unreviewed finding-candidate a human triages (origin: Analyst). Confirm it before it can back a finding.", Params: []agent.Param{
+			{Name: "title", Type: agent.TypeString, Required: true, Description: "short observation title"},
+			{Name: "severity", Type: agent.TypeEnum, Required: true, Description: "severity", Enum: []string{"critical", "high", "medium", "low", "info"}},
+			{Name: "detail", Type: agent.TypeString, Description: "what was observed and why it matters"},
+			{Name: "location", Type: agent.TypeString, Description: "where (file:line, url, component)"},
+		}},
 		{Name: "draft_kb_entry", Description: "Draft a knowledge-base entry about a target. Saved as an unreviewed draft for human confirmation.", Params: []agent.Param{
 			{Name: "target", Type: agent.TypeString, Required: true, Description: "target id (from list_targets)"},
 			{Name: "kind", Type: agent.TypeEnum, Required: true, Description: "entry kind", Enum: []string{"architecture", "auth", "endpoint", "tech_stack", "environment", "data_flow", "convention", "gotcha", "tactic"}},
@@ -197,6 +203,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return jsonify(st.GetFinding(ctx, id))
 		case "draft_kb_entry":
 			return draftKBEntry(ctx, st, call)
+		case "create_observation":
+			return createObservation(ctx, st, call)
 		case "read_file":
 			return readFile(ctx, deps, call)
 		case "list_dir":
@@ -418,6 +426,27 @@ func draftKBEntry(ctx context.Context, st *store.DB, call agent.ToolCall) (strin
 		Body:      body,
 		Origin:    model.OriginThread,
 		SourceRef: "thread:analyst",
+	}))
+}
+
+// createObservation records an unreviewed, Analyst-origin observation from the agent's own analysis
+// (the "LLM interpreter", origin=thread — ADR-0005/P3). It must be human-confirmed to back a finding.
+func createObservation(ctx context.Context, st *store.DB, call agent.ToolCall) (string, error) {
+	title := stringArg(call, "title")
+	if title == "" {
+		return "", errors.New("create_observation requires 'title'")
+	}
+	sev := stringArg(call, "severity")
+	if sev == "" {
+		sev = "info"
+	}
+	return jsonify(st.CreateObservation(ctx, model.Observation{
+		Origin:      model.OriginThread,
+		ReviewState: model.ReviewUnreviewed,
+		Title:       title,
+		Detail:      stringArg(call, "detail"),
+		Severity:    sev,
+		Location:    stringArg(call, "location"),
 	}))
 }
 

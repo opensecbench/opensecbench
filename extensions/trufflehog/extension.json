@@ -15,7 +15,7 @@
       "mount_source": true,
       "mount_target": "/src",
       "output_name": "trufflehog.json",
-      "output_media_type": "application/json",
+      "output_media_type": "application/x-trufflehog-json",
       "ok_exit_codes": [0, 183],
       "timeout_seconds": 600,
       "memory_mb": 2048
