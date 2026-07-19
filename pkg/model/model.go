@@ -112,6 +112,23 @@ type Provider struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Runner statuses.
+const (
+	RunnerActive  = "active"
+	RunnerRevoked = "revoked"
+)
+
+// Runner is an enrolled remote runner (ADR-0024): an outbound-connect agent that executes capability
+// tasks from its own network vantage, authenticated by the ed25519 PubKey established at enrollment.
+type Runner struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	PubKey     string     `json:"pubkey"` // base64 ed25519 public key
+	Status     string     `json:"status"`
+	EnrolledAt time.Time  `json:"enrolled_at"`
+	LastSeen   *time.Time `json:"last_seen,omitempty"`
+}
+
 // ProxyRule is a per-project match/replace rule applied by the proxy's traffic-processor pipeline.
 type ProxyRule struct {
 	ID        string    `json:"id"`
@@ -561,6 +578,10 @@ type Task struct {
 	// TargetDir is a local filesystem path.
 	SecretRefs map[string]string `json:"-"`
 	TargetDir  string            `json:"-"`
+
+	// RunnerTarget selects where the task runs (ADR-0024): '' = the local Docker runner; otherwise a
+	// runners.id. Persisted so the durable queue re-dispatches to the right runner after a restart.
+	RunnerTarget string `json:"runner_target,omitempty"`
 }
 
 // Artifact kinds.

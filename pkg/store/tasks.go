@@ -27,24 +27,25 @@ type NewTask struct {
 	Params            json.RawMessage
 	SecretRefs        map[string]string
 	TargetDir         string
+	RunnerTarget      string // '' = local runner; otherwise a runners.id (ADR-0024)
 	Queued            bool
 }
 
 // taskCols is the full task column list, shared by every task read so reconstruction data (project_id,
 // secret_refs, target_dir, attempts) is always loaded.
 const taskCols = `id, capability_id, capability_version, application_id, asset_id, project_id, actor, runner,
-	params, status, exit_code, error, attempts, created_at, started_at, finished_at, secret_refs, target_dir`
+	params, status, exit_code, error, attempts, created_at, started_at, finished_at, secret_refs, target_dir, runner_target`
 
 // scanTask reads one task row selected with taskCols.
 func scanTask(s interface{ Scan(...any) error }) (model.Task, error) {
 	var t model.Task
 	var app, asset, project sql.NullString
-	var params, secretRefs, targetDir string
+	var params, secretRefs, targetDir, runnerTarget string
 	var exit sql.NullInt64
 	var created string
 	var started, finished sql.NullString
 	if err := s.Scan(&t.ID, &t.CapabilityID, &t.CapabilityVersion, &app, &asset, &project, &t.Actor, &t.Runner,
-		&params, &t.Status, &exit, &t.Error, &t.Attempts, &created, &started, &finished, &secretRefs, &targetDir); err != nil {
+		&params, &t.Status, &exit, &t.Error, &t.Attempts, &created, &started, &finished, &secretRefs, &targetDir, &runnerTarget); err != nil {
 		return model.Task{}, err
 	}
 	t.ApplicationID, t.AssetID, t.ProjectID = ptr(app), ptr(asset), ptr(project)
@@ -53,6 +54,7 @@ func scanTask(s interface{ Scan(...any) error }) (model.Task, error) {
 		_ = json.Unmarshal([]byte(secretRefs), &t.SecretRefs)
 	}
 	t.TargetDir = targetDir
+	t.RunnerTarget = runnerTarget
 	if exit.Valid {
 		v := int(exit.Int64)
 		t.ExitCode = &v
@@ -94,6 +96,7 @@ func (db *DB) CreateTask(ctx context.Context, nt NewTask) (model.Task, error) {
 		Status:            model.TaskRunning,
 		SecretRefs:        nt.SecretRefs,
 		TargetDir:         nt.TargetDir,
+		RunnerTarget:      nt.RunnerTarget,
 		CreatedAt:         now,
 		StartedAt:         &now,
 	}
@@ -105,10 +108,10 @@ func (db *DB) CreateTask(ctx context.Context, nt NewTask) (model.Task, error) {
 	}
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO tasks
-		 (id, capability_id, capability_version, application_id, asset_id, project_id, actor, runner, params, status, created_at, started_at, secret_refs, target_dir)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (id, capability_id, capability_version, application_id, asset_id, project_id, actor, runner, params, status, created_at, started_at, secret_refs, target_dir, runner_target)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.CapabilityID, t.CapabilityVersion, nt.ApplicationID, nt.AssetID, nt.ProjectID, t.Actor, t.Runner,
-		string(params), t.Status, nowStr, startedAt, secretRefs, nt.TargetDir)
+		string(params), t.Status, nowStr, startedAt, secretRefs, nt.TargetDir, nt.RunnerTarget)
 	if err != nil {
 		return model.Task{}, err
 	}
