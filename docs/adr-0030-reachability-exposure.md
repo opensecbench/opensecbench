@@ -57,6 +57,15 @@ flood triage. Projects override via `disposition_rules` as usual.
 - **govulncheck is heavy.** It installs the analyzer and downloads the vuln DB + module graph per run
   (~minutes); a prebuilt image is a future optimization.
 
+## Real-tool validation (2026-07-19, Docker)
+Verified end-to-end against real govulncheck on a module with a known-reachable x/text vuln. Two fixes came
+out of it: (1) the capability image must be **golang:1.25** — `govulncheck@latest` (v1.6.0) needs Go ≥1.25
+and `GOTOOLCHAIN=local` won't auto-upgrade, so golang:1.23 silently installed nothing; (2) govulncheck emits
+an `osv` *definition* for **every** vuln in the import graph (162 in the test), but only ones with a
+**finding** actually affect the module — the interpreter now records only finding-backed OSVs (3), one
+`reachable=true` at the real call site. Confirmed: 3 observations, correct reachability, CVE/GHSA aliases,
+fixed versions.
+
 ## Out of scope — Phase 2 (later)
 - **SAST reachability**: entry-point (exposed HTTP handler) → flagged-sink reachability for semgrep findings,
   via a call graph / semgrep dataflow. Harder and per-language; the exposure model + `exposed` attribute +

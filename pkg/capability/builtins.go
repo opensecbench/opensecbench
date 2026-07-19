@@ -290,9 +290,10 @@ func (govulncheck) Plan(in Input) (runner.RunSpec, error) {
 		return runner.RunSpec{}, errors.New("govulncheck: target directory required")
 	}
 	// The golang image has no govulncheck; install it, then analyse /src. Module/build caches land in the
-	// writable GOPATH/GOCACHE, so the /src mount stays read-only.
+	// writable GOPATH/GOCACHE, so the /src mount stays read-only. The image must satisfy govulncheck@latest's
+	// minimum Go version (v1.6.0 needs Go >= 1.25; GOTOOLCHAIN=local won't auto-upgrade), verified in Docker.
 	return runner.RunSpec{
-		Image: "golang:1.23",
+		Image: "golang:1.25",
 		Cmd: []string{"sh", "-c",
 			"go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck -C /src -json ./..."},
 		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
