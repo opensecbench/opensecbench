@@ -58,6 +58,16 @@ and can later ship as plugins.
 - [x] Server-side filtered `GET /v1/projects/{id}/exchanges` (Step 1; `origin/method/status/q/limit`).
       *Cursor pagination still to add; live push is Step 2.*
 
+## Analyst autonomy
+
+- [x] **Signal-aware autonomous assessment** (ADR-0035) — the Analyst drives recon → scan → triage →
+      validate → draft-report end-to-end as a bounded run that **proposes** (findings stay human-confirmed).
+      New `list_observations`/`list_investigations` tools surface the routing attributes; the investigation
+      seed carries them (`describeSignals`); an `assessor` profile (no `create_finding`) + an `assessment`
+      playbook enforce propose-mode by construction. *Remaining: mid-run plan approval (pausable/resumable
+      runner); an agent `generate_report` tool; parallel plan steps + deeper delegation + raise the 8-step
+      sub-agent cap.*
+
 ## Analyst provider / model management
 
 - [x] **Provider display + selection** (DONE) — the Analyst header shows the active model (or "⚠ not

@@ -4,11 +4,57 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/disposition"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
+
+// describeSignals renders an observation's routing attributes (ADR-0029–0034) into a compact block for the
+// investigation seed, so the vuln-validator knows *why* this was flagged and where to look — its
+// reachability, exposure, exposed route, and CVSS. Returns "" when there is nothing worth stating.
+func describeSignals(attrs map[string]string) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+	var lines []string
+	if v := attrs["reachable"]; v == "true" {
+		if src := attrs["dataflow_source"]; src != "" {
+			lines = append(lines, "Reachable: yes — untrusted input reaches this from "+src)
+		} else {
+			lines = append(lines, "Reachable: yes (in the call graph)")
+		}
+	} else if v == "false" {
+		lines = append(lines, "Reachable: no — the vulnerable code is imported but not called (likely a false positive)")
+	}
+	if route := attrs["exposed_route"]; route != "" {
+		confirm := "declared"
+		if attrs["route_observed"] == "true" {
+			confirm = "traffic-confirmed"
+		}
+		lines = append(lines, fmt.Sprintf("Exposed route: %s (%s)", route, confirm))
+	} else if attrs["exposed"] == "true" {
+		lines = append(lines, "On a network-exposed service")
+	}
+	if cvss := attrs["security_severity"]; cvss != "" {
+		lines = append(lines, "CVSS: "+cvss)
+	}
+	if attrs["verified"] == "true" {
+		lines = append(lines, "Secret verified live by the tool")
+	}
+	if pkg := attrs["package"]; pkg != "" {
+		s := "Package: " + pkg
+		if fixed := attrs["fixed_version"]; fixed != "" {
+			s += " (fixed in " + fixed + ")"
+		}
+		lines = append(lines, s)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Signals:\n- " + strings.Join(lines, "\n- ") + "\n"
+}
 
 // listInvestigations returns a project's investigations (ADR-0028).
 func (s *Server) listInvestigations(w http.ResponseWriter, r *http.Request) {
@@ -77,11 +123,11 @@ func (s *Server) runInvestigation(w http.ResponseWriter, r *http.Request) {
 	}
 	seed := fmt.Sprintf(
 		"Validate whether this potential issue is real, then decide.\n\n"+
-			"Rule: %s\nSeverity: %s\nLocation: %s\nDetail: %s\n\n"+
+			"Rule: %s\nSeverity: %s\nLocation: %s\nDetail: %s\n%s\n"+
 			"Gather evidence (read the relevant code/context; test only what is safe and in scope). "+
 			"If it is a genuine issue, create a finding — that will require my approval. "+
 			"If it is a false positive or example/placeholder value, explain why.",
-		obs.RuleID, obs.Severity, obs.Location, obs.Detail)
+		obs.RuleID, obs.Severity, obs.Location, obs.Detail, describeSignals(obs.Attributes))
 
 	res, err := s.analystService().Send(r.Context(), th.ID, seed)
 	if err != nil {

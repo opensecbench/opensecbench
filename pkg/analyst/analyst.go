@@ -50,6 +50,12 @@ func Tools() []agent.Tool {
 		{Name: "get_finding", Description: "Get one finding by id, including its supporting observation ids.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "finding id"},
 		}},
+		{Name: "list_observations", Description: "List the current project's observations (tool findings + AI/investigation candidates) with their routing attributes — reachable, exposed, exposed_route, dataflow_source, security_severity, verified — for triage. Prioritize reachable + exposed/exposed_route items.", Params: []agent.Param{
+			{Name: "unreviewed_only", Type: agent.TypeBoolean, Description: "only observations still awaiting triage (review_state=unreviewed)"},
+		}},
+		{Name: "list_investigations", Description: "List the current project's open investigations — observations the disposition layer flagged for validation (id, title, status, observation_id).", Params: []agent.Param{
+			{Name: "open_only", Type: agent.TypeBoolean, Description: "only investigations not yet resolved/dismissed"},
+		}},
 		{Name: "create_observation", Description: "Record an observation from your analysis — an unreviewed finding-candidate a human triages (origin: Analyst). Confirm it before it can back a finding.", Params: []agent.Param{
 			{Name: "title", Type: agent.TypeString, Required: true, Description: "short observation title"},
 			{Name: "severity", Type: agent.TypeEnum, Required: true, Description: "severity", Enum: []string{"critical", "high", "medium", "low", "info"}},
@@ -206,6 +212,10 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		case "get_finding":
 			id, _ := call.Args["id"].(string)
 			return jsonify(st.GetFinding(ctx, id))
+		case "list_observations":
+			return listObservations(ctx, deps, call)
+		case "list_investigations":
+			return listInvestigations(ctx, deps, call)
 		case "draft_kb_entry":
 			return draftKBEntry(ctx, st, call)
 		case "create_observation":
@@ -267,6 +277,65 @@ func requireProject(deps ExecDeps, tool string) (string, error) {
 		return "", fmt.Errorf("%s needs a project-scoped thread; this conversation is not attached to a project", tool)
 	}
 	return deps.ProjectID, nil
+}
+
+// listObservations returns the project's observations with their routing attributes, so the agent can
+// triage by reachability/exposure/route rather than blind severity (ADR-0035).
+func listObservations(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	projectID, err := requireProject(deps, "list_observations")
+	if err != nil {
+		return "", err
+	}
+	all, err := deps.Store.ListObservationsByProject(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	unreviewedOnly := boolArg(call, "unreviewed_only")
+	type row struct {
+		ID          string            `json:"id"`
+		Title       string            `json:"title"`
+		Severity    string            `json:"severity"`
+		RuleID      string            `json:"rule_id,omitempty"`
+		Location    string            `json:"location,omitempty"`
+		ReviewState string            `json:"review_state"`
+		Attributes  map[string]string `json:"attributes,omitempty"`
+	}
+	out := make([]row, 0, len(all))
+	for _, o := range all {
+		if unreviewedOnly && o.ReviewState != model.ReviewUnreviewed {
+			continue
+		}
+		out = append(out, row{o.ID, o.Title, o.Severity, o.RuleID, o.Location, o.ReviewState, o.Attributes})
+	}
+	return jsonify(out, nil)
+}
+
+// listInvestigations returns the project's investigations — the queue the disposition layer flagged for
+// validation (ADR-0035).
+func listInvestigations(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	projectID, err := requireProject(deps, "list_investigations")
+	if err != nil {
+		return "", err
+	}
+	all, err := deps.Store.ListInvestigationsByProject(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	openOnly := boolArg(call, "open_only")
+	type row struct {
+		ID            string `json:"id"`
+		Title         string `json:"title"`
+		Status        string `json:"status"`
+		ObservationID string `json:"observation_id"`
+	}
+	out := make([]row, 0, len(all))
+	for _, iv := range all {
+		if openOnly && (iv.Status == model.InvestigationResolved || iv.Status == model.InvestigationDismissed) {
+			continue
+		}
+		out = append(out, row{iv.ID, iv.Title, iv.Status, iv.ObservationID})
+	}
+	return jsonify(out, nil)
 }
 
 // listExchanges returns a scannable summary of the project's captured traffic (no bodies).
@@ -562,6 +631,11 @@ func intArg(call agent.ToolCall, name string) int {
 		return int(f)
 	}
 	return 0
+}
+
+func boolArg(call agent.ToolCall, name string) bool {
+	b, _ := call.Args[name].(bool)
+	return b
 }
 
 func stringsArg(call agent.ToolCall, name string) []string {

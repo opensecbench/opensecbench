@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/opensecbench/opensecbench/migrations"
@@ -82,5 +83,30 @@ func TestRunInvestigationNoProvider(t *testing.T) {
 	var body map[string]any
 	if code := postJSON(t, srv.URL+"/v1/investigations/"+inv.ID+"/run", `{}`, &body); code != http.StatusServiceUnavailable {
 		t.Fatalf("run with no provider = %d, want 503", code)
+	}
+}
+
+func TestDescribeSignals(t *testing.T) {
+	// A reachable, traffic-confirmed-route, high-CVSS observation renders the decision context.
+	got := describeSignals(map[string]string{
+		"reachable": "true", "dataflow_source": "app/views.py:12",
+		"exposed_route": "POST /query", "route_observed": "true", "security_severity": "9.8",
+	})
+	for _, want := range []string{"Signals:", "Reachable: yes", "app/views.py:12", "POST /query", "traffic-confirmed", "CVSS: 9.8"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("describeSignals missing %q in:\n%s", want, got)
+		}
+	}
+	// An imported-but-uncalled dependency vuln flags the likely false positive.
+	fp := describeSignals(map[string]string{"reachable": "false", "package": "libfoo", "fixed_version": "1.2.3"})
+	if !strings.Contains(fp, "Reachable: no") || !strings.Contains(fp, "libfoo") || !strings.Contains(fp, "fixed in 1.2.3") {
+		t.Fatalf("unreachable render wrong:\n%s", fp)
+	}
+	// Nothing worth stating → empty (no dangling block in the seed).
+	if s := describeSignals(nil); s != "" {
+		t.Fatalf("empty attrs should render nothing, got %q", s)
+	}
+	if s := describeSignals(map[string]string{"tool": "grype"}); s != "" {
+		t.Fatalf("no decision-relevant attrs should render nothing, got %q", s)
 	}
 }

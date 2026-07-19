@@ -89,6 +89,59 @@ var builtinPlaybooks = []Playbook{
 		},
 	},
 	{
+		ID:   "assessment",
+		Name: "Full assessment",
+		Description: "End-to-end autonomous assessment: recon, scan, signal-aware triage, validation, and a " +
+			"draft report. Proposes issues for human confirmation — it never confirms findings itself.",
+		Goal: "Drive a full source assessment and hand back a prioritized, evidence-backed draft the human " +
+			"confirms — reachable, exposed issues first.",
+		Steps: []PlaybookStep{
+			{
+				Key:     "recon",
+				Profile: "code-analysis",
+				Instruction: "Map the project's entry points. Use list_assets, then run_capability to run " +
+					"route-map over each source_repo (it inventories HTTP routes). Check the knowledge base and " +
+					"prior context first so you don't repeat work. Note the exposed surface to analysis/recon.md.",
+			},
+			{
+				Key:     "scan",
+				Profile: "code-analysis",
+				Instruction: "Run the source security scanners via run_capability against the in-scope assets — " +
+					"semgrep (SAST), grype and govulncheck (SCA/reachability), and trufflehog (secrets). Skip " +
+					"anything the knowledge base shows was run recently. The platform routes and enriches the " +
+					"results automatically; summarize what was run to analysis/scan.md.",
+				DependsOn: []string{"recon"},
+			},
+			{
+				Key:     "triage",
+				Profile: "assessor",
+				Instruction: "Triage the observation queue with list_observations and list_investigations. " +
+					"Prioritize by the routing attributes: put items that are reachable AND on an exposed service " +
+					"or route (reachable=true with exposed=true or exposed_route set) at the top, then by " +
+					"severity; note likely false positives. Write a ranked triage to analysis/triage.md.",
+				DependsOn: []string{"scan"},
+			},
+			{
+				Key:     "validate",
+				Profile: "assessor",
+				Instruction: "Take the top-ranked items from the triage and gather evidence: read the relevant " +
+					"code, build and run a PoC in the workspace, and send scope-guarded test requests where safe. " +
+					"Record what you confirm as observations (create_observation) with clear evidence. Do NOT " +
+					"create findings — a human confirms them; propose clearly.",
+				DependsOn: []string{"triage"},
+			},
+			{
+				// assessor (not report-writer) so the autonomous run cannot create_finding — it only drafts.
+				Key:     "report",
+				Profile: "assessor",
+				Instruction: "Draft an assessment report from the triage and validation evidence: an executive " +
+					"summary, then each proposed issue with severity, reachability/exposure context, and evidence. " +
+					"Mark it a draft for human confirmation — do not create findings. Save it to reports/assessment.md.",
+				DependsOn: []string{"validate"},
+			},
+		},
+	},
+	{
 		ID:          "triage-report",
 		Name:        "Triage & report",
 		Description: "Review and prioritize the findings, then produce a report — the deliverable at a phase's end.",
