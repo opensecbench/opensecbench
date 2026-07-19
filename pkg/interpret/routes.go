@@ -11,8 +11,10 @@ import (
 // RouteMediaType is the media type interpreted by Routes — the route-map capability's semgrep JSON output.
 const RouteMediaType = "application/vnd.osb-routes+json"
 
-// semgrep --json output: a top-level object with a results array. Route rules capture the path in a $ROUTE
-// metavariable and carry method/framework in their metadata.
+// semgrep --json output: a top-level object with a results array. Each route rule's message interpolates
+// the captured route path as a quoted string literal (e.g. `Flask route "/users/<id>"`), and its metadata
+// carries method/framework. NOTE: semgrep OSS masks `metavars`/`lines` ("requires login"), so we read the
+// path from the (client-interpolated, always-present) message, not from metavars.
 type semgrepJSON struct {
 	Results []semgrepResult `json:"results"`
 }
@@ -29,12 +31,8 @@ type semgrepPos struct {
 }
 
 type semgrepExtra struct {
-	Metavars map[string]semgrepMetavar `json:"metavars"`
-	Metadata semgrepRouteMeta          `json:"metadata"`
-}
-
-type semgrepMetavar struct {
-	AbstractContent string `json:"abstract_content"`
+	Message  string           `json:"message"`
+	Metadata semgrepRouteMeta `json:"metadata"`
 }
 
 type semgrepRouteMeta struct {
@@ -42,9 +40,10 @@ type semgrepRouteMeta struct {
 	Framework string `json:"framework"`
 }
 
-// Routes parses the route-map capability's semgrep JSON into declared routes (ADR-0033). Each result's
-// $ROUTE metavariable is the path (quotes stripped); method/framework come from the rule metadata; the
-// match location is the handler file:line. Routes are returned without a project id — the engine sets it.
+// Routes parses the route-map capability's semgrep JSON into declared routes (ADR-0033). The route path is
+// the quoted string literal in each result's message (semgrep interpolated the $ROUTE metavariable there);
+// method/framework come from the rule metadata; the match location is the handler file:line. Routes are
+// returned without a project id — the engine sets it.
 func Routes(data []byte) ([]model.Route, error) {
 	var doc semgrepJSON
 	if err := json.Unmarshal(data, &doc); err != nil {
@@ -52,12 +51,9 @@ func Routes(data []byte) ([]model.Route, error) {
 	}
 	var routes []model.Route
 	for _, r := range doc.Results {
-		path := ""
-		if mv, ok := r.Extra.Metavars["$ROUTE"]; ok {
-			path = unquoteRoute(mv.AbstractContent)
-		}
+		path := quotedRoute(r.Extra.Message)
 		if path == "" {
-			continue // no captured path — nothing to record
+			continue // no route literal in the message — nothing to record
 		}
 		routes = append(routes, model.Route{
 			Method:      strings.ToUpper(r.Extra.Metadata.Method),
@@ -71,13 +67,17 @@ func Routes(data []byte) ([]model.Route, error) {
 	return routes, nil
 }
 
-// unquoteRoute strips a single layer of surrounding quotes (semgrep reports string literals with them).
-func unquoteRoute(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 {
-		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '`' && s[len(s)-1] == '`') {
-			return s[1 : len(s)-1]
+// quotedRoute extracts the first quoted string literal from a route rule's message — the interpolated route
+// path (double, single, or backtick quoted). Returns "" when the message has no quoted literal.
+func quotedRoute(msg string) string {
+	for i := 0; i < len(msg); i++ {
+		q := msg[i]
+		if q == '"' || q == '\'' || q == '`' {
+			if end := strings.IndexByte(msg[i+1:], q); end >= 0 {
+				return msg[i+1 : i+1+end]
+			}
+			return ""
 		}
 	}
-	return s
+	return ""
 }
