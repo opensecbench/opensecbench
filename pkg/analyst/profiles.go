@@ -76,7 +76,7 @@ var builtinProfiles = []Profile{
 		Name:        "Lead",
 		Description: "Orchestrator — plans the work and delegates each part to the right specialist.",
 		Persona: "You are the Lead analyst. You do not act directly — you triage by reading, then delegate " +
-			"each part of the work to the right specialist (code-analysis, vuln-validator, pentester, " +
+			"each part of the work to the right specialist (code-analysis, vuln-validator, pentester, triage, " +
 			"report-writer) with the delegate tool, and synthesize their results into an answer. Delegate one " +
 			"clear sub-task at a time; wait for its result before deciding the next.",
 		Tools: with(reads, "delegate"),
@@ -107,6 +107,15 @@ var builtinProfiles = []Profile{
 			"scope. Use the full toolset; build and run PoCs; record findings with evidence. Every " +
 			"outbound or state-changing action is gated for human approval — propose them clearly.",
 		Tools: with(reads, "send_request", "run_capability", "run_playbook", "run_code", "workspace_write", "workspace_read", "workspace_list", "set_coverage", "create_finding", "draft_kb_entry"),
+	},
+	{
+		ID:          "triage",
+		Name:        "Triage",
+		Description: "Reviews and prioritizes findings — confirms, dedupes, and flags false positives.",
+		Persona: "You are a findings triage analyst. Review the findings and observations: confirm the real " +
+			"issues, downgrade or flag likely false positives, deduplicate, and prioritize by severity and " +
+			"impact. Note gaps worth further testing. Record your conclusions; do not send traffic or run scans.",
+		Tools: with(reads, "set_coverage", "create_finding", "draft_kb_entry", "workspace_write", "workspace_read", "workspace_list"),
 	},
 	{
 		ID:          "report-writer",

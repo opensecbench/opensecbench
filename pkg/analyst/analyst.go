@@ -130,7 +130,7 @@ func Tools() []agent.Tool {
 			{Name: "image", Type: agent.TypeString, Description: "container image (default alpine:3; override for python/node/etc.)"},
 		}},
 		{Name: "delegate", Description: "Delegate a sub-task to a specialist agent, which runs it to completion and returns its result. GATED — approving it authorizes that specialist's toolset for the sub-task.", Params: []agent.Param{
-			{Name: "agent", Type: agent.TypeEnum, Required: true, Description: "the specialist to run", Enum: []string{"code-analysis", "vuln-validator", "pentester", "report-writer"}},
+			{Name: "agent", Type: agent.TypeEnum, Required: true, Description: "the specialist to run", Enum: []string{"code-analysis", "vuln-validator", "pentester", "triage", "report-writer"}},
 			{Name: "task", Type: agent.TypeString, Required: true, Description: "the sub-task, in plain language"},
 		}},
 		{Name: "run_capability", Description: "Run a security capability against a source asset. GATED — requires human authorization; if unauthorized it will be denied.", Params: []agent.Param{
