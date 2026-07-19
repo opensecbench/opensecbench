@@ -60,6 +60,14 @@ and can later ship as plugins.
 
 ## Analyst autonomy
 
+- [x] **Tech-scout research agent** (ADR-0038) — identifies the stack (`list_dependencies` from the SBOM),
+      researches it from trusted web sources (`web_fetch`, gated by a **preapproved-source** allowlist —
+      NVD/OSV/GHSA/MITRE/OWASP/CIS auto, anything else needs approval), and drafts gotchas/hardening into the
+      KB + corpus (`save_context`, the RAG precursor). Fetched content wrapped as untrusted. `tech-scout`
+      profile + playbook. Validated live (fetched OSV auto; example.com paused for approval). *Remaining:
+      `web_search`; a configurable `research_sources` setting (default allowlist ships in code); then the
+      **RAG index** over the corpus this fills.*
+
 - [x] **Signal-aware autonomous assessment** (ADR-0035) — the Analyst drives recon → scan → triage →
       validate → draft-report end-to-end as a bounded run that **proposes** (findings stay human-confirmed).
       New `list_observations`/`list_investigations` tools surface the routing attributes; the investigation
