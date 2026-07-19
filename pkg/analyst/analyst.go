@@ -89,6 +89,10 @@ func Tools() []agent.Tool {
 		{Name: "verify_kb_entry", Description: "Mark a known fact as still true (bump its freshness) so the dossier stops flagging it stale. Use when you re-observe something already in the knowledge base (from get_dossier/list_kb) instead of drafting a duplicate. Does not confirm drafts — humans do that.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "kb entry id (from get_dossier or list_kb)"},
 		}},
+		{Name: "generate_report", Description: "Compile the project's confirmed findings into a durable report deliverable (stored, downloadable). Built from evidence-backed findings only — you can't add content, so confirm findings first. Returns the report id + finding count.", Params: []agent.Param{
+			{Name: "template", Type: agent.TypeEnum, Description: "report template (default technical)", Enum: []string{"technical", "executive", "compliance", "retest"}},
+			{Name: "format", Type: agent.TypeEnum, Description: "md (default) | html", Enum: []string{"md", "html"}},
+		}},
 		{Name: "read_file", Description: "Read a file from a source_repo asset (optionally a line window). Path is relative to the repo root.", Params: []agent.Param{
 			{Name: "asset", Type: agent.TypeString, Required: true, Description: "source_repo asset id (from list_assets)"},
 			{Name: "path", Type: agent.TypeString, Required: true, Description: "file path relative to the repo root"},
@@ -259,6 +263,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return draftKBEntry(ctx, deps, call)
 		case "verify_kb_entry":
 			return verifyKBEntry(ctx, deps, call)
+		case "generate_report":
+			return generateReport(ctx, deps, call)
 		case "create_observation":
 			return createObservation(ctx, st, call)
 		case "read_file":

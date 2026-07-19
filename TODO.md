@@ -107,8 +107,14 @@ and can later ship as plugins.
       approve|deny`. The `assessment` playbook gains an `approve-validation` gate before PoCs/traffic.
       Validated live (pause→approve→done; deny→skip→failed; notification fired). *Remaining: edit-while-paused;
       a distinct `cancelled` status; a workbench UI to approve/deny inline; gate timeout/auto-deny.*
-- [ ] **Analyst autonomy — remaining** (ADR-0035): an agent `generate_report` tool (ADR-0045, next); parallel
-      plan steps + deeper delegation + raise the 8-step sub-agent cap.
+- [x] **`generate_report` agent tool** (ADR-0045) — the Analyst compiles the project's **confirmed findings**
+      into a durable, downloadable report deliverable, reusing the report builder/templates/CAS (ADR-0008).
+      Evidence-bound (findings only — can't fabricate); `md` default (no browser) / `html`; on the
+      `report-writer` + `pentester` profiles (post-confirmation roles), deliberately NOT in the propose-only
+      assessment playbook. Closes the loop: assess → human confirms findings → report. *Later: PDF/DOCX from
+      the agent; a preview (render-without-store) tool; agent-attached executive narrative on top.*
+- [ ] **Analyst autonomy — remaining** (ADR-0035): parallel plan steps + deeper delegation + raise the
+      8-step sub-agent cap (the last autonomy item — mid-run approval and report generation are done).
 
 ## Analyst provider / model management
 
