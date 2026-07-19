@@ -225,19 +225,40 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
                 </div>
               </div>
               {usage.top_models.length > 0 && (
-                <ul className="spend-bars">
-                  {usage.top_models.map((m) => {
-                    const tot = m.input_tokens + m.output_tokens
-                    const top = usage.top_models[0].input_tokens + usage.top_models[0].output_tokens
-                    return (
-                      <li key={m.provider + m.model} className="spend-bar">
-                        <span className="spend-model">{m.model || m.provider}</span>
-                        <span className="spend-track"><span className="spend-val" style={{ width: `${top > 0 ? (tot * 100) / top : 0}%` }} /></span>
-                        <span className="muted spend-amt">{fmtTokens(tot)}</span>
-                      </li>
-                    )
-                  })}
-                </ul>
+                <div className="spend-group">
+                  <div className="spend-cap">By model</div>
+                  <ul className="spend-bars">
+                    {usage.top_models.map((m) => {
+                      const tot = m.input_tokens + m.output_tokens
+                      const top = usage.top_models[0].input_tokens + usage.top_models[0].output_tokens
+                      return (
+                        <li key={m.provider + m.model} className="spend-bar">
+                          <span className="spend-model">{m.model || m.provider}</span>
+                          <span className="spend-track"><span className="spend-val" style={{ width: `${top > 0 ? (tot * 100) / top : 0}%` }} /></span>
+                          <span className="muted spend-amt">{fmtTokens(tot)}</span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )}
+              {usage.top_agents.length > 0 && (
+                <div className="spend-group">
+                  <div className="spend-cap">By agent</div>
+                  <ul className="spend-bars">
+                    {usage.top_agents.map((a) => {
+                      const tot = a.input_tokens + a.output_tokens
+                      const top = usage.top_agents[0].input_tokens + usage.top_agents[0].output_tokens
+                      return (
+                        <li key={a.agent_type} className="spend-bar">
+                          <span className="spend-model">{a.agent_type}</span>
+                          <span className="spend-track"><span className="spend-val agent" style={{ width: `${top > 0 ? (tot * 100) / top : 0}%` }} /></span>
+                          <span className="muted spend-amt">{fmtTokens(tot)}</span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
               )}
             </div>
           )}

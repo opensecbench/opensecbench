@@ -99,11 +99,22 @@ func (svc *Service) loadRouting(ctx context.Context) modelRouting {
 	return r
 }
 
-// providerModelForTag resolves the provider + model a task with the given tag should run on: the tag's
-// mapping, else the routing default, else the active provider (ADR-0021). Cross-provider capable.
-func (svc *Service) providerModelForTag(ctx context.Context, tag string) (llm.Provider, string) {
+// runTarget is the provider a task runs on plus how to attribute its token usage. ProviderName/AttrModel
+// are empty when the run falls back to the active provider — the caller (which knows the active
+// provider's identity) fills those in for the usage record.
+type runTarget struct {
+	Provider     llm.Provider
+	SessionModel string // model id handed to the session (drives the request; unchanged routing behavior)
+	ProviderName string // provider type recorded for usage attribution; "" = active provider
+	AttrModel    string // model recorded for usage; "" = active provider's default
+}
+
+// targetForTag resolves the run target for a task with the given tag: the tag's mapping, else the routing
+// default, else the active provider (ADR-0021). Cross-provider capable. When routing resolves a distinct
+// provider it also captures that provider's type + model for accurate per-task usage attribution.
+func (svc *Service) targetForTag(ctx context.Context, tag string) runTarget {
 	if tag == "" || svc.resolver == nil {
-		return svc.provider, ""
+		return runTarget{Provider: svc.provider}
 	}
 	r := svc.loadRouting(ctx)
 	ref, ok := r.Tags[tag]
@@ -111,13 +122,27 @@ func (svc *Service) providerModelForTag(ctx context.Context, tag string) (llm.Pr
 		ref = r.Default
 	}
 	if ref.ProviderID == "" {
-		return svc.provider, ""
+		return runTarget{Provider: svc.provider}
 	}
 	p, err := svc.resolver(ctx, ref.ProviderID)
 	if err != nil || p == nil {
-		return svc.provider, ""
+		return runTarget{Provider: svc.provider}
 	}
-	return p, ref.Model
+	t := runTarget{Provider: p, SessionModel: ref.Model, AttrModel: ref.Model}
+	if reg, err := svc.store.GetProvider(ctx, ref.ProviderID); err == nil {
+		t.ProviderName = reg.Type
+		if t.AttrModel == "" {
+			t.AttrModel = reg.Model // no routed model → the provider's configured default
+		}
+	}
+	return t
+}
+
+// providerModelForTag resolves the provider + session model for a tag (ADR-0021). Retained for callers
+// that don't attribute usage; new attribution-aware callers use targetForTag.
+func (svc *Service) providerModelForTag(ctx context.Context, tag string) (llm.Provider, string) {
+	t := svc.targetForTag(ctx, tag)
+	return t.Provider, t.SessionModel
 }
 
 func (svc *Service) session(projectID string, profile Profile, policy Policy, prov llm.Provider, modelID string) *agent.Session {
@@ -195,7 +220,9 @@ func projectOf(th model.Thread) string {
 	return *th.ProjectID
 }
 
-// SendResult is the outcome of sending a message or deciding an approval.
+// SendResult is the outcome of sending a message or deciding an approval. Provider/Model/AgentType
+// describe the backend and profile that actually ran this advance, for accurate usage attribution;
+// Provider/Model are empty when the active provider ran (the caller fills those in).
 type SendResult struct {
 	Thread       model.Thread    `json:"thread"`
 	NewMessages  []model.Message `json:"new_messages"`
@@ -203,6 +230,9 @@ type SendResult struct {
 	Pending      *model.Approval `json:"pending_approval,omitempty"`
 	InputTokens  int             `json:"input_tokens"`
 	OutputTokens int             `json:"output_tokens"`
+	Provider     string          `json:"provider,omitempty"`
+	Model        string          `json:"model,omitempty"`
+	AgentType    string          `json:"agent_type,omitempty"`
 }
 
 // Send appends a user message to a thread and advances the run until an answer or a gated tool
@@ -216,8 +246,8 @@ func (svc *Service) Send(ctx context.Context, threadID, userMessage string) (Sen
 		return SendResult{}, err
 	}
 	profile := svc.resolveProfile(ctx, th.AgentType)
-	prov, modelID := svc.providerModelForTag(ctx, profile.ModelTag)
-	sess := svc.session(projectOf(th), profile, svc.loadPolicy(ctx), prov, modelID)
+	tgt := svc.targetForTag(ctx, profile.ModelTag)
+	sess := svc.session(projectOf(th), profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel)
 
 	existing, err := svc.store.ListMessages(ctx, threadID)
 	if err != nil {
@@ -241,7 +271,7 @@ func (svc *Service) Send(ctx context.Context, threadID, userMessage string) (Sen
 		_ = svc.store.UpdateThreadStatus(ctx, threadID, model.ThreadError)
 		return SendResult{}, err
 	}
-	return svc.finish(ctx, threadID, len(prior), out)
+	return svc.finish(ctx, threadID, len(prior), out, tgt, profile.ID)
 }
 
 // Decide records an approve/deny decision and resumes the paused run.
@@ -275,18 +305,25 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 	_ = json.Unmarshal(ap.Args, &args)
 	call := agent.ToolCall{Tool: ap.Tool, Args: args}
 
-	prov, modelID := svc.providerModelForTag(ctx, profile.ModelTag)
-	out, err := svc.session(projectOf(th), profile, svc.loadPolicy(ctx), prov, modelID).Resume(ctx, prior, call, approved)
+	tgt := svc.targetForTag(ctx, profile.ModelTag)
+	out, err := svc.session(projectOf(th), profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel).Resume(ctx, prior, call, approved)
 	if err != nil {
 		_ = svc.store.UpdateThreadStatus(ctx, ap.ThreadID, model.ThreadError)
 		return SendResult{}, err
 	}
-	return svc.finish(ctx, ap.ThreadID, len(prior), out)
+	return svc.finish(ctx, ap.ThreadID, len(prior), out, tgt, profile.ID)
 }
 
-// finish persists the messages produced this advance and updates thread status / approvals.
-func (svc *Service) finish(ctx context.Context, threadID string, priorLen int, out agent.Outcome) (SendResult, error) {
-	res := SendResult{InputTokens: out.InputTokens, OutputTokens: out.OutputTokens}
+// finish persists the messages produced this advance and updates thread status / approvals. tgt and
+// agentType carry the backend + profile that ran, for usage attribution.
+func (svc *Service) finish(ctx context.Context, threadID string, priorLen int, out agent.Outcome, tgt runTarget, agentType string) (SendResult, error) {
+	res := SendResult{
+		InputTokens:  out.InputTokens,
+		OutputTokens: out.OutputTokens,
+		Provider:     tgt.ProviderName,
+		Model:        tgt.AttrModel,
+		AgentType:    agentType,
+	}
 	for _, m := range out.Messages[priorLen:] {
 		rec := model.Message{ThreadID: threadID, Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, ToolError: m.ToolError}
 		if len(m.ToolCalls) > 0 {

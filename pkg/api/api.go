@@ -898,13 +898,22 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 // so usage can be compared across models and vendors (the plan's usage_record).
 func (s *Server) recordUsage(ctx context.Context, res analyst.SendResult) {
 	info := s.activeInfo()
+	// Attribute to the backend that actually ran (which, under cross-provider routing, may differ from
+	// the active provider). The Service leaves these blank when the active provider ran — fill them here.
+	provider, modelName := res.Provider, res.Model
+	if provider == "" {
+		provider = info.Type
+		if modelName == "" {
+			modelName = info.Model
+		}
+	}
 	projectID := ""
 	if res.Thread.ProjectID != nil {
 		projectID = *res.Thread.ProjectID
 	}
 	_ = s.store.RecordUsage(ctx, model.UsageRecord{
-		ProjectID: projectID, ThreadID: res.Thread.ID,
-		Provider: info.Type, Model: info.Model,
+		ProjectID: projectID, ThreadID: res.Thread.ID, AgentType: res.AgentType,
+		Provider: provider, Model: modelName,
 		InputTokens: res.InputTokens, OutputTokens: res.OutputTokens,
 	})
 }
