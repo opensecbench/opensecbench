@@ -264,3 +264,34 @@ func (db *DB) ListFindings(ctx context.Context) ([]model.Finding, error) {
 	}
 	return out, rows.Err()
 }
+
+// FindingCount is a per-project findings tally.
+type FindingCount struct {
+	Total int `json:"total"`
+	High  int `json:"high"` // high + critical
+}
+
+// FindingCountsByProject returns, per project id, the total findings and the high/critical count (via the
+// application → project join). Findings not attached to an application are not attributed to a project.
+func (db *DB) FindingCountsByProject(ctx context.Context) (map[string]FindingCount, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT a.project_id,
+		        COUNT(*),
+		        SUM(CASE WHEN f.severity IN ('critical','high') THEN 1 ELSE 0 END)
+		 FROM findings f JOIN applications a ON f.application_id = a.id
+		 GROUP BY a.project_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]FindingCount{}
+	for rows.Next() {
+		var pid string
+		var total, high int
+		if err := rows.Scan(&pid, &total, &high); err != nil {
+			return nil, err
+		}
+		out[pid] = FindingCount{Total: total, High: high}
+	}
+	return out, rows.Err()
+}

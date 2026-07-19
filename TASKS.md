@@ -14,6 +14,9 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Append-only, hash-chained audit writer (pkg/audit)
 - [x] Reusable control-plane bootstrap (pkg/controlplane) + CORS for browser/Wails frontends
 - [x] React (Vite + TS) frontend: Global Home (projects, template create, omni-search)
+- [x] Global Home = **mission-control cockpit**: *Waiting on you* (pending approvals → project), *Running now*
+      (active capability tasks + Analyst threads, polled), *Projects* at-a-glance (status + findings/high/
+      to-triage). API `GET /v1/home` aggregate. Deferred: coverage rings, budget/usage-vs-limits, triggers/watchers.
 - [x] Wails desktop boots the control plane in-process (verified locally via `wails dev`)
 - [x] Project Workbench: Applications & Assets, Context (upload), Scan (run → triage → finding), Findings
 - [x] Methodology / Analyst (agent) surfaces — delivered in later phases: Analyst panel (P4),
