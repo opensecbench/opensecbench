@@ -36,6 +36,11 @@ type sarifDriver struct {
 type sarifRule struct {
 	ID         string          `json:"id"`
 	Properties sarifProperties `json:"properties"`
+	// DefaultConfiguration.Level is where semgrep/opengrep registry rules carry severity (error/warning/
+	// note) — the result itself often omits `level`. Without this, every such finding defaults to info.
+	DefaultConfiguration struct {
+		Level string `json:"level"`
+	} `json:"defaultConfiguration"`
 }
 
 // sarifProperties carries the bag of extra facts both semgrep and grype emit; we only read the CVSS-like
@@ -93,11 +98,16 @@ func SARIF(data []byte) ([]model.Observation, error) {
 	var obs []model.Observation
 	for _, run := range log.Runs {
 		tool := strings.ToLower(run.Tool.Driver.Name) // "semgrep" / "grype" — carried as an attribute
-		// security-severity often lives on the rule definition (semgrep) rather than the result; index it.
+		// security-severity and the effective level often live on the rule definition, not the result; index
+		// both so a result that omits them still gets its severity.
 		ruleSev := make(map[string]string)
+		ruleLevel := make(map[string]string)
 		for _, rule := range run.Tool.Driver.Rules {
 			if rule.Properties.SecuritySeverity != "" {
 				ruleSev[rule.ID] = rule.Properties.SecuritySeverity
+			}
+			if rule.DefaultConfiguration.Level != "" {
+				ruleLevel[rule.ID] = rule.DefaultConfiguration.Level
 			}
 		}
 		for _, r := range run.Results {
@@ -121,10 +131,15 @@ func SARIF(data []byte) ([]model.Observation, error) {
 					attrs["dataflow_source"] = src
 				}
 			}
-			// The SARIF level collapses distinct CVSS bands (grype maps both Critical and High to "error"),
-			// so prefer the numeric security-severity when present — this is what makes MinSeverity routing
-			// (e.g. critical vs high) meaningful for grype/semgrep.
-			sev := severityFromLevel(r.Level)
+			// Effective level: the result's own, else the rule's defaultConfiguration (where semgrep/opengrep
+			// registry rules put it). The SARIF level collapses distinct CVSS bands (grype maps both Critical
+			// and High to "error"), so prefer the numeric security-severity when present — this is what makes
+			// MinSeverity routing (e.g. critical vs high) meaningful.
+			level := r.Level
+			if level == "" {
+				level = ruleLevel[r.RuleID]
+			}
+			sev := severityFromLevel(level)
 			if refined := severityFromCVSS(secSev); refined != "" {
 				sev = refined
 			}

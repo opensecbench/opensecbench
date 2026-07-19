@@ -537,6 +537,30 @@ func TestReachabilityCorrelatesAcrossCVEandGHSA(t *testing.T) {
 	}
 }
 
+// A finding in a file with several routes ties to the handler it actually sits in — the nearest route
+// registration at or above its line — not an arbitrary route in the file (ADR-0033; caught in live testing).
+func TestNearestRoute(t *testing.T) {
+	routes := []model.Route{
+		{Method: "POST", Path: "/login", HandlerLine: 11},
+		{Method: "GET", Path: "/search", HandlerLine: 5},
+	}
+	if r := nearestRoute(routes, 9); r.Path != "/search" { // finding at line 9 is inside /search (5..10)
+		t.Fatalf("line 9 → %s, want /search", r.Path)
+	}
+	if r := nearestRoute(routes, 12); r.Path != "/login" {
+		t.Fatalf("line 12 → %s, want /login", r.Path)
+	}
+	if r := nearestRoute(routes, 0); r.Path != "/login" { // no line → first route (fallback)
+		t.Fatalf("no line → %s, want the first route", r.Path)
+	}
+	if f, l := splitLocation("app/views.py:42"); f != "app/views.py" || l != 42 {
+		t.Fatalf("splitLocation = %q,%d", f, l)
+	}
+	if f, l := splitLocation("10.0.0.1:443/tcp"); f != "10.0.0.1:443/tcp" || l != 0 {
+		t.Fatalf("nmap loc mis-split: %q,%d", f, l)
+	}
+}
+
 // A capability with no dispositions leaves plain unreviewed observations (no regression).
 func TestNoDispositionsLeavesReview(t *testing.T) {
 	db, blobs := openStore(t)
