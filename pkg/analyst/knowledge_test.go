@@ -37,6 +37,39 @@ func TestListKB(t *testing.T) {
 	}
 }
 
+// draft_kb_entry at org scope resolves the organization from the project and anchors the entry there, so it
+// carries across all the org's apps (ADR-0041). Target scope still requires a target.
+func TestDraftKBOrgScope(t *testing.T) {
+	db := migratedStore(t)
+	ctx := context.Background()
+	org, _ := db.CreateOrganization(ctx, "Acme")
+	tgt, _ := db.CreateTarget(ctx, "acme-web", "", &org.ID)
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p", OrganizationID: &org.ID, TargetIDs: []string{tgt.ID}})
+	exec := Executor(ExecDeps{Store: db, ProjectID: proj.ID})
+
+	// Org-scoped draft anchors to the project's organization (no target needed).
+	out, err := exec(ctx, agent.ToolCall{Tool: "draft_kb_entry", Args: map[string]any{
+		"kind": "auth", "title": "Org standardizes on Keycloak", "body": "All apps use the shared Keycloak realm.", "scope": "org",
+	}})
+	if err != nil {
+		t.Fatalf("org-scope draft failed: %v (%s)", err, out)
+	}
+	entries, _ := db.ListKBByProject(ctx, proj.ID)
+	var orgEntry *model.KBEntry
+	for i := range entries {
+		if entries[i].Scope == "org" {
+			orgEntry = &entries[i]
+		}
+	}
+	if orgEntry == nil || orgEntry.OrganizationID != org.ID {
+		t.Fatalf("org draft should anchor to the org: %+v", entries)
+	}
+	// Target scope without a target errors.
+	if _, err := exec(ctx, agent.ToolCall{Tool: "draft_kb_entry", Args: map[string]any{"kind": "endpoint", "title": "x", "scope": "target"}}); err == nil {
+		t.Fatal("target-scoped draft without a target should error")
+	}
+}
+
 // The knowledge-scribe compiles knowledge but cannot mutate assessment state or reach out — least privilege
 // for the capture loop (ADR-0040).
 func TestKnowledgeScribeProfileAndPlaybooks(t *testing.T) {

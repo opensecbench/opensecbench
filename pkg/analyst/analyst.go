@@ -78,11 +78,12 @@ func Tools() []agent.Tool {
 			{Name: "detail", Type: agent.TypeString, Description: "what was observed and why it matters"},
 			{Name: "location", Type: agent.TypeString, Description: "where (file:line, url, component)"},
 		}},
-		{Name: "draft_kb_entry", Description: "Draft a knowledge-base entry about a target. Saved as an unreviewed draft for human confirmation.", Params: []agent.Param{
-			{Name: "target", Type: agent.TypeString, Required: true, Description: "target id (from list_targets)"},
+		{Name: "draft_kb_entry", Description: "Draft a knowledge-base entry. Saved as an unreviewed draft for human confirmation. Use scope 'org' for knowledge that applies across the whole organization (a shared auth provider, org-wide conventions, common infra) so every app inherits it; 'target' for facts specific to one system.", Params: []agent.Param{
 			{Name: "kind", Type: agent.TypeEnum, Required: true, Description: "entry kind", Enum: []string{"architecture", "auth", "endpoint", "tech_stack", "environment", "data_flow", "convention", "gotcha", "tactic"}},
 			{Name: "title", Type: agent.TypeString, Required: true, Description: "short entry title"},
 			{Name: "body", Type: agent.TypeString, Required: true, Description: "the knowledge (what was learned)"},
+			{Name: "scope", Type: agent.TypeEnum, Description: "target (default) | org | global — org/global apply across the organization's apps", Enum: []string{"target", "org", "global"}},
+			{Name: "target", Type: agent.TypeString, Description: "target id (from list_targets) — required for target scope"},
 		}},
 		{Name: "read_file", Description: "Read a file from a source_repo asset (optionally a line window). Path is relative to the repo root.", Params: []agent.Param{
 			{Name: "asset", Type: agent.TypeString, Required: true, Description: "source_repo asset id (from list_assets)"},
@@ -535,17 +536,33 @@ func draftKBEntry(ctx context.Context, deps ExecDeps, call agent.ToolCall) (stri
 	kind, _ := call.Args["kind"].(string)
 	title, _ := call.Args["title"].(string)
 	body, _ := call.Args["body"].(string)
-	if target == "" || kind == "" || title == "" {
-		return "", errors.New("draft_kb_entry requires 'target', 'kind', and 'title'")
+	scope, _ := call.Args["scope"].(string)
+	if kind == "" || title == "" {
+		return "", errors.New("draft_kb_entry requires 'kind' and 'title'")
 	}
-	e, err := deps.Store.CreateKBEntry(ctx, model.KBEntry{
-		TargetID:  target,
-		Kind:      kind,
-		Title:     title,
-		Body:      body,
-		Origin:    model.OriginThread,
-		SourceRef: "thread:analyst",
-	})
+	if scope == "" {
+		scope = model.KBScopeTarget
+	}
+	entry := model.KBEntry{Kind: kind, Title: title, Body: body, Scope: scope, Origin: model.OriginThread, SourceRef: "thread:analyst"}
+	switch scope {
+	case model.KBScopeTarget:
+		if target == "" {
+			return "", errors.New("draft_kb_entry: target-scoped entries require 'target' (from list_targets)")
+		}
+		entry.TargetID = target
+	case model.KBScopeOrg:
+		// Resolve the organization from the project (or its targets) so the agent needn't fetch org ids.
+		org := deps.projectOrg(ctx, target)
+		if org == "" {
+			return "", errors.New("draft_kb_entry: no organization to anchor org-scoped knowledge to (this project/target has none)")
+		}
+		entry.OrganizationID = org
+	case model.KBScopeGlobal:
+		// no anchor
+	default:
+		return "", errors.New("draft_kb_entry: scope must be target, org, or global")
+	}
+	e, err := deps.Store.CreateKBEntry(ctx, entry)
 	if err != nil {
 		return "", err
 	}

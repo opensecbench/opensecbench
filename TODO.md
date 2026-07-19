@@ -64,10 +64,14 @@ and can later ship as plugins.
       (analysis notes, observations/findings, corpus) into durable KB drafts (architecture/auth/tech_stack/
       data_flow/conventions/gotchas); `list_kb` tool to see + dedupe existing knowledge; capture wired into
       the playbooks (`capture-knowledge` + an onboarding capture step). Drafts human-confirmed, carry across
-      engagements on the same target. *Remaining (the other knowledge investments): **org/team-level scope**
-      (KB above target — group/org anchoring + inheritance walk); a synthesized **dossier** view;
-      **freshness** (last-verified/staleness); a `derived` KB origin; project→target RAG carry-over without
-      a manual reindex.*
+      engagements on the same target.
+- [x] **Org/team-level knowledge scope** (ADR-0041) — KB anchors above a target (org/group/global);
+      migration 0043 recreates `kb_entries` with nullable target/group/org anchors + scope CHECK;
+      `ListKBByProject` inherits target + group + org + global (most-specific first); `draft_kb_entry` gains
+      a `scope` param (resolves the org from the project); the scribe captures org-wide facts at org scope.
+      *Remaining knowledge investments: a synthesized **dossier** view; **freshness** (last-verified/
+      staleness); human API/UI for org/global entries; a **group** CRUD API; RAG index inherited entries
+      per-org not per-project.*
 
 - [x] **Tech-scout research agent** (ADR-0038) — identifies the stack (`list_dependencies` from the SBOM),
       researches it from trusted web sources (`web_fetch`, gated by a **preapproved-source** allowlist —
