@@ -32,6 +32,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/secret"
 	"github.com/opensecbench/opensecbench/pkg/session"
+	"github.com/opensecbench/opensecbench/pkg/settings"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 	"github.com/opensecbench/opensecbench/pkg/template"
@@ -208,6 +209,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/analyst/profiles", s.createSavedProfile)
 	s.mux.HandleFunc("DELETE /v1/analyst/profiles/{id}", s.deleteSavedProfile)
 	s.mux.HandleFunc("GET /v1/analyst/tools", s.listAgentTools)
+	s.mux.HandleFunc("GET /v1/settings", s.getSettings)
+	s.mux.HandleFunc("PUT /v1/settings", s.putSettings)
 	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)
@@ -688,6 +691,50 @@ func (s *Server) listAgentProfiles(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"profiles": out})
+}
+
+// settingsSections returns every declarative section (core + extension-declared). Extension sections are
+// a future manifest capability (ADR-0021); for now this is the core set.
+func (s *Server) settingsSections() []settings.Section {
+	return settings.CoreSections()
+}
+
+// getSettings returns the declarative section schemas plus current values (defaults applied).
+func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
+	sections := s.settingsSections()
+	values := map[string]string{}
+	for _, sec := range sections {
+		for _, f := range sec.Fields {
+			v, err := s.store.GetSetting(r.Context(), f.Key)
+			if err != nil || v == "" {
+				v = f.Default
+			}
+			values[f.Key] = v
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sections": sections, "values": values})
+}
+
+// putSettings writes values, validating each key against a known field.
+func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Values map[string]string `json:"values"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	sections := s.settingsSections()
+	for key, val := range req.Values {
+		if _, ok := settings.FieldByKey(sections, key); !ok {
+			writeErr(w, http.StatusBadRequest, "unknown setting "+key)
+			return
+		}
+		if err := s.store.SetSetting(r.Context(), key, val); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // listAgentTools returns the tool catalog (name + description) for building a custom agent's allow-list.

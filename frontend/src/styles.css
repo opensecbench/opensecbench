@@ -1952,3 +1952,43 @@ select option {
 .agents-tool-grid label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-family: var(--mono); color: var(--tx3); cursor: pointer; }
 .agents-tool-grid label.on { color: var(--tx); }
 .agents-tool-grid input { accent-color: var(--acc); }
+
+/* ===== Light theme (ADR-0021) — first-class token set, tuned for legibility/screenshots ===== */
+:root[data-theme="light"] {
+  --bg: #f5f6f8;
+  --bg2: #ffffff;
+  --bg3: #eef1f4;
+  --bg4: #e3e8ee;
+  --line: #dde2e8;
+  --line2: #c4ccd6;
+  --tx: #1a1f28;
+  --tx2: #47515f;
+  --tx3: #79828f;
+  --green: #1a8a4e;
+  --green-bg: #dcefe2;
+  --amber: #a8710f;
+  --red: #cc3a44;
+  --red-bg: #f7dde0;
+}
+
+/* ===== Settings surface (ADR-0021) ===== */
+.rail-spacer { flex: 1; }
+.settings { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.settings-nav { width: 210px; min-width: 210px; border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; }
+.settings-nav button { display: flex; align-items: center; gap: 9px; text-align: left; border: 0; background: none; color: var(--tx2); border-radius: 8px; padding: 8px 11px; font-size: 13px; cursor: pointer; }
+.settings-nav button:hover { background: var(--bg3); }
+.settings-nav button.on { background: var(--bg4); color: var(--tx); font-weight: 600; }
+.settings-ico { font-size: 14px; width: 18px; text-align: center; }
+.settings-body { flex: 1; overflow-y: auto; padding: 22px 26px; max-width: 720px; }
+.settings-fields h2 { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+.settings-field { margin-bottom: 18px; }
+.settings-field > label { display: block; font-size: 12.5px; font-weight: 600; color: var(--tx2); margin-bottom: 6px; }
+.settings-field select, .settings-field input:not([type=color]):not([type=checkbox]), .settings-field textarea {
+  background: var(--bg2); border: 1px solid var(--line2); border-radius: 8px; padding: 7px 10px; color: var(--tx); font-size: 13px; min-width: 220px;
+}
+.settings-desc { font-size: 11.5px; color: var(--tx3); margin-top: 5px; }
+.settings-color { display: inline-flex; align-items: center; gap: 8px; }
+.settings-color input[type=color] { width: 34px; height: 30px; border: 1px solid var(--line2); border-radius: 7px; background: none; cursor: pointer; padding: 2px; }
+.settings-color-hex { width: 110px; font-family: var(--mono); }
+/* the extracted Providers leaf keeps its old look inside the settings body */
+.prov-body { max-width: 520px; }

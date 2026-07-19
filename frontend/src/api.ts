@@ -432,6 +432,24 @@ export interface Schedule {
   created_at: string
 }
 
+export interface SettingField {
+  key: string
+  label: string
+  type: string
+  default?: string
+  description?: string
+  options?: { value: string; label: string }[]
+}
+
+export interface SettingSection {
+  id: string
+  title: string
+  icon?: string
+  order: number
+  custom?: boolean
+  fields?: SettingField[]
+}
+
 export interface ApprovalRule {
   tool: string
   profile?: string
@@ -761,6 +779,10 @@ export const api = {
     request<{ ok: boolean; latency_ms?: number; sample?: string; error?: string }>('POST', `/v1/analyst/providers/${id}/test`, {}),
   deleteProvider: (id: string) => request<void>('DELETE', `/v1/analyst/providers/${id}`),
   getProjectUsage: (projectId: string) => request<UsageByModel[]>('GET', `/v1/projects/${projectId}/usage`),
+
+  getSettings: () =>
+    request<{ sections: SettingSection[]; values: Record<string, string> }>('GET', '/v1/settings'),
+  putSettings: (values: Record<string, string>) => request<void>('PUT', '/v1/settings', { values }),
 
   getApprovalPolicy: () =>
     request<{ sensitive_tools: string[]; rules: ApprovalRule[] }>('GET', '/v1/analyst/approval-policy'),
