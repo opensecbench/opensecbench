@@ -118,6 +118,7 @@ func Tools() []agent.Tool {
 			{Name: "url", Type: agent.TypeString, Required: true, Description: "absolute request URL (must be in engagement scope)"},
 			{Name: "headers", Type: agent.TypeString, Description: "raw request headers, one per line"},
 			{Name: "body", Type: agent.TypeString, Description: "request body"},
+			{Name: "runner", Type: agent.TypeString, Description: "optional: send from an enrolled remote runner's network vantage (its id) instead of the local host"},
 		}},
 		{Name: "set_coverage", Description: "Set the coverage status of a methodology item for the current project. GATED — mutates assessment state.", Params: []agent.Param{
 			{Name: "item", Type: agent.TypeString, Required: true, Description: "methodology item id (from get_coverage)"},
@@ -180,6 +181,10 @@ type ExecDeps struct {
 	Runner        runner.Runner
 	WorkspaceRoot string
 	ProjectID     string
+
+	// EgressSender, if set, issues a send from a chosen enrolled runner's vantage (runnerID != "") or the
+	// local host (ADR-0025). When nil, sends always go out locally via Replay.
+	EgressSender func(ctx context.Context, runnerID string, req replay.Request) (replay.Response, error)
 }
 
 // Executor dispatches a tool call to a store query, a capability run, or an outbound request.
@@ -354,6 +359,7 @@ func sendRequest(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	}
 
 	headers, body := stringArg(call, "headers"), stringArg(call, "body")
+	runnerID := stringArg(call, "runner")
 	ex, err := deps.Store.CreateExchange(ctx, model.HTTPExchange{
 		ProjectID: projectID, Origin: "replay", Method: method, URL: url,
 		RequestHeaders: headers, RequestBody: body,
@@ -361,12 +367,23 @@ func sendRequest(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if err != nil {
 		return "", err
 	}
-	resp, err := deps.Replay.Send(ctx, replay.Request{Method: method, URL: url, Headers: headers, Body: body})
+	req := replay.Request{Method: method, URL: url, Headers: headers, Body: body}
+	// Route via the chosen runner's vantage when set (ADR-0025), else the local host.
+	var resp replay.Response
+	if deps.EgressSender != nil {
+		resp, err = deps.EgressSender(ctx, runnerID, req)
+	} else {
+		resp, err = deps.Replay.Send(ctx, req)
+	}
 	if err != nil {
 		return "", fmt.Errorf("send failed: %w", err)
 	}
-	if err := deps.Store.RecordResponse(ctx, ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS); err != nil {
+	if err := deps.Store.RecordResponse(ctx, ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, runnerID); err != nil {
 		return "", err
+	}
+	egress := "local"
+	if runnerID != "" {
+		egress = runnerID
 	}
 	return jsonify(map[string]any{
 		"exchange_id":      ex.ID,
@@ -374,6 +391,7 @@ func sendRequest(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 		"duration_ms":      resp.DurationMS,
 		"response_headers": resp.Headers,
 		"response_body":    truncate(resp.Body, 2000),
+		"egress":           egress,
 	}, nil)
 }
 

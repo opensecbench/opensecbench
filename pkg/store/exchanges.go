@@ -36,14 +36,15 @@ func (db *DB) CreateExchange(ctx context.Context, e model.HTTPExchange) (model.H
 	return e, nil
 }
 
-// RecordResponse stores a send's response onto an exchange.
-func (db *DB) RecordResponse(ctx context.Context, id string, status int, headers, body string, durationMS int) error {
+// RecordResponse stores a send's response onto an exchange. egress records the vantage the request went
+// out from ("" = control-plane host; otherwise the runner id, ADR-0025).
+func (db *DB) RecordResponse(ctx context.Context, id string, status int, headers, body string, durationMS int, egress string) error {
 	ts := nowString()
 	res, err := db.ExecContext(ctx,
 		`UPDATE http_exchanges
-		 SET status = ?, response_headers = ?, response_body = ?, duration_ms = ?, sent_at = ?
+		 SET status = ?, response_headers = ?, response_body = ?, duration_ms = ?, sent_at = ?, egress = ?
 		 WHERE id = ?`,
-		status, headers, body, durationMS, ts, id)
+		status, headers, body, durationMS, ts, egress, id)
 	if err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func (db *DB) RecordResponse(ctx context.Context, id string, status int, headers
 }
 
 const exchangeCols = `id, project_id, name, origin, method, url, request_headers, request_body,
-	status, response_headers, response_body, duration_ms, created_at, sent_at`
+	status, response_headers, response_body, duration_ms, egress, created_at, sent_at`
 
 func scanExchange(s interface {
 	Scan(dest ...any) error
@@ -65,7 +66,7 @@ func scanExchange(s interface {
 	var sent sql.NullString
 	if err := s.Scan(&e.ID, &e.ProjectID, &e.Name, &e.Origin, &e.Method, &e.URL,
 		&e.RequestHeaders, &e.RequestBody, &status, &e.ResponseHeaders, &e.ResponseBody,
-		&duration, &created, &sent); err != nil {
+		&duration, &e.Egress, &created, &sent); err != nil {
 		return model.HTTPExchange{}, err
 	}
 	if status.Valid {

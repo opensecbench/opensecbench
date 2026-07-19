@@ -96,6 +96,7 @@ func (s *Server) RunnerHandler() http.Handler {
 	mux.HandleFunc("POST /v1/runners/enroll", s.enrollRunner)
 	mux.HandleFunc("GET /v1/runners/stream", s.runnerAuth(s.runnerStream))
 	mux.HandleFunc("POST /v1/runners/result", s.runnerAuth(s.runnerResult))
+	mux.HandleFunc("POST /v1/runners/http-result", s.runnerAuth(s.runnerHTTPResult))
 	return mux
 }
 
@@ -233,5 +234,16 @@ func (s *Server) runnerResult(w http.ResponseWriter, r *http.Request) {
 		Stderr:   req.Stderr,
 		Duration: time.Duration(req.DurationMs) * time.Millisecond,
 	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// runnerHTTPResult receives a runner's response to a dispatched HTTP request (Replay egress, ADR-0025) and
+// hands it to the waiting egressSend caller. The hub verifies the runner owns the request id.
+func (s *Server) runnerHTTPResult(w http.ResponseWriter, r *http.Request) {
+	var res runnerhub.HTTPResult
+	if !decodeJSON(w, r, &res) {
+		return
+	}
+	s.runners.DeliverHTTP(runnerIDFrom(r), res)
 	w.WriteHeader(http.StatusNoContent)
 }

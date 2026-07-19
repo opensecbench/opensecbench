@@ -48,6 +48,65 @@ func TestDispatchDeliver(t *testing.T) {
 	}
 }
 
+func TestDispatchHTTPDeliver(t *testing.T) {
+	h := New()
+	sub := h.Register("r1")
+	defer sub.Close()
+
+	resCh, err := h.DispatchHTTP("r1", HTTPRequest{ID: "req-1", Method: "GET", URL: "https://in.scope/x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case d := <-sub.Ch:
+		if d.Kind != KindHTTP || d.HTTP == nil || d.HTTP.ID != "req-1" {
+			t.Fatalf("http dispatch = %+v", d)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no http dispatch received")
+	}
+	if !h.DeliverHTTP("r1", HTTPResult{ID: "req-1", Status: 200, Body: "ok"}) {
+		t.Fatal("DeliverHTTP should match the pending request")
+	}
+	select {
+	case res := <-resCh:
+		if res.Status != 200 || res.Body != "ok" {
+			t.Fatalf("http result = %+v", res)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("http result not delivered")
+	}
+}
+
+func TestDeliverHTTPOwnershipAndUnknown(t *testing.T) {
+	h := New()
+	sub := h.Register("r1")
+	defer sub.Close()
+	if _, err := h.DispatchHTTP("r1", HTTPRequest{ID: "req-1", URL: "https://x/"}); err != nil {
+		t.Fatal(err)
+	}
+	<-sub.Ch
+	// A different runner cannot answer r1's request.
+	if h.DeliverHTTP("r2", HTTPResult{ID: "req-1", Status: 200}) {
+		t.Fatal("a foreign runner must not deliver another runner's request")
+	}
+	// An unknown request id matches nothing.
+	if h.DeliverHTTP("r1", HTTPResult{ID: "nope"}) {
+		t.Fatal("unknown request id should not match")
+	}
+	// The rightful owner still can.
+	if !h.DeliverHTTP("r1", HTTPResult{ID: "req-1", Status: 204}) {
+		t.Fatal("owning runner should deliver")
+	}
+}
+
+func TestDispatchHTTPOfflineRunner(t *testing.T) {
+	h := New()
+	if _, err := h.DispatchHTTP("ghost", HTTPRequest{ID: "r"}); err != ErrRunnerOffline {
+		t.Fatalf("DispatchHTTP to offline runner = %v, want ErrRunnerOffline", err)
+	}
+}
+
 func TestDispatchOfflineRunner(t *testing.T) {
 	h := New()
 	if _, err := h.Dispatch("ghost", "t", runner.RunSpec{}); err != ErrRunnerOffline {

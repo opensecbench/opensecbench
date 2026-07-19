@@ -58,7 +58,7 @@ func TestProjectTrafficGraph(t *testing.T) {
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "Acme"})
 	for _, u := range []string{"https://api.acme.com/v2/users", "https://api.acme.com/v2/login", "https://cdn.acme.com/app.js"} {
 		ex, _ := db.CreateExchange(ctx, model.HTTPExchange{ProjectID: proj.ID, Origin: model.ExchangeProxy, Method: "GET", URL: u})
-		_ = db.RecordResponse(ctx, ex.ID, 200, "", "", 10)
+		_ = db.RecordResponse(ctx, ex.ID, 200, "", "", 10, "")
 	}
 
 	var g graphResp

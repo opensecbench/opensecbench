@@ -34,8 +34,17 @@ type Service struct {
 	providerLocal bool
 	tokenBudget   int
 
+	// egressSender, if set, routes the send_request tool through a chosen runner's vantage (ADR-0025).
+	egressSender func(context.Context, string, replay.Request) (replay.Response, error)
+
 	// Audit, if set, records agent loop events (tool calls, gate decisions, answers).
 	Audit func(action, detail string)
+}
+
+// SetEgressSender injects the runner-aware HTTP sender used by the send_request tool (ADR-0025). Without
+// it, agent sends go out from the local host.
+func (svc *Service) SetEgressSender(fn func(context.Context, string, replay.Request) (replay.Response, error)) {
+	svc.egressSender = fn
 }
 
 // NewService wires the Analyst service. Egress policy and budget are read from OSB_EGRESS_POLICY
@@ -179,7 +188,7 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 // under a strict policy with an external LLM provider, running a capability on a private asset is
 // blocked, because its output would be summarized by the external model.
 func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context.Context, agent.ToolCall) (string, error) {
-	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID})
+	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender})
 	// The egress guard keys on the provider that will actually receive the tool output (which, with tag
 	// routing, may differ per task); a local model is never an egress risk.
 	external := prov != nil && !llm.IsLocal(prov)

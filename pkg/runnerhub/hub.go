@@ -18,13 +18,36 @@ import (
 const (
 	KindRun    = "run"
 	KindCancel = "cancel"
+	KindHTTP   = "http" // perform an outbound HTTP request from the runner's vantage (ADR-0025)
 )
 
-// Dispatch is one message on a runner's downstream stream: run a task, or cancel one already dispatched.
+// Dispatch is one message on a runner's downstream stream: run a capability task, cancel one, or perform
+// an outbound HTTP request (Replay egress via runner).
 type Dispatch struct {
 	Kind   string         `json:"kind"`
-	TaskID string         `json:"task_id"`
+	TaskID string         `json:"task_id,omitempty"`
 	Spec   runner.RunSpec `json:"spec,omitempty"`
+	HTTP   *HTTPRequest   `json:"http,omitempty"`
+}
+
+// HTTPRequest is an outbound request the runner should perform on the control plane's behalf (ADR-0025).
+// Headers are "Key: value" lines, matching replay.Request.
+type HTTPRequest struct {
+	ID      string `json:"id"`
+	Method  string `json:"method"`
+	URL     string `json:"url"`
+	Headers string `json:"headers"`
+	Body    string `json:"body"`
+}
+
+// HTTPResult is the runner's captured response to an HTTPRequest.
+type HTTPResult struct {
+	ID         string `json:"id"`
+	Status     int    `json:"status"`
+	Headers    string `json:"headers"`
+	Body       string `json:"body"`
+	DurationMs int64  `json:"duration_ms"`
+	Error      string `json:"error,omitempty"` // set when the request could not be carried out
 }
 
 var (
@@ -41,16 +64,27 @@ type conn struct {
 	done chan struct{}
 }
 
+// httpWaiter is a pending HTTP request keyed by request id — the owning runner and the result channel.
+type httpWaiter struct {
+	runnerID string
+	ch       chan HTTPResult
+}
+
 // Hub is the control-plane-side broker. Safe for concurrent use.
 type Hub struct {
-	mu      sync.Mutex
-	conns   map[string]*conn              // runnerID -> live stream
-	pending map[string]chan runner.Result // taskID -> result waiter
+	mu          sync.Mutex
+	conns       map[string]*conn              // runnerID -> live stream
+	pending     map[string]chan runner.Result // taskID -> capability-result waiter
+	pendingHTTP map[string]httpWaiter         // requestID -> HTTP-result waiter
 }
 
 // New builds an empty hub.
 func New() *Hub {
-	return &Hub{conns: map[string]*conn{}, pending: map[string]chan runner.Result{}}
+	return &Hub{
+		conns:       map[string]*conn{},
+		pending:     map[string]chan runner.Result{},
+		pendingHTTP: map[string]httpWaiter{},
+	}
 }
 
 // Subscription is a connected runner's downstream stream. The SSE handler reads Ch until Done closes (the
@@ -153,6 +187,54 @@ func (h *Hub) Cancel(runnerID, taskID string) {
 func (h *Hub) forget(taskID string) {
 	h.mu.Lock()
 	delete(h.pending, taskID)
+	h.mu.Unlock()
+}
+
+// DispatchHTTP pushes an outbound HTTP request to a connected runner and returns a channel that will
+// receive its response (ADR-0025). Errors if the runner is offline or its stream is not draining.
+func (h *Hub) DispatchHTTP(runnerID string, req HTTPRequest) (<-chan HTTPResult, error) {
+	h.mu.Lock()
+	c := h.conns[runnerID]
+	if c == nil {
+		h.mu.Unlock()
+		return nil, ErrRunnerOffline
+	}
+	resCh := make(chan HTTPResult, 1)
+	h.pendingHTTP[req.ID] = httpWaiter{runnerID: runnerID, ch: resCh}
+	h.mu.Unlock()
+
+	select {
+	case c.ch <- Dispatch{Kind: KindHTTP, HTTP: &req}:
+		return resCh, nil
+	case <-c.done:
+		h.ForgetHTTP(req.ID)
+		return nil, ErrRunnerOffline
+	case <-time.After(dispatchTimeout):
+		h.ForgetHTTP(req.ID)
+		return nil, ErrRunnerBusy
+	}
+}
+
+// DeliverHTTP hands a runner's HTTP response to the waiting DispatchHTTP caller. It matches only when the
+// delivering runner owns the request id, so a runner cannot answer another's request. Returns false if
+// nothing was waiting or the owner didn't match.
+func (h *Hub) DeliverHTTP(runnerID string, res HTTPResult) bool {
+	h.mu.Lock()
+	w, ok := h.pendingHTTP[res.ID]
+	if !ok || w.runnerID != runnerID {
+		h.mu.Unlock()
+		return false
+	}
+	delete(h.pendingHTTP, res.ID)
+	h.mu.Unlock()
+	w.ch <- res // buffered (size 1), never blocks
+	return true
+}
+
+// ForgetHTTP drops a pending HTTP request (the caller gave up).
+func (h *Hub) ForgetHTTP(requestID string) {
+	h.mu.Lock()
+	delete(h.pendingHTTP, requestID)
 	h.mu.Unlock()
 }
 

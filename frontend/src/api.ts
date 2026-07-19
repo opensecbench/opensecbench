@@ -305,9 +305,18 @@ export interface HTTPExchange {
   response_headers: string
   response_body: string
   duration_ms?: number
+  egress?: string // "" = control-plane host; else the runner id that performed the send (ADR-0025)
   created_at: string
   sent_at?: string
   in_scope?: boolean // computed by the server against the project scope allowlist
+}
+
+export interface RunnerView {
+  id: string
+  name: string
+  status: string
+  online: boolean
+  last_seen?: string
 }
 
 export interface Artifact {
@@ -658,7 +667,10 @@ export const api = {
     projectId: string,
     req: { name?: string; method?: string; url: string; request_headers?: string; request_body?: string },
   ) => request<HTTPExchange>('POST', `/v1/projects/${projectId}/exchanges`, req),
-  sendExchange: (id: string) => request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, {}),
+  // Send an exchange; optionally from an enrolled remote runner's vantage (ADR-0025).
+  sendExchange: (id: string, runnerId?: string) =>
+    request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, runnerId ? { runner_id: runnerId } : {}),
+  listRunners: () => request<RunnerView[]>('GET', '/v1/runners'),
 
   // Live project event stream (SSE): captured exchanges, proxy status, and intercept queue changes,
   // so clients react instead of polling. EventSource auto-reconnects; callers resync with a fetch on

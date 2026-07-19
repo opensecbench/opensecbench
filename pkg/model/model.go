@@ -321,6 +321,7 @@ type HTTPExchange struct {
 	ResponseHeaders string     `json:"response_headers"`
 	ResponseBody    string     `json:"response_body"`
 	DurationMS      *int       `json:"duration_ms,omitempty"`
+	Egress          string     `json:"egress,omitempty"` // "" = control-plane host; else the runner id (ADR-0025)
 	CreatedAt       time.Time  `json:"created_at"`
 	SentAt          *time.Time `json:"sent_at,omitempty"`
 }
