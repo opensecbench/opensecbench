@@ -54,7 +54,7 @@ func (p Profile) ToolSet() []agent.Tool {
 // reads are the corpus/evidence tools every profile can use.
 var reads = []string{
 	"list_projects", "list_targets", "list_findings", "list_assets", "list_capabilities", "list_playbooks",
-	"search", "get_finding", "read_file", "list_dir", "grep_code", "find_files",
+	"search", "get_finding", "list_observations", "list_investigations", "read_file", "list_dir", "grep_code", "find_files",
 	"list_context", "read_context", "get_kb_entry", "list_exchanges", "get_exchange", "get_coverage",
 }
 
@@ -133,6 +133,20 @@ var builtinProfiles = []Profile{
 			"in the workspace. You do not send traffic or run scans; you write up what has been found.",
 		Tools:    with(reads, "workspace_write", "workspace_read", "workspace_list", "create_finding", "draft_kb_entry"),
 		ModelTag: "cheap",
+	},
+	{
+		ID:          "assessor",
+		Name:        "Assessor",
+		Description: "Autonomous assessment worker — scans, triages by reachability/exposure, gathers evidence, and proposes. Never confirms findings.",
+		Persona: "You are an autonomous assessment worker on a bounded run. Drive the tools to gather evidence: " +
+			"run capabilities, read code and traffic, build and run PoCs, and send scope-guarded test requests. " +
+			"Triage the observation queue by the routing attributes — prioritize items that are reachable and on " +
+			"an exposed service or route (reachable, exposed, exposed_route), then by severity. Record what you " +
+			"find as observations for human review. You do NOT confirm findings — a human validates and confirms; " +
+			"propose clearly and leave the decision to them.",
+		// No create_finding / set_coverage: this run proposes, a human confirms (ADR-0035).
+		Tools:    with(reads, "run_capability", "send_request", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_observation", "draft_kb_entry"),
+		ModelTag: "reasoning",
 	},
 }
 
