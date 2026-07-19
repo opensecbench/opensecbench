@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useEffect, useMemo, useState, type FormEvent
 import {
   api,
   Application,
+  Artifact,
   Asset,
   CapabilityManifest,
   ContextItem,
@@ -1051,6 +1052,7 @@ function ScanTab({
   const [assetId, setAssetId] = useState('')
   const [config, setConfig] = useState('')
   const [running, setRunning] = useState(false)
+  const [phase, setPhase] = useState('') // 'pending' | 'running' while polling an async task
   const [outcome, setOutcome] = useState<TaskOutcome | null>(null)
   const [obsState, setObsState] = useState<Record<string, string>>({})
   const [findingTitle, setFindingTitle] = useState('')
@@ -1063,15 +1065,29 @@ function ScanTab({
     try {
       const params: Record<string, unknown> = {}
       if (config.trim()) params.config = config.trim()
-      const out = await api.runTask({ capability_id: capId, asset_id: assetId, params, actor: 'human' })
-      setOutcome(out)
+      // The task runs asynchronously on the worker pool (ADR-0022): enqueue, then poll to completion.
+      const pending = await api.runTask({ capability_id: capId, asset_id: assetId, params, actor: 'human' })
+      setPhase(pending.status)
+      let task = pending
+      for (let i = 0; i < 1800 && (task.status === 'pending' || task.status === 'running'); i++) {
+        await new Promise((r) => setTimeout(r, 1000))
+        task = await api.getTask(pending.id)
+        setPhase(task.status)
+      }
+      // Assemble the outcome the panel expects from the finished task's artifacts + observations.
+      const [artifacts, observations] = await Promise.all([
+        api.getTaskArtifacts(task.id).catch(() => [] as Artifact[]),
+        api.listTaskObservations(task.id).catch(() => [] as Observation[]),
+      ])
+      setOutcome({ task, artifacts, observations })
       const st: Record<string, string> = {}
-      for (const o of out.observations) st[o.id] = o.review_state
+      for (const o of observations) st[o.id] = o.review_state
       setObsState(st)
     } catch (err) {
       onError((err as Error).message)
     } finally {
       setRunning(false)
+      setPhase('')
     }
   }
 
@@ -1117,7 +1133,7 @@ function ScanTab({
             ))}
           </select>
           <input placeholder="param: config (optional)" value={config} onChange={(e) => setConfig(e.target.value)} />
-          <button disabled={!online || running || !capId || !assetId} onClick={run}>{running ? 'Running…' : '▷ Run'}</button>
+          <button disabled={!online || running || !capId || !assetId} onClick={run}>{running ? (phase === 'pending' ? 'Queued…' : 'Running…') : '▷ Run'}</button>
         </div>
         {repoAssets.length === 0 && <div className="empty">Add a source_repo asset first (Applications &amp; Assets).</div>}
       </section>

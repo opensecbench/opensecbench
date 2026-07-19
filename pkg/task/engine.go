@@ -9,7 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
@@ -24,7 +27,8 @@ import (
 // ErrTaskNotRunning is returned when cancelling a task that is not currently executing.
 var ErrTaskNotRunning = errors.New("task: not running")
 
-// Engine executes capabilities and persists their provenance.
+// Engine executes capabilities and persists their provenance. Runs are asynchronous: Enqueue creates a
+// pending task and hands it to a bounded worker pool (ADR-0022) so callers never block on a container.
 type Engine struct {
 	store    *store.DB
 	blobs    *cas.Store
@@ -35,8 +39,14 @@ type Engine struct {
 	// (ADR-0011). nil disables secret injection.
 	Secrets func(ctx context.Context, name string) (string, error)
 
-	mu      sync.Mutex
-	running map[string]runState
+	jobs       chan job          // enqueued work drained by the worker pool
+	baseCtx    context.Context   // parent context for background runs (survives request cancellation)
+	baseCancel context.CancelFunc
+	wg         sync.WaitGroup    // worker goroutines
+
+	mu        sync.Mutex
+	running   map[string]runState
+	cancelled map[string]bool // tasks cancelled while still queued (checked before a worker starts them)
 }
 
 type runState struct {
@@ -44,25 +54,107 @@ type runState struct {
 	container string
 }
 
-// NewEngine wires the engine's dependencies.
-func NewEngine(st *store.DB, blobs *cas.Store, reg *capability.Registry, r runner.Runner) *Engine {
-	return &Engine{store: st, blobs: blobs, registry: reg, runner: r, running: make(map[string]runState)}
+// job is one enqueued capability run: a created (pending) task plus everything needed to execute it.
+type job struct {
+	task model.Task
+	req  RunRequest
+	prep prepared
 }
 
-// Cancel stops a running task by killing its container and cancelling its context. The in-flight
-// Run then records the task as failed.
+// defaultWorkers bounds concurrent capability runs; OSB_TASK_WORKERS overrides. A burst of scheduled or
+// triggered runs queues up rather than spawning unbounded containers.
+func workerCount() int {
+	n := 3
+	if v := os.Getenv("OSB_TASK_WORKERS"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 {
+			n = p
+		}
+	}
+	return n
+}
+
+// NewEngine wires the engine's dependencies and starts the async worker pool. Any tasks left pending or
+// running from a previous process (a crash mid-run) are reconciled to failed on startup.
+func NewEngine(st *store.DB, blobs *cas.Store, reg *capability.Registry, r runner.Runner) *Engine {
+	ctx, cancel := context.WithCancel(context.Background())
+	e := &Engine{
+		store: st, blobs: blobs, registry: reg, runner: r,
+		jobs:       make(chan job, 256),
+		baseCtx:    ctx,
+		baseCancel: cancel,
+		running:    make(map[string]runState),
+		cancelled:  make(map[string]bool),
+	}
+	if st != nil {
+		if n, err := st.FailUnfinishedTasks(ctx, "interrupted (control plane restarted)"); err == nil && n > 0 {
+			log.Printf("task: reconciled %d unfinished task(s) to failed on startup", n)
+		}
+	}
+	for i := 0; i < workerCount(); i++ {
+		e.wg.Add(1)
+		go e.worker()
+	}
+	return e
+}
+
+// Close stops the worker pool and cancels any in-flight runs. Safe to call once.
+func (e *Engine) Close() {
+	e.baseCancel()
+	close(e.jobs)
+	e.wg.Wait()
+}
+
+// worker drains the queue, running each job on the engine's background context so a client disconnect
+// doesn't abort the run. A task cancelled while still queued is skipped and recorded as cancelled.
+func (e *Engine) worker() {
+	defer e.wg.Done()
+	for j := range e.jobs {
+		if e.claim(j.task.ID) {
+			continue // cancelled before it started
+		}
+		if err := e.store.StartTask(e.baseCtx, j.task.ID); err != nil {
+			continue // already cancelled/gone
+		}
+		j.task.Status = model.TaskRunning
+		_, _ = e.execute(e.baseCtx, j.task, j.req, j.prep)
+	}
+}
+
+// claim returns true if the task was cancelled while queued (and clears the marker); the worker then
+// skips it. False means it is clear to run.
+func (e *Engine) claim(taskID string) (cancelledBeforeStart bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.cancelled[taskID] {
+		delete(e.cancelled, taskID)
+		return true
+	}
+	return false
+}
+
+// Cancel stops a task. A running task's container is killed and its context cancelled; a still-queued
+// task is marked so the worker skips it, and recorded as cancelled now.
 func (e *Engine) Cancel(taskID string) error {
 	e.mu.Lock()
-	rs, ok := e.running[taskID]
+	rs, running := e.running[taskID]
 	e.mu.Unlock()
-	if !ok {
+	if running {
+		if rs.container != "" {
+			_ = exec.Command("docker", "kill", rs.container).Run() // best-effort
+		}
+		rs.cancel()
+		return nil
+	}
+	// Not executing — it may be sitting in the queue. If the task is still pending, mark it for the
+	// worker to skip and record the cancellation immediately.
+	t, err := e.store.GetTask(context.Background(), taskID)
+	if err != nil || t.Status != model.TaskPending {
 		return ErrTaskNotRunning
 	}
-	if rs.container != "" {
-		_ = exec.Command("docker", "kill", rs.container).Run() // best-effort
-	}
-	rs.cancel()
-	return nil
+	e.mu.Lock()
+	e.cancelled[taskID] = true
+	e.mu.Unlock()
+	return e.store.FinishTask(context.Background(), taskID, model.TaskFailed, nil, "cancelled by user")
 }
 
 // Registry exposes the capabilities this engine can run.
@@ -90,13 +182,20 @@ type Outcome struct {
 	Observations []model.Observation `json:"observations"`
 }
 
-// Run plans the capability, executes it in the sandbox, stores its stdout as an output artifact
-// in the CAS, and records the task's outcome. Provenance links artifact → task → capability+
-// version → runner.
-func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
+// prepared holds everything resolved up front for a run: the capability, its planned spec, and the
+// application the task belongs to. Resolving this at enqueue time means bad requests (unknown
+// capability, non-source asset, plan error) fail fast before a task is created.
+type prepared struct {
+	man           capability.Manifest
+	spec          runner.RunSpec
+	applicationID *string
+}
+
+// prepare validates the request and plans the run without creating a task or touching a container.
+func (e *Engine) prepare(ctx context.Context, req RunRequest) (prepared, error) {
 	c, ok := e.registry.Get(req.CapabilityID)
 	if !ok {
-		return Outcome{}, fmt.Errorf("unknown capability %q", req.CapabilityID)
+		return prepared{}, fmt.Errorf("unknown capability %q", req.CapabilityID)
 	}
 	man := c.Manifest()
 
@@ -107,10 +206,10 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 	if targetDir == "" && req.AssetID != nil {
 		asset, err := e.store.GetAsset(ctx, *req.AssetID)
 		if err != nil {
-			return Outcome{}, fmt.Errorf("resolve asset: %w", err)
+			return prepared{}, fmt.Errorf("resolve asset: %w", err)
 		}
 		if asset.Type != model.AssetSourceRepo {
-			return Outcome{}, fmt.Errorf("asset %s is %s; only source_repo assets have a target directory", asset.ID, asset.Type)
+			return prepared{}, fmt.Errorf("asset %s is %s; only source_repo assets have a target directory", asset.ID, asset.Type)
 		}
 		targetDir = asset.Location
 		if applicationID == nil {
@@ -120,32 +219,78 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 
 	spec, err := c.Plan(capability.Input{TargetDir: targetDir, Params: req.Params})
 	if err != nil {
-		return Outcome{}, err
+		return prepared{}, err
 	}
+	return prepared{man: man, spec: spec, applicationID: applicationID}, nil
+}
 
+// createTask records a task for a prepared run. queued marks it pending (a worker starts it later).
+func (e *Engine) createTask(ctx context.Context, req RunRequest, p prepared, queued bool) (model.Task, error) {
 	actor := req.Actor
 	if actor == "" {
 		actor = "human"
 	}
 	paramsJSON, _ := json.Marshal(req.Params)
-	task, err := e.store.CreateTask(ctx, store.NewTask{
-		CapabilityID:      man.ID,
-		CapabilityVersion: man.Version,
-		ApplicationID:     applicationID,
+	return e.store.CreateTask(ctx, store.NewTask{
+		CapabilityID:      p.man.ID,
+		CapabilityVersion: p.man.Version,
+		ApplicationID:     p.applicationID,
 		AssetID:           req.AssetID,
 		ProjectID:         req.ProjectID,
 		Actor:             actor,
 		Runner:            e.runner.Name(),
 		Params:            paramsJSON,
+		Queued:            queued,
 	})
+}
+
+// Enqueue validates and plans the run, records a pending task, and hands it to the worker pool,
+// returning immediately. The task advances to running when a worker claims it (ADR-0022). Bad requests
+// fail fast (no task); a full queue is the only thing that blocks, and only briefly.
+func (e *Engine) Enqueue(ctx context.Context, req RunRequest) (model.Task, error) {
+	p, err := e.prepare(ctx, req)
+	if err != nil {
+		return model.Task{}, err
+	}
+	t, err := e.createTask(ctx, req, p, true)
+	if err != nil {
+		return model.Task{}, err
+	}
+	select {
+	case e.jobs <- job{task: t, req: req, prep: p}:
+		return t, nil
+	case <-e.baseCtx.Done():
+		_ = e.store.FinishTask(context.Background(), t.ID, model.TaskFailed, nil, "engine shutting down")
+		return t, errors.New("task: engine shutting down")
+	}
+}
+
+// Run plans the capability, executes it in the sandbox synchronously, stores its stdout as an output
+// artifact in the CAS, and records the task's outcome. Provenance links artifact → task → capability+
+// version → runner. Callers wanting non-blocking execution use Enqueue; Run is used where sequential,
+// in-line completion is required (e.g. a playbook's ordered steps).
+func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
+	p, err := e.prepare(ctx, req)
 	if err != nil {
 		return Outcome{}, err
 	}
+	task, err := e.createTask(ctx, req, p, false)
+	if err != nil {
+		return Outcome{}, err
+	}
+	return e.execute(ctx, task, req, p)
+}
+
+// execute runs a created task's container, captures its output, interprets it, and finishes the task.
+// It is the shared body of both the synchronous Run and the async worker path.
+func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p prepared) (Outcome, error) {
+	man := p.man
+	spec := p.spec
 
 	// Scope guard: a network capability may only touch in-scope targets (P6). The task record
-	// above captures the blocked attempt for the audit trail.
+	// captures the blocked attempt for the audit trail.
 	if man.TargetParam != "" {
-		if scopeErr := e.checkScope(ctx, req, applicationID, man.TargetParam); scopeErr != nil {
+		if scopeErr := e.checkScope(ctx, req, p.applicationID, man.TargetParam); scopeErr != nil {
 			_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, scopeErr.Error())
 			return e.outcome(ctx, task.ID), scopeErr
 		}

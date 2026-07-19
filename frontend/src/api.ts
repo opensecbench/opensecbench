@@ -446,7 +446,7 @@ export interface ModelCatalogEntry {
 export interface HomeData {
   approvals: { id: string; tool: string; thread_id: string; project_id?: string; project?: string; created_at: string }[]
   active: {
-    tasks: { id: string; capability: string; project_id?: string; project?: string }[]
+    tasks: { id: string; capability: string; status: string; project_id?: string; project?: string }[]
     threads: { id: string; title: string; status: string; agent_type: string; project_id?: string; project?: string }[]
   }
   projects: { id: string; name: string; status: string; findings: number; high: number; to_triage: number; adopted: number; covered_pct: number }[]
@@ -734,8 +734,10 @@ export const api = {
   // capabilities & tasks
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
   listTasks: () => request<Task[]>('GET', '/v1/tasks'),
+  // Enqueues the task and returns it in the pending state (ADR-0022); poll getTask until terminal.
   runTask: (req: { capability_id: string; asset_id?: string; target_dir?: string; project_id?: string; params?: Record<string, unknown>; actor?: string }) =>
-    request<TaskOutcome>('POST', '/v1/tasks', req),
+    request<Task>('POST', '/v1/tasks', req),
+  getTask: (id: string) => request<Task>('GET', `/v1/tasks/${id}`),
   cancelTask: (id: string) => request<void>('POST', `/v1/tasks/${id}/cancel`),
   getTaskArtifacts: (taskId: string) => request<Artifact[]>('GET', `/v1/tasks/${taskId}/artifacts`),
   listPlaybooks: () => request<Playbook[]>('GET', '/v1/playbooks'),

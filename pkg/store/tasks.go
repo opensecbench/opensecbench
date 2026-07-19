@@ -12,7 +12,8 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
-// NewTask is the input for starting a task.
+// NewTask is the input for starting a task. Queued creates it in the pending state (started_at unset)
+// for asynchronous execution; otherwise it starts running immediately (synchronous run).
 type NewTask struct {
 	CapabilityID      string
 	CapabilityVersion string
@@ -22,9 +23,11 @@ type NewTask struct {
 	Actor             string
 	Runner            string
 	Params            json.RawMessage
+	Queued            bool
 }
 
-// CreateTask inserts a task in the running state with started_at set.
+// CreateTask inserts a task. A queued task is pending with no started_at (a worker sets it via
+// StartTask); otherwise it starts running immediately with started_at set.
 func (db *DB) CreateTask(ctx context.Context, nt NewTask) (model.Task, error) {
 	if nt.CapabilityID == "" {
 		return model.Task{}, errors.New("store: capability id required")
@@ -49,16 +52,51 @@ func (db *DB) CreateTask(ctx context.Context, nt NewTask) (model.Task, error) {
 		CreatedAt:         now,
 		StartedAt:         &now,
 	}
+	var startedAt any = nowStr
+	if nt.Queued {
+		t.Status = model.TaskPending
+		t.StartedAt = nil
+		startedAt = nil
+	}
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO tasks
 		 (id, capability_id, capability_version, application_id, asset_id, project_id, actor, runner, params, status, created_at, started_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.CapabilityID, t.CapabilityVersion, nt.ApplicationID, nt.AssetID, nt.ProjectID, t.Actor, t.Runner,
-		string(params), t.Status, nowStr, nowStr)
+		string(params), t.Status, nowStr, startedAt)
 	if err != nil {
 		return model.Task{}, err
 	}
 	return t, nil
+}
+
+// StartTask moves a pending task to running and stamps started_at (a worker claiming the job).
+func (db *DB) StartTask(ctx context.Context, id string) error {
+	started := time.Now().UTC().Format(timeLayout)
+	res, err := db.ExecContext(ctx,
+		`UPDATE tasks SET status = ?, started_at = ? WHERE id = ? AND status = ?`,
+		model.TaskRunning, started, id, model.TaskPending)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound // already cancelled/started/gone
+	}
+	return nil
+}
+
+// FailUnfinishedTasks marks any tasks left pending or running (e.g. across a control-plane restart) as
+// failed with the given message, so they don't linger as ghosts. Returns how many it reconciled.
+func (db *DB) FailUnfinishedTasks(ctx context.Context, msg string) (int, error) {
+	finished := time.Now().UTC().Format(timeLayout)
+	res, err := db.ExecContext(ctx,
+		`UPDATE tasks SET status = ?, error = ?, finished_at = ? WHERE status IN (?, ?)`,
+		model.TaskFailed, msg, finished, model.TaskPending, model.TaskRunning)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 // FinishTask records a terminal status, exit code, and error for a task.

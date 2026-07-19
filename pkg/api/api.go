@@ -980,19 +980,20 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		approvals = append(approvals, v)
 	}
 
-	// Running now: active tasks + active/awaiting Analyst threads.
+	// Running now: in-flight (running) and queued (pending) capability tasks + active/awaiting threads.
 	type taskView struct {
 		ID         string `json:"id"`
 		Capability string `json:"capability"`
+		Status     string `json:"status"`
 		ProjectID  string `json:"project_id,omitempty"`
 		Project    string `json:"project,omitempty"`
 	}
 	runningTasks := []taskView{}
 	for _, t := range must(s.store.ListTasks(ctx, 200)) {
-		if t.Status != model.TaskRunning {
+		if t.Status != model.TaskRunning && t.Status != model.TaskPending {
 			continue
 		}
-		tv := taskView{ID: t.ID, Capability: t.CapabilityID}
+		tv := taskView{ID: t.ID, Capability: t.CapabilityID, Status: t.Status}
 		if t.ApplicationID != nil {
 			if app, err := s.store.GetApplication(ctx, *t.ApplicationID); err == nil {
 				tv.ProjectID = app.ProjectID
@@ -1831,7 +1832,9 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "capability_id is required")
 		return
 	}
-	out, err := s.engine.Run(r.Context(), task.RunRequest{
+	// Enqueue and return immediately (ADR-0022): the run executes on the worker pool and the client
+	// polls GET /v1/tasks/{id}. A validation/plan error fails fast here with no task created.
+	t, err := s.engine.Enqueue(r.Context(), task.RunRequest{
 		CapabilityID:  req.CapabilityID,
 		TargetDir:     req.TargetDir,
 		Actor:         req.Actor,
@@ -1841,20 +1844,14 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		SecretRefs:    req.SecretRefs,
 		Params:        req.Params,
 	})
-	// A validation/plan error produces no task; a run failure (including a scope block) produces a
-	// failed task the caller still wants to inspect.
-	if err != nil && out.Task.ID == "" {
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	action := "task.run"
-	if errors.Is(err, task.ErrOutOfScope) {
-		action = "task.blocked"
-	}
-	s.record(r.Context(), actorOf(r), action, out.Task.ID, map[string]any{
-		"capability": req.CapabilityID, "status": out.Task.Status, "error": out.Task.Error,
+	s.record(r.Context(), actorOf(r), "task.enqueue", t.ID, map[string]any{
+		"capability": req.CapabilityID, "status": t.Status,
 	})
-	writeJSON(w, http.StatusCreated, out)
+	writeJSON(w, http.StatusAccepted, t)
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {

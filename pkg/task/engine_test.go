@@ -262,6 +262,118 @@ func TestEngineCancelStopsRun(t *testing.T) {
 	}
 }
 
+// pollTask waits for a task to reach a terminal status, returning it (or failing on timeout).
+func pollTask(t *testing.T, eng *Engine, id string) model.Task {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		task, err := eng.store.GetTask(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task.Status == model.TaskSucceeded || task.Status == model.TaskFailed {
+			return task
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("task %s never reached a terminal status", id)
+	return model.Task{}
+}
+
+func TestEngineEnqueueRunsAsync(t *testing.T) {
+	eng, _ := newEngine(t, fakeRunner{out: []byte(sarifOutput), code: 0})
+	defer eng.Close()
+
+	// Enqueue returns immediately with a pending task (not yet executed).
+	task, err := eng.Enqueue(context.Background(), RunRequest{CapabilityID: "semgrep", TargetDir: "/x", Actor: "human:test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != model.TaskPending {
+		t.Fatalf("enqueued task status = %s, want pending", task.Status)
+	}
+
+	// A worker picks it up and runs it to completion; the outcome (artifact + observations) lands.
+	done := pollTask(t, eng, task.ID)
+	if done.Status != model.TaskSucceeded {
+		t.Fatalf("async task status = %s (err=%q)", done.Status, done.Error)
+	}
+	if done.StartedAt == nil {
+		t.Fatal("started_at should be set once a worker claimed the task")
+	}
+	obs, _ := eng.store.ListObservationsByTask(context.Background(), task.ID)
+	if len(obs) != 2 {
+		t.Fatalf("got %d observations from async run, want 2", len(obs))
+	}
+}
+
+func TestEngineEnqueueBadRequestFailsFast(t *testing.T) {
+	eng, _ := newEngine(t, fakeRunner{out: []byte("x"), code: 0})
+	defer eng.Close()
+	// An unknown capability is rejected before any task is created.
+	if _, err := eng.Enqueue(context.Background(), RunRequest{CapabilityID: "nope"}); err == nil {
+		t.Fatal("expected an error for an unknown capability")
+	}
+	if tasks, _ := eng.store.ListTasks(context.Background(), 10); len(tasks) != 0 {
+		t.Fatalf("a bad enqueue should create no task, got %d", len(tasks))
+	}
+}
+
+// gateRunner blocks in Run until released, signalling when it has started — so a test can hold the
+// single worker busy and prove a second task stays queued.
+type gateRunner struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (*gateRunner) Name() string { return "gate" }
+func (g *gateRunner) Run(ctx context.Context, _ runner.RunSpec) (runner.Result, error) {
+	g.started <- struct{}{}
+	select {
+	case <-g.release:
+		return runner.Result{Stdout: []byte("ok"), ExitCode: 0}, nil
+	case <-ctx.Done():
+		return runner.Result{}, ctx.Err()
+	}
+}
+
+func TestEngineCancelQueuedTask(t *testing.T) {
+	t.Setenv("OSB_TASK_WORKERS", "1") // a single worker so the second task is forced to queue
+	gate := &gateRunner{started: make(chan struct{}, 1), release: make(chan struct{})}
+	eng, _ := newEngine(t, gate)
+	defer eng.Close() // cancels the engine context, unblocking any stuck gate runner via ctx.Done()
+
+	// First task occupies the only worker and blocks.
+	busy, err := eng.Enqueue(context.Background(), RunRequest{CapabilityID: "source-inventory", TargetDir: "/a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-gate.started // the worker is now blocked inside Run
+
+	// Second task cannot start — it sits in the queue.
+	queued, err := eng.Enqueue(context.Background(), RunRequest{CapabilityID: "source-inventory", TargetDir: "/b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Cancelling the queued task records it cancelled without ever running it.
+	if err := eng.Cancel(queued.ID); err != nil {
+		t.Fatalf("cancel queued: %v", err)
+	}
+	got, _ := eng.store.GetTask(context.Background(), queued.ID)
+	if got.Status != model.TaskFailed || got.Error != "cancelled by user" {
+		t.Fatalf("cancelled queued task = %+v, want failed/cancelled by user", got)
+	}
+	if got.StartedAt != nil {
+		t.Fatal("a cancelled-while-queued task should never have started")
+	}
+
+	// Release the busy task; it completes normally, and the cancelled one is skipped by the worker.
+	close(gate.release)
+	if done := pollTask(t, eng, busy.ID); done.Status != model.TaskSucceeded {
+		t.Fatalf("busy task status = %s", done.Status)
+	}
+}
+
 func TestEngineSourceInventoryInDocker(t *testing.T) {
 	if !runner.Available() {
 		t.Skip("docker not available")
