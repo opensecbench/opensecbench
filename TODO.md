@@ -100,6 +100,12 @@ and can later ship as plugins.
       exposed pills in the triage view. *Phase 2 remaining: SAST reachability (exposed handler → sink);
       correlate govulncheck reachability onto grype CVEs + parse the SBOM into tables; explicit/periodic
       exposure; multi-language reachability; a prebuilt govulncheck image.*
+- [x] **Cross-tool reachability correlation** (ADR-0031, Phase 2a) — reachability verdicts stored per CVE
+      (`reachability` table; `store.SetReachability`/`ReachabilityForCVE`), populated generically by any
+      analyzer (govulncheck) and reused to enrich other tools' CVE findings. grype now routes
+      `reachable:false→review` (downgrade even if high), `reachable+exposed→investigate`, else severity
+      fallback. *Phase 2b remaining: retroactive re-eval of existing findings when a verdict arrives;
+      cross-tool observation merge for the same CVE; SAST reachability (exposed handler → sink).*
 - [x] Report templates as extension packs; playbook/visualization pack types still to add.
 - [x] Integration **pull** — DefectDojo findings → observations into triage (ADR-0027); reusable
       per-project configs (push uses them too); external-id dedup; `observations.project_id` for task-less

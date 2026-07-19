@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -451,8 +452,9 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	projectID := e.projectOfTask(ctx, task, p.applicationID)
 	// Derive the exposed-service signal once per run (ADR-0030): reachability-gated routing escalates only
 	// findings on a network-exposed service, so every new observation is tagged with the project's exposure.
+	// Only when there are observations to enrich — a capability with no interpreter does no extra DB work.
 	exposedAttr := ""
-	if projectID != "" {
+	if projectID != "" && len(interpreted) > 0 {
 		if exp, err := e.store.ProjectExposure(ctx, projectID); err == nil {
 			exposedAttr = strconv.FormatBool(exp.Exposed)
 		}
@@ -476,6 +478,7 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 				}
 				o.Attributes["exposed"] = exposedAttr
 			}
+			e.correlateReachability(ctx, projectID, &o)
 		}
 		if saved, err := e.store.CreateObservation(ctx, o); err == nil {
 			created = append(created, saved)
@@ -559,6 +562,27 @@ func (e *Engine) projectOfTask(ctx context.Context, task model.Task, appID *stri
 		}
 	}
 	return ""
+}
+
+// correlateReachability ties a CVE observation to the project's shared reachability verdicts (ADR-0031).
+// If the observation carries its own `reachable` attribute (from a reachability analyzer like govulncheck),
+// its verdict is recorded for other tools to reuse. Otherwise a CVE finding from a tool without reachability
+// (e.g. grype) inherits any stored verdict, so its routing can gate on reachability. Best-effort.
+func (e *Engine) correlateReachability(ctx context.Context, projectID string, o *model.Observation) {
+	if !strings.HasPrefix(o.RuleID, "CVE-") { // reachability is correlated by CVE id
+		return
+	}
+	cve := o.RuleID
+	if own := o.Attributes["reachable"]; own != "" {
+		_ = e.store.SetReachability(ctx, projectID, cve, o.Attributes["package"], own == "true", o.Attributes["tool"])
+		return
+	}
+	if reachable, known := e.store.ReachabilityForCVE(ctx, projectID, cve); known {
+		if o.Attributes == nil {
+			o.Attributes = map[string]string{}
+		}
+		o.Attributes["reachable"] = strconv.FormatBool(reachable)
+	}
 }
 
 func (e *Engine) auditDisposition(ctx context.Context, action, target string, o model.Observation) {

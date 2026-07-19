@@ -24,6 +24,17 @@ var reachableExposed = []disposition.Disposition{
 	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
 }
 
+// scaReachabilityRouting routes a general SCA tool (grype) whose CVE findings may be enriched with a shared
+// reachability verdict from an analyzer like govulncheck (ADR-0031). Order matters — first match wins:
+//  1. a CVE govulncheck proved uncalled is downgraded to review even if the tool rates it high;
+//  2. a reachable CVE on an exposed service escalates;
+//  3. anything else high/critical (e.g. a non-Go CVE with no reachability verdict) still investigates.
+var scaReachabilityRouting = []disposition.Disposition{
+	{When: map[string]string{"reachable": "false"}, Action: disposition.ActionReview},
+	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
+	{MinSeverity: "high", Action: disposition.ActionInvestigate},
+}
+
 // BuiltIns returns the registry of first-party capabilities. Third-party capabilities load as
 // extension packages later (ADR-0003), using this same contract.
 func BuiltIns() *Registry {
@@ -189,7 +200,7 @@ func (grypeScan) Manifest() Manifest {
 		OutputName:      "grype.sarif",
 		OutputMediaType: "application/sarif+json",
 		OKExitCodes:     []int{0},
-		Dispositions:    investigateHighSeverity,
+		Dispositions:    scaReachabilityRouting,
 	}
 }
 

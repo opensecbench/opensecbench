@@ -185,6 +185,13 @@ func TestReachabilityRoutesOnExposedService(t *testing.T) {
 			t.Fatalf("observation %s exposed = %q, want true", o.RuleID, o.Attributes["exposed"])
 		}
 	}
+	// The analyzer's verdicts are recorded for other tools to reuse (ADR-0031 correlation).
+	if reachable, known := db.ReachabilityForCVE(ctx, proj.ID, "CVE-AAA"); !known || !reachable {
+		t.Fatalf("CVE-AAA verdict not recorded: known=%v reachable=%v", known, reachable)
+	}
+	if reachable, known := db.ReachabilityForCVE(ctx, proj.ID, "CVE-BBB"); !known || reachable {
+		t.Fatalf("CVE-BBB verdict not recorded as unreachable: known=%v reachable=%v", known, reachable)
+	}
 }
 
 // Reachable but on a service with no exposure evidence → manual review, no investigation.
@@ -210,6 +217,90 @@ func TestReachabilityNotExposedStaysReview(t *testing.T) {
 		if o.Attributes["exposed"] != "false" {
 			t.Fatalf("observation %s exposed = %q, want false", o.RuleID, o.Attributes["exposed"])
 		}
+	}
+}
+
+// grypeLikeCap is a fake general SCA tool: SARIF output with CVE rule ids, routed by the same reachability
+// rules grype ships (ADR-0031) — reachable:false→review, reachable+exposed→investigate, high→investigate.
+type grypeLikeCap struct{}
+
+func (grypeLikeCap) Manifest() capability.Manifest {
+	return capability.Manifest{
+		ID: "fake-grype", Version: "1.0.0", OutputName: "g.sarif",
+		OutputMediaType: interpret.SARIFMediaType, OKExitCodes: []int{0},
+		Dispositions: []disposition.Disposition{
+			{When: map[string]string{"reachable": "false"}, Action: disposition.ActionReview},
+			{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
+			{MinSeverity: "high", Action: disposition.ActionInvestigate},
+		},
+	}
+}
+func (grypeLikeCap) Plan(capability.Input) (runner.RunSpec, error) {
+	return runner.RunSpec{Image: "x", Cmd: []string{"x"}, Timeout: time.Minute}, nil
+}
+
+// Three high-severity CVEs: AAA (govulncheck: reachable), BBB (govulncheck: not reachable), CCC (no verdict).
+const grypeSARIF = `{"runs":[{"tool":{"driver":{"name":"grype"}},"results":[
+  {"ruleId":"CVE-AAA","level":"error","message":{"text":"vuln a"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":1}}}]},
+  {"ruleId":"CVE-BBB","level":"error","message":{"text":"vuln b"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":2}}}]},
+  {"ruleId":"CVE-CCC","level":"error","message":{"text":"vuln c"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"package.json"},"region":{"startLine":3}}}]}
+]}]}`
+
+// A grype CVE inherits govulncheck's reachability verdict: an uncalled one is downgraded to review even
+// though grype rates it high; a reachable one on an exposed service escalates; one with no verdict falls
+// back to severity (ADR-0031).
+func TestGrypeInheritsReachabilityVerdict(t *testing.T) {
+	db, blobs := openStore(t)
+	reg := capability.NewRegistry()
+	reg.Register(grypeLikeCap{})
+	eng := NewEngine(db, blobs, reg, fakeRunner{out: []byte(grypeSARIF), code: 0})
+	defer eng.Close()
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+	if _, err := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetCloudDeployment, Location: "prod"}); err != nil {
+		t.Fatal(err)
+	}
+	// Seed govulncheck's verdicts (as a prior govulncheck run would have via the engine).
+	_ = db.SetReachability(ctx, proj.ID, "CVE-AAA", "pkg/a", true, "govulncheck")
+	_ = db.SetReachability(ctx, proj.ID, "CVE-BBB", "pkg/b", false, "govulncheck")
+
+	tk, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-grype", TargetDir: "/repo", ApplicationID: &app.ID})
+	if done := pollTask(t, eng, tk.ID); done.Status != model.TaskSucceeded {
+		t.Fatalf("task = %s (err=%q)", done.Status, done.Error)
+	}
+
+	obs, _ := db.ListObservationsByProject(ctx, proj.ID)
+	byCVE := map[string]model.Observation{}
+	for _, o := range obs {
+		byCVE[o.RuleID] = o
+	}
+	invs, _ := db.ListInvestigationsByProject(ctx, proj.ID)
+	investigated := map[string]bool{}
+	for _, iv := range invs {
+		investigated[iv.ObservationID] = true
+	}
+
+	// AAA: enriched reachable=true + exposed → investigation.
+	if byCVE["CVE-AAA"].Attributes["reachable"] != "true" {
+		t.Fatalf("CVE-AAA reachable = %q, want true (inherited)", byCVE["CVE-AAA"].Attributes["reachable"])
+	}
+	if !investigated[byCVE["CVE-AAA"].ID] {
+		t.Fatal("CVE-AAA (reachable+exposed) should open an investigation")
+	}
+	// BBB: enriched reachable=false → downgraded to review despite high severity, no investigation.
+	if byCVE["CVE-BBB"].Attributes["reachable"] != "false" {
+		t.Fatalf("CVE-BBB reachable = %q, want false (inherited)", byCVE["CVE-BBB"].Attributes["reachable"])
+	}
+	if investigated[byCVE["CVE-BBB"].ID] {
+		t.Fatal("CVE-BBB proved unreachable should NOT escalate (the core of ADR-0031)")
+	}
+	// CCC: no verdict → severity fallback → investigation.
+	if _, has := byCVE["CVE-CCC"].Attributes["reachable"]; has {
+		t.Fatal("CVE-CCC has no verdict; reachable should be unset")
+	}
+	if !investigated[byCVE["CVE-CCC"].ID] {
+		t.Fatal("CVE-CCC (no verdict, high) should investigate via severity fallback")
 	}
 }
 
