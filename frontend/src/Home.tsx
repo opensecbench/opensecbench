@@ -1,6 +1,34 @@
 import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from 'react'
 import { api, HomeData, Project, Template, SearchResult } from './api'
 
+// Compact number for token counts: 1_240_000 -> "1.2M", 310_000 -> "310k".
+const fmtTokens = (n: number): string =>
+  n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n)
+
+// Human interval for a schedule's period: 86400 -> "1d", 3600 -> "1h".
+const fmtInterval = (s: number): string =>
+  s % 86400 === 0 ? `${s / 86400}d` : s % 3600 === 0 ? `${s / 3600}h` : s % 60 === 0 ? `${s / 60}m` : `${s}s`
+
+// Relative time to a next-run timestamp: "in 2h", or "overdue" once it has passed.
+const fromNow = (iso: string): string => {
+  const ms = new Date(iso).getTime() - Date.now()
+  if (ms < 0) return 'overdue'
+  const m = Math.round(ms / 60000)
+  return `in ${m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`}`
+}
+
+// A small donut showing methodology coverage percent on a project card.
+function Ring({ pct }: { pct: number }) {
+  const r = 8
+  const c = 2 * Math.PI * r
+  return (
+    <svg className="cov-ring" width="22" height="22" viewBox="0 0 22 22" aria-label={`${pct}% covered`}>
+      <circle className="cov-track" cx="11" cy="11" r={r} />
+      <circle className="cov-fill" cx="11" cy="11" r={r} strokeDasharray={`${(c * pct) / 100} ${c}`} transform="rotate(-90 11 11)" />
+    </svg>
+  )
+}
+
 export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project, target?: { surface?: string; thread?: string }) => void }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
@@ -85,6 +113,10 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
   const approvals = home?.approvals ?? []
   const activeThreads = home?.active.threads ?? []
   const runningTasks = home?.active.tasks ?? []
+  const usage = home?.usage
+  const schedules = home?.schedules ?? []
+  const monthTokens = usage ? usage.month_input + usage.month_output : 0
+  const allTokens = usage ? usage.all_input + usage.all_output : 0
   const open = (id: string | undefined, target?: { surface?: string; thread?: string }) => {
     const p = projects.find((x) => x.id === id)
     if (p) onOpen(p, target)
@@ -174,6 +206,64 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
             </ul>
           )}
         </section>
+
+        {/* Token spend (informational — no cap) */}
+        <section className="mc-card">
+          <div className="mc-head">◔ Token spend</div>
+          {!usage || allTokens === 0 ? (
+            <div className="mc-empty">No model usage recorded yet.</div>
+          ) : (
+            <div className="mc-spend">
+              <div className="spend-totals">
+                <div className="spend-fig">
+                  <span className="spend-num">{fmtTokens(monthTokens)}</span>
+                  <span className="spend-lbl">this month</span>
+                </div>
+                <div className="spend-fig">
+                  <span className="spend-num">{fmtTokens(allTokens)}</span>
+                  <span className="spend-lbl">all time</span>
+                </div>
+              </div>
+              {usage.top_models.length > 0 && (
+                <ul className="spend-bars">
+                  {usage.top_models.map((m) => {
+                    const tot = m.input_tokens + m.output_tokens
+                    const top = usage.top_models[0].input_tokens + usage.top_models[0].output_tokens
+                    return (
+                      <li key={m.provider + m.model} className="spend-bar">
+                        <span className="spend-model">{m.model || m.provider}</span>
+                        <span className="spend-track"><span className="spend-val" style={{ width: `${top > 0 ? (tot * 100) / top : 0}%` }} /></span>
+                        <span className="muted spend-amt">{fmtTokens(tot)}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Triggers & watchers: scheduled playbook runs */}
+        <section className="mc-card">
+          <div className="mc-head">
+            ⟳ Triggers {schedules.length > 0 && <span className="mc-pill">{schedules.length}</span>}
+          </div>
+          {schedules.length === 0 ? (
+            <div className="mc-empty">No scheduled runs. Set one up in a project's Agents view.</div>
+          ) : (
+            <ul className="mc-list">
+              {schedules.map((sc) => (
+                <li key={sc.id} className="mc-row link" onClick={() => open(sc.project_id, { surface: 'orchestrate' })}>
+                  <span className={`orch-dot s-${sc.enabled ? 'done' : 'skipped'}`} />
+                  <span>{sc.playbook}</span>
+                  <span className="muted">· {sc.project}</span>
+                  <span className="grow" />
+                  <span className="muted">{sc.enabled ? `every ${fmtInterval(sc.interval_seconds)} · ${fromNow(sc.next_run_at)}` : 'paused'}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
 
       <section className="panel">
@@ -197,6 +287,12 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
               const c = counts.get(p.id)
               return (
                 <li key={p.id} className="card" onClick={() => onOpen(p)}>
+                  {c && c.adopted > 0 && (
+                    <div className="card-cov" title={`${c.covered_pct}% methodology coverage`}>
+                      <Ring pct={c.covered_pct} />
+                      <span className="cov-pct">{c.covered_pct}%</span>
+                    </div>
+                  )}
                   <div className="card-main">
                     <div className="card-name">{p.name}</div>
                     <div className="card-meta">

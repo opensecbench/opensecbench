@@ -449,7 +449,25 @@ export interface HomeData {
     tasks: { id: string; capability: string; project_id?: string; project?: string }[]
     threads: { id: string; title: string; status: string; agent_type: string; project_id?: string; project?: string }[]
   }
-  projects: { id: string; name: string; status: string; findings: number; high: number; to_triage: number }[]
+  projects: { id: string; name: string; status: string; findings: number; high: number; to_triage: number; adopted: number; covered_pct: number }[]
+  usage: {
+    month_input: number
+    month_output: number
+    all_input: number
+    all_output: number
+    top_models: { provider: string; model: string; runs: number; input_tokens: number; output_tokens: number }[]
+  }
+  schedules: {
+    id: string
+    project_id: string
+    project?: string
+    playbook_id: string
+    playbook: string
+    interval_seconds: number
+    enabled: boolean
+    next_run_at: string
+    last_run_at?: string
+  }[]
 }
 
 export interface ModelRef {
