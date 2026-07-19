@@ -77,7 +77,7 @@ func TestProxyHTTPCapture(t *testing.T) {
 
 	ca, _ := LoadOrCreate(t.TempDir())
 	cap := &capture{}
-	px := httptest.NewServer(New(ca, cap.add, nil, nil, nil))
+	px := httptest.NewServer(New(ca, cap.add, nil, nil, nil, nil))
 	defer px.Close()
 
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(mustURL(px.URL))}}
@@ -104,7 +104,7 @@ func TestProxyHTTPSInterception(t *testing.T) {
 
 	ca, _ := LoadOrCreate(t.TempDir())
 	cap := &capture{}
-	px := httptest.NewServer(New(ca, cap.add, nil, nil, nil))
+	px := httptest.NewServer(New(ca, cap.add, nil, nil, nil, nil))
 	defer px.Close()
 
 	// Trust the proxy CA; the origin's real cert is never seen by the client (the proxy re-signs).
@@ -138,7 +138,7 @@ func TestProxyHTTPSInterception(t *testing.T) {
 
 func TestProxyScopeBlock(t *testing.T) {
 	ca, _ := LoadOrCreate(t.TempDir())
-	px := httptest.NewServer(New(ca, nil, func(host string) bool { return false }, nil, nil))
+	px := httptest.NewServer(New(ca, nil, func(host string) bool { return false }, nil, nil, nil))
 	defer px.Close()
 
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(mustURL(px.URL))}}

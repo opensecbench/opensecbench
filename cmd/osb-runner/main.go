@@ -9,9 +9,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -23,9 +25,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/opensecbench/opensecbench/pkg/replay"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/runnerhub"
+	"github.com/opensecbench/opensecbench/pkg/runnertunnel"
 )
 
 // identity is the runner's persisted credentials, written 0600 after enrollment.
@@ -65,17 +70,24 @@ func run(url, enrollToken, name, dataDir string) error {
 	defer stop()
 
 	a := &agent{url: url, id: id, client: &http.Client{}, cancels: map[string]context.CancelFunc{}}
+	// The streaming tunnel (ADR-0026) runs alongside the SSE dispatch stream, each with its own reconnect.
+	go a.reconnectLoop(ctx, "tunnel", a.tunnel)
 	// Reconnect loop: the stream drops on network blips or control-plane restarts; back off and retry.
+	a.reconnectLoop(ctx, "stream", a.stream)
+	return nil
+}
+
+// reconnectLoop runs fn until ctx is cancelled, backing off between drops.
+func (a *agent) reconnectLoop(ctx context.Context, name string, fn func(context.Context) error) {
 	for ctx.Err() == nil {
-		if err := a.stream(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("stream ended: %v; reconnecting in 3s", err)
+		if err := fn(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("%s ended: %v; reconnecting in 3s", name, err)
 			select {
 			case <-time.After(3 * time.Second):
 			case <-ctx.Done():
 			}
 		}
 	}
-	return nil
 }
 
 type agent struct {
@@ -181,6 +193,98 @@ func (a *agent) doHTTP(ctx context.Context, req runnerhub.HTTPRequest) {
 	if hresp.StatusCode >= 300 {
 		log.Printf("http-result for %s rejected: %s", req.ID, hresp.Status)
 	}
+}
+
+// tunnel opens the streaming tunnel (ADR-0026) and serves each proxy-forward stream until it closes. The
+// control plane is the stream initiator; this agent accepts.
+func (a *agent) tunnel(ctx context.Context) error {
+	const path = "/v1/runners/tunnel"
+	wsURL := strings.Replace(a.url, "http", "ws", 1) + path // http->ws, https->wss
+	hdr := http.Header{}
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	sig, err := runnerhub.Sign(a.id.PrivKey, http.MethodGet, path, ts, nil)
+	if err != nil {
+		return err
+	}
+	hdr.Set(runnerhub.HeaderRunnerID, a.id.RunnerID)
+	hdr.Set(runnerhub.HeaderTime, ts)
+	hdr.Set(runnerhub.HeaderSig, sig)
+
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, hdr)
+	if err != nil {
+		return err
+	}
+	sess := runnertunnel.New(conn, false)
+	defer func() { _ = sess.Close() }()
+	go func() { <-ctx.Done(); _ = sess.Close() }()
+	for {
+		st, err := sess.Accept()
+		if err != nil {
+			return err
+		}
+		go a.forward(st)
+	}
+}
+
+// forward performs one proxied request from this runner's vantage and streams the response back.
+func (a *agent) forward(st *runnertunnel.Stream) {
+	defer func() { _ = st.Close() }()
+	var m runnerhub.TunnelForward
+	if err := json.Unmarshal(st.Meta(), &m); err != nil {
+		return
+	}
+	var body io.Reader = st
+	if m.ContentLength == 0 {
+		body = http.NoBody
+	}
+	req, err := http.NewRequest(m.Method, m.URL, body)
+	if err != nil {
+		writeTunnelError(st, err)
+		return
+	}
+	req.Header = sanitizeForward(m.Header)
+	if h := m.Header.Get("Host"); h != "" {
+		req.Host = h
+	}
+	req.ContentLength = m.ContentLength
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: m.Insecure}, //nolint:gosec // proxy reaches self-signed targets
+		},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		writeTunnelError(st, err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_ = resp.Write(st) // stream status + headers + body back to the control plane
+	_ = st.CloseWrite()
+}
+
+// sanitizeForward drops framing/hop-by-hop headers the runner's http.Client manages itself.
+func sanitizeForward(h http.Header) http.Header {
+	out := h.Clone()
+	if out == nil {
+		out = http.Header{}
+	}
+	for _, k := range []string{"Host", "Content-Length", "Transfer-Encoding", "Connection", "Keep-Alive", "Proxy-Connection", "Upgrade"} {
+		out.Del(k)
+	}
+	return out
+}
+
+func writeTunnelError(st *runnertunnel.Stream, err error) {
+	msg := "runner forward error: " + err.Error()
+	resp := &http.Response{
+		StatusCode: http.StatusBadGateway, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
+		Header: http.Header{"Content-Type": {"text/plain"}}, Body: io.NopCloser(strings.NewReader(msg)),
+		ContentLength: int64(len(msg)),
+	}
+	_ = resp.Write(st)
+	_ = st.CloseWrite()
 }
 
 func (a *agent) cancel(taskID string) {

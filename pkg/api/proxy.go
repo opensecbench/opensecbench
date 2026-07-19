@@ -20,6 +20,7 @@ type liveProxy struct {
 	srv       *http.Server
 	port      int
 	intercept *interceptManager
+	runnerID  string // egress runner for this session ("" = local host, ADR-0026)
 }
 
 // proxyStatus is the JSON view of a project's proxy.
@@ -27,6 +28,7 @@ type proxyStatus struct {
 	Running bool   `json:"running"`
 	Port    int    `json:"port,omitempty"`
 	CASPKI  string `json:"ca_spki_sha256,omitempty"` // for a browser's --ignore-certificate-errors-spki-list
+	Egress  string `json:"egress,omitempty"`         // "" = local host; else the egress runner id (ADR-0026)
 }
 
 func (s *Server) caSPKI() string {
@@ -55,7 +57,7 @@ func (s *Server) getProxy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, proxyStatus{Running: false, CASPKI: s.caSPKI()})
 		return
 	}
-	writeJSON(w, http.StatusOK, proxyStatus{Running: true, Port: lp.port, CASPKI: s.caSPKI()})
+	writeJSON(w, http.StatusOK, proxyStatus{Running: true, Port: lp.port, CASPKI: s.caSPKI(), Egress: lp.runnerID})
 }
 
 // startProxy opens an intercepting proxy bound to a project on a loopback port. Captured traffic
@@ -71,14 +73,34 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Port int `json:"port"`
+		Port     int    `json:"port"`
+		RunnerID string `json:"runner_id"`
 	}
 	_ = decodeJSONOptional(r, &req)
+
+	// If an egress runner is chosen, it must be active and have a live tunnel — no silent local fallback.
+	var forward http.RoundTripper
+	if req.RunnerID != "" {
+		rn, err := s.store.GetRunner(r.Context(), req.RunnerID)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "unknown runner")
+			return
+		}
+		if rn.Status != model.RunnerActive {
+			writeErr(w, http.StatusBadRequest, "runner "+rn.Name+" is "+rn.Status)
+			return
+		}
+		if _, ok := s.runners.TunnelFor(req.RunnerID); !ok {
+			writeErr(w, http.StatusBadGateway, "runner "+rn.Name+" has no streaming tunnel connected")
+			return
+		}
+		forward = &tunnelForwarder{hub: s.runners, runnerID: req.RunnerID}
+	}
 
 	s.proxyMu.Lock()
 	defer s.proxyMu.Unlock()
 	if lp := s.proxies[projectID]; lp != nil {
-		writeJSON(w, http.StatusOK, proxyStatus{Running: true, Port: lp.port, CASPKI: s.caSPKI()})
+		writeJSON(w, http.StatusOK, proxyStatus{Running: true, Port: lp.port, CASPKI: s.caSPKI(), Egress: lp.runnerID})
 		return
 	}
 
@@ -88,14 +110,14 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mgr := newInterceptManager(projectID, s.events)
-	px := proxy.New(s.proxyCA, s.proxyCapture(projectID), s.projectAllows(projectID), mgr, s.ruleEngineFor(projectID))
+	px := proxy.New(s.proxyCA, s.proxyCapture(projectID, req.RunnerID), s.projectAllows(projectID), mgr, s.ruleEngineFor(projectID), forward)
 	srv := &http.Server{Handler: px, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
 
 	port := ln.Addr().(*net.TCPAddr).Port
-	s.proxies[projectID] = &liveProxy{srv: srv, port: port, intercept: mgr}
-	s.record(r.Context(), actorOf(r), "proxy.start", projectID, map[string]int{"port": port})
-	st := proxyStatus{Running: true, Port: port, CASPKI: s.caSPKI()}
+	s.proxies[projectID] = &liveProxy{srv: srv, port: port, intercept: mgr, runnerID: req.RunnerID}
+	s.record(r.Context(), actorOf(r), "proxy.start", projectID, map[string]any{"port": port, "egress": egressLabel(req.RunnerID)})
+	st := proxyStatus{Running: true, Port: port, CASPKI: s.caSPKI(), Egress: req.RunnerID}
 	s.events.Publish(events.Event{Type: "proxy", ProjectID: projectID, Payload: st})
 	writeJSON(w, http.StatusCreated, st)
 }
@@ -121,8 +143,9 @@ func (s *Server) stopProxy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, proxyStatus{Running: false})
 }
 
-// proxyCapture persists a captured exchange (origin=proxy) for the project.
-func (s *Server) proxyCapture(projectID string) func(proxy.Exchange) {
+// proxyCapture persists a captured exchange (origin=proxy) for the project, recording the egress runner
+// (ADR-0026) so the history shows which vantage each forward went out from.
+func (s *Server) proxyCapture(projectID, runnerID string) func(proxy.Exchange) {
 	return func(e proxy.Exchange) {
 		ctx := context.Background()
 		ex, err := s.store.CreateExchange(ctx, model.HTTPExchange{
@@ -137,7 +160,7 @@ func (s *Server) proxyCapture(projectID string) func(proxy.Exchange) {
 			log.Printf("proxy capture: %v", err)
 			return
 		}
-		if err := s.store.RecordResponse(ctx, ex.ID, e.Status, e.ResponseHeaders, e.ResponseBody, e.DurationMS, ""); err != nil {
+		if err := s.store.RecordResponse(ctx, ex.ID, e.Status, e.ResponseHeaders, e.ResponseBody, e.DurationMS, runnerID); err != nil {
 			log.Printf("proxy capture response: %v", err)
 		}
 		s.publishExchange(ctx, projectID, ex.ID)

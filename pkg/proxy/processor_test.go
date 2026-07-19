@@ -44,7 +44,7 @@ func TestProcessorTransformsRequestAndResponse(t *testing.T) {
 		},
 		onResp: func(s int, h, b string) (int, string, string) { return s, h, strings.ReplaceAll(b, "orig", "MODIFIED") },
 	}
-	client, closeProxy := proxyClient(t, New(nil, nil, nil, nil, proc))
+	client, closeProxy := proxyClient(t, New(nil, nil, nil, nil, proc, nil))
 	defer closeProxy()
 
 	resp, err := client.Post(upstream.URL+"/x", "text/plain", strings.NewReader("token=SECRET"))
