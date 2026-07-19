@@ -31,6 +31,7 @@ scratch); these docs are the buildable, versioned foundation.
 | [0020](adr-0020-agent-workspace-corpus.md) | Agent workspace & corpus investigation | Accepted — delivered. The capability layer: source reads (`read_file`/`list_dir`/`grep_code`/`find_files`) + corpus reads (`read_context`/`list_context`/`get_kb_entry`) + workspace (`workspace_*`) + sandboxed `run_code`, all governed (project scope, path confinement, DLP, gating) |
 | [0021](adr-0021-settings-and-model-catalog.md) | Settings, model catalog & appearance | Accepted — delivered. Sectioned Settings surface + section registry (core + extension-declared, §6); curated model catalog + fixed-vocab tags + cross-provider routing; light/dark + accent theming |
 | [0022](adr-0022-async-task-execution.md) | Asynchronous capability execution | Accepted — delivered. Enqueue + bounded worker pool (`OSB_TASK_WORKERS`, default 3); `POST /v1/tasks` → 202 pending, client polls; runs survive disconnect; queued-task cancel + crash reconciliation. Playbooks async too (`Start` → 202 run); agent plans already background — async everywhere |
+| [0023](adr-0023-durable-task-queue.md) | Durable task queue | Accepted — delivered. The `tasks` row IS the queue: atomic DB claim (`ClaimNextPendingTask`) + notify/poll workers; pending work survives restart, interrupted runs resume (at-least-once, `OSB_TASK_MAX_ATTEMPTS` cap); persists secret-ref names + target_dir for reconstruction. Supersedes 0022's in-process-queue limitation |
 
 Later subsystems get an ADR when their phase begins. See [`../TODO.md`](../TODO.md).
 

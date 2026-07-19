@@ -74,7 +74,8 @@ lists queued tasks alongside running ones.
   and agent plans (`go runPlan`) all return immediately and are polled. Both playbook runs and
   individual tasks are reconciled to failed on startup if a prior process left them unfinished.
 - **In-process queue:** the task queue is not persisted, so queued-but-unstarted work does not resume
-  across a restart — it is reconciled to failed instead. A durable queue is a possible follow-up.
+  across a restart — it is reconciled to failed instead. **Superseded by ADR-0023**, which makes the
+  queue durable (the `tasks` row becomes the queue; pending work resumes across restarts).
 
 Composes with ADR-0004 (the sandboxed runner is unchanged — only *when* it is invoked changed) and
 ADR-0019 (scheduled/triggered playbook runs now queue behind the worker pool).

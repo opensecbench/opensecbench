@@ -544,15 +544,23 @@ type Task struct {
 	CapabilityVersion string          `json:"capability_version"`
 	ApplicationID     *string         `json:"application_id,omitempty"`
 	AssetID           *string         `json:"asset_id,omitempty"`
+	ProjectID         *string         `json:"project_id,omitempty"`
 	Actor             string          `json:"actor"`
 	Runner            string          `json:"runner"`
 	Params            json.RawMessage `json:"params,omitempty"`
 	Status            string          `json:"status"`
 	ExitCode          *int            `json:"exit_code,omitempty"`
 	Error             string          `json:"error,omitempty"`
+	Attempts          int             `json:"attempts,omitempty"`
 	CreatedAt         time.Time       `json:"created_at"`
 	StartedAt         *time.Time      `json:"started_at,omitempty"`
 	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
+
+	// Reconstruction data for the durable queue (ADR-0023) — needed to re-run a queued task after a
+	// restart. Never serialized to clients: SecretRefs holds vault-secret NAMES (never values), and
+	// TargetDir is a local filesystem path.
+	SecretRefs map[string]string `json:"-"`
+	TargetDir  string            `json:"-"`
 }
 
 // Artifact kinds.
