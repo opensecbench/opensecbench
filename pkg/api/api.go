@@ -180,6 +180,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/targets", s.listTargets)
 	s.mux.HandleFunc("POST /v1/targets", s.createTarget)
 
+	s.mux.HandleFunc("GET /v1/home", s.getHome)
 	s.mux.HandleFunc("GET /v1/search", s.search)
 	s.mux.HandleFunc("GET /v1/audit", s.listAudit)
 	s.mux.HandleFunc("GET /v1/audit/verify", s.verifyAudit)
@@ -932,6 +933,96 @@ func (s *Server) forkThread(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, child)
 }
+
+// getHome is the cross-project "mission control" cockpit (plan §Global Home): what's waiting on you,
+// what's running now, and each project's status at a glance.
+func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	projects, _ := s.store.ListProjects(ctx)
+	name := map[string]string{}
+	for _, p := range projects {
+		name[p.ID] = p.Name
+	}
+
+	// Waiting on you: pending approvals, resolved to their project.
+	type apView struct {
+		ID        string    `json:"id"`
+		Tool      string    `json:"tool"`
+		ThreadID  string    `json:"thread_id"`
+		ProjectID string    `json:"project_id,omitempty"`
+		Project   string    `json:"project,omitempty"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+	approvals := []apView{}
+	for _, a := range must(s.store.ListPendingApprovals(ctx)) {
+		v := apView{ID: a.ID, Tool: a.Tool, ThreadID: a.ThreadID, CreatedAt: a.CreatedAt}
+		if th, err := s.store.GetThread(ctx, a.ThreadID); err == nil && th.ProjectID != nil {
+			v.ProjectID = *th.ProjectID
+			v.Project = name[*th.ProjectID]
+		}
+		approvals = append(approvals, v)
+	}
+
+	// Running now: active tasks + active/awaiting Analyst threads.
+	runningTasks := 0
+	for _, t := range must(s.store.ListTasks(ctx, 200)) {
+		if t.Status == model.TaskRunning {
+			runningTasks++
+		}
+	}
+	type thView struct {
+		ID        string `json:"id"`
+		Title     string `json:"title"`
+		Status    string `json:"status"`
+		AgentType string `json:"agent_type"`
+		Project   string `json:"project,omitempty"`
+	}
+	threads := []thView{}
+	for _, th := range must(s.store.ListThreads(ctx)) {
+		if th.Status != model.ThreadActive && th.Status != model.ThreadAwaitingApproval {
+			continue
+		}
+		tv := thView{ID: th.ID, Title: th.Title, Status: th.Status, AgentType: th.AgentType}
+		if th.ProjectID != nil {
+			tv.Project = name[*th.ProjectID]
+		}
+		threads = append(threads, tv)
+	}
+
+	// Projects at a glance.
+	fcounts, _ := s.store.FindingCountsByProject(ctx)
+	type projView struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Status   string `json:"status"`
+		Findings int    `json:"findings"`
+		High     int    `json:"high"`
+		ToTriage int    `json:"to_triage"`
+	}
+	pvs := []projView{}
+	for _, p := range projects {
+		fc := fcounts[p.ID]
+		toTriage := 0
+		if obs, err := s.store.ListObservationsByProject(ctx, p.ID); err == nil {
+			for _, o := range obs {
+				if o.ReviewState == model.ReviewUnreviewed {
+					toTriage++
+				}
+			}
+		}
+		pvs = append(pvs, projView{ID: p.ID, Name: p.Name, Status: p.Status, Findings: fc.Total, High: fc.High, ToTriage: toTriage})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"approvals": approvals,
+		"active":    map[string]any{"running_tasks": runningTasks, "threads": threads},
+		"projects":  pvs,
+	})
+}
+
+// must returns the slice or nil (dashboard reads tolerate an empty section rather than failing the page).
+func must[T any](v []T, _ error) []T { return v }
 
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
 	aps, err := s.store.ListPendingApprovals(r.Context())

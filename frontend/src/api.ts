@@ -443,6 +443,15 @@ export interface ModelCatalogEntry {
   default_tags: string[]
 }
 
+export interface HomeData {
+  approvals: { id: string; tool: string; thread_id: string; project_id?: string; project?: string; created_at: string }[]
+  active: {
+    running_tasks: number
+    threads: { id: string; title: string; status: string; agent_type: string; project?: string }[]
+  }
+  projects: { id: string; name: string; status: string; findings: number; high: number; to_triage: number }[]
+}
+
 export interface ModelRef {
   provider_id: string
   model: string
@@ -809,6 +818,8 @@ export const api = {
   getSettings: () =>
     request<{ sections: SettingSection[]; values: Record<string, string> }>('GET', '/v1/settings'),
   putSettings: (values: Record<string, string>) => request<void>('PUT', '/v1/settings', { values }),
+
+  getHome: () => request<HomeData>('GET', '/v1/home'),
 
   getApprovalPolicy: () =>
     request<{ sensitive_tools: string[]; rules: ApprovalRule[] }>('GET', '/v1/analyst/approval-policy'),
