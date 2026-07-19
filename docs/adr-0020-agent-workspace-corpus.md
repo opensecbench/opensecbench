@@ -58,12 +58,13 @@ external model" — reads are not exempt.
 ### 4. `run_code` — sandboxed experimentation (deferred one step)
 
 Authoring and running a test case or PoC: `run_code(command)` runs in a runner sandbox with the project
-workspace mounted read-write at `/work`, resource/time-limited. It refines "no raw shell" into "no shell *on
-the host*, but a sandboxed, gated execution surface." Kept deliberately minimal: **gated** (arbitrary
-execution needs approval) and **no network** — a PoC that must reach a target uses `send_request`, which is
-already scope-guarded, rather than duplicating egress policy here. The agent stages files via `workspace_write`
-and runs over them; the image defaults to `alpine:3` and is overridable per call. Built after the read tools,
-as a deliberate second increment.
+workspace mounted read-write at `/work`, resource/time-limited, **with network access** — a real PoC or test
+must be able to reach a target, install a tool, and so on. It refines "no raw shell" into "no shell *on the
+host*, but a sandboxed, gated execution surface." The control is the **approval gate**: every `run_code` is
+gated, so a human sees and authorizes the command before it runs — that, not a network lockdown, is what keeps
+arbitrary execution safe while keeping it useful. The agent stages files via `workspace_write` and runs over
+them; the image defaults to `alpine:3` and is overridable per call. Built after the read tools, as a
+deliberate second increment.
 
 ## Consequences
 
