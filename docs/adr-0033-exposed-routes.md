@@ -54,6 +54,13 @@ pill surfaces it in triage.
   best-effort. Method is captured where the framework encodes it (Express/gin/FastAPI verbs); Flask defaults
   to any.
 
+## Live-test fix (2026-07-19)
+End-to-end testing (daemon + real opengrep) showed a finding in a file with several routes was tied to an
+arbitrary route (a SQLi in the `/search` handler mislabeled `/login`). Fixed: `nearestRoute` picks the route
+whose registration is closest at or above the finding's line — the handler it actually sits in. (Also fixed
+in the same session: SARIF severity for opengrep/semgrep registry rules is on `rule.defaultConfiguration.
+level`, which the interpreter didn't read — every SAST finding came out `info` and never escalated.)
+
 ## Out of scope — later
 Call-graph route→finding reachability; a dedicated routes graph/surface (pill only now); making
 `exposed_route` a disposition gate; broader framework coverage; shipping the ruleset to **remote** runners

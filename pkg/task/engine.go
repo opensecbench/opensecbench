@@ -636,7 +636,7 @@ func (e *Engine) correlateReachability(ctx context.Context, projectID string, o 
 // project-level `exposed` to a concrete route. File-level proximity — the finding sits in the handler file,
 // not proven reachable from the route by a call graph. Best-effort; a nil route inventory just skips it.
 func (e *Engine) correlateExposedRoute(ctx context.Context, projectID, exposedAttr string, o *model.Observation) {
-	file := locationFile(o.Location)
+	file, line := splitLocation(o.Location)
 	if file == "" {
 		return
 	}
@@ -644,9 +644,10 @@ func (e *Engine) correlateExposedRoute(ctx context.Context, projectID, exposedAt
 	if err != nil || len(routes) == 0 {
 		return
 	}
-	// Prefer a traffic-confirmed route (RoutesForHandlerFile orders observed first). Otherwise the route is
-	// only exposed if the service is exposed at all.
-	r := routes[0]
+	// Pick the route whose handler actually contains the finding — the nearest route registration at or above
+	// the finding's line (a file can declare several routes). Falls back to the first route when the finding
+	// has no line or precedes every route.
+	r := nearestRoute(routes, line)
 	if !r.Observed && exposedAttr != "true" {
 		return
 	}
@@ -657,24 +658,35 @@ func (e *Engine) correlateExposedRoute(ctx context.Context, projectID, exposedAt
 	o.Attributes["route_observed"] = strconv.FormatBool(r.Observed)
 }
 
-// locationFile returns the file part of an observation location ("file:line" → "file"), stripping only a
-// trailing :<digits> line number. A bare path, or an nmap "host:port/proto", is returned unchanged (and
-// simply won't match a route's handler_file).
-func locationFile(loc string) string {
-	i := strings.LastIndex(loc, ":")
-	if i <= 0 {
-		return loc // no colon (or a leading one) — treat the whole value as the file
+// nearestRoute returns the route whose registration is closest at or above the finding's line — i.e. the
+// handler the finding sits in. With no line (0) or a finding above all routes, it returns the first route.
+func nearestRoute(routes []model.Route, line int) model.Route {
+	best := routes[0]
+	if line <= 0 {
+		return best
 	}
-	suffix := loc[i+1:]
-	if suffix == "" {
-		return loc
-	}
-	for _, c := range suffix {
-		if c < '0' || c > '9' {
-			return loc // not a pure line number (e.g. host:port/proto)
+	bestLine := -1
+	for _, r := range routes {
+		if r.HandlerLine <= line && r.HandlerLine > bestLine {
+			bestLine = r.HandlerLine
+			best = r
 		}
 	}
-	return loc[:i]
+	return best
+}
+
+// splitLocation parses an observation location "file:line" into its parts, stripping only a trailing
+// :<digits>. A bare path, or an nmap "host:port/proto", returns (loc, 0) — it won't match a route file.
+func splitLocation(loc string) (file string, line int) {
+	i := strings.LastIndex(loc, ":")
+	if i <= 0 {
+		return loc, 0
+	}
+	n, err := strconv.Atoi(loc[i+1:])
+	if err != nil {
+		return loc, 0 // not a pure line number (e.g. host:port/proto)
+	}
+	return loc[:i], n
 }
 
 func (e *Engine) auditDisposition(ctx context.Context, action, target string, o model.Observation) {
