@@ -1,7 +1,11 @@
 package capability
 
 import (
+	_ "embed"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/disposition"
@@ -48,6 +52,7 @@ func BuiltIns() *Registry {
 	r.Register(grypeScan{})
 	r.Register(syftSBOM{})
 	r.Register(govulncheck{})
+	r.Register(routeMap{})
 	return r
 }
 
@@ -284,6 +289,62 @@ func (govulncheck) Plan(in Input) (runner.RunSpec, error) {
 		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
 		Network:  "bridge", // install analyzer + fetch vuln DB and modules
 		Timeout:  15 * time.Minute,
+		MemoryMB: 4096,
+		CPUs:     2,
+	}, nil
+}
+
+// routeMap extracts declared HTTP routes from source using a bundled semgrep ruleset (ADR-0033), feeding
+// the exposed-route inventory. Offline — the ruleset is local, so no registry fetch. Its output is route
+// JSON (not observations); the engine upserts it into the routes table.
+type routeMap struct{}
+
+//go:embed routes.yml
+var routeRulesYML []byte
+
+// routeRulesDir stages the embedded route ruleset to a stable temp dir and returns it for mounting. Written
+// on each call (a few KB) so a deleted temp file self-heals.
+func routeRulesDir() (string, error) {
+	dir := filepath.Join(os.TempDir(), "osb-route-rules")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "routes.yml"), routeRulesYML, 0o640); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func (routeMap) Manifest() Manifest {
+	return Manifest{
+		ID:              "route-map",
+		Version:         "1.0.0",
+		Title:           "Route map (HTTP entry points)",
+		Description:     "Extracts declared HTTP routes from source with a bundled semgrep ruleset; feeds the exposed-route inventory. Offline.",
+		OutputName:      "routes.json",
+		OutputMediaType: "application/vnd.osb-routes+json", // interpret.RouteMediaType
+		OKExitCodes:     []int{0, 1},                       // 1 = matches found
+	}
+}
+
+func (routeMap) Plan(in Input) (runner.RunSpec, error) {
+	if in.TargetDir == "" {
+		return runner.RunSpec{}, errors.New("route-map: target directory required")
+	}
+	rulesDir, err := routeRulesDir()
+	if err != nil {
+		return runner.RunSpec{}, fmt.Errorf("route-map: stage ruleset: %w", err)
+	}
+	return runner.RunSpec{
+		Image: semgrepImage,
+		Cmd:   []string{"semgrep", "scan", "--json", "--quiet", "--config", "/rules/routes.yml", "/src"},
+		Mounts: []runner.Mount{
+			{Source: in.TargetDir, Target: "/src", ReadOnly: true},
+			{Source: rulesDir, Target: "/rules", ReadOnly: true},
+		},
+		Workdir:  "/src",
+		Network:  "none", // bundled ruleset — no registry fetch
+		Timeout:  10 * time.Minute,
 		MemoryMB: 4096,
 		CPUs:     2,
 	}, nil

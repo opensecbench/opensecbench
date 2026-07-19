@@ -381,6 +381,101 @@ func TestSastDataflowRoutingOnExposedService(t *testing.T) {
 	}
 }
 
+// routeMapCap is a fake route-map: its output is route JSON (parsed to routes, not observations).
+type routeMapCap struct{}
+
+func (routeMapCap) Manifest() capability.Manifest {
+	return capability.Manifest{
+		ID: "fake-routemap", Version: "1.0.0", OutputName: "routes.json",
+		OutputMediaType: interpret.RouteMediaType, OKExitCodes: []int{0, 1},
+	}
+}
+func (routeMapCap) Plan(capability.Input) (runner.RunSpec, error) {
+	return runner.RunSpec{Image: "x", Cmd: []string{"x"}, Timeout: time.Minute}, nil
+}
+
+const routeMapJSON = `{"results":[
+  {"check_id":"osb-route-flask","path":"app/views.py","start":{"line":8},
+   "extra":{"metavars":{"$ROUTE":{"abstract_content":"\"/users/<id>\""}},"metadata":{"framework":"flask"}}}
+]}`
+
+// The route-map capability's output populates the routes inventory (not observations), and captured traffic
+// to a matching path confirms the route as exposed (ADR-0033).
+func TestRouteMapPopulatesInventory(t *testing.T) {
+	db, blobs := openStore(t)
+	reg := capability.NewRegistry()
+	reg.Register(routeMapCap{})
+	eng := NewEngine(db, blobs, reg, fakeRunner{out: []byte(routeMapJSON), code: 0})
+	defer eng.Close()
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+	// A captured request to the route's path — should flip it to observed.
+	if _, err := db.CreateExchange(ctx, model.HTTPExchange{ProjectID: proj.ID, Origin: "proxy", Method: "GET", URL: "http://app/users/42"}); err != nil {
+		t.Fatal(err)
+	}
+
+	tk, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-routemap", TargetDir: "/repo", ApplicationID: &app.ID})
+	if done := pollTask(t, eng, tk.ID); done.Status != model.TaskSucceeded {
+		t.Fatalf("task = %s (err=%q)", done.Status, done.Error)
+	}
+
+	// The route was recorded, no observations were created, and traffic confirmed it exposed.
+	if obs, _ := db.ListObservationsByProject(ctx, proj.ID); len(obs) != 0 {
+		t.Fatalf("route-map output should create no observations, got %d", len(obs))
+	}
+	routes, _ := db.ListRoutesByProject(ctx, proj.ID)
+	if len(routes) != 1 {
+		t.Fatalf("want 1 route, got %d", len(routes))
+	}
+	if routes[0].Path != "/users/<id>" || routes[0].Framework != "flask" || routes[0].HandlerFile != "app/views.py" {
+		t.Fatalf("route = %+v", routes[0])
+	}
+	if !routes[0].Observed {
+		t.Fatal("route matched by captured traffic should be observed")
+	}
+}
+
+// A SAST finding in a file that declares an exposed route is tied to that entry point via an exposed_route
+// attribute (ADR-0033). A finding in a file with no route is not.
+func TestExposedRouteAssociation(t *testing.T) {
+	db, blobs := openStore(t)
+	reg := capability.NewRegistry()
+	reg.Register(semgrepLikeCap{})
+	eng := NewEngine(db, blobs, reg, fakeRunner{out: []byte(semgrepSARIF), code: 0})
+	defer eng.Close()
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+	// Exposed service, with a traffic-confirmed route whose handler is a.py (the taint finding's file).
+	if _, err := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetCloudDeployment, Location: "prod"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.UpsertRoute(ctx, model.Route{ProjectID: proj.ID, Method: "POST", Path: "/query", HandlerFile: "a.py", Source: "route-map", Observed: true})
+
+	tk, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-semgrep", TargetDir: "/repo", ApplicationID: &app.ID})
+	if done := pollTask(t, eng, tk.ID); done.Status != model.TaskSucceeded {
+		t.Fatalf("task = %s (err=%q)", done.Status, done.Error)
+	}
+
+	obs, _ := db.ListObservationsByProject(ctx, proj.ID)
+	byRule := map[string]model.Observation{}
+	for _, o := range obs {
+		byRule[o.RuleID] = o
+	}
+	// taint.sql is at a.py:42 → tied to the exposed route in a.py, and marked traffic-confirmed.
+	if got := byRule["taint.sql"].Attributes["exposed_route"]; got != "POST /query" {
+		t.Fatalf("taint.sql exposed_route = %q, want \"POST /query\"", got)
+	}
+	if byRule["taint.sql"].Attributes["route_observed"] != "true" {
+		t.Fatalf("taint.sql route_observed = %q, want true", byRule["taint.sql"].Attributes["route_observed"])
+	}
+	// pattern.high is at b.py:1 → no route in that file, no association.
+	if _, has := byRule["pattern.high"].Attributes["exposed_route"]; has {
+		t.Fatal("pattern.high is in b.py (no route) — should have no exposed_route")
+	}
+}
+
 // A capability with no dispositions leaves plain unreviewed observations (no regression).
 func TestNoDispositionsLeavesReview(t *testing.T) {
 	db, blobs := openStore(t)

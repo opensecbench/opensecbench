@@ -650,6 +650,22 @@ type Observation struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// Route is a declared HTTP entry point of an application (ADR-0033) — extracted from source (route-map) or
+// discovered from captured traffic. Observed=true means captured proxy traffic matched it, confirming it is
+// exposed; a finding whose location file equals HandlerFile is tied to this route.
+type Route struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Method      string    `json:"method,omitempty"` // GET/POST/... or "" = any/unknown
+	Path        string    `json:"path"`
+	HandlerFile string    `json:"handler_file,omitempty"` // "" for a traffic-only route (no source)
+	HandlerLine int       `json:"handler_line,omitempty"`
+	Framework   string    `json:"framework,omitempty"`
+	Source      string    `json:"source,omitempty"` // capability that produced it, or "traffic"
+	Observed    bool      `json:"observed"`         // matched captured traffic → confirmed exposed
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // Investigation statuses.
 const (
 	InvestigationOpen          = "open"
