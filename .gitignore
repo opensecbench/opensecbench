@@ -3,6 +3,10 @@
 /build/
 /dist/
 *.exe
+# Stray binaries from `go build ./cmd/<name>` in the repo root
+/osb
+/daemon
+/osb-runner
 
 # Go
 *.test

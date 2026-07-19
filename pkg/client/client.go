@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
@@ -736,6 +737,7 @@ type RunTaskRequest struct {
 	ProjectID    *string        `json:"project_id,omitempty"`
 	Actor        string         `json:"actor,omitempty"`
 	Params       map[string]any `json:"params,omitempty"`
+	RunnerID     string         `json:"runner_id,omitempty"` // "" = local; else an enrolled remote runner (ADR-0024)
 }
 
 // TaskOutcome is a completed task with its artifacts and interpreted observations.
@@ -745,9 +747,10 @@ type TaskOutcome struct {
 	Observations []model.Observation `json:"observations"`
 }
 
-// RunTask runs a capability and returns the resulting task and artifacts.
-func (c *Client) RunTask(ctx context.Context, req RunTaskRequest) (TaskOutcome, error) {
-	var out TaskOutcome
+// RunTask enqueues a capability run and returns the pending task (ADR-0022). The run executes
+// asynchronously; poll GetTask until the status is terminal.
+func (c *Client) RunTask(ctx context.Context, req RunTaskRequest) (model.Task, error) {
+	var out model.Task
 	return out, c.do(ctx, http.MethodPost, "/v1/tasks", req, &out)
 }
 
@@ -760,6 +763,36 @@ func (c *Client) GetTask(ctx context.Context, id string) (model.Task, error) {
 // CancelTask stops a running task.
 func (c *Client) CancelTask(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/v1/tasks/"+id+"/cancel", nil, nil)
+}
+
+// RunnerView is an enrolled remote runner with live online status (ADR-0024).
+type RunnerView struct {
+	model.Runner
+	Online bool `json:"online"`
+}
+
+// ListRunners returns the enrolled remote runners.
+func (c *Client) ListRunners(ctx context.Context) ([]RunnerView, error) {
+	var out []RunnerView
+	return out, c.do(ctx, http.MethodGet, "/v1/runners", nil, &out)
+}
+
+// EnrollToken is a one-time runner enrollment token (returned once, at mint).
+type EnrollToken struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// MintRunnerEnrollToken issues a one-time enrollment token for a new runner.
+func (c *Client) MintRunnerEnrollToken(ctx context.Context, label string, ttlMinutes int) (EnrollToken, error) {
+	var out EnrollToken
+	return out, c.do(ctx, http.MethodPost, "/v1/runners/enroll-token",
+		map[string]any{"label": label, "ttl_minutes": ttlMinutes}, &out)
+}
+
+// DeleteRunner revokes an enrolled remote runner.
+func (c *Client) DeleteRunner(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/runners/"+id, nil, nil)
 }
 
 // Playbook is a tactic (sequence of capability steps).

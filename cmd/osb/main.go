@@ -75,6 +75,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return playbookCmd(ctx, c, args[1:])
 	case "task":
 		return taskCmd(ctx, c, args[1:])
+	case "runner":
+		return runnerCmd(ctx, c, args[1:])
 	case "artifact":
 		return artifactCmd(ctx, c, args[1:])
 	case "application", "app":
@@ -174,6 +176,7 @@ func capabilityCmd(ctx context.Context, c *client.Client, args []string) error {
 		asset := fs.String("asset", "", "asset id to target (source_repo) instead of --dir")
 		project := fs.String("project", "", "project id for scope enforcement (network capabilities)")
 		actor := fs.String("actor", "", "actor label (e.g. human:james)")
+		runnerID := fs.String("runner", "", "run on an enrolled remote runner id instead of the local host")
 		var params paramFlags
 		fs.Var(&params, "param", "capability parameter as key=value (repeatable)")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -186,20 +189,78 @@ func capabilityCmd(ctx context.Context, c *client.Client, args []string) error {
 		if err != nil {
 			return err
 		}
-		req := client.RunTaskRequest{CapabilityID: *id, TargetDir: *dir, Actor: *actor, Params: p}
+		req := client.RunTaskRequest{CapabilityID: *id, TargetDir: *dir, Actor: *actor, Params: p, RunnerID: *runnerID}
 		if *asset != "" {
 			req.AssetID = asset
 		}
 		if *project != "" {
 			req.ProjectID = project
 		}
-		out, err := c.RunTask(ctx, req)
+		// The task runs asynchronously (ADR-0022): enqueue, then poll to completion.
+		t, err := c.RunTask(ctx, req)
 		if err != nil {
 			return err
 		}
-		return printJSON(out)
+		for t.Status == "pending" || t.Status == "running" {
+			time.Sleep(time.Second)
+			if t, err = c.GetTask(ctx, t.ID); err != nil {
+				return err
+			}
+		}
+		obs, _ := c.ListTaskObservations(ctx, t.ID)
+		return printJSON(map[string]any{"task": t, "observations": obs})
 	default:
 		return fmt.Errorf("unknown capability subcommand %q", args[0])
+	}
+}
+
+func runnerCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb runner <list|enroll-token|rm>")
+	}
+	switch args[0] {
+	case "list":
+		rs, err := c.ListRunners(ctx)
+		if err != nil {
+			return err
+		}
+		if len(rs) == 0 {
+			fmt.Println("no runners enrolled")
+			return nil
+		}
+		for _, r := range rs {
+			status := "offline"
+			if r.Online {
+				status = "online"
+			}
+			fmt.Printf("%-36s %-16s %-8s %s\n", r.ID, r.Name, r.Status, status)
+		}
+		return nil
+	case "enroll-token":
+		fs := flag.NewFlagSet("runner enroll-token", flag.ContinueOnError)
+		label := fs.String("label", "", "label for the runner this token enrolls")
+		ttl := fs.Int("ttl", 60, "token lifetime in minutes")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		tok, err := c.MintRunnerEnrollToken(ctx, *label, *ttl)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("enrollment token (valid until %s):\n\n  %s\n\nStart the runner with:\n  osb-runner --url <control-plane-runner-addr> --enroll %s --name <name>\n",
+			tok.ExpiresAt.Format("2006-01-02 15:04 MST"), tok.Token, tok.Token)
+		return nil
+	case "rm":
+		if len(args) < 2 {
+			return errors.New("usage: osb runner rm <id>")
+		}
+		if err := c.DeleteRunner(ctx, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("runner %s revoked\n", args[1])
+		return nil
+	default:
+		return fmt.Errorf("unknown runner subcommand %q", args[0])
 	}
 }
 

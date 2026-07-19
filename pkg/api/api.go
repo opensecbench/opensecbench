@@ -1859,6 +1859,7 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		ProjectID     *string           `json:"project_id"`
 		SecretRefs    map[string]string `json:"secret_refs"`
 		Params        map[string]any    `json:"params"`
+		RunnerID      string            `json:"runner_id"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -1878,6 +1879,7 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		ProjectID:     req.ProjectID,
 		SecretRefs:    req.SecretRefs,
 		Params:        req.Params,
+		RunnerID:      req.RunnerID,
 	})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
