@@ -761,6 +761,12 @@ export const api = {
 
   listAgentPlaybooks: () =>
     request<{ playbooks: AgentPlaybook[] }>('GET', '/v1/analyst/playbooks').then((r) => r.playbooks ?? []),
+  createAgentPlaybook: (pb: {
+    name: string
+    description: string
+    goal: string
+    steps: { key: string; profile: string; instruction: string; depends_on: string[] }[]
+  }) => request<{ id: string }>('POST', '/v1/analyst/playbooks', pb),
   deleteAgentPlaybook: (id: string) => request<void>('DELETE', '/v1/analyst/playbooks/' + id),
   savePlanAsPlaybook: (planId: string, name: string, description: string) =>
     request<{ id: string }>('POST', `/v1/plans/${planId}/save-as-playbook`, { name, description }),

@@ -1912,3 +1912,28 @@ select option {
 .orch-sched-cadence { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--acc); }
 .orch-sched-btn { border: 0; background: transparent; color: var(--tx3); font-size: 12px; cursor: pointer; padding: 0 4px; }
 .orch-sched-btn:hover { color: var(--tx); }
+
+/* playbook builder */
+.orch-section-h.orch-ph { display: flex; align-items: center; }
+.orch-ph .grow { flex: 1; }
+.orch-new { border: 1px solid var(--line2); background: var(--bg4); color: var(--tx2); border-radius: 5px; padding: 2px 8px; font-size: 11px; cursor: pointer; text-transform: none; letter-spacing: 0; }
+.pbuild { border: 1px solid var(--acc); background: var(--bg3); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.pbuild-h { display: flex; align-items: center; margin-bottom: 8px; }
+.pbuild-h .grow { flex: 1; }
+.pbuild-h b { color: var(--tx2); }
+.pbuild-in { width: 100%; background: var(--bg); border: 1px solid var(--line2); border-radius: 6px; padding: 6px 9px; color: var(--tx); font-size: 12.5px; margin-bottom: 7px; }
+.pbuild-in::placeholder { color: var(--tx3); }
+.pbuild-step { border: 1px solid var(--line); border-radius: 7px; padding: 9px; margin-bottom: 8px; background: var(--bg2); }
+.pbuild-step-h { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.pbuild-step-h .grow { flex: 1; }
+.pbuild-key { width: 90px; background: var(--bg); border: 1px solid var(--line2); border-radius: 5px; padding: 3px 7px; color: var(--tx); font-size: 12px; font-family: var(--mono); }
+.pbuild-step-h select { background: var(--bg); border: 1px solid var(--line2); border-radius: 5px; padding: 3px 7px; color: var(--tx); font-size: 12px; }
+.pbuild-instr { width: 100%; min-height: 52px; background: var(--bg); border: 1px solid var(--line2); border-radius: 6px; padding: 6px 9px; color: var(--tx); font-size: 12px; font-family: var(--sans); resize: vertical; }
+.pbuild-instr::placeholder { color: var(--tx3); }
+.pbuild-deps { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 6px; font-size: 11px; color: var(--tx3); }
+.pbuild-deps button { border: 1px solid var(--line2); background: var(--bg4); color: var(--tx3); border-radius: 5px; padding: 1px 7px; font-size: 11px; font-family: var(--mono); cursor: pointer; }
+.pbuild-deps button.on { color: var(--acc); border-color: var(--acc); }
+.pbuild-actions { display: flex; align-items: center; margin-top: 4px; }
+.pbuild-actions .grow { flex: 1; }
+.pbuild-save { background: var(--acc); border: 1px solid var(--acc); color: #04101f; font-weight: 700; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.pbuild-save:disabled { opacity: 0.5; cursor: default; }
