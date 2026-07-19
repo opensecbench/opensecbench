@@ -481,9 +481,6 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		if projectID != "" {
 			o.ProjectID = &projectID
 			o.Fingerprint = interpret.Fingerprint(o) // computed before enrichment; excludes attributes anyway
-			if _, dup := e.store.ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
-				continue
-			}
 			if exposedAttr != "" {
 				if o.Attributes == nil {
 					o.Attributes = map[string]string{}
@@ -492,6 +489,13 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 			}
 			e.correlateReachability(ctx, projectID, &o)
 			e.correlateExposedRoute(ctx, projectID, exposedAttr, &o)
+			// Dedup (ADR-0029): a finding we've already recorded is not re-created or re-dispositioned. But
+			// refresh its interpreter-derived fields (ADR-0037) so a corrected severity or changed signal
+			// lands, without re-firing dispositions or disturbing human triage.
+			if existingID, dup := e.store.ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
+				_ = e.store.RefreshObservation(ctx, existingID, o.Severity, o.Detail, o.Attributes)
+				continue
+			}
 		}
 		if saved, err := e.store.CreateObservation(ctx, o); err == nil {
 			created = append(created, saved)
@@ -540,10 +544,18 @@ func (e *Engine) applyDispositions(ctx context.Context, projectID string, man ca
 			if projectID == "" {
 				continue // an investigation must be project-scoped
 			}
+			// Cross-tool dedup (ADR-0037): if this vulnerability (by CVE/GHSA) is already under
+			// investigation — e.g. govulncheck opened it and grype now reports the same CVE under its GHSA —
+			// don't open a second one.
+			ids := vulnIDs(&o)
+			if _, dup := e.store.InvestigationForVuln(ctx, projectID, ids); dup {
+				continue
+			}
 			inv, err := e.store.CreateInvestigation(ctx, model.Investigation{
 				ProjectID: projectID, ApplicationID: appID, ObservationID: o.ID, Title: o.Title,
 			})
 			if err == nil {
+				_ = e.store.RecordInvestigationVulns(ctx, projectID, inv.ID, ids)
 				e.auditDisposition(ctx, "disposition.investigate", inv.ID, o)
 			}
 		}

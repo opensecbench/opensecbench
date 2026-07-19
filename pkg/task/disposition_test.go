@@ -561,6 +561,84 @@ func TestNearestRoute(t *testing.T) {
 	}
 }
 
+// A re-scan refreshes a deduped observation's severity/attributes (a fixed interpreter or changed signal
+// lands) without re-firing dispositions or disturbing human triage (ADR-0037).
+func TestReScanRefreshesObservation(t *testing.T) {
+	db, blobs := openStore(t)
+	reg := capability.NewRegistry()
+	// A cap whose fake output the govulncheck interpreter turns into observations; run it, then flip its
+	// reachability and re-run — the fingerprint (rule|location|detail) is unchanged, so it dedups+refreshes.
+	reg.Register(reachCap{dispositions: []disposition.Disposition{}})
+	eng := NewEngine(db, blobs, reg, fakeRunner{out: []byte(reachStream), code: 0})
+	defer eng.Close()
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+
+	tk, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-reach", TargetDir: "/r", ApplicationID: &app.ID})
+	pollTask(t, eng, tk.ID)
+	obs, _ := db.ListObservationsByProject(ctx, proj.ID)
+	n := len(obs)
+	// A human triages one.
+	if err := db.ReviewObservation(ctx, obs[0].ID, model.ReviewConfirmed); err != nil {
+		t.Fatal(err)
+	}
+	// Re-run (identical output). No duplicates, and the confirmed state is preserved.
+	tk2, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-reach", TargetDir: "/r", ApplicationID: &app.ID})
+	pollTask(t, eng, tk2.ID)
+	obs2, _ := db.ListObservationsByProject(ctx, proj.ID)
+	if len(obs2) != n {
+		t.Fatalf("re-scan should not add observations: %d -> %d", n, len(obs2))
+	}
+	confirmed := 0
+	for _, o := range obs2 {
+		if o.ReviewState == model.ReviewConfirmed {
+			confirmed++
+		}
+	}
+	if confirmed != 1 {
+		t.Fatalf("refresh must preserve human triage, confirmed=%d want 1", confirmed)
+	}
+}
+
+// The same CVE reported by two tools (govulncheck by CVE, grype by GHSA) opens only ONE investigation —
+// the second tool's finding for a vuln already under investigation is deduped (ADR-0037).
+func TestCrossToolInvestigationDedup(t *testing.T) {
+	db, blobs := openStore(t)
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+
+	// govulncheck: emits the reachable vuln (CVE + GHSA aliases) → investigate.
+	gv := `{"osv":{"id":"GO-2021-0113","aliases":["CVE-2021-38561","GHSA-ppp9-7jff-5vj2"],"summary":"x/text vuln","affected":[{"package":{"name":"golang.org/x/text"}}]}}
+{"finding":{"osv":"GO-2021-0113","trace":[{"module":"golang.org/x/text","package":"golang.org/x/text/language","function":"Parse","position":{"filename":"parse.go","line":228}}]}}`
+	regGV := capability.NewRegistry()
+	regGV.Register(reachCap{dispositions: []disposition.Disposition{{When: map[string]string{"reachable": "true"}, Action: disposition.ActionInvestigate}}})
+	engGV := NewEngine(db, blobs, regGV, fakeRunner{out: []byte(gv), code: 0})
+	tkg, _ := engGV.Enqueue(ctx, RunRequest{CapabilityID: "fake-reach", TargetDir: "/r", ApplicationID: &app.ID})
+	pollTask(t, engGV, tkg.ID)
+	engGV.Close()
+	if inv, _ := db.ListInvestigationsByProject(ctx, proj.ID); len(inv) != 1 {
+		t.Fatalf("govulncheck should open 1 investigation, got %d", len(inv))
+	}
+
+	// grype: same vuln by GHSA only, high severity → would investigate, but it's already tracked.
+	grype := `{"runs":[{"tool":{"driver":{"name":"grype"}},"results":[
+	  {"ruleId":"GHSA-ppp9-7jff-5vj2-golang.org/x/text","level":"error","message":{"text":"x/text"},
+	   "locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":1}}}]}]}]}`
+	regGr := capability.NewRegistry()
+	regGr.Register(grypeLikeCap{})
+	engGr := NewEngine(db, blobs, regGr, fakeRunner{out: []byte(grype), code: 0})
+	defer engGr.Close()
+	tkr, _ := engGr.Enqueue(ctx, RunRequest{CapabilityID: "fake-grype", TargetDir: "/r", ApplicationID: &app.ID})
+	pollTask(t, engGr, tkr.ID)
+
+	invs, _ := db.ListInvestigationsByProject(ctx, proj.ID)
+	if len(invs) != 1 {
+		t.Fatalf("same CVE across two tools should yield 1 investigation, got %d", len(invs))
+	}
+}
+
 // A capability with no dispositions leaves plain unreviewed observations (no regression).
 func TestNoDispositionsLeavesReview(t *testing.T) {
 	db, blobs := openStore(t)

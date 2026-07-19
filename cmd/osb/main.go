@@ -1713,19 +1713,33 @@ func observationCmd(ctx context.Context, c *client.Client, args []string) error 
 	switch args[0] {
 	case "list":
 		fs := flag.NewFlagSet("observation list", flag.ContinueOnError)
-		taskID := fs.String("task", "", "task id (required)")
+		taskID := fs.String("task", "", "task id (scope to one task's output)")
+		project := fs.String("project", "", "project id (all the project's observations)")
+		unreviewed := fs.Bool("unreviewed", false, "only observations still awaiting triage")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		if *taskID == "" {
-			return errors.New("observation list: --task is required")
+		if *taskID == "" && *project == "" {
+			return errors.New("observation list: --task or --project is required")
 		}
-		obs, err := c.ListTaskObservations(ctx, *taskID)
+		var obs []model.Observation
+		var err error
+		if *project != "" {
+			obs, err = c.ListProjectObservations(ctx, *project, *unreviewed)
+		} else {
+			obs, err = c.ListTaskObservations(ctx, *taskID)
+		}
 		if err != nil {
 			return err
 		}
 		for _, o := range obs {
-			fmt.Printf("%s  [%s/%s] %-8s %s  %s\n", o.ID, o.Origin, o.ReviewState, o.Severity, o.Title, o.Location)
+			sig := ""
+			for _, k := range []string{"reachable", "exposed_route", "security_severity"} {
+				if v := o.Attributes[k]; v != "" {
+					sig += " " + k + "=" + v
+				}
+			}
+			fmt.Printf("%s  [%s/%s] %-8s %s  %s%s\n", o.ID, o.Origin, o.ReviewState, o.Severity, o.Title, o.Location, sig)
 		}
 		return nil
 	case "review":

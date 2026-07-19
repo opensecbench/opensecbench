@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -114,6 +115,45 @@ func (db *DB) SetInvestigationThread(ctx context.Context, id, threadID string) e
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// InvestigationForVuln returns the investigation already tracking any of these advisory ids in the project,
+// if one exists (ADR-0037). Used to avoid opening a second investigation when another tool reports the same
+// vulnerability under a different id scheme (grype GHSA vs govulncheck CVE).
+func (db *DB) InvestigationForVuln(ctx context.Context, projectID string, vulnIDs []string) (string, bool) {
+	if projectID == "" || len(vulnIDs) == 0 {
+		return "", false
+	}
+	q := `SELECT investigation_id FROM investigation_vulns WHERE project_id = ? AND vuln_id IN (?` +
+		strings.Repeat(", ?", len(vulnIDs)-1) + `) LIMIT 1`
+	args := make([]any, 0, len(vulnIDs)+1)
+	args = append(args, projectID)
+	for _, v := range vulnIDs {
+		args = append(args, v)
+	}
+	var id string
+	if err := db.QueryRowContext(ctx, q, args...).Scan(&id); err != nil {
+		return "", false
+	}
+	return id, true
+}
+
+// RecordInvestigationVulns claims each advisory id for an investigation (ADR-0037). Idempotent: an id
+// already claimed (by this or another investigation) is left as-is, so the first investigation owns the vuln.
+func (db *DB) RecordInvestigationVulns(ctx context.Context, projectID, investigationID string, vulnIDs []string) error {
+	now := time.Now().UTC().Format(timeLayout)
+	for _, v := range vulnIDs {
+		if v == "" {
+			continue
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT OR IGNORE INTO investigation_vulns (id, investigation_id, project_id, vuln_id, created_at)
+			 VALUES (?, ?, ?, ?, ?)`,
+			uuid.NewString(), investigationID, projectID, v, now); err != nil {
+			return err
+		}
 	}
 	return nil
 }

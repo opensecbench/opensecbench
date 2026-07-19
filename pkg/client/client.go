@@ -836,6 +836,16 @@ func (c *Client) ListInvestigations(ctx context.Context, projectID string) ([]mo
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/investigations", nil, &out)
 }
 
+// ListProjectObservations returns a project's observations (ADR-0037); unreviewedOnly narrows to untriaged.
+func (c *Client) ListProjectObservations(ctx context.Context, projectID string, unreviewedOnly bool) ([]model.Observation, error) {
+	path := "/v1/projects/" + projectID + "/observations"
+	if unreviewedOnly {
+		path += "?unreviewed_only=true"
+	}
+	var out []model.Observation
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
 // RunInvestigation starts a vuln-validator agent thread for an investigation.
 func (c *Client) RunInvestigation(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/v1/investigations/"+id+"/run", nil, nil)

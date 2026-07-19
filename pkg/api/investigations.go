@@ -56,6 +56,26 @@ func describeSignals(attrs map[string]string) string {
 	return "Signals:\n- " + strings.Join(lines, "\n- ") + "\n"
 }
 
+// listProjectObservations returns a project's observations with their routing attributes (ADR-0037), for
+// triage UIs and tooling. `?unreviewed_only=true` narrows to observations still awaiting triage.
+func (s *Server) listProjectObservations(w http.ResponseWriter, r *http.Request) {
+	obs, err := s.store.ListObservationsByProject(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if r.URL.Query().Get("unreviewed_only") == "true" {
+		filtered := obs[:0]
+		for _, o := range obs {
+			if o.ReviewState == model.ReviewUnreviewed {
+				filtered = append(filtered, o)
+			}
+		}
+		obs = filtered
+	}
+	writeJSON(w, http.StatusOK, obs)
+}
+
 // listInvestigations returns a project's investigations (ADR-0028).
 func (s *Server) listInvestigations(w http.ResponseWriter, r *http.Request) {
 	inv, err := s.store.ListInvestigationsByProject(r.Context(), r.PathValue("id"))
