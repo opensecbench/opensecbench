@@ -14,6 +14,9 @@ type PlaybookStep struct {
 	Profile     string   `json:"profile"`
 	Instruction string   `json:"instruction"`
 	DependsOn   []string `json:"depends_on"`
+	// Gate marks a human-approval checkpoint (ADR-0044): once its dependencies complete the plan pauses
+	// until a human approves, before this step runs. A gate step has no profile/instruction — it's a pause.
+	Gate bool `json:"gate,omitempty"`
 }
 
 // Playbook is a triggerable, engagement-shaped process.
@@ -153,13 +156,20 @@ var builtinPlaybooks = []Playbook{
 				DependsOn: []string{"scan"},
 			},
 			{
+				// Human-approval gate: pause after triage so a person reviews the ranked plan of attack
+				// before the agent runs PoCs / sends test traffic in the validate step (ADR-0044).
+				Key:       "approve-validation",
+				Gate:      true,
+				DependsOn: []string{"triage"},
+			},
+			{
 				Key:     "validate",
 				Profile: "assessor",
 				Instruction: "Take the top-ranked items from the triage and gather evidence: read the relevant " +
 					"code, build and run a PoC in the workspace, and send scope-guarded test requests where safe. " +
 					"Record what you confirm as observations (create_observation) with clear evidence. Do NOT " +
 					"create findings — a human confirms them; propose clearly.",
-				DependsOn: []string{"triage"},
+				DependsOn: []string{"triage", "approve-validation"},
 			},
 			{
 				// assessor (not report-writer) so the autonomous run cannot create_finding — it only drafts.

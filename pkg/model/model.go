@@ -402,14 +402,17 @@ type Message struct {
 	CreatedAt  time.Time       `json:"created_at"`
 }
 
-// Plan / plan-step statuses (ADR-0019).
+// Plan / plan-step statuses (ADR-0019). PlanWaiting/StepWaiting are the mid-run approval pause (ADR-0044):
+// a gate step, once its dependencies complete, holds the plan until a human approves it.
 const (
 	PlanRunning = "running"
+	PlanWaiting = "waiting"
 	PlanDone    = "done"
 	PlanFailed  = "failed"
 
 	StepPending = "pending"
 	StepRunning = "running"
+	StepWaiting = "waiting"
 	StepDone    = "done"
 	StepFailed  = "failed"
 	StepSkipped = "skipped"
@@ -463,17 +466,21 @@ type Plan struct {
 }
 
 // PlanStep is one step of a plan: a sub-task delegated to a profile, with its dependencies and outcome.
+// A Gate step pauses the plan for human approval once its dependencies complete, before it runs (ADR-0044);
+// GateApproved records that a human cleared it, so a resumed run proceeds instead of pausing again.
 type PlanStep struct {
-	ID          string   `json:"id"`
-	PlanID      string   `json:"plan_id"`
-	Seq         int      `json:"seq"`
-	Key         string   `json:"key"`
-	Profile     string   `json:"profile"`
-	Instruction string   `json:"instruction"`
-	DependsOn   []string `json:"depends_on"`
-	Status      string   `json:"status"`
-	Result      string   `json:"result,omitempty"`
-	Error       string   `json:"error,omitempty"`
+	ID           string   `json:"id"`
+	PlanID       string   `json:"plan_id"`
+	Seq          int      `json:"seq"`
+	Key          string   `json:"key"`
+	Profile      string   `json:"profile"`
+	Instruction  string   `json:"instruction"`
+	DependsOn    []string `json:"depends_on"`
+	Gate         bool     `json:"gate,omitempty"`
+	GateApproved bool     `json:"gate_approved,omitempty"`
+	Status       string   `json:"status"`
+	Result       string   `json:"result,omitempty"`
+	Error        string   `json:"error,omitempty"`
 }
 
 // Approval statuses.

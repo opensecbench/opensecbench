@@ -257,6 +257,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/projects/{id}/plans", s.startPlan)
 	s.mux.HandleFunc("GET /v1/projects/{id}/plans", s.listPlans)
 	s.mux.HandleFunc("GET /v1/plans/{id}", s.getPlan)
+	s.mux.HandleFunc("POST /v1/plans/{id}/steps/{stepID}/resolve", s.resolvePlanGate)
 	s.mux.HandleFunc("POST /v1/plans/{id}/save-as-playbook", s.savePlanAsPlaybook)
 	s.mux.HandleFunc("POST /v1/projects/{id}/schedules", s.createSchedule)
 	s.mux.HandleFunc("GET /v1/projects/{id}/schedules", s.listSchedules)
@@ -697,6 +698,32 @@ func (s *Server) getPlan(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
+// resolvePlanGate approves or denies a plan's waiting approval gate and resumes the run (ADR-0044).
+func (s *Server) resolvePlanGate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Approve bool   `json:"approve"`
+		Note    string `json:"note"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	plan, err := s.analystService().ResolvePlanGate(r.Context(), r.PathValue("id"), r.PathValue("stepID"), req.Approve, req.Note)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "plan or gate step not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	decision := "approve"
+	if !req.Approve {
+		decision = "deny"
+	}
+	s.record(r.Context(), actorOf(r), "plan.gate."+decision, r.PathValue("stepID"), map[string]string{"plan": plan.ID})
 	writeJSON(w, http.StatusOK, plan)
 }
 

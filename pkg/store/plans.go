@@ -42,9 +42,9 @@ func (db *DB) CreatePlan(ctx context.Context, p model.Plan) (model.Plan, error) 
 			s.Status = model.StepPending
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO plan_steps (id, plan_id, seq, step_key, profile, instruction, depends_on, status, result, error)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '')`,
-			s.ID, p.ID, i, s.Key, s.Profile, s.Instruction, strings.Join(s.DependsOn, ","), s.Status); err != nil {
+			`INSERT INTO plan_steps (id, plan_id, seq, step_key, profile, instruction, depends_on, gate, status, result, error)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '')`,
+			s.ID, p.ID, i, s.Key, s.Profile, s.Instruction, strings.Join(s.DependsOn, ","), boolToInt(s.Gate), s.Status); err != nil {
 			return model.Plan{}, err
 		}
 	}
@@ -93,7 +93,7 @@ func (db *DB) GetPlan(ctx context.Context, id string) (model.Plan, error) {
 
 func (db *DB) listPlanSteps(ctx context.Context, planID string) ([]model.PlanStep, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, plan_id, seq, step_key, profile, instruction, depends_on, status, result, error
+		`SELECT id, plan_id, seq, step_key, profile, instruction, depends_on, gate, gate_approved, status, result, error
 		 FROM plan_steps WHERE plan_id = ? ORDER BY seq`, planID)
 	if err != nil {
 		return nil, err
@@ -103,15 +103,59 @@ func (db *DB) listPlanSteps(ctx context.Context, planID string) ([]model.PlanSte
 	for rows.Next() {
 		var s model.PlanStep
 		var deps string
-		if err := rows.Scan(&s.ID, &s.PlanID, &s.Seq, &s.Key, &s.Profile, &s.Instruction, &deps, &s.Status, &s.Result, &s.Error); err != nil {
+		var gate, gateApproved int
+		if err := rows.Scan(&s.ID, &s.PlanID, &s.Seq, &s.Key, &s.Profile, &s.Instruction, &deps, &gate, &gateApproved, &s.Status, &s.Result, &s.Error); err != nil {
 			return nil, err
 		}
 		if deps != "" {
 			s.DependsOn = strings.Split(deps, ",")
 		}
+		s.Gate, s.GateApproved = gate != 0, gateApproved != 0
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// ResolvePlanGate records a human's decision on a waiting gate step (ADR-0044). Approve clears the gate
+// (status back to pending + gate_approved=1) so a resumed run executes the step; deny marks it skipped so
+// the run propagates the skip to the gate's dependents and ends. Returns ErrNotFound if the step isn't a
+// gate currently waiting.
+func (db *DB) ResolvePlanGate(ctx context.Context, stepID string, approve bool, note string) error {
+	status, approved := model.StepSkipped, 0
+	if approve {
+		status, approved = model.StepPending, 1
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE plan_steps SET status = ?, gate_approved = ?, result = ?, error = ?
+		 WHERE id = ? AND gate = 1 AND status = ?`,
+		status, approved, gateResult(approve, note), gateError(approve, note), stepID, model.StepWaiting)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func gateResult(approve bool, note string) string {
+	if !approve {
+		return ""
+	}
+	if note == "" {
+		return "approved"
+	}
+	return "approved: " + note
+}
+
+func gateError(approve bool, note string) string {
+	if approve {
+		return ""
+	}
+	if note == "" {
+		return "denied by human"
+	}
+	return "denied: " + note
 }
 
 // ListPlansByProject returns a project's plans (without steps), newest first.

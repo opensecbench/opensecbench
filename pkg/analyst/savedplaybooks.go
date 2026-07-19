@@ -39,11 +39,18 @@ func (svc *Service) validatePlaybookSteps(ctx context.Context, steps []PlaybookS
 		if keys[s.Key] {
 			return fmt.Errorf("duplicate step key %q", s.Key)
 		}
-		if !svc.profileExists(ctx, s.Profile) {
-			return fmt.Errorf("step %q: unknown profile %q", s.Key, s.Profile)
-		}
-		if s.Instruction == "" {
-			return fmt.Errorf("step %q needs an instruction", s.Key)
+		// A gate is a human-approval pause (ADR-0044) — it has no profile or instruction to delegate.
+		if s.Gate {
+			if s.Profile != "" || s.Instruction != "" {
+				return fmt.Errorf("gate step %q must have no profile or instruction", s.Key)
+			}
+		} else {
+			if !svc.profileExists(ctx, s.Profile) {
+				return fmt.Errorf("step %q: unknown profile %q", s.Key, s.Profile)
+			}
+			if s.Instruction == "" {
+				return fmt.Errorf("step %q needs an instruction", s.Key)
+			}
 		}
 		for _, d := range s.DependsOn {
 			if !keys[d] {
