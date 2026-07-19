@@ -60,6 +60,29 @@ func TestGovulncheckReachability(t *testing.T) {
 	}
 }
 
+// govulncheck emits an osv definition for every vuln in the import graph (hundreds), but only ones with a
+// finding actually affect the module. An osv with no finding must not become an observation (verified
+// against real govulncheck output: 162 osv defs → 3 finding-backed observations).
+func TestGovulncheckOnlyFindingBackedOSVs(t *testing.T) {
+	stream := `
+{"osv": {"id": "GO-9999-0001", "aliases": ["CVE-9999-1"], "summary": "unrelated DB entry, imported graph only"}}
+{"osv": {"id": "GO-2022-0969", "aliases": ["CVE-2022-41723"], "summary": "reachable vuln"}}
+{"finding": {"osv": "GO-2022-0969", "trace": [
+  {"module": "golang.org/x/net", "package": "golang.org/x/net/http2", "function": "readFrameHeader",
+   "position": {"filename": "frame.go", "line": 237}}]}}
+`
+	obs, err := Govulncheck([]byte(stream))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs) != 1 {
+		t.Fatalf("only the finding-backed osv should be recorded, got %d: %+v", len(obs), obs)
+	}
+	if obs[0].RuleID != "CVE-2022-41723" || obs[0].Attributes["reachable"] != "true" {
+		t.Fatalf("wrong observation: %+v", obs[0])
+	}
+}
+
 func TestGovulncheckEmpty(t *testing.T) {
 	// A clean run emits only config/progress messages — no findings, no observations.
 	obs, err := Govulncheck([]byte(`{"config": {"protocol_version": "v1.0.0"}}` + "\n" + `{"progress": {"message": "Scanning..."}}`))

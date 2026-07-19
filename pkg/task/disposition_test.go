@@ -138,9 +138,9 @@ func (reachCap) Plan(capability.Input) (runner.RunSpec, error) {
 	return runner.RunSpec{Image: "x", Cmd: []string{"x"}, Timeout: time.Minute}, nil
 }
 
-// GO-1/CVE-AAA is called (symbol-level trace → reachable); GO-2/CVE-BBB is only imported (→ not reachable).
-const reachStream = `{"osv":{"id":"GO-1","aliases":["CVE-AAA"],"summary":"reachable vuln","affected":[{"package":{"name":"pkg/a"}}]}}
-{"osv":{"id":"GO-2","aliases":["CVE-BBB"],"summary":"imported vuln","affected":[{"package":{"name":"pkg/b"}}]}}
+// GO-1/CVE-2024-0001 is called (symbol-level trace → reachable); GO-2/CVE-2024-0002 is only imported (→ not reachable).
+const reachStream = `{"osv":{"id":"GO-1","aliases":["CVE-2024-0001"],"summary":"reachable vuln","affected":[{"package":{"name":"pkg/a"}}]}}
+{"osv":{"id":"GO-2","aliases":["CVE-2024-0002"],"summary":"imported vuln","affected":[{"package":{"name":"pkg/b"}}]}}
 {"finding":{"osv":"GO-1","trace":[{"module":"pkg/a","package":"pkg/a","function":"Vuln","position":{"filename":"a.go","line":10}}]}}
 {"finding":{"osv":"GO-2","trace":[{"module":"pkg/b","package":"pkg/b"}]}}`
 
@@ -186,11 +186,11 @@ func TestReachabilityRoutesOnExposedService(t *testing.T) {
 		}
 	}
 	// The analyzer's verdicts are recorded for other tools to reuse (ADR-0031 correlation).
-	if reachable, known := db.ReachabilityForCVE(ctx, proj.ID, "CVE-AAA"); !known || !reachable {
-		t.Fatalf("CVE-AAA verdict not recorded: known=%v reachable=%v", known, reachable)
+	if reachable, known := db.ReachabilityForCVE(ctx, proj.ID, "CVE-2024-0001"); !known || !reachable {
+		t.Fatalf("CVE-2024-0001 verdict not recorded: known=%v reachable=%v", known, reachable)
 	}
-	if reachable, known := db.ReachabilityForCVE(ctx, proj.ID, "CVE-BBB"); !known || reachable {
-		t.Fatalf("CVE-BBB verdict not recorded as unreachable: known=%v reachable=%v", known, reachable)
+	if reachable, known := db.ReachabilityForCVE(ctx, proj.ID, "CVE-2024-0002"); !known || reachable {
+		t.Fatalf("CVE-2024-0002 verdict not recorded as unreachable: known=%v reachable=%v", known, reachable)
 	}
 }
 
@@ -241,9 +241,9 @@ func (grypeLikeCap) Plan(capability.Input) (runner.RunSpec, error) {
 
 // Three high-severity CVEs: AAA (govulncheck: reachable), BBB (govulncheck: not reachable), CCC (no verdict).
 const grypeSARIF = `{"runs":[{"tool":{"driver":{"name":"grype"}},"results":[
-  {"ruleId":"CVE-AAA","level":"error","message":{"text":"vuln a"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":1}}}]},
-  {"ruleId":"CVE-BBB","level":"error","message":{"text":"vuln b"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":2}}}]},
-  {"ruleId":"CVE-CCC","level":"error","message":{"text":"vuln c"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"package.json"},"region":{"startLine":3}}}]}
+  {"ruleId":"CVE-2024-0001","level":"error","message":{"text":"vuln a"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":1}}}]},
+  {"ruleId":"CVE-2024-0002","level":"error","message":{"text":"vuln b"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":2}}}]},
+  {"ruleId":"CVE-2024-0003","level":"error","message":{"text":"vuln c"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"package.json"},"region":{"startLine":3}}}]}
 ]}]}`
 
 // A grype CVE inherits govulncheck's reachability verdict: an uncalled one is downgraded to review even
@@ -262,8 +262,8 @@ func TestGrypeInheritsReachabilityVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Seed govulncheck's verdicts (as a prior govulncheck run would have via the engine).
-	_ = db.SetReachability(ctx, proj.ID, "CVE-AAA", "pkg/a", true, "govulncheck")
-	_ = db.SetReachability(ctx, proj.ID, "CVE-BBB", "pkg/b", false, "govulncheck")
+	_ = db.SetReachability(ctx, proj.ID, "CVE-2024-0001", "pkg/a", true, "govulncheck")
+	_ = db.SetReachability(ctx, proj.ID, "CVE-2024-0002", "pkg/b", false, "govulncheck")
 
 	tk, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-grype", TargetDir: "/repo", ApplicationID: &app.ID})
 	if done := pollTask(t, eng, tk.ID); done.Status != model.TaskSucceeded {
@@ -282,25 +282,25 @@ func TestGrypeInheritsReachabilityVerdict(t *testing.T) {
 	}
 
 	// AAA: enriched reachable=true + exposed → investigation.
-	if byCVE["CVE-AAA"].Attributes["reachable"] != "true" {
-		t.Fatalf("CVE-AAA reachable = %q, want true (inherited)", byCVE["CVE-AAA"].Attributes["reachable"])
+	if byCVE["CVE-2024-0001"].Attributes["reachable"] != "true" {
+		t.Fatalf("CVE-2024-0001 reachable = %q, want true (inherited)", byCVE["CVE-2024-0001"].Attributes["reachable"])
 	}
-	if !investigated[byCVE["CVE-AAA"].ID] {
-		t.Fatal("CVE-AAA (reachable+exposed) should open an investigation")
+	if !investigated[byCVE["CVE-2024-0001"].ID] {
+		t.Fatal("CVE-2024-0001 (reachable+exposed) should open an investigation")
 	}
 	// BBB: enriched reachable=false → downgraded to review despite high severity, no investigation.
-	if byCVE["CVE-BBB"].Attributes["reachable"] != "false" {
-		t.Fatalf("CVE-BBB reachable = %q, want false (inherited)", byCVE["CVE-BBB"].Attributes["reachable"])
+	if byCVE["CVE-2024-0002"].Attributes["reachable"] != "false" {
+		t.Fatalf("CVE-2024-0002 reachable = %q, want false (inherited)", byCVE["CVE-2024-0002"].Attributes["reachable"])
 	}
-	if investigated[byCVE["CVE-BBB"].ID] {
-		t.Fatal("CVE-BBB proved unreachable should NOT escalate (the core of ADR-0031)")
+	if investigated[byCVE["CVE-2024-0002"].ID] {
+		t.Fatal("CVE-2024-0002 proved unreachable should NOT escalate (the core of ADR-0031)")
 	}
 	// CCC: no verdict → severity fallback → investigation.
-	if _, has := byCVE["CVE-CCC"].Attributes["reachable"]; has {
-		t.Fatal("CVE-CCC has no verdict; reachable should be unset")
+	if _, has := byCVE["CVE-2024-0003"].Attributes["reachable"]; has {
+		t.Fatal("CVE-2024-0003 has no verdict; reachable should be unset")
 	}
-	if !investigated[byCVE["CVE-CCC"].ID] {
-		t.Fatal("CVE-CCC (no verdict, high) should investigate via severity fallback")
+	if !investigated[byCVE["CVE-2024-0003"].ID] {
+		t.Fatal("CVE-2024-0003 (no verdict, high) should investigate via severity fallback")
 	}
 }
 
@@ -395,8 +395,8 @@ func (routeMapCap) Plan(capability.Input) (runner.RunSpec, error) {
 }
 
 const routeMapJSON = `{"results":[
-  {"check_id":"osb-route-flask","path":"app/views.py","start":{"line":8},
-   "extra":{"metavars":{"$ROUTE":{"abstract_content":"\"/users/<id>\""}},"metadata":{"framework":"flask"}}}
+  {"check_id":"rules.osb-route-flask","path":"app/views.py","start":{"line":8},
+   "extra":{"message":"Flask route \"/users/<id>\"","metadata":{"framework":"flask"}}}
 ]}`
 
 // The route-map capability's output populates the routes inventory (not observations), and captured traffic
@@ -473,6 +473,67 @@ func TestExposedRouteAssociation(t *testing.T) {
 	// pattern.high is at b.py:1 → no route in that file, no association.
 	if _, has := byRule["pattern.high"].Attributes["exposed_route"]; has {
 		t.Fatal("pattern.high is in b.py (no route) — should have no exposed_route")
+	}
+}
+
+// vulnIDs pulls every advisory id from an observation, so a tool keying by GHSA (grype) correlates to a
+// verdict recorded under CVE by another (govulncheck) — ADR-0031, verified against real tool output.
+func TestVulnIDs(t *testing.T) {
+	// govulncheck-style: CVE rule id + an aliases attribute spanning GO/CVE/GHSA.
+	gv := &model.Observation{RuleID: "CVE-2021-38561", Attributes: map[string]string{"aliases": "GO-2021-0113,CVE-2021-38561,GHSA-ppp9-7jff-5vj2"}}
+	got := vulnIDs(gv)
+	if !containsAll(got, "CVE-2021-38561", "GHSA-ppp9-7jff-5vj2") {
+		t.Fatalf("govulncheck ids = %v, want CVE + GHSA", got)
+	}
+	// grype-style: a GHSA rule id with a trailing package (no CVE anywhere in its SARIF).
+	gr := &model.Observation{RuleID: "GHSA-ppp9-7jff-5vj2-golang.org/x/text"}
+	if got := vulnIDs(gr); len(got) != 1 || got[0] != "GHSA-ppp9-7jff-5vj2" {
+		t.Fatalf("grype ids = %v, want [GHSA-ppp9-7jff-5vj2]", got)
+	}
+	// A non-vuln rule id (semgrep) yields nothing to correlate.
+	if got := vulnIDs(&model.Observation{RuleID: "python.lang.security.foo"}); len(got) != 0 {
+		t.Fatalf("non-vuln ids = %v, want none", got)
+	}
+}
+
+func containsAll(hay []string, needles ...string) bool {
+	set := map[string]bool{}
+	for _, h := range hay {
+		set[h] = true
+	}
+	for _, n := range needles {
+		if !set[n] {
+			return false
+		}
+	}
+	return true
+}
+
+// A grype finding whose SARIF only carries a GHSA id inherits a reachability verdict govulncheck recorded
+// under that GHSA (via its aliases) — the real cross-scheme correlation path (ADR-0031).
+func TestReachabilityCorrelatesAcrossCVEandGHSA(t *testing.T) {
+	db, blobs := openStore(t)
+	reg := capability.NewRegistry()
+	reg.Register(grypeLikeCap{})
+	// grype reports the reachable vuln by GHSA only.
+	sarif := `{"runs":[{"tool":{"driver":{"name":"grype"}},"results":[
+	  {"ruleId":"GHSA-ppp9-7jff-5vj2-golang.org/x/text","level":"error","message":{"text":"x/text vuln"},
+	   "locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":1}}}]}]}]}`
+	eng := NewEngine(db, blobs, reg, fakeRunner{out: []byte(sarif), code: 0})
+	defer eng.Close()
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+	// govulncheck already proved this GHSA (=CVE-2021-38561) reachable, recorded under the GHSA alias.
+	_ = db.SetReachability(ctx, proj.ID, "GHSA-ppp9-7jff-5vj2", "golang.org/x/text", true, "govulncheck")
+
+	tk, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-grype", TargetDir: "/repo", ApplicationID: &app.ID})
+	if done := pollTask(t, eng, tk.ID); done.Status != model.TaskSucceeded {
+		t.Fatalf("task = %s", done.Status)
+	}
+	obs, _ := db.ListObservationsByProject(ctx, proj.ID)
+	if len(obs) != 1 || obs[0].Attributes["reachable"] != "true" {
+		t.Fatalf("grype finding should inherit reachable=true via GHSA, got %+v", obs)
 	}
 }
 

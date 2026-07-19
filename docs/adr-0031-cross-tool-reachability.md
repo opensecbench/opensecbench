@@ -52,6 +52,15 @@ rule ids aren't CVEs, so nothing correlates — SAST reachability is Phase 2b).
   the same Go CVE (different evidence/locations); the grype one is now correctly routed, but merging the two
   is future work.
 
+## Real-tool validation (2026-07-19, Docker)
+Verified against real grype + govulncheck on the same module. Key correction: **grype's SARIF carries no
+CVE** — its `ruleId` is a GHSA id with a package suffix (`GHSA-5rcv-m4m3-hfh7-golang.org/x/text`), so keying
+correlation on `CVE-` alone made it inert. Fix: govulncheck's OSV `aliases` include **both** the CVE and the
+GHSA, so it now records its verdict under *every* advisory id (`vulnIDs` extracts CVE + GHSA from the rule id
+and an `aliases` attribute), and grype looks up by its GHSA. Confirmed: all 3 grype findings inherited
+govulncheck's verdict across the CVE/GHSA scheme boundary (the one reachable vuln → `reachable=true`, the two
+imported-only → `reachable=false` → downgraded).
+
 ## Out of scope — later
 - **Phase 2b**: retroactive re-evaluation of existing findings when a new reachability verdict arrives;
   cross-tool observation merge for the same CVE; SAST reachability (exposed handler → sink).

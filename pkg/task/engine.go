@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -576,24 +577,56 @@ func (e *Engine) projectOfTask(ctx context.Context, task model.Task, appID *stri
 	return ""
 }
 
-// correlateReachability ties a CVE observation to the project's shared reachability verdicts (ADR-0031).
-// If the observation carries its own `reachable` attribute (from a reachability analyzer like govulncheck),
-// its verdict is recorded for other tools to reuse. Otherwise a CVE finding from a tool without reachability
-// (e.g. grype) inherits any stored verdict, so its routing can gate on reachability. Best-effort.
-func (e *Engine) correlateReachability(ctx context.Context, projectID string, o *model.Observation) {
-	if !strings.HasPrefix(o.RuleID, "CVE-") { // reachability is correlated by CVE id
-		return
-	}
-	cve := o.RuleID
-	if own := o.Attributes["reachable"]; own != "" {
-		_ = e.store.SetReachability(ctx, projectID, cve, o.Attributes["package"], own == "true", o.Attributes["tool"])
-		return
-	}
-	if reachable, known := e.store.ReachabilityForCVE(ctx, projectID, cve); known {
-		if o.Attributes == nil {
-			o.Attributes = map[string]string{}
+var cveRe = regexp.MustCompile(`CVE-\d{4}-\d{4,}`)
+var ghsaRe = regexp.MustCompile(`GHSA(-[0-9a-z]{4}){3}`)
+
+// vulnIDs returns the advisory identifiers (CVE / GHSA) an observation is about — pulled from its rule id
+// and its `aliases` attribute. Different SCA tools key by different schemes (grype → GHSA, govulncheck →
+// CVE), so correlation records/looks up under all of them (ADR-0031).
+func vulnIDs(o *model.Observation) []string {
+	var ids []string
+	seen := map[string]bool{}
+	add := func(s string) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			ids = append(ids, s)
 		}
-		o.Attributes["reachable"] = strconv.FormatBool(reachable)
+	}
+	add(cveRe.FindString(o.RuleID))
+	add(ghsaRe.FindString(o.RuleID))
+	for _, a := range strings.Split(o.Attributes["aliases"], ",") {
+		a = strings.TrimSpace(a)
+		if cveRe.MatchString(a) || ghsaRe.MatchString(a) {
+			add(a)
+		}
+	}
+	return ids
+}
+
+// correlateReachability ties a dependency-vuln observation to the project's shared reachability verdicts
+// (ADR-0031). If the observation carries its own `reachable` attribute (from an analyzer like govulncheck),
+// its verdict is recorded under every advisory id it knows, so a tool keying by a different scheme can find
+// it. Otherwise a vuln finding from a tool without reachability (e.g. grype) inherits any stored verdict for
+// one of its ids. Best-effort.
+func (e *Engine) correlateReachability(ctx context.Context, projectID string, o *model.Observation) {
+	ids := vulnIDs(o)
+	if len(ids) == 0 {
+		return
+	}
+	if own := o.Attributes["reachable"]; own != "" {
+		for _, id := range ids {
+			_ = e.store.SetReachability(ctx, projectID, id, o.Attributes["package"], own == "true", o.Attributes["tool"])
+		}
+		return
+	}
+	for _, id := range ids {
+		if reachable, known := e.store.ReachabilityForCVE(ctx, projectID, id); known {
+			if o.Attributes == nil {
+				o.Attributes = map[string]string{}
+			}
+			o.Attributes["reachable"] = strconv.FormatBool(reachable)
+			return
+		}
 	}
 }
 

@@ -50,11 +50,12 @@ type govulnFrame struct {
 // govulnAgg accumulates the messages for one vulnerability: its definition plus whether any finding proved
 // it reachable in the call graph.
 type govulnAgg struct {
-	osv       *govulnOSV
-	reachable bool
-	pkg       string
-	location  string
-	fixed     string
+	osv        *govulnOSV
+	hasFinding bool // govulncheck emits an osv definition for every vuln in the import graph; only ones
+	reachable  bool // with a finding actually affect this module — the rest are DB noise, never recorded.
+	pkg        string
+	location   string
+	fixed      string
 }
 
 // Govulncheck parses govulncheck's JSON stream into one observation per vulnerability (ADR-0030). The key
@@ -90,6 +91,7 @@ func Govulncheck(data []byte) ([]model.Observation, error) {
 			get(msg.OSV.ID).osv = msg.OSV
 		case msg.Finding != nil && msg.Finding.OSV != "":
 			a := get(msg.Finding.OSV)
+			a.hasFinding = true
 			if msg.Finding.FixedVersion != "" {
 				a.fixed = msg.Finding.FixedVersion
 			}
@@ -115,8 +117,8 @@ func govulnObservations(order []string, byOSV map[string]*govulnAgg) []model.Obs
 	var obs []model.Observation
 	for _, id := range order {
 		a := byOSV[id]
-		if a.osv == nil && a.pkg == "" {
-			continue // saw neither a definition nor a finding — nothing to record
+		if !a.hasFinding {
+			continue // an osv definition with no finding is a DB entry that doesn't affect this module
 		}
 		ruleID, summary, pkg := id, "", a.pkg
 		if a.osv != nil {
@@ -132,6 +134,11 @@ func govulnObservations(order []string, byOSV map[string]*govulnAgg) []model.Obs
 			"tool":      "govulncheck",
 			"reachable": strconv.FormatBool(a.reachable),
 			"osv":       id,
+		}
+		// All advisory ids (CVE + GHSA + GO id) so the reachability verdict can be correlated to another
+		// tool that keys by a different scheme — grype reports GHSA, not CVE (ADR-0031).
+		if a.osv != nil && len(a.osv.Aliases) > 0 {
+			attrs["aliases"] = strings.Join(append([]string{id}, a.osv.Aliases...), ",")
 		}
 		if pkg != "" {
 			attrs["package"] = pkg
