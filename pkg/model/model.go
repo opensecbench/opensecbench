@@ -78,6 +78,16 @@ type UsageByModel struct {
 	OutputTokens int    `json:"output_tokens"`
 }
 
+// UsageSummary is a workbench-wide token-spend roll-up for the Home cockpit: this-month and
+// all-time totals plus the heaviest (provider, model) pairs. Informational — there is no budget cap.
+type UsageSummary struct {
+	MonthInput  int            `json:"month_input"`
+	MonthOutput int            `json:"month_output"`
+	AllInput    int            `json:"all_input"`
+	AllOutput   int            `json:"all_output"`
+	TopModels   []UsageByModel `json:"top_models"`
+}
+
 // Provider is a registered LLM backend for the Analyst (ADR-0006). KeySealed is the vault-sealed
 // credential and is never serialized to clients.
 type Provider struct {

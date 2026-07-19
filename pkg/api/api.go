@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -1009,12 +1010,14 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	// Projects at a glance.
 	fcounts, _ := s.store.FindingCountsByProject(ctx)
 	type projView struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Status   string `json:"status"`
-		Findings int    `json:"findings"`
-		High     int    `json:"high"`
-		ToTriage int    `json:"to_triage"`
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		Status     string `json:"status"`
+		Findings   int    `json:"findings"`
+		High       int    `json:"high"`
+		ToTriage   int    `json:"to_triage"`
+		Adopted    int    `json:"adopted"`     // methodology items in adopted packs (0 = no coverage ring)
+		CoveredPct int    `json:"covered_pct"` // covered / applicable, 0..100
 	}
 	pvs := []projView{}
 	for _, p := range projects {
@@ -1027,14 +1030,88 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		pvs = append(pvs, projView{ID: p.ID, Name: p.Name, Status: p.Status, Findings: fc.Total, High: fc.High, ToTriage: toTriage})
+		pv := projView{ID: p.ID, Name: p.Name, Status: p.Status, Findings: fc.Total, High: fc.High, ToTriage: toTriage}
+		if cov, ok := s.projectCoverage(ctx, p.ID); ok {
+			pv.Adopted = cov.Total
+			pv.CoveredPct = cov.CoveredPct
+		}
+		pvs = append(pvs, pv)
 	}
+
+	// Spend: workbench-wide token usage this month + all-time (informational, no cap).
+	now := time.Now().UTC()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	usage, _ := s.store.UsageSummary(ctx, monthStart, 6)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"approvals": approvals,
 		"active":    map[string]any{"tasks": runningTasks, "threads": threads},
 		"projects":  pvs,
+		"usage":     usage,
+		"schedules": s.scheduleViews(ctx, projects, name),
 	})
+}
+
+// projectCoverage rolls up a project's methodology coverage for the cockpit ring. ok is false when
+// the project has adopted no packs (nothing to show a ring for).
+func (s *Server) projectCoverage(ctx context.Context, projectID string) (methodology.Summary, bool) {
+	adopted, err := s.store.ListAdoptedMethodologies(ctx, projectID)
+	if err != nil || len(adopted) == 0 {
+		return methodology.Summary{}, false
+	}
+	entries, err := s.store.ListCoverage(ctx, projectID)
+	if err != nil {
+		return methodology.Summary{}, false
+	}
+	states := make(map[string]methodology.State, len(entries))
+	for _, e := range entries {
+		states[e.ItemID] = methodology.State{Status: e.Status, Note: e.Note}
+	}
+	sum := methodology.BuildCoverage(s.methods, adopted, states).Summary
+	return sum, sum.Total > 0
+}
+
+// scheduleViews lists every project's schedules (triggers/watchers) for the cockpit, resolving the
+// playbook display name and owning project. Soonest next-run first.
+func (s *Server) scheduleViews(ctx context.Context, projects []model.Project, name map[string]string) []map[string]any {
+	type schedView struct {
+		ID              string     `json:"id"`
+		ProjectID       string     `json:"project_id"`
+		Project         string     `json:"project,omitempty"`
+		PlaybookID      string     `json:"playbook_id"`
+		Playbook        string     `json:"playbook"`
+		IntervalSeconds int        `json:"interval_seconds"`
+		Enabled         bool       `json:"enabled"`
+		NextRunAt       time.Time  `json:"next_run_at"`
+		LastRunAt       *time.Time `json:"last_run_at,omitempty"`
+	}
+	out := []schedView{}
+	for _, p := range projects {
+		for _, sc := range must(s.store.ListSchedulesByProject(ctx, p.ID)) {
+			pbName := sc.PlaybookID
+			if pb, ok := analyst.PlaybookByID(sc.PlaybookID); ok {
+				pbName = pb.Name
+			} else if sp, err := s.store.GetSavedPlaybook(ctx, sc.PlaybookID); err == nil {
+				pbName = sp.Name
+			}
+			out = append(out, schedView{
+				ID: sc.ID, ProjectID: sc.ProjectID, Project: name[sc.ProjectID],
+				PlaybookID: sc.PlaybookID, Playbook: pbName, IntervalSeconds: sc.IntervalSeconds,
+				Enabled: sc.Enabled, NextRunAt: sc.NextRunAt, LastRunAt: sc.LastRunAt,
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NextRunAt.Before(out[j].NextRunAt) })
+	// Return as []map so the empty case still marshals to [] (not null) for the frontend.
+	views := make([]map[string]any, 0, len(out))
+	for _, v := range out {
+		views = append(views, map[string]any{
+			"id": v.ID, "project_id": v.ProjectID, "project": v.Project,
+			"playbook_id": v.PlaybookID, "playbook": v.Playbook, "interval_seconds": v.IntervalSeconds,
+			"enabled": v.Enabled, "next_run_at": v.NextRunAt, "last_run_at": v.LastRunAt,
+		})
+	}
+	return views
 }
 
 // must returns the slice or nil (dashboard reads tolerate an empty section rather than failing the page).
