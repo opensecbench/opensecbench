@@ -1186,6 +1186,7 @@ function ScanTab({
                       {o.attributes?.reachable === 'true' && <span className="mc-pill" title="Reachable in the call graph"> reachable</span>}
                       {o.attributes?.reachable === 'false' && <span className="mc-pill" title="Imported but not called"> not reached</span>}
                       {o.attributes?.exposed === 'true' && <span className="mc-pill" title="On a network-exposed service"> exposed</span>}
+                      {o.attributes?.exposed_route && <span className="mc-pill" title={o.attributes?.route_observed === 'true' ? 'In the handler file of a traffic-confirmed route' : 'In the handler file of a declared route'}>🌐 {o.attributes.exposed_route}</span>}
                     </div>
                     <div className="muted mono">{o.rule_id} {o.location}</div>
                   </div>

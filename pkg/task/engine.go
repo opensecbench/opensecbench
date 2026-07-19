@@ -450,6 +450,17 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	}
 	// Resolve the project once: it scopes both fingerprint dedup and disposition routing.
 	projectID := e.projectOfTask(ctx, task, p.applicationID)
+	// Route-map output is an entry-point inventory, not observations (ADR-0033): upsert the declared routes
+	// and confirm their exposure against captured traffic, then we're done — there are no observations.
+	if man.OutputMediaType == interpret.RouteMediaType && projectID != "" {
+		if routes, rerr := interpret.Routes(res.Stdout); rerr == nil {
+			for _, r := range routes {
+				r.ProjectID = projectID
+				_ = e.store.UpsertRoute(ctx, r)
+			}
+			_ = e.store.ReconcileObservedRoutes(ctx, projectID)
+		}
+	}
 	// Derive the exposed-service signal once per run (ADR-0030): reachability-gated routing escalates only
 	// findings on a network-exposed service, so every new observation is tagged with the project's exposure.
 	// Only when there are observations to enrich — a capability with no interpreter does no extra DB work.
@@ -479,6 +490,7 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 				o.Attributes["exposed"] = exposedAttr
 			}
 			e.correlateReachability(ctx, projectID, &o)
+			e.correlateExposedRoute(ctx, projectID, exposedAttr, &o)
 		}
 		if saved, err := e.store.CreateObservation(ctx, o); err == nil {
 			created = append(created, saved)
@@ -583,6 +595,53 @@ func (e *Engine) correlateReachability(ctx context.Context, projectID string, o 
 		}
 		o.Attributes["reachable"] = strconv.FormatBool(reachable)
 	}
+}
+
+// correlateExposedRoute ties a source finding to a specific exposed HTTP entry point (ADR-0033): when the
+// finding's location file declares a route, and that route is exposed (traffic-confirmed, or the service is
+// exposed at all), it sets `exposed_route` ("METHOD /path") and `route_observed`. This refines the coarse
+// project-level `exposed` to a concrete route. File-level proximity — the finding sits in the handler file,
+// not proven reachable from the route by a call graph. Best-effort; a nil route inventory just skips it.
+func (e *Engine) correlateExposedRoute(ctx context.Context, projectID, exposedAttr string, o *model.Observation) {
+	file := locationFile(o.Location)
+	if file == "" {
+		return
+	}
+	routes, err := e.store.RoutesForHandlerFile(ctx, projectID, file)
+	if err != nil || len(routes) == 0 {
+		return
+	}
+	// Prefer a traffic-confirmed route (RoutesForHandlerFile orders observed first). Otherwise the route is
+	// only exposed if the service is exposed at all.
+	r := routes[0]
+	if !r.Observed && exposedAttr != "true" {
+		return
+	}
+	if o.Attributes == nil {
+		o.Attributes = map[string]string{}
+	}
+	o.Attributes["exposed_route"] = strings.TrimSpace(r.Method + " " + r.Path)
+	o.Attributes["route_observed"] = strconv.FormatBool(r.Observed)
+}
+
+// locationFile returns the file part of an observation location ("file:line" → "file"), stripping only a
+// trailing :<digits> line number. A bare path, or an nmap "host:port/proto", is returned unchanged (and
+// simply won't match a route's handler_file).
+func locationFile(loc string) string {
+	i := strings.LastIndex(loc, ":")
+	if i <= 0 {
+		return loc // no colon (or a leading one) — treat the whole value as the file
+	}
+	suffix := loc[i+1:]
+	if suffix == "" {
+		return loc
+	}
+	for _, c := range suffix {
+		if c < '0' || c > '9' {
+			return loc // not a pure line number (e.g. host:port/proto)
+		}
+	}
+	return loc[:i]
 }
 
 func (e *Engine) auditDisposition(ctx context.Context, action, target string, o model.Observation) {

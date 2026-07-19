@@ -1,0 +1,88 @@
+# OpenSecBench route-map starter ruleset (ADR-0033). These semgrep rules identify HTTP route registrations
+# across common frameworks. Each captures the route path in a `$ROUTE` metavariable and declares the HTTP
+# method + framework in `metadata`, which pkg/interpret/routes.go reads into the routes inventory. This is a
+# deliberately small starter set — extend it per framework by following the same shape (capture `$ROUTE`,
+# set metadata.method + metadata.framework). Route detection is heuristic; it finds declared entry points,
+# not a call graph.
+rules:
+  # --- Python: Flask / FastAPI ---
+  - id: osb-route-flask
+    languages: [python]
+    severity: INFO
+    message: "Flask route $ROUTE"
+    metadata: {osb_route: true, framework: flask}
+    pattern: "@$APP.route($ROUTE, ...)"
+
+  - id: osb-route-fastapi-get
+    languages: [python]
+    severity: INFO
+    message: "FastAPI GET $ROUTE"
+    metadata: {osb_route: true, framework: fastapi, method: GET}
+    pattern: "@$APP.get($ROUTE, ...)"
+  - id: osb-route-fastapi-post
+    languages: [python]
+    severity: INFO
+    message: "FastAPI POST $ROUTE"
+    metadata: {osb_route: true, framework: fastapi, method: POST}
+    pattern: "@$APP.post($ROUTE, ...)"
+  - id: osb-route-fastapi-put
+    languages: [python]
+    severity: INFO
+    message: "FastAPI PUT $ROUTE"
+    metadata: {osb_route: true, framework: fastapi, method: PUT}
+    pattern: "@$APP.put($ROUTE, ...)"
+  - id: osb-route-fastapi-delete
+    languages: [python]
+    severity: INFO
+    message: "FastAPI DELETE $ROUTE"
+    metadata: {osb_route: true, framework: fastapi, method: DELETE}
+    pattern: "@$APP.delete($ROUTE, ...)"
+
+  # --- JavaScript / TypeScript: Express ---
+  - id: osb-route-express-get
+    languages: [javascript, typescript]
+    severity: INFO
+    message: "Express GET $ROUTE"
+    metadata: {osb_route: true, framework: express, method: GET}
+    pattern: $APP.get($ROUTE, $HANDLER, ...)
+  - id: osb-route-express-post
+    languages: [javascript, typescript]
+    severity: INFO
+    message: "Express POST $ROUTE"
+    metadata: {osb_route: true, framework: express, method: POST}
+    pattern: $APP.post($ROUTE, $HANDLER, ...)
+  - id: osb-route-express-put
+    languages: [javascript, typescript]
+    severity: INFO
+    message: "Express PUT $ROUTE"
+    metadata: {osb_route: true, framework: express, method: PUT}
+    pattern: $APP.put($ROUTE, $HANDLER, ...)
+  - id: osb-route-express-delete
+    languages: [javascript, typescript]
+    severity: INFO
+    message: "Express DELETE $ROUTE"
+    metadata: {osb_route: true, framework: express, method: DELETE}
+    pattern: $APP.delete($ROUTE, $HANDLER, ...)
+
+  # --- Go: net/http and gin ---
+  - id: osb-route-go-nethttp
+    languages: [go]
+    severity: INFO
+    message: "net/http route $ROUTE"
+    metadata: {osb_route: true, framework: net-http}
+    patterns:
+      - pattern-either:
+          - pattern: http.HandleFunc($ROUTE, $HANDLER)
+          - pattern: $MUX.HandleFunc($ROUTE, $HANDLER)
+  - id: osb-route-gin-get
+    languages: [go]
+    severity: INFO
+    message: "gin GET $ROUTE"
+    metadata: {osb_route: true, framework: gin, method: GET}
+    pattern: $R.GET($ROUTE, $HANDLER, ...)
+  - id: osb-route-gin-post
+    languages: [go]
+    severity: INFO
+    message: "gin POST $ROUTE"
+    metadata: {osb_route: true, framework: gin, method: POST}
+    pattern: $R.POST($ROUTE, $HANDLER, ...)

@@ -111,6 +111,13 @@ and can later ship as plugins.
       severity) with a high-severity fallback. Free from semgrep's own taint engine; the `reachable` triage
       pill lights up for SAST too. *Remaining: framework-aware entry-point/route resolution (which exposed
       route reaches the source); interprocedural reachability beyond semgrep's taint engine.*
+- [x] **Exposed route inventory + route-aware findings** (ADR-0033) — a `routes` table + `route-map`
+      capability (bundled offline semgrep ruleset → `pkg/interpret/routes.go`) extracts declared HTTP routes;
+      `store.ReconcileObservedRoutes` confirms them against captured traffic and records traffic-only routes
+      (works with no source). A finding whose handler file declares an exposed route gets `exposed_route` +
+      a 🌐 triage pill (file-level proximity). *Remaining: call-graph route→sink reachability; a routes
+      graph/surface; make exposed_route a disposition gate; broader framework coverage; ship the ruleset to
+      remote runners; Flask methods=[…] inference.*
 - [x] Report templates as extension packs; playbook/visualization pack types still to add.
 - [x] Integration **pull** — DefectDojo findings → observations into triage (ADR-0027); reusable
       per-project configs (push uses them too); external-id dedup; `observations.project_id` for task-less
