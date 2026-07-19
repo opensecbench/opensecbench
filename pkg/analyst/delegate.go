@@ -58,12 +58,14 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 	}
 
 	profile := svc.resolveProfile(ctx, profileID)
+	prov, modelID := svc.providerModelForTag(ctx, profile.ModelTag)
 	loop := &agent.Loop{
-		Provider:     svc.provider,
+		Provider:     prov,
+		Model:        modelID,
 		Tools:        profile.ToolSet(),
 		SystemPrompt: profile.SystemPrompt(),
 		Approve:      Approver(authorize),
-		Execute:      svc.executeFor(projectID),
+		Execute:      svc.executeFor(projectID, prov),
 		Audit:        svc.Audit,
 		MaxSteps:     8,
 	}

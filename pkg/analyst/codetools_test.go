@@ -147,15 +147,13 @@ func TestDLPBlocksPrivateSourceReadOnExternalProvider(t *testing.T) {
 	ctx := context.Background()
 	db, projectID, assetID := seedSourceAsset(t, model.SensitivityPrivate)
 
+	svc := &Service{store: db, egressStrict: true}
 	// Strict egress + external provider: reading a PRIVATE asset's source is blocked.
-	external := &Service{store: db, provider: &llm.MockProvider{}, egressStrict: true, providerLocal: false}
-	if _, err := external.executeFor(projectID)(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err == nil || !strings.Contains(err.Error(), "egress") {
+	if _, err := svc.executeFor(projectID, &llm.AnthropicProvider{})(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("private source read should be egress-blocked, got %v", err)
 	}
-
-	// A local provider is never egress-blocked — the read goes through.
-	local := &Service{store: db, provider: &llm.MockProvider{}, egressStrict: true, providerLocal: true}
-	if _, err := local.executeFor(projectID)(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err != nil {
+	// The same read on a LOCAL provider is never egress-blocked.
+	if _, err := svc.executeFor(projectID, &llm.MockProvider{})(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err != nil {
 		t.Fatalf("local provider read should not be blocked: %v", err)
 	}
 }

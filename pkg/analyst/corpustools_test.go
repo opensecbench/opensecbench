@@ -97,14 +97,13 @@ func TestReadContextEgressBlocked(t *testing.T) {
 	ctx := context.Background()
 	db, blobs, projectID, itemID := seedContext(t, "client email thread")
 
+	svc := &Service{store: db, blobs: blobs, egressStrict: true}
 	// Strict egress + external provider: ingested corpus content does not leave to the external model.
-	external := &Service{store: db, blobs: blobs, provider: &llm.MockProvider{}, egressStrict: true, providerLocal: false}
-	if _, err := external.executeFor(projectID)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err == nil || !strings.Contains(err.Error(), "egress") {
+	if _, err := svc.executeFor(projectID, &llm.AnthropicProvider{})(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("read_context should be egress-blocked on an external provider, got %v", err)
 	}
 	// A local provider reads it fine.
-	local := &Service{store: db, blobs: blobs, provider: &llm.MockProvider{}, egressStrict: true, providerLocal: true}
-	if _, err := local.executeFor(projectID)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err != nil {
+	if _, err := svc.executeFor(projectID, &llm.MockProvider{})(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err != nil {
 		t.Fatalf("local provider read_context should not be blocked: %v", err)
 	}
 }

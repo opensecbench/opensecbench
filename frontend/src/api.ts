@@ -443,6 +443,16 @@ export interface ModelCatalogEntry {
   default_tags: string[]
 }
 
+export interface ModelRef {
+  provider_id: string
+  model: string
+}
+
+export interface ModelRouting {
+  default?: ModelRef
+  tags?: Record<string, ModelRef>
+}
+
 export interface SettingField {
   key: string
   label: string
@@ -793,6 +803,8 @@ export const api = {
 
   getModelCatalog: () =>
     request<{ models: ModelCatalogEntry[] }>('GET', '/v1/models/catalog').then((r) => r.models ?? []),
+  getModelRouting: () => request<{ tags: string[]; routing: ModelRouting }>('GET', '/v1/models/routing'),
+  setModelRouting: (routing: ModelRouting) => request<void>('PUT', '/v1/models/routing', { routing }),
 
   getSettings: () =>
     request<{ sections: SettingSection[]; values: Record<string, string> }>('GET', '/v1/settings'),

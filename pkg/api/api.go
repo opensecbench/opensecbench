@@ -213,6 +213,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/settings", s.getSettings)
 	s.mux.HandleFunc("PUT /v1/settings", s.putSettings)
 	s.mux.HandleFunc("GET /v1/models/catalog", s.getModelCatalog)
+	s.mux.HandleFunc("GET /v1/models/routing", s.getModelRouting)
+	s.mux.HandleFunc("PUT /v1/models/routing", s.setModelRouting)
 	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)
@@ -331,6 +333,18 @@ func (s *Server) analystService() *analyst.Service {
 	}
 	// The active policy profile governs data egress (ADR-0006).
 	svc.SetEgressStrict(!s.activePolicy().AllowExternalForPrivate)
+	// Cross-provider model routing (ADR-0021): build a configured provider by registry id, DLP-guarded.
+	svc.SetProviderResolver(func(ctx context.Context, id string) (llm.Provider, error) {
+		p, err := s.store.GetProvider(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		built, err := s.buildProvider(p)
+		if err != nil {
+			return nil, err
+		}
+		return s.guardProvider(built), nil
+	})
 	return svc
 }
 
@@ -350,6 +364,12 @@ func (s *Server) guardedProvider() llm.Provider {
 	if p == nil {
 		return nil
 	}
+	return s.guardProvider(p)
+}
+
+// guardProvider wraps any provider with the DLP egress guard (secret redaction + canaries). Used for the
+// active provider and for cross-provider routing resolution (ADR-0021).
+func (s *Server) guardProvider(p llm.Provider) llm.Provider {
 	external := !llm.IsLocal(p)
 	load := func(ctx context.Context) (map[string]string, map[string]string) {
 		var secrets map[string]string
@@ -704,6 +724,35 @@ func (s *Server) settingsSections() []settings.Section {
 // getModelCatalog returns the curated model catalog (ADR-0021) that powers the model picker + tag defaults.
 func (s *Server) getModelCatalog(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"models": catalog.Models()})
+}
+
+// getModelRouting returns the fixed routing tag vocabulary + the current tag → (provider, model) map.
+func (s *Server) getModelRouting(w http.ResponseWriter, r *http.Request) {
+	raw, _ := s.store.GetSetting(r.Context(), analyst.ModelRoutingSetting)
+	routing := json.RawMessage("{}")
+	if raw != "" && json.Valid([]byte(raw)) {
+		routing = json.RawMessage(raw)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tags": analyst.RoutingTags(), "routing": routing})
+}
+
+// setModelRouting stores the routing map (a tag → {provider_id, model} object plus a default).
+func (s *Server) setModelRouting(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Routing json.RawMessage `json:"routing"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if len(req.Routing) == 0 || !json.Valid(req.Routing) {
+		writeErr(w, http.StatusBadRequest, "routing must be a JSON object")
+		return
+	}
+	if err := s.store.SetSetting(r.Context(), analyst.ModelRoutingSetting, string(req.Routing)); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // getSettings returns the declarative section schemas plus current values (defaults applied).
