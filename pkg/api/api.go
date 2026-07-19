@@ -359,6 +359,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/projects/{id}/integrations/{integration}/pull", s.pullIntegration)
 	// Post-run disposition routing + investigations (ADR-0028).
 	s.mux.HandleFunc("GET /v1/projects/{id}/observations", s.listProjectObservations)
+	// Knowledge dossier — consolidated "what we know" view (ADR-0042).
+	s.mux.HandleFunc("GET /v1/targets/{id}/dossier", s.targetDossier)
+	s.mux.HandleFunc("GET /v1/projects/{id}/dossier", s.projectDossier)
 	// Semantic corpus/KB retrieval (ADR-0039).
 	s.mux.HandleFunc("POST /v1/projects/{id}/reindex", s.reindexCorpus)
 	s.mux.HandleFunc("GET /v1/projects/{id}/search-corpus", s.searchCorpus)

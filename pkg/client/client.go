@@ -856,6 +856,25 @@ func (c *Client) SearchCorpus(ctx context.Context, projectID, query string, k in
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
+// Dossier returns the rendered "what we know" markdown brief for a target or project (ADR-0042). `kind` is
+// "targets" or "projects".
+func (c *Client) Dossier(ctx context.Context, kind, id string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/"+kind+"/"+id+"/dossier?format=markdown", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return "", fmt.Errorf("dossier: %s", resp.Status)
+	}
+	b, err := io.ReadAll(resp.Body)
+	return string(b), err
+}
+
 // ListProjectObservations returns a project's observations (ADR-0037); unreviewedOnly narrows to untriaged.
 func (c *Client) ListProjectObservations(ctx context.Context, projectID string, unreviewedOnly bool) ([]model.Observation, error) {
 	path := "/v1/projects/" + projectID + "/observations"

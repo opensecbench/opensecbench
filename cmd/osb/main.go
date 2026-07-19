@@ -121,6 +121,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return policyCmd(ctx, c, args[1:])
 	case "rag":
 		return ragCmd(ctx, c, args[1:])
+	case "dossier":
+		return dossierCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -2145,4 +2147,26 @@ func ragCmd(ctx context.Context, c *client.Client, args []string) error {
 	default:
 		return fmt.Errorf("unknown rag subcommand %q", args[0])
 	}
+}
+
+func dossierCmd(ctx context.Context, c *client.Client, args []string) error {
+	fs := flag.NewFlagSet("dossier", flag.ContinueOnError)
+	target := fs.String("target", "", "target id")
+	project := fs.String("project", "", "project id")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	kind, id := "targets", *target
+	if *project != "" {
+		kind, id = "projects", *project
+	}
+	if id == "" {
+		return errors.New("usage: osb dossier --target <id> | --project <id>")
+	}
+	md, err := c.Dossier(ctx, kind, id)
+	if err != nil {
+		return err
+	}
+	fmt.Print(md)
+	return nil
 }
