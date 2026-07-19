@@ -41,8 +41,8 @@ func TestRunCode(t *testing.T) {
 	if len(spec.Cmd) != 3 || spec.Cmd[0] != "sh" || spec.Cmd[1] != "-c" || !strings.Contains(spec.Cmd[2], "echo hi") {
 		t.Fatalf("cmd = %v", spec.Cmd)
 	}
-	if spec.Network != "none" {
-		t.Fatalf("run_code must have no network, got %q", spec.Network)
+	if spec.Network != "bridge" {
+		t.Fatalf("run_code should have network access, got %q", spec.Network)
 	}
 	if len(spec.Mounts) != 1 || spec.Mounts[0].ReadOnly || spec.Mounts[0].Target != "/work" || spec.Workdir != "/work" {
 		t.Fatalf("workspace must be mounted read-write at /work: %+v (workdir %q)", spec.Mounts, spec.Workdir)

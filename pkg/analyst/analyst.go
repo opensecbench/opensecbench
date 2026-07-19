@@ -136,7 +136,7 @@ func Tools() []agent.Tool {
 			{Name: "cwe", Type: agent.TypeString, Description: "optional CWE id, e.g. CWE-89"},
 			{Name: "observations", Type: agent.TypeArray, Description: "supporting observation ids (must be confirmed)"},
 		}},
-		{Name: "run_code", Description: "Run a shell command in a sandbox with the project workspace mounted at /work — to build and run a test case or PoC over files you staged there. GATED. No network (use send_request to reach a target).", Params: []agent.Param{
+		{Name: "run_code", Description: "Run a shell command in a sandbox (with network) with the project workspace mounted at /work — to build and run a test case or PoC over files you staged there. GATED.", Params: []agent.Param{
 			{Name: "command", Type: agent.TypeString, Required: true, Description: "shell command, run via sh -c in /work"},
 			{Name: "image", Type: agent.TypeString, Description: "container image (default alpine:3; override for python/node/etc.)"},
 		}},

@@ -10,9 +10,10 @@ import (
 )
 
 // run_code (ADR-0020) lets an agent run a command in a sandbox with the project workspace mounted — to
-// build and run a test case or PoC over files it staged there. It refines "no host shell" into a
-// sandboxed, gated exec surface: gated (arbitrary execution needs approval), no network (a PoC that must
-// reach a target uses send_request, which is scope-guarded), resource/time-limited.
+// build and run a real test case or PoC over files it staged there. It refines "no host shell" into a
+// sandboxed, gated exec surface: it has network access (a PoC must be able to reach a target, install a
+// tool, etc.) and is resource/time-limited. The control is the approval gate — every run_code is gated,
+// so a human sees and authorizes the command before it runs.
 const (
 	defaultRunboxImage = "alpine:3"
 	runCodeTimeout     = 120 * time.Second
@@ -40,7 +41,7 @@ func runCode(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, e
 		Cmd:      []string{"sh", "-c", command},
 		Mounts:   []runner.Mount{{Source: root, Target: "/work", ReadOnly: false}},
 		Workdir:  "/work",
-		Network:  "none",
+		Network:  "bridge", // a PoC/test needs to reach the network; the approval gate is the control
 		Timeout:  runCodeTimeout,
 		MemoryMB: 512,
 		CPUs:     1,
