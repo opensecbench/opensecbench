@@ -4,13 +4,15 @@ import { Home } from './Home'
 import { Workbench } from './Workbench'
 import { NotificationBell } from './NotificationBell'
 import { ExtensionsView } from './ExtensionsView'
+import { Settings } from './Settings'
+import { applyTheme, loadTheme } from './theme'
 
 type Conn = 'connecting' | 'online' | 'offline'
 
 export function App() {
   const [conn, setConn] = useState<Conn>('connecting')
   const [project, setProject] = useState<Project | null>(null)
-  const [view, setView] = useState<'home' | 'ext'>('home')
+  const [view, setView] = useState<'home' | 'ext' | 'settings'>('home')
 
   useEffect(() => {
     api
@@ -18,6 +20,22 @@ export function App() {
       .then(() => setConn('online'))
       .catch(() => setConn('offline'))
   }, [])
+
+  // Apply the saved theme once online; re-resolve on OS change while in "system" mode.
+  useEffect(() => {
+    if (conn !== 'online') return
+    let theme = 'dark'
+    let accent = ''
+    void loadTheme().then((t) => {
+      theme = t.theme
+      accent = t.accent
+      applyTheme(theme, accent)
+    })
+    const mq = window.matchMedia('(prefers-color-scheme: light)')
+    const onChange = () => theme === 'system' && applyTheme('system', accent)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [conn])
 
   // A project open takes over the whole window as the IDE Workbench (ADR-0015).
   if (project) {
@@ -34,11 +52,15 @@ export function App() {
         <button className={`rail-btn ${view === 'ext' ? 'active' : ''}`} title="Extensions & Governance" onClick={() => setView('ext')}>
           ⧉
         </button>
+        <div className="rail-spacer" />
+        <button className={`rail-btn ${view === 'settings' ? 'active' : ''}`} title="Settings" onClick={() => setView('settings')}>
+          ⚙
+        </button>
       </aside>
 
       <main className="main">
         <header className="topbar">
-          <div className="crumb">Home</div>
+          <div className="crumb">{view === 'settings' ? 'Settings' : view === 'ext' ? 'Extensions' : 'Home'}</div>
           <div className="spacer" />
           <NotificationBell online={conn === 'online'} />
           <span className={`conn conn-${conn}`}>
@@ -47,7 +69,9 @@ export function App() {
           <code className="apiurl">{api.baseURL}</code>
         </header>
 
-        {view === 'ext' ? (
+        {view === 'settings' ? (
+          <Settings online={conn === 'online'} />
+        ) : view === 'ext' ? (
           <ExtensionsView online={conn === 'online'} />
         ) : (
           <Home online={conn === 'online'} onOpen={setProject} />
