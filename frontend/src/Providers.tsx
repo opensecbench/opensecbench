@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { api, ProviderView, UsageByModel } from './api'
+import { api, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
+
+// Map a provider add-form type to its catalog provider key (Azure shares OpenAI's models; claude-cli
+// picks its own model, so it has no picker).
+const CATALOG_KEY: Record<string, string> = { anthropic: 'anthropic', openai: 'openai', azure: 'openai', deepseek: 'deepseek', grok: 'grok', ollama: 'ollama' }
+
+function priceLabel(m: ModelCatalogEntry): string {
+  if (m.input_per_mtok === 0 && m.output_per_mtok === 0) return 'local'
+  return `$${m.input_per_mtok}/$${m.output_per_mtok} per Mtok`
+}
 
 // Provider types offered in the add form. needsBase/needsKey drive which fields show; the hint steers
 // the operator (API keys recommended, claude-cli uses the local subscription, ollama is local).
@@ -26,6 +35,12 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
   const [apiKey, setApiKey] = useState('')
   const [tests, setTests] = useState<Record<string, TestState>>({})
   const [error, setError] = useState<string | null>(null)
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([])
+  const [customModel, setCustomModel] = useState(false)
+
+  useEffect(() => {
+    if (online) void api.getModelCatalog().then(setModelCatalog).catch(() => {})
+  }, [online])
 
   async function load() {
     try {
@@ -137,11 +152,26 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
 
       <div className="prov-add">
         <div className="prov-add-title">Add provider</div>
-        <select value={type} onChange={(e) => setType(e.target.value)}>
+        <select value={type} onChange={(e) => { setType(e.target.value); setModel(''); setCustomModel(false) }}>
           {PROVIDER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <input placeholder="name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
-        <input placeholder={cfg?.modelHint ? `model · e.g. ${cfg.modelHint}` : 'model (optional)'} value={model} onChange={(e) => setModel(e.target.value)} />
+        {(() => {
+          const catModels = modelCatalog.filter((m) => m.provider === CATALOG_KEY[type])
+          if (catModels.length > 0 && !customModel) {
+            return (
+              <select value={model} onChange={(e) => {
+                if (e.target.value === '__custom__') { setCustomModel(true); setModel('') }
+                else setModel(e.target.value)
+              }}>
+                <option value="">default model</option>
+                {catModels.map((m) => <option key={m.id} value={m.id}>{m.name} · {priceLabel(m)}</option>)}
+                <option value="__custom__">Custom…</option>
+              </select>
+            )
+          }
+          return <input placeholder={cfg?.modelHint ? `model · e.g. ${cfg.modelHint}` : 'model (optional)'} value={model} onChange={(e) => setModel(e.target.value)} />
+        })()}
         {cfg?.needsBase && <input placeholder="base URL" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />}
         {cfg?.needsKey && <input type="password" placeholder="API key (sealed in the vault)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />}
         <button className="prov-add-btn" onClick={add} disabled={!online}>＋ Add provider</button>

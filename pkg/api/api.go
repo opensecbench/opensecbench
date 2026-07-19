@@ -22,6 +22,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/hub"
 	"github.com/opensecbench/opensecbench/pkg/integration"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/llm/catalog"
 	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
@@ -211,6 +212,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/analyst/tools", s.listAgentTools)
 	s.mux.HandleFunc("GET /v1/settings", s.getSettings)
 	s.mux.HandleFunc("PUT /v1/settings", s.putSettings)
+	s.mux.HandleFunc("GET /v1/models/catalog", s.getModelCatalog)
 	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)
@@ -697,6 +699,11 @@ func (s *Server) listAgentProfiles(w http.ResponseWriter, r *http.Request) {
 // a future manifest capability (ADR-0021); for now this is the core set.
 func (s *Server) settingsSections() []settings.Section {
 	return settings.CoreSections()
+}
+
+// getModelCatalog returns the curated model catalog (ADR-0021) that powers the model picker + tag defaults.
+func (s *Server) getModelCatalog(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"models": catalog.Models()})
 }
 
 // getSettings returns the declarative section schemas plus current values (defaults applied).

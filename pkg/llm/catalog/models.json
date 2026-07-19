@@ -1,0 +1,17 @@
+[
+  { "provider": "anthropic", "id": "claude-opus-4-8",           "name": "Claude Opus 4.8",   "family": "opus",   "context_window": 200000, "input_per_mtok": 15.0, "output_per_mtok": 75.0, "default_tags": ["reasoning", "long-context"] },
+  { "provider": "anthropic", "id": "claude-sonnet-5",           "name": "Claude Sonnet 5",   "family": "sonnet", "context_window": 200000, "input_per_mtok": 3.0,  "output_per_mtok": 15.0, "default_tags": ["default", "fast"] },
+  { "provider": "anthropic", "id": "claude-haiku-4-5",          "name": "Claude Haiku 4.5",  "family": "haiku",  "context_window": 200000, "input_per_mtok": 0.8,  "output_per_mtok": 4.0,  "default_tags": ["cheap", "fast"] },
+
+  { "provider": "openai", "id": "gpt-4o",       "name": "GPT-4o",       "family": "gpt-4o", "context_window": 128000,  "input_per_mtok": 2.5,  "output_per_mtok": 10.0, "default_tags": ["default"] },
+  { "provider": "openai", "id": "gpt-4o-mini",  "name": "GPT-4o mini",  "family": "gpt-4o", "context_window": 128000,  "input_per_mtok": 0.15, "output_per_mtok": 0.6,  "default_tags": ["cheap", "fast"] },
+  { "provider": "openai", "id": "o3-mini",      "name": "o3-mini",      "family": "o-series", "context_window": 200000, "input_per_mtok": 1.1,  "output_per_mtok": 4.4,  "default_tags": ["reasoning"] },
+
+  { "provider": "deepseek", "id": "deepseek-chat",     "name": "DeepSeek Chat",     "family": "deepseek", "context_window": 64000, "input_per_mtok": 0.27, "output_per_mtok": 1.1, "default_tags": ["cheap"] },
+  { "provider": "deepseek", "id": "deepseek-reasoner", "name": "DeepSeek Reasoner", "family": "deepseek", "context_window": 64000, "input_per_mtok": 0.55, "output_per_mtok": 2.2, "default_tags": ["reasoning"] },
+
+  { "provider": "grok", "id": "grok-2-latest", "name": "Grok 2", "family": "grok", "context_window": 131072, "input_per_mtok": 2.0, "output_per_mtok": 10.0, "default_tags": ["default"] },
+
+  { "provider": "ollama", "id": "qwen2.5:14b",  "name": "Qwen2.5 14B (local)",  "family": "qwen",  "context_window": 32768, "input_per_mtok": 0.0, "output_per_mtok": 0.0, "default_tags": ["cheap", "local"] },
+  { "provider": "ollama", "id": "llama3.1:8b",  "name": "Llama 3.1 8B (local)", "family": "llama", "context_window": 131072, "input_per_mtok": 0.0, "output_per_mtok": 0.0, "default_tags": ["cheap", "local", "fast"] }
+]

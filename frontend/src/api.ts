@@ -432,6 +432,17 @@ export interface Schedule {
   created_at: string
 }
 
+export interface ModelCatalogEntry {
+  provider: string
+  id: string
+  name: string
+  family: string
+  context_window: number
+  input_per_mtok: number
+  output_per_mtok: number
+  default_tags: string[]
+}
+
 export interface SettingField {
   key: string
   label: string
@@ -779,6 +790,9 @@ export const api = {
     request<{ ok: boolean; latency_ms?: number; sample?: string; error?: string }>('POST', `/v1/analyst/providers/${id}/test`, {}),
   deleteProvider: (id: string) => request<void>('DELETE', `/v1/analyst/providers/${id}`),
   getProjectUsage: (projectId: string) => request<UsageByModel[]>('GET', `/v1/projects/${projectId}/usage`),
+
+  getModelCatalog: () =>
+    request<{ models: ModelCatalogEntry[] }>('GET', '/v1/models/catalog').then((r) => r.models ?? []),
 
   getSettings: () =>
     request<{ sections: SettingSection[]; values: Record<string, string> }>('GET', '/v1/settings'),
