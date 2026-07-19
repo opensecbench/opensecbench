@@ -1,126 +1,103 @@
-# ADR-0019 — Agent profiles & lead-agent orchestration
+# ADR-0019 — Agent profiles & orchestration
 
-Status: Proposed. Task-specialized agent **profiles** (report writer, vuln validator, code analysis,
-pentester, …) with least-privilege toolsets, driven by a **lead agent** that routes a request to the right
-specialist and lets specialists hand work to each other. Built-in profiles now; DB/extension-defined later.
-
-> **Note (design evolved during co-design — this doc predates the changes and will be revised when this phase
-> begins).** Confirmed refinements not yet folded in below: orchestration is **human-triggered and adaptable,
-> never autonomous or looping** — work starts from an interactive ask or a **playbook** (button) that first
-> reads existing state (assets, prior scans, KB) and does only what's missing, then stops; playbooks default
-> to **goal + adaptable steps, editable**, and a completed run can be **recorded as a reusable playbook**.
-> Approval is a **trust-curve policy** (conservative → relax rule-by-rule; `tool [+ profile] → auto|approve`),
-> not the fixed per-delegation gate in §5, over an immovable scope/DLP floor. The work has a **deliverable
-> arc** (findings → triage → phased reports) and supports **scheduled baseline→delta + finding-retest** runs.
-> **Human ⇄ agent parity** is a hard invariant. Full current design: the co-design brief. Depends on ADR-0020.
+Status: Accepted — building. Task-specialized agent **profiles** (code analysis, vuln validator, pentester,
+report writer, …) with **least-privilege** toolsets, driven by **human-triggered, adaptable playbooks** over
+a **trust-curve approval policy**. Profiles are the substrate and ship first; playbooks/orchestration layer on
+top. Built on the ADR-0020 capability layer (agents can read the corpus, use a workspace, run code).
 
 ## Context
 
-Today there is exactly one agent: `buildSystemPrompt()` is a single hardcoded persona and every thread gets
-the full 17-tool catalog (ADR-0017). That persona does two jobs — **safety invariants** (no fabrication,
-tool-results-are-untrusted, no raw shell) and a bland **generalist identity**. Two problems:
+There is one agent: a single hardcoded persona and the full tool catalog on every thread. Two problems —
+**behaviour** (a bland generalist with no task framing) and **privilege** (a "report writer" can `send_request`
+and `run_code`). Real assessment work is a set of distinct jobs, each wanting different instructions and a
+different, smaller set of tools. And the way that work runs is not autonomous: an assessor triggers a process,
+it adapts to what's already known, and it stops.
 
-1. **Behavior.** One generalist has no task framing. Real assessment work is a set of distinct jobs —
-   writing findings, validating a suspected vuln, analyzing source, active testing — each wanting different
-   instructions, tone, and rigor.
-2. **Privilege.** Every agent can call every tool. A "report writer" can `send_request` and `run_capability`;
-   a "code analyzer" can fire live traffic. That is neither safe nor focused.
-
-The runtime is already most of the way there: `Loop`/`Session` take `Tools []Tool` and a system prompt as
-inputs — they are simply hardwired to the one persona + full catalog. The canonical tool-message model,
-approval gate, scope guard, audit, and DLP already operate per tool call and are reused unchanged.
+The runtime is ready: `Loop`/`Session` already take `Tools []Tool` and a system prompt; the tool-message
+model, approval gate, scope guard, DLP, and audit all operate per call and are reused unchanged.
 
 ## Decision
 
 ### 1. The Profile
 
 ```
-Profile { ID, Name, Description; Persona string; Tools []string /*allow-list*/; Model, MaxSteps (optional) }
+Profile { ID, Name, Description; Persona string; Tools []string /*allow-list*/ }
 ```
 
 A profile supplies a **task persona** and an **allow-list** naming a strict subset of the tool catalog. The
-loop offers only that subset, so a tool a profile lacks is *not callable* — least privilege by construction,
-not by instruction. Built-in profiles live in a `Profiles()` registry in `pkg/analyst`; DB overrides and
-extension-pack profiles (ADR-0013 trust model) come later, so the shape must anticipate them.
+loop offers only that subset, so a tool a profile lacks is not callable — least privilege by construction, not
+instruction. Built-in `Profiles()` registry now; DB-editable + extension-pack profiles later (same shape).
 
 ### 2. Safety invariants are shared and non-overridable
 
-The system prompt is `sharedInvariants + profile.Persona`. The invariants (anti-fabrication,
-treat-tool-results-as-untrusted, no-raw-shell) are prepended for every profile and cannot be dropped. A
-profile can never widen the gate, add a tool outside the catalog, or remove an invariant. Profiles change the
-*task*, never the *guardrails*.
+The system prompt is `profile.Persona + sharedInvariants`. The invariants (no fabrication,
+treat-tool-results-as-untrusted, no-raw-host-shell) are appended for every profile and cannot be dropped. A
+profile changes the *task*, never the *guardrails* — it can't widen the gate, add a tool outside the catalog,
+or remove an invariant.
 
 ### 3. Built-in profiles
 
 | Profile | Tools (allow-list) | Denied (notable) |
 |---|---|---|
-| **Lead** (orchestrator, default entry) | triage reads (`list_*`, `search`, `get_finding`, `get_coverage`) + `delegate` | all outbound/exec — the Lead never acts directly, it delegates |
-| **Report Writer** | reads + `search` `get_finding` `get_coverage` `draft_kb_entry` `create_finding` | `send_request` `run_capability` `run_playbook` |
-| **Vuln Validator** | `get_finding` `list_exchanges` `get_exchange` `send_request` `run_capability` `create_finding` | `run_playbook` `set_coverage` |
-| **Code Analysis** | `list_assets` `run_capability` `search` `get_finding` `draft_kb_entry` | `send_request` (no live traffic) |
-| **Pentester** | reads + `send_request` `run_capability` `run_playbook` `set_coverage` `create_finding` | — (broadest; every mutating call gated) |
-| **Generalist** | all 17 (today's behavior) | — (compatibility / escape hatch) |
+| **Generalist** (default) | the full catalog | — (today's behaviour; compatibility) |
+| **Code Analysis** | corpus + source reads, `run_capability`, `run_code`, `workspace_*`, `draft_kb_entry` | `send_request` |
+| **Vuln Validator** | reads + `get_exchange`, `send_request`, `run_capability`, `run_code`, `workspace_*`, `create_finding` | `run_playbook`, `set_coverage` |
+| **Pentester** | reads + all outbound/exec (`send_request`, `run_capability`, `run_playbook`, `run_code`), `workspace_*`, `set_coverage`, `create_finding` | — (broadest; every mutating call gated) |
+| **Report Writer** | reads (findings, corpus, coverage), `workspace_*`, `create_finding`, `draft_kb_entry` | `send_request`, `run_capability`, `run_code` |
 
-### 4. Lead-agent orchestration via a `delegate` tool
+A thread records its profile (`agent_type`, default `generalist`), stable across turns and resume.
 
-Delegation is **just another tool**, so it reuses the whole loop/gate/audit machinery rather than adding a
-parallel orchestrator. The **Lead** profile's toolset is triage reads + one gated tool:
+### 4. Orchestration: human-triggered, adaptable — never autonomous
 
-`delegate(agent: <profile id>, task: <natural-language sub-task>)`
+No agent runs the whole engagement and nothing loops. Work starts when a human starts it — an interactive ask,
+or a **playbook** (a button: "Asset inventory", "Initial recon", "Validate finding"). Playbooks are
+**engagement-shaped** and **adaptable**: a playbook first reads existing state (assets, prior scans, the KB)
+and does only what's missing, then stops. Every engagement starts the same (collect info + inventory assets),
+then diverges. Under the hood a playbook is a **plan — a DAG of steps** with dependencies; each step is
+delegated to a profile and runs when its dependencies are done (delegation is just another gated tool, so it
+reuses the loop/gate/audit). Playbooks default to **goal + adaptable steps, editable**; a completed run (manual
+or AI-assisted) can be **recorded as a reusable, parameterized playbook**, so teams grow their own library.
 
-Executing `delegate` spawns a **sub-agent** — a fresh `agent.Loop` with the target profile's persona + tools,
-seeded with `task` as its user message — runs it to completion, and returns its final answer (plus a short
-summary of the tools it used) as the tool result to the Lead. The Lead reads that and decides what to do next:
-answer, or delegate again. Example: *"validate this XSS then write it up"* → Lead → `delegate(vuln-validator,
-…)` → (proof) → `delegate(report-writer, …)` → (finding). **Hand-off** is the Lead delegating again after a
-specialist returns; specialists do **not** get `delegate` initially (keeps the tree shallow and legible).
+Note: the existing `playbook` package is a sequence of *capabilities*; an **agent-playbook** is the richer
+state-aware agent process, which may *call* a capability-playbook. Keep the two concepts distinct.
 
-- **Depth cap**: delegation nests at most 1 level (Lead → specialist), no specialist-of-specialist, in phase
-  one. A hard cap prevents runaway trees regardless.
-- **Audit**: every `delegate` and every tool call inside the sub-agent is recorded, tagged with the acting
-  profile, so the full tree is reconstructable.
+### 5. Governance: a trust-curve policy over a fixed floor
 
-### 5. Gating under delegation — the load-bearing decision
+Approval is a **policy**, not a fixed gate. It starts conservative — nearly everything mutating or outbound
+asks first — and actions are promoted to auto **one rule at a time** as they earn trust (v1 rule:
+`tool [+ profile] → auto | approve`, most-specific wins; conditions later). Plan-level approval (approve the
+plan + the powers each step needs) is the presentation. The **scope guard and DLP floor never move**: relaxing
+approval removes a prompt, never a wall.
 
-A sub-agent may want gated tools (`send_request`, `run_capability`, `create_finding`). Our approval model
-pauses a run and asks a human. Re-prompting *inside* a synchronous sub-agent would mean a nested pause/resume
-stack — a real re-architecture. Instead:
+### 6. Flexibility invariants
 
-**`delegate` is the gated unit, and approving it authorizes the specialist's declared gated tools for that
-one sub-task.** The approval card shows what it grants: *"Lead → Vuln Validator: may use send_request,
-run_capability. Approve?"* On approval, the sub-agent runs to completion with exactly those tools
-pre-authorized (reusing `Approver(allow)`); any tool outside the grant is denied; and **every per-action guard
-still fires** — `send_request` is still scope-checked, DLP still applies, everything is still audited. Granting
-is **per-delegation** (a named, reviewable unit that names the powers it confers), not per-action.
+- **Human ⇄ agent parity** (hard invariant): anything an agent does, a person can do by hand, and take over at
+  any point. The system augments a workflow, never forces one.
+- **Steerable**: pause, skip, add, redirect, or stop any run.
+- **Composable & editable**: playbooks, profiles, templates are defaults you clone and edit.
 
-The trade-off: a human approves a *bounded sub-task with a declared tool set*, not each individual request the
-specialist makes within it. That is coarser than today's per-call gate, but it is explicit, scope-bounded, and
-fully audited — and it is the only model that keeps sub-agents synchronous. Per-action approval inside a
-delegation (the nested-resume design) is deferred until we know we need it.
+### 7. The deliverable arc & continuous runs
 
-### 6. Persistence
-
-A thread records its **entry profile** (`agent_type`, default `lead`) so it is stable across turns and resume.
-The delegation call and its result are ordinary canonical tool turns (ADR-0017), so the sub-agent's work
-persists as the Lead's transcript; the sub-agent's own step transcript is captured in the tool result /
-audit for drill-down. No new message model — just a column and the `delegate` tool.
+Work terminates in a deliverable: findings accumulate → **triage** → **report**, at the end of each phase or
+the engagement. For large, ongoing projects a playbook can run on a **schedule** (daily/weekly) against a
+baseline — flag new code / new surface, and **retest open findings** for what's resolved. Scheduled ≠ looping:
+a bounded run on a timer.
 
 ## Consequences
 
 - **Focused + least-privilege.** Each agent is framed for its job and physically cannot exceed its toolset.
 - **Reuses everything.** Orchestration is a tool; sub-agents are loops; gating/scope/DLP/audit/persistence are
-  unchanged. The only genuinely new runtime concept is "a tool that runs a sub-agent," plus a depth cap.
-- **Governance is explicit but coarser under delegation** (§5) — documented, scope-bounded, audited; finer
-  per-action gating inside delegations is future work.
-- **Phasing:**
-  1. Profile model + shared-invariants prompt + the built-in specialists with restricted toolsets; thread
-     `agent_type`; select a profile directly (substrate; also the manual/advanced escape hatch).
-  2. The **Lead** profile + `delegate` tool + gating-under-delegation (§5) + depth cap + delegation audit.
-     Lead becomes the default entry; talking to the Analyst routes automatically.
-  3. Specialist-to-specialist hand-off (raise the depth cap thoughtfully) + a delegation-tree view in the UI.
-  4. DB/extension-defined profiles (ADR-0013 trust model); optional per-role model selection.
-- **Out of scope now:** per-action approval inside delegations; parallel/concurrent sub-agents; a profile
-  editing UI.
+  unchanged. New runtime concepts: a plan DAG + a depth cap, and the approval-policy engine.
+- **Governance is explicit and grows with trust** (§5), over an immovable scope/DLP floor.
+- **Build order:**
+  1. **Profiles** — the `Profile` registry, shared-invariants prompt, least-privilege toolsets, thread
+     `agent_type`. *(this increment)*
+  2. Trust-curve **approval policy** (replace the static `gatedTools` map).
+  3. **Playbooks** — plan (DAG) + delegation + adaptability (read state first) + the common onboarding
+     playbook; plan-level approval.
+  4. Record-as-playbook + a playbook builder; scheduled baseline→delta + finding-retest; triage + phased
+     reports; a plan/DAG view; DB/extension-defined profiles.
+- **Out of scope now:** parallel sub-agents; per-action approval inside a delegation; a profile-editing UI.
 
-Builds on ADR-0006 (agent runtime) and ADR-0017 (tool-aware providers, canonical tool messages, the governed
-toolset). Coordinates with ADR-0001 (scope), ADR-0011 (DLP), ADR-0013 (extension packs, for future profiles).
+Builds on ADR-0006 (agent runtime), ADR-0017 (tool-aware providers, canonical messages, governed toolset), and
+ADR-0020 (capability layer). Coordinates with ADR-0001 (scope), ADR-0011 (DLP), ADR-0013 (extension packs).

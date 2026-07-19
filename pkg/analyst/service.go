@@ -66,10 +66,10 @@ func (svc *Service) Available() bool { return svc.provider != nil }
 // strict, capability output for a private asset is not sent to an external provider.
 func (svc *Service) SetEgressStrict(strict bool) { svc.egressStrict = strict }
 
-func (svc *Service) session(projectID string) *agent.Session {
+func (svc *Service) session(projectID string, profile Profile) *agent.Session {
 	return &agent.Session{
 		Provider:    svc.provider,
-		Tools:       Tools(),
+		Tools:       profile.ToolSet(),
 		Gate:        func(c agent.ToolCall) bool { return gatedTools[c.Tool] },
 		Execute:     svc.executeFor(projectID),
 		MaxSteps:    8,
@@ -131,14 +131,15 @@ func (svc *Service) Send(ctx context.Context, threadID, userMessage string) (Sen
 	if err != nil {
 		return SendResult{}, err
 	}
-	sess := svc.session(projectOf(th))
+	profile := ProfileByID(th.AgentType)
+	sess := svc.session(projectOf(th), profile)
 
 	existing, err := svc.store.ListMessages(ctx, threadID)
 	if err != nil {
 		return SendResult{}, err
 	}
 	if len(existing) == 0 {
-		if _, err := svc.store.AppendMessage(ctx, threadID, llm.RoleSystem, sess.SystemPrompt()); err != nil {
+		if _, err := svc.store.AppendMessage(ctx, threadID, llm.RoleSystem, profile.SystemPrompt()); err != nil {
 			return SendResult{}, err
 		}
 	}
@@ -180,6 +181,7 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 	if err != nil {
 		return SendResult{}, err
 	}
+	profile := ProfileByID(th.AgentType)
 	prior, err := svc.loadMessages(ctx, ap.ThreadID)
 	if err != nil {
 		return SendResult{}, err
@@ -188,7 +190,7 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 	_ = json.Unmarshal(ap.Args, &args)
 	call := agent.ToolCall{Tool: ap.Tool, Args: args}
 
-	out, err := svc.session(projectOf(th)).Resume(ctx, prior, call, approved)
+	out, err := svc.session(projectOf(th), profile).Resume(ctx, prior, call, approved)
 	if err != nil {
 		_ = svc.store.UpdateThreadStatus(ctx, ap.ThreadID, model.ThreadError)
 		return SendResult{}, err

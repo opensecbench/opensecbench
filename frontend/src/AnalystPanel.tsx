@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { api, ActiveProvider, Approval, Msg, Project, Thread } from './api'
+import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, Thread } from './api'
 import { ProviderSettings } from './ProviderSettings'
 
 export function AnalystPanel({ project, online }: { project: Project; online: boolean }) {
@@ -13,6 +13,13 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
   const [provider, setProvider] = useState<ActiveProvider | null>(null)
   const [showProviders, setShowProviders] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [profiles, setProfiles] = useState<AgentProfile[]>([])
+  const [profileId, setProfileId] = useState('generalist')
+
+  useEffect(() => {
+    if (online) void api.listAgentProfiles().then(setProfiles).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online])
 
   async function loadProvider() {
     try {
@@ -58,7 +65,8 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
 
   async function newThread() {
     try {
-      const t = await api.createThread(project.id, 'Analyst')
+      const label = profiles.find((p) => p.id === profileId)?.name ?? 'Analyst'
+      const t = await api.createThread(project.id, label, profileId)
       await loadThreads()
       await open(t)
     } catch (e) {
@@ -117,7 +125,20 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
         <span className="title">◆ Analyst</span>
         <span className="grow" />
         <button className={showProviders ? 'on' : ''} onClick={() => setShowProviders((v) => !v)} title="Model / provider">⚙</button>
-        <button onClick={newThread} disabled={!online} title="New thread">＋ Thread</button>
+        {profiles.length > 0 && (
+          <select
+            className="wb-an-profile"
+            value={profileId}
+            onChange={(e) => setProfileId(e.target.value)}
+            disabled={!online}
+            title="Agent profile for a new thread"
+          >
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id} title={p.description}>{p.name}</option>
+            ))}
+          </select>
+        )}
+        <button onClick={newThread} disabled={!online} title={`New ${profiles.find((p) => p.id === profileId)?.name ?? 'Analyst'} thread`}>＋ Thread</button>
         <button onClick={() => setCollapsed(true)} title="Collapse">⟩</button>
       </div>
 

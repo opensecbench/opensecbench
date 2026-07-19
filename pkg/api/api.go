@@ -183,6 +183,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/extensions/trust", s.trustPublisher)
 	s.mux.HandleFunc("GET /v1/hub/index", s.hubIndex)
 	s.mux.HandleFunc("POST /v1/hub/install", s.hubInstall)
+	s.mux.HandleFunc("GET /v1/analyst/profiles", s.listAgentProfiles)
 	s.mux.HandleFunc("GET /v1/analyst/provider", s.getActiveProvider)
 	s.mux.HandleFunc("GET /v1/analyst/providers", s.listProviders)
 	s.mux.HandleFunc("POST /v1/analyst/providers", s.addProvider)
@@ -380,16 +381,31 @@ func (s *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ProjectID *string `json:"project_id"`
 		Title     string  `json:"title"`
+		AgentType string  `json:"agent_type"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	th, err := s.store.CreateThread(r.Context(), store.NewThread{ProjectID: req.ProjectID, Title: req.Title, Provider: s.providerName()})
+	th, err := s.store.CreateThread(r.Context(), store.NewThread{ProjectID: req.ProjectID, Title: req.Title, AgentType: req.AgentType, Provider: s.providerName()})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, th)
+}
+
+// listAgentProfiles returns the built-in agent profiles for the thread-creation picker (ADR-0019).
+func (s *Server) listAgentProfiles(w http.ResponseWriter, _ *http.Request) {
+	type prof struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	out := []prof{}
+	for _, p := range analyst.Profiles() {
+		out = append(out, prof{ID: p.ID, Name: p.Name, Description: p.Description})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"profiles": out})
 }
 
 func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {

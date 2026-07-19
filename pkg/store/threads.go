@@ -17,12 +17,17 @@ type NewThread struct {
 	ProjectID      *string
 	Title          string
 	Provider       string
+	AgentType      string // agent profile (ADR-0019); empty defaults to "generalist"
 	ParentThreadID *string
 	ForkSeq        *int
 }
 
 // CreateThread inserts a thread.
 func (db *DB) CreateThread(ctx context.Context, nt NewThread) (model.Thread, error) {
+	agentType := nt.AgentType
+	if agentType == "" {
+		agentType = "generalist"
+	}
 	t := model.Thread{
 		ID:             uuid.NewString(),
 		ProjectID:      nt.ProjectID,
@@ -31,12 +36,13 @@ func (db *DB) CreateThread(ctx context.Context, nt NewThread) (model.Thread, err
 		Title:          nt.Title,
 		Status:         model.ThreadActive,
 		Provider:       nt.Provider,
+		AgentType:      agentType,
 	}
 	ts := nowString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO threads (id, project_id, parent_thread_id, fork_seq, title, status, provider, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, nt.ProjectID, nt.ParentThreadID, nt.ForkSeq, t.Title, t.Status, t.Provider, ts, ts); err != nil {
+		`INSERT INTO threads (id, project_id, parent_thread_id, fork_seq, title, status, provider, agent_type, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, nt.ProjectID, nt.ParentThreadID, nt.ForkSeq, t.Title, t.Status, t.Provider, agentType, ts, ts); err != nil {
 		return model.Thread{}, err
 	}
 	t.CreatedAt, t.UpdatedAt = parseTime(ts), parseTime(ts)
@@ -48,7 +54,7 @@ func scanThread(row interface{ Scan(...any) error }) (model.Thread, error) {
 	var project, parent sql.NullString
 	var forkSeq sql.NullInt64
 	var created, updated string
-	if err := row.Scan(&t.ID, &project, &parent, &forkSeq, &t.Title, &t.Status, &t.Provider, &created, &updated); err != nil {
+	if err := row.Scan(&t.ID, &project, &parent, &forkSeq, &t.Title, &t.Status, &t.Provider, &t.AgentType, &created, &updated); err != nil {
 		return model.Thread{}, err
 	}
 	t.ProjectID, t.ParentThreadID = ptr(project), ptr(parent)
@@ -60,7 +66,7 @@ func scanThread(row interface{ Scan(...any) error }) (model.Thread, error) {
 	return t, nil
 }
 
-const threadCols = `id, project_id, parent_thread_id, fork_seq, title, status, provider, created_at, updated_at`
+const threadCols = `id, project_id, parent_thread_id, fork_seq, title, status, provider, agent_type, created_at, updated_at`
 
 // GetThread returns a thread by id.
 func (db *DB) GetThread(ctx context.Context, id string) (model.Thread, error) {
@@ -195,12 +201,13 @@ func (db *DB) ForkThread(ctx context.Context, id string, atSeq int) (model.Threa
 		Title:          parent.Title + " (fork)",
 		Status:         model.ThreadActive,
 		Provider:       parent.Provider,
+		AgentType:      parent.AgentType,
 	}
 	ts := nowString()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO threads (id, project_id, parent_thread_id, fork_seq, title, status, provider, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		child.ID, child.ProjectID, child.ParentThreadID, child.ForkSeq, child.Title, child.Status, child.Provider, ts, ts); err != nil {
+		`INSERT INTO threads (id, project_id, parent_thread_id, fork_seq, title, status, provider, agent_type, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		child.ID, child.ProjectID, child.ParentThreadID, child.ForkSeq, child.Title, child.Status, child.Provider, child.AgentType, ts, ts); err != nil {
 		return model.Thread{}, err
 	}
 	if _, err := tx.ExecContext(ctx,
