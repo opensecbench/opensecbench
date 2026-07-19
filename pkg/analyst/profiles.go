@@ -131,12 +131,20 @@ var builtinProfiles = []Profile{
 // Profiles returns the built-in agent profiles.
 func Profiles() []Profile { return builtinProfiles }
 
-// ProfileByID returns a profile by id, falling back to the generalist for an unknown/empty id.
-func ProfileByID(id string) Profile {
+// builtinProfile is an exact lookup — ok is false for an unknown id (no fallback).
+func builtinProfile(id string) (Profile, bool) {
 	for _, p := range builtinProfiles {
 		if p.ID == id {
-			return p
+			return p, true
 		}
+	}
+	return Profile{}, false
+}
+
+// ProfileByID returns a built-in profile by id, falling back to the generalist for an unknown/empty id.
+func ProfileByID(id string) Profile {
+	if p, ok := builtinProfile(id); ok {
+		return p
 	}
 	return builtinProfiles[0] // generalist
 }

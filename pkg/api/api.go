@@ -205,6 +205,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/hub/index", s.hubIndex)
 	s.mux.HandleFunc("POST /v1/hub/install", s.hubInstall)
 	s.mux.HandleFunc("GET /v1/analyst/profiles", s.listAgentProfiles)
+	s.mux.HandleFunc("POST /v1/analyst/profiles", s.createSavedProfile)
+	s.mux.HandleFunc("DELETE /v1/analyst/profiles/{id}", s.deleteSavedProfile)
+	s.mux.HandleFunc("GET /v1/analyst/tools", s.listAgentTools)
 	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)
@@ -662,18 +665,75 @@ func (s *Server) setApprovalPolicy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"rules": req.Rules})
 }
 
-// listAgentProfiles returns the built-in agent profiles for the thread-creation picker (ADR-0019).
-func (s *Server) listAgentProfiles(w http.ResponseWriter, _ *http.Request) {
+// listAgentProfiles returns the agent profiles — built-ins plus user-defined ones (ADR-0019). Used by
+// the thread-creation picker and the custom-agent editor.
+func (s *Server) listAgentProfiles(w http.ResponseWriter, r *http.Request) {
 	type prof struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		ID          string   `json:"id"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Persona     string   `json:"persona,omitempty"`
+		Tools       []string `json:"tools,omitempty"`
+		Builtin     bool     `json:"builtin"`
 	}
 	out := []prof{}
 	for _, p := range analyst.Profiles() {
-		out = append(out, prof{ID: p.ID, Name: p.Name, Description: p.Description})
+		out = append(out, prof{ID: p.ID, Name: p.Name, Description: p.Description, Persona: p.Persona, Tools: p.Tools, Builtin: true})
+	}
+	if saved, err := s.store.ListSavedProfiles(r.Context()); err == nil {
+		for _, sp := range saved {
+			var tools []string
+			_ = json.Unmarshal(sp.Tools, &tools)
+			out = append(out, prof{ID: sp.ID, Name: sp.Name, Description: sp.Description, Persona: sp.Persona, Tools: tools, Builtin: false})
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"profiles": out})
+}
+
+// listAgentTools returns the tool catalog (name + description) for building a custom agent's allow-list.
+func (s *Server) listAgentTools(w http.ResponseWriter, _ *http.Request) {
+	type tool struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	out := []tool{}
+	for _, t := range analyst.Tools() {
+		out = append(out, tool{Name: t.Name, Description: t.Description})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tools": out})
+}
+
+// createSavedProfile stores a user-defined agent profile.
+func (s *Server) createSavedProfile(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Persona     string   `json:"persona"`
+		Tools       []string `json:"tools"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	sp, err := s.analystService().SaveProfile(r.Context(), req.Name, req.Description, req.Persona, req.Tools)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, sp)
+}
+
+// deleteSavedProfile removes a user-defined profile (built-ins can't be deleted).
+func (s *Server) deleteSavedProfile(w http.ResponseWriter, r *http.Request) {
+	err := s.store.DeleteSavedProfile(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "saved profile not found (built-ins can't be deleted)")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {

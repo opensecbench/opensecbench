@@ -32,7 +32,7 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 	if task == "" {
 		return DelegationResult{}, errors.New("delegate requires a task")
 	}
-	profile := ProfileByID(profileID)
+	profile := svc.resolveProfile(ctx, profileID)
 	loop := &agent.Loop{
 		Provider:     svc.provider,
 		Tools:        profile.ToolSet(),
@@ -79,7 +79,7 @@ func (svc *Service) runDelegate(ctx context.Context, projectID string, call agen
 	if target == "lead" || target == "generalist" {
 		return "", fmt.Errorf("cannot delegate to %q; choose a specialist", target)
 	}
-	res, err := svc.Delegate(ctx, projectID, target, task, profileToolNames(ProfileByID(target)))
+	res, err := svc.Delegate(ctx, projectID, target, task, profileToolNames(svc.resolveProfile(ctx, target)))
 	if err != nil {
 		return "", err
 	}
