@@ -446,8 +446,8 @@ export interface ModelCatalogEntry {
 export interface HomeData {
   approvals: { id: string; tool: string; thread_id: string; project_id?: string; project?: string; created_at: string }[]
   active: {
-    running_tasks: number
-    threads: { id: string; title: string; status: string; agent_type: string; project?: string }[]
+    tasks: { id: string; capability: string; project_id?: string; project?: string }[]
+    threads: { id: string; title: string; status: string; agent_type: string; project_id?: string; project?: string }[]
   }
   projects: { id: string; name: string; status: string; findings: number; high: number; to_triage: number }[]
 }

@@ -21,8 +21,8 @@ func TestHomeCockpit(t *testing.T) {
 	var home struct {
 		Approvals []any `json:"approvals"`
 		Active    struct {
-			RunningTasks int   `json:"running_tasks"`
-			Threads      []any `json:"threads"`
+			Tasks   []any `json:"tasks"`
+			Threads []any `json:"threads"`
 		} `json:"active"`
 		Projects []any `json:"projects"`
 	}
@@ -30,7 +30,7 @@ func TestHomeCockpit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A fresh store: the cockpit responds with present (empty, not null) sections.
-	if home.Approvals == nil || home.Active.Threads == nil {
+	if home.Approvals == nil || home.Active.Threads == nil || home.Active.Tasks == nil {
 		t.Fatal("cockpit sections should be present (empty arrays), not null")
 	}
 }
