@@ -719,8 +719,14 @@ func (s *Server) listAgentProfiles(w http.ResponseWriter, r *http.Request) {
 
 // settingsSections returns every declarative section (core + extension-declared). Extension sections are
 // a future manifest capability (ADR-0021); for now this is the core set.
+// settingsSections is the full settings surface: core sections plus any declared by loaded extensions,
+// each namespaced so extension values can never collide with core keys (ADR-0021 §5).
 func (s *Server) settingsSections() []settings.Section {
-	return settings.CoreSections()
+	secs := settings.CoreSections()
+	for _, ext := range s.exts {
+		secs = append(secs, settings.Namespace(ext.Manifest.ID, ext.Manifest.Settings)...)
+	}
+	return secs
 }
 
 // getModelCatalog returns the curated model catalog (ADR-0021) that powers the model picker + tag defaults.

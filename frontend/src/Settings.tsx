@@ -65,7 +65,12 @@ export function Settings({ online }: { online: boolean }) {
         {active === 'agents' && <CustomAgents online={online} />}
         {activeSection && (
           <div className="settings-fields">
-            <h2>{activeSection.title}</h2>
+            <h2>
+              {activeSection.title}
+              {activeSection.source?.startsWith('ext:') && (
+                <span className="settings-ext" title={`Provided by extension ${activeSection.source.slice(4)}`}>extension</span>
+              )}
+            </h2>
             {(activeSection.fields ?? []).map((f) => (
               <div key={f.key} className="settings-field">
                 <label>{f.label}</label>

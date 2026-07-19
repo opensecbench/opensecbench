@@ -11,6 +11,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/methodology"
+	"github.com/opensecbench/opensecbench/pkg/settings"
 )
 
 // FormatVersion is the extension manifest schema version.
@@ -40,6 +41,7 @@ type Manifest struct {
 	Capabilities  []ContainerCapability     `json:"capabilities,omitempty"`
 	Methodologies []methodology.Methodology `json:"methodologies,omitempty"`
 	Reports       []ReportDef               `json:"reports,omitempty"`
+	Settings      []settings.Section        `json:"settings,omitempty"` // declarative settings sections (ADR-0021 §5)
 }
 
 // Loaded is a verified, loaded package.

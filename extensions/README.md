@@ -30,5 +30,8 @@ Then publish the package directory and share your `.pub` so users can trust it.
 - **container capabilities** — an image + templated `cmd`; runs in the standard sandbox (ADR-0004).
 - **methodology packs** — reusable checklists (ADR-0009).
 - **report templates** — MD/HTML template strings registered as report types.
+- **settings sections** — a `settings` array of declarative field-schema sections (ADR-0021 §6). Each
+  section is namespaced with `ext.<id>.` and rendered by the generic Settings UI — no client code. See
+  `trufflehog/extension.json` for a working example.
 
 Playbook/visualization pack types are staged.

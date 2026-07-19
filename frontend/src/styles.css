@@ -1981,7 +1981,8 @@ select option {
 .settings-nav button.on { background: var(--bg4); color: var(--tx); font-weight: 600; }
 .settings-ico { font-size: 14px; width: 18px; text-align: center; }
 .settings-body { flex: 1; overflow-y: auto; padding: 22px 26px; max-width: 720px; }
-.settings-fields h2 { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+.settings-fields h2 { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+.settings-ext { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 20px; background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--acc); }
 .settings-field { margin-bottom: 18px; }
 .settings-field > label { display: block; font-size: 12.5px; font-weight: 600; color: var(--tx2); margin-bottom: 6px; }
 .settings-field select, .settings-field input:not([type=color]):not([type=checkbox]), .settings-field textarea {
