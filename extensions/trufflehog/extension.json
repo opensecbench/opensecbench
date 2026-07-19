@@ -20,5 +20,34 @@
       "timeout_seconds": 600,
       "memory_mb": 2048
     }
+  ],
+  "settings": [
+    {
+      "id": "trufflehog",
+      "title": "TruffleHog",
+      "icon": "🔑",
+      "order": 60,
+      "fields": [
+        {
+          "key": "trufflehog.only_verified",
+          "label": "Only report verified secrets",
+          "type": "bool",
+          "default": "true",
+          "description": "Skip unverified matches to cut noise — verified secrets were live-checked against the provider."
+        },
+        {
+          "key": "trufflehog.min_severity",
+          "label": "Minimum severity to import",
+          "type": "select",
+          "default": "medium",
+          "description": "Observations below this severity are discarded during interpretation.",
+          "options": [
+            { "value": "info", "label": "Info and above" },
+            { "value": "medium", "label": "Medium and above" },
+            { "value": "high", "label": "High only" }
+          ]
+        }
+      ]
+    }
   ]
 }

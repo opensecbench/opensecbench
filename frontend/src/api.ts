@@ -495,6 +495,7 @@ export interface SettingSection {
   icon?: string
   order: number
   custom?: boolean
+  source?: string // "" = core; "ext:<id>" = contributed by an extension
   fields?: SettingField[]
 }
 

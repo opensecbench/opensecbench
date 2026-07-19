@@ -32,14 +32,57 @@ type Field struct {
 }
 
 // Section is a settings tab. Declarative sections carry Fields; a Custom section (rendered by a bespoke
-// client component, e.g. Providers) carries no fields and is marked Custom.
+// client component, e.g. Providers) carries no fields and is marked Custom. Source names the origin —
+// empty for core, "ext:<id>" for a section contributed by an extension (ADR-0021 §5).
 type Section struct {
 	ID     string  `json:"id"`
 	Title  string  `json:"title"`
 	Icon   string  `json:"icon,omitempty"`
 	Order  int     `json:"order"`
 	Custom bool    `json:"custom,omitempty"`
+	Source string  `json:"source,omitempty"`
 	Fields []Field `json:"fields,omitempty"`
+}
+
+// ValidType reports whether t is a field type the generic renderer understands.
+func ValidType(t string) bool {
+	switch t {
+	case TypeString, TypeText, TypeBool, TypeSelect, TypeNumber, TypeColor, TypeModel:
+		return true
+	}
+	return false
+}
+
+// Namespace prepares an extension's declared sections for inclusion in the settings surface. Every
+// section ID and field key is prefixed with "ext.<extID>." so extension values can never collide with
+// core settings (which never start with "ext."), and Source is stamped for provenance. Fields with an
+// unknown type or empty key are dropped; a section left with no valid fields is dropped entirely, so a
+// malformed manifest degrades gracefully instead of breaking the whole settings page.
+func Namespace(extID string, secs []Section) []Section {
+	if extID == "" {
+		return nil
+	}
+	prefix := "ext." + extID + "."
+	out := make([]Section, 0, len(secs))
+	for _, sec := range secs {
+		fields := make([]Field, 0, len(sec.Fields))
+		for _, f := range sec.Fields {
+			if f.Key == "" || !ValidType(f.Type) {
+				continue
+			}
+			f.Key = prefix + f.Key
+			fields = append(fields, f)
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		sec.ID = prefix + sec.ID
+		sec.Fields = fields
+		sec.Custom = false // extension sections are always declarative
+		sec.Source = "ext:" + extID
+		out = append(out, sec)
+	}
+	return out
 }
 
 // CoreSections returns the built-in declarative sections. Custom core sections (Providers, Approvals,

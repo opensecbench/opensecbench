@@ -68,6 +68,22 @@ the app stamps a `data-theme` attribute, and there are full **light and dark tok
 first-class set, tuned for legibility and screenshots — not a naive inversion). The accent override sets a
 token. The setting loads on boot and applies before first paint to avoid a flash.
 
+### 6. Extension-declared sections
+
+An extension contributes settings the same way core does: its `extension.json` manifest carries a
+`settings` array of declarative sections (`[]settings.Section`). On assembly the control plane
+**namespaces** each contributed section — every section ID and field key is prefixed with
+`ext.<extID>.` (`settings.Namespace`). This guarantees an extension's persisted values can never
+collide with core keys (which never start with `ext.`) or with another extension's, and it makes the
+namespaced key the only valid write target: a `PUT /v1/settings` to the bare key an author wrote is
+rejected by the same `FieldByKey` validation core uses. Each section is stamped with a `source`
+(`ext:<id>`) so the UI can badge its provenance. Malformed contributions degrade gracefully — a field
+with an unknown type or empty key is dropped, and a section left with no valid fields is omitted rather
+than breaking the settings page. The frontend needs no per-extension code: the generic renderer already
+draws any declarative section returned by the API. (Reading these values back into a capability run —
+e.g. passing `trufflehog.only_verified` through to the container invocation — is a further step; this
+ADR covers surfacing and persisting them.)
+
 ## Consequences
 
 - **One coherent Settings surface.** The provider panel's contents (providers, approvals, custom agents)
@@ -82,7 +98,8 @@ token. The setting loads on boot and applies before first paint to avoid a flash
   2. **Appearance** section + light/dark/system theming + accent (concrete, visible).
   3. **Model catalog** (`models.json` + API) + the provider-config dropdown.
   4. **Model tags** + default + tag routing within the active provider; profiles/steps carry a tag.
-  5. Extension-declared sections; cross-provider tag routing.
+  5. Extension-declared sections (§6, done — namespaced + provenance-badged; the trufflehog pack ships a
+     demo section); cross-provider tag routing.
 - **Out of scope now:** per-user settings profiles; cloud sync of settings.
 
 Composes with ADR-0013 (extension packs — the section-schema is a new manifest capability) and ADR-0017/0019
