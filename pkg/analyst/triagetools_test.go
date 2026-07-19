@@ -100,6 +100,9 @@ func TestAssessmentPlaybookNeverConfirmsFindings(t *testing.T) {
 		seen[s.Key] = true
 	}
 	for _, s := range assessment.Steps {
+		if s.Gate {
+			continue // a gate is a human-approval pause, not a delegated step (no profile)
+		}
 		p, ok := builtinProfile(s.Profile)
 		if !ok {
 			t.Fatalf("step %q uses unknown profile %q", s.Key, s.Profile)

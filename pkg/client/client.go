@@ -463,6 +463,31 @@ func (c *Client) GetMethodologyCoverage(ctx context.Context, projectID string) (
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/methodology", nil, &out)
 }
 
+// StartPlan runs a playbook as a background plan for a project (ADR-0019).
+func (c *Client) StartPlan(ctx context.Context, projectID, playbookID string) (model.Plan, error) {
+	var out model.Plan
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/plans", map[string]string{"playbook_id": playbookID}, &out)
+}
+
+// GetPlan returns a plan with its steps (poll to watch a run's progress).
+func (c *Client) GetPlan(ctx context.Context, id string) (model.Plan, error) {
+	var out model.Plan
+	return out, c.do(ctx, http.MethodGet, "/v1/plans/"+id, nil, &out)
+}
+
+// ListPlans returns a project's plans (without steps), newest first.
+func (c *Client) ListPlans(ctx context.Context, projectID string) ([]model.Plan, error) {
+	var out []model.Plan
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/plans", nil, &out)
+}
+
+// ResolvePlanGate approves or denies a plan's waiting approval gate and resumes the run (ADR-0044).
+func (c *Client) ResolvePlanGate(ctx context.Context, planID, stepID string, approve bool, note string) (model.Plan, error) {
+	var out model.Plan
+	body := map[string]any{"approve": approve, "note": note}
+	return out, c.do(ctx, http.MethodPost, "/v1/plans/"+planID+"/steps/"+stepID+"/resolve", body, &out)
+}
+
 // MethodologySuggestion recommends adopting a pack based on the KB.
 type MethodologySuggestion struct {
 	MethodologyID string `json:"methodology_id"`

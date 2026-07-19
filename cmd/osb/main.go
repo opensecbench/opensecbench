@@ -123,6 +123,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return ragCmd(ctx, c, args[1:])
 	case "dossier":
 		return dossierCmd(ctx, c, args[1:])
+	case "plan":
+		return planCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -2183,4 +2185,76 @@ func dossierCmd(ctx context.Context, c *client.Client, args []string) error {
 	}
 	fmt.Print(md)
 	return nil
+}
+
+func planCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb plan <start|get|list|approve|deny>")
+	}
+	switch args[0] {
+	case "start":
+		fs := flag.NewFlagSet("plan start", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		playbook := fs.String("playbook", "", "playbook id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" || *playbook == "" {
+			return errors.New("plan start: --project and --playbook are required")
+		}
+		p, err := c.StartPlan(ctx, *project, *playbook)
+		if err != nil {
+			return err
+		}
+		return printJSON(p)
+	case "get":
+		fs := flag.NewFlagSet("plan get", flag.ContinueOnError)
+		id := fs.String("id", "", "plan id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" {
+			return errors.New("plan get: --id is required")
+		}
+		p, err := c.GetPlan(ctx, *id)
+		if err != nil {
+			return err
+		}
+		return printJSON(p)
+	case "list":
+		fs := flag.NewFlagSet("plan list", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("plan list: --project is required")
+		}
+		plans, err := c.ListPlans(ctx, *project)
+		if err != nil {
+			return err
+		}
+		for _, p := range plans {
+			fmt.Printf("%s  [%-8s] %s\n", p.ID[:8], p.Status, p.Goal)
+		}
+		return nil
+	case "approve", "deny":
+		fs := flag.NewFlagSet("plan "+args[0], flag.ContinueOnError)
+		id := fs.String("id", "", "plan id (required)")
+		step := fs.String("step", "", "gate step id (required)")
+		note := fs.String("note", "", "optional note")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" || *step == "" {
+			return errors.New("plan " + args[0] + ": --id and --step are required")
+		}
+		p, err := c.ResolvePlanGate(ctx, *id, *step, args[0] == "approve", *note)
+		if err != nil {
+			return err
+		}
+		return printJSON(p)
+	default:
+		return fmt.Errorf("unknown plan subcommand %q", args[0])
+	}
 }

@@ -19,7 +19,11 @@ func TestPlaybookStepsReferenceRealProfiles(t *testing.T) {
 		}
 		keys := map[string]bool{}
 		for _, s := range pb.Steps {
-			if !valid[s.Profile] {
+			if s.Gate {
+				if s.Profile != "" {
+					t.Errorf("playbook %q gate step %q must have no profile (it's a pause)", pb.ID, s.Key)
+				}
+			} else if !valid[s.Profile] {
 				t.Errorf("playbook %q step %q references unknown profile %q", pb.ID, s.Key, s.Profile)
 			}
 			keys[s.Key] = true
@@ -78,6 +82,103 @@ func TestRunPlanHappyPath(t *testing.T) {
 	for _, s := range got.Steps {
 		if s.Status != model.StepDone {
 			t.Fatalf("step %q status = %q", s.Key, s.Status)
+		}
+	}
+}
+
+// A gate step parks the plan in 'waiting' before its dependents run; approving it resumes the run to done.
+func TestRunPlanGatePausesThenResumes(t *testing.T) {
+	ctx := context.Background()
+	db, projectID := seedProject(t)
+	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+
+	plan := model.Plan{ProjectID: projectID, PlaybookID: "custom", Steps: []model.PlanStep{
+		{Key: "recon", Profile: "report-writer", Instruction: "recon"},
+		{Key: "gate", Gate: true, DependsOn: []string{"recon"}},
+		{Key: "act", Profile: "report-writer", Instruction: "act", DependsOn: []string{"recon", "gate"}},
+	}}
+	created, err := db.CreatePlan(ctx, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.runPlan(created) // synchronous — runs recon, then parks at the gate
+
+	got, _ := db.GetPlan(ctx, created.ID)
+	if got.Status != model.PlanWaiting {
+		t.Fatalf("plan should be waiting at the gate, status = %q", got.Status)
+	}
+	var gateID, actStatus string
+	for _, s := range got.Steps {
+		switch s.Key {
+		case "gate":
+			gateID = s.ID
+			if s.Status != model.StepWaiting {
+				t.Fatalf("gate step status = %q, want waiting", s.Status)
+			}
+		case "act":
+			actStatus = s.Status
+		case "recon":
+			if s.Status != model.StepDone {
+				t.Fatalf("recon should have run before the gate, status = %q", s.Status)
+			}
+		}
+	}
+	if actStatus != model.StepPending {
+		t.Fatalf("act must not run before the gate is approved, status = %q", actStatus)
+	}
+
+	// Approve the gate — the resumed run completes. (ResolvePlanGate relaunches runPlan on a goroutine;
+	// call the store + a synchronous runPlan directly so the test is deterministic.)
+	if err := db.ResolvePlanGate(ctx, gateID, true, "looks good"); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.UpdatePlanStatus(ctx, created.ID, model.PlanRunning)
+	svc.runPlan(created)
+
+	got, _ = db.GetPlan(ctx, created.ID)
+	if got.Status != model.PlanDone {
+		t.Fatalf("approved plan should complete, status = %q", got.Status)
+	}
+	for _, s := range got.Steps {
+		if s.Status != model.StepDone {
+			t.Fatalf("step %q status = %q after approval", s.Key, s.Status)
+		}
+	}
+}
+
+// Denying a gate skips it, and its dependents are skipped, so the plan ends failed.
+func TestRunPlanGateDenySkipsDependents(t *testing.T) {
+	ctx := context.Background()
+	db, projectID := seedProject(t)
+	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+
+	plan := model.Plan{ProjectID: projectID, PlaybookID: "custom", Steps: []model.PlanStep{
+		{Key: "gate", Gate: true},
+		{Key: "act", Profile: "report-writer", Instruction: "act", DependsOn: []string{"gate"}},
+	}}
+	created, _ := db.CreatePlan(ctx, plan)
+	svc.runPlan(created) // parks at the gate immediately
+
+	got, _ := db.GetPlan(ctx, created.ID)
+	var gateID string
+	for _, s := range got.Steps {
+		if s.Key == "gate" {
+			gateID = s.ID
+		}
+	}
+	if err := db.ResolvePlanGate(ctx, gateID, false, "not now"); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.UpdatePlanStatus(ctx, created.ID, model.PlanRunning)
+	svc.runPlan(created)
+
+	got, _ = db.GetPlan(ctx, created.ID)
+	if got.Status != model.PlanFailed {
+		t.Fatalf("denied plan should fail, status = %q", got.Status)
+	}
+	for _, s := range got.Steps {
+		if s.Key == "act" && s.Status != model.StepSkipped {
+			t.Fatalf("act should be skipped after deny, status = %q", s.Status)
 		}
 	}
 }

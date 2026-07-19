@@ -98,9 +98,17 @@ and can later ship as plugins.
       validate → draft-report end-to-end as a bounded run that **proposes** (findings stay human-confirmed).
       New `list_observations`/`list_investigations` tools surface the routing attributes; the investigation
       seed carries them (`describeSignals`); an `assessor` profile (no `create_finding`) + an `assessment`
-      playbook enforce propose-mode by construction. *Remaining: mid-run plan approval (pausable/resumable
-      runner); an agent `generate_report` tool; parallel plan steps + deeper delegation + raise the 8-step
-      sub-agent cap.*
+      playbook enforce propose-mode by construction.
+- [x] **Mid-run plan approval** (ADR-0044) — a plan can **pause for human approval** at a declared **gate**
+      step and **resume** where it left off. `runPlan` reconstructs progress from persisted step state
+      (resume-safe across daemon restarts); a gate parks the plan `waiting` + raises a notification;
+      `ResolvePlanGate` approves (clears gate) or denies (skips → plan fails) and relaunches. Migration 0045
+      (`gate`/`gate_approved`). `POST /v1/plans/{id}/steps/{stepID}/resolve` + `osb plan start|get|list|
+      approve|deny`. The `assessment` playbook gains an `approve-validation` gate before PoCs/traffic.
+      Validated live (pause→approve→done; deny→skip→failed; notification fired). *Remaining: edit-while-paused;
+      a distinct `cancelled` status; a workbench UI to approve/deny inline; gate timeout/auto-deny.*
+- [ ] **Analyst autonomy — remaining** (ADR-0035): an agent `generate_report` tool (ADR-0045, next); parallel
+      plan steps + deeper delegation + raise the 8-step sub-agent cap.
 
 ## Analyst provider / model management
 
