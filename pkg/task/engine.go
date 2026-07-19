@@ -445,17 +445,29 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	case interpret.TruffleHogMediaType:
 		interpreted, _ = interpret.TruffleHog(res.Stdout)
 	}
+	// Resolve the project once: it scopes both fingerprint dedup and disposition routing.
+	projectID := e.projectOfTask(ctx, task, p.applicationID)
 	var created []model.Observation
 	for _, o := range interpreted {
 		o.TaskID = &task.ID
 		o.ArtifactID = &art.ID
+		// Content-fingerprint dedup (ADR-0029): if we've already recorded this finding in the project,
+		// skip it — no duplicate observation and no repeated disposition (which would re-open an
+		// investigation / re-seed an agent thread and burn tokens on a finding we've already seen).
+		if projectID != "" {
+			o.ProjectID = &projectID
+			o.Fingerprint = interpret.Fingerprint(o)
+			if _, dup := e.store.ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
+				continue
+			}
+		}
 		if saved, err := e.store.CreateObservation(ctx, o); err == nil {
 			created = append(created, saved)
 		}
 	}
 	// Route new observations to a post-run disposition (ADR-0028): auto-finding, investigate, or review.
 	if len(created) > 0 {
-		e.applyDispositions(ctx, task, man, p.applicationID, created)
+		e.applyDispositions(ctx, projectID, man, p.applicationID, created)
 	}
 
 	status := model.TaskSucceeded
@@ -474,8 +486,7 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 // applyDispositions routes each new observation to a post-run action per the capability's declared
 // dispositions and any project overrides (ADR-0028): promote to a finding, open an investigation, or
 // leave for manual review. Best-effort — a routing failure never fails the task.
-func (e *Engine) applyDispositions(ctx context.Context, task model.Task, man capability.Manifest, appID *string, observations []model.Observation) {
-	projectID := e.projectOfTask(ctx, task, appID)
+func (e *Engine) applyDispositions(ctx context.Context, projectID string, man capability.Manifest, appID *string, observations []model.Observation) {
 	rules := e.dispositionRules(ctx, projectID, man)
 	if len(rules) == 0 {
 		return

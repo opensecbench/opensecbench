@@ -20,14 +20,36 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
+	Tool    sarifTool     `json:"tool"`
 	Results []sarifResult `json:"results"`
 }
 
+type sarifTool struct {
+	Driver sarifDriver `json:"driver"`
+}
+
+type sarifDriver struct {
+	Name  string      `json:"name"`
+	Rules []sarifRule `json:"rules"`
+}
+
+type sarifRule struct {
+	ID         string          `json:"id"`
+	Properties sarifProperties `json:"properties"`
+}
+
+// sarifProperties carries the bag of extra facts both semgrep and grype emit; we only read the CVSS-like
+// security-severity, present at either the result or the rule level depending on the tool.
+type sarifProperties struct {
+	SecuritySeverity string `json:"security-severity"`
+}
+
 type sarifResult struct {
-	RuleID    string          `json:"ruleId"`
-	Level     string          `json:"level"`
-	Message   sarifMessage    `json:"message"`
-	Locations []sarifLocation `json:"locations"`
+	RuleID     string          `json:"ruleId"`
+	Level      string          `json:"level"`
+	Message    sarifMessage    `json:"message"`
+	Locations  []sarifLocation `json:"locations"`
+	Properties sarifProperties `json:"properties"`
 }
 
 type sarifMessage struct {
@@ -55,19 +77,75 @@ func SARIF(data []byte) ([]model.Observation, error) {
 
 	var obs []model.Observation
 	for _, run := range log.Runs {
+		tool := strings.ToLower(run.Tool.Driver.Name) // "semgrep" / "grype" — carried as an attribute
+		// security-severity often lives on the rule definition (semgrep) rather than the result; index it.
+		ruleSev := make(map[string]string)
+		for _, rule := range run.Tool.Driver.Rules {
+			if rule.Properties.SecuritySeverity != "" {
+				ruleSev[rule.ID] = rule.Properties.SecuritySeverity
+			}
+		}
 		for _, r := range run.Results {
-			obs = append(obs, model.Observation{
+			secSev := r.Properties.SecuritySeverity
+			if secSev == "" {
+				secSev = ruleSev[r.RuleID]
+			}
+			// Structured attributes so post-run disposition rules can route (ADR-0028/0029).
+			attrs := map[string]string{}
+			if tool != "" {
+				attrs["tool"] = tool
+			}
+			if secSev != "" {
+				attrs["security_severity"] = secSev
+			}
+			// The SARIF level collapses distinct CVSS bands (grype maps both Critical and High to "error"),
+			// so prefer the numeric security-severity when present — this is what makes MinSeverity routing
+			// (e.g. critical vs high) meaningful for grype/semgrep.
+			sev := severityFromLevel(r.Level)
+			if refined := severityFromCVSS(secSev); refined != "" {
+				sev = refined
+			}
+			o := model.Observation{
 				Origin:      model.OriginTool,
 				ReviewState: model.ReviewUnreviewed,
 				Title:       title(r.RuleID, r.Message.Text),
 				Detail:      r.Message.Text,
-				Severity:    severityFromLevel(r.Level),
+				Severity:    sev,
 				RuleID:      r.RuleID,
 				Location:    firstLocation(r.Locations),
-			})
+			}
+			if len(attrs) > 0 {
+				o.Attributes = attrs
+			}
+			obs = append(obs, o)
 		}
 	}
 	return obs, nil
+}
+
+// severityFromCVSS maps a SARIF security-severity (a CVSS-base-score string, "0.0".."10.0") to our severity
+// vocabulary using the standard CVSS v3 bands. Returns "" when the value is absent or unparseable, so the
+// caller can fall back to the SARIF level.
+func severityFromCVSS(s string) string {
+	if s == "" {
+		return ""
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return ""
+	}
+	switch {
+	case v >= 9.0:
+		return "critical"
+	case v >= 7.0:
+		return "high"
+	case v >= 4.0:
+		return "medium"
+	case v > 0:
+		return "low"
+	default:
+		return "info"
+	}
 }
 
 func title(ruleID, message string) string {

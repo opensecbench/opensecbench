@@ -16,7 +16,7 @@ const projectTaskFilter = `(t.project_id = ? OR t.application_id IN (SELECT id F
 // integration pull) and those from the project's tasks (direct project_id or via application).
 func (db *DB) ListObservationsByProject(ctx context.Context, projectID string) ([]model.Observation, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT o.id, o.task_id, o.artifact_id, o.project_id, o.origin, o.review_state, o.title, o.detail, o.severity, o.rule_id, o.location, o.attributes, o.created_at
+		`SELECT o.id, o.task_id, o.artifact_id, o.project_id, o.origin, o.review_state, o.title, o.detail, o.severity, o.rule_id, o.location, o.attributes, o.fingerprint, o.created_at
 		 FROM observations o LEFT JOIN tasks t ON o.task_id = t.id
 		 WHERE o.project_id = ? OR `+projectTaskFilter+` ORDER BY o.created_at`, projectID, projectID, projectID)
 	if err != nil {

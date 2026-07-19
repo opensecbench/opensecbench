@@ -85,6 +85,44 @@ func TestDispositionRoutesVerifiedAndUnverified(t *testing.T) {
 	}
 }
 
+// A re-scan that reproduces the same findings must not duplicate observations or re-fire dispositions —
+// the content fingerprint dedups, so investigations (and their token cost) don't re-open every run (ADR-0029).
+func TestReScanDedupsObservationsAndDispositions(t *testing.T) {
+	eng, db := dispoEngine(t)
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+
+	run := func() {
+		tk, err := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-secrets", TargetDir: "/repo", ApplicationID: &app.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if done := pollTask(t, eng, tk.ID); done.Status != model.TaskSucceeded {
+			t.Fatalf("task = %s (err=%q)", done.Status, done.Error)
+		}
+	}
+	run()
+	run() // identical re-scan — every finding is already on file
+
+	if obs, _ := db.ListObservationsByProject(ctx, proj.ID); len(obs) != 2 {
+		t.Fatalf("re-scan should not duplicate observations, got %d want 2", len(obs))
+	}
+	if f, _ := db.ListFindings(ctx); len(f) != 1 {
+		t.Fatalf("re-scan should not duplicate findings, got %d want 1", len(f))
+	}
+	if inv, _ := db.ListInvestigationsByProject(ctx, proj.ID); len(inv) != 1 {
+		t.Fatalf("re-scan should not duplicate investigations, got %d want 1", len(inv))
+	}
+	// Dedup requires a fingerprint to have been recorded on each observation.
+	obs, _ := db.ListObservationsByProject(ctx, proj.ID)
+	for _, o := range obs {
+		if o.Fingerprint == "" {
+			t.Fatalf("observation %s missing fingerprint", o.ID)
+		}
+	}
+}
+
 // A capability with no dispositions leaves plain unreviewed observations (no regression).
 func TestNoDispositionsLeavesReview(t *testing.T) {
 	db, blobs := openStore(t)
