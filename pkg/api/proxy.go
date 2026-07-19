@@ -183,6 +183,9 @@ func (s *Server) shutdownProxies() {
 // Close releases live resources: running proxies and open terminal sessions (finalizing their
 // transcripts). Called by the control plane on shutdown.
 func (s *Server) Close() {
+	if s.schedCancel != nil {
+		s.schedCancel()
+	}
 	s.shutdownProxies()
 	s.sessMu.Lock()
 	ids := make([]string, 0, len(s.sessions))

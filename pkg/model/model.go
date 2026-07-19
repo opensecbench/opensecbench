@@ -354,6 +354,18 @@ const (
 	StepSkipped = "skipped"
 )
 
+// Schedule runs a playbook on a cadence for a project (ADR-0019 step 4).
+type Schedule struct {
+	ID              string     `json:"id"`
+	ProjectID       string     `json:"project_id"`
+	PlaybookID      string     `json:"playbook_id"`
+	IntervalSeconds int        `json:"interval_seconds"`
+	Enabled         bool       `json:"enabled"`
+	LastRunAt       *time.Time `json:"last_run_at,omitempty"`
+	NextRunAt       time.Time  `json:"next_run_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+}
+
 // SavedPlaybook is a user-saved agent playbook (ADR-0019): recorded from a run or authored directly.
 // Steps is a JSON array of {key, profile, instruction, depends_on}.
 type SavedPlaybook struct {

@@ -413,6 +413,17 @@ export interface AgentProfile {
   description: string
 }
 
+export interface Schedule {
+  id: string
+  project_id: string
+  playbook_id: string
+  interval_seconds: number
+  enabled: boolean
+  last_run_at?: string
+  next_run_at: string
+  created_at: string
+}
+
 export interface ApprovalRule {
   tool: string
   profile?: string
@@ -755,6 +766,11 @@ export const api = {
     request<{ id: string }>('POST', `/v1/plans/${planId}/save-as-playbook`, { name, description }),
   startPlan: (projectId: string, playbookId: string) =>
     request<Plan>('POST', `/v1/projects/${projectId}/plans`, { playbook_id: playbookId }),
+  listSchedules: (projectId: string) => request<Schedule[]>('GET', `/v1/projects/${projectId}/schedules`),
+  createSchedule: (projectId: string, playbookId: string, intervalSeconds: number) =>
+    request<Schedule>('POST', `/v1/projects/${projectId}/schedules`, { playbook_id: playbookId, interval_seconds: intervalSeconds }),
+  setScheduleEnabled: (id: string, enabled: boolean) => request<void>('PUT', '/v1/schedules/' + id, { enabled }),
+  deleteSchedule: (id: string) => request<void>('DELETE', '/v1/schedules/' + id),
   getPlan: (id: string) => request<Plan>('GET', '/v1/plans/' + id),
   listPlans: (projectId: string) => request<Plan[]>('GET', `/v1/projects/${projectId}/plans`),
 
