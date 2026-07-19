@@ -62,6 +62,7 @@ func BuiltIns() *Registry {
 	r.Register(syftSBOM{})
 	r.Register(govulncheck{})
 	r.Register(routeMap{})
+	r.Register(opengrepScan{})
 	return r
 }
 
@@ -107,7 +108,7 @@ func (semgrep) Manifest() Manifest {
 		ID:              "semgrep",
 		Version:         "1.0.0",
 		Title:           "Semgrep (SAST)",
-		Description:     "Static analysis over source with Semgrep; emits SARIF. Fetches rules over the network.",
+		Description:     "Static analysis over source with Semgrep; emits SARIF. Prefer opengrep (open, ships dataflow reachability); use this for an existing Semgrep license — set pro=true + a SEMGREP_APP_TOKEN secret for the Pro engine (interprocedural taint + codeFlows reachability).",
 		OutputName:      "semgrep.sarif",
 		OutputMediaType: "application/sarif+json",
 		OKExitCodes:     []int{0, 1}, // 0 = clean, 1 = findings; >=2 is an error
@@ -123,12 +124,60 @@ func (semgrep) Plan(in Input) (runner.RunSpec, error) {
 	if c, ok := in.Params["config"].(string); ok && c != "" {
 		config = c
 	}
+	// --dataflow-traces surfaces taint dataflow as SARIF codeFlows (reachability, ADR-0032) — but Semgrep CE
+	// masks it; it only materializes under the Pro engine. Pro (interprocedural taint + codeFlows) needs a
+	// license: pass pro=true AND a SEMGREP_APP_TOKEN secret ref (injected as env at exec, ADR-0011/0036).
+	cmd := []string{"semgrep", "scan", "--sarif", "--dataflow-traces", "--quiet", "--config", config, "/src"}
+	if pro, _ := in.Params["pro"].(bool); pro {
+		cmd = append([]string{"semgrep", "scan", "--pro"}, cmd[2:]...)
+	}
 	return runner.RunSpec{
 		Image:    semgrepImage,
-		Cmd:      []string{"semgrep", "scan", "--sarif", "--quiet", "--config", config, "/src"},
+		Cmd:      cmd,
 		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
 		Workdir:  "/src",
-		Network:  "bridge", // required to fetch rules
+		Network:  "bridge", // fetch rules; Pro also authenticates + pulls the pro engine
+		Timeout:  10 * time.Minute,
+		MemoryMB: 4096,
+		CPUs:     2,
+	}, nil
+}
+
+// opengrepScan is SAST with the open (LGPL-2.1) Semgrep fork. Unlike Semgrep CE, opengrep emits the SARIF
+// `codeFlows` dataflow trace and metavariables (Semgrep moved these behind a commercial login), so SAST
+// dataflow reachability (ADR-0032) works with a fully open tool. It is the default SAST engine (ADR-0036).
+type opengrepScan struct{}
+
+const opengrepImage = "osb/opengrep:latest" // OSB-built (images/opengrep); ships the pinned opengrep binary
+
+func (opengrepScan) Manifest() Manifest {
+	return Manifest{
+		ID:              "opengrep",
+		Version:         "1.0.0",
+		Title:           "Opengrep (SAST + dataflow reachability)",
+		Description:     "Static analysis with the open Semgrep fork; emits SARIF with dataflow traces (codeFlows) so taint findings carry reachability. Fetches registry rules over the network.",
+		OutputName:      "opengrep.sarif",
+		OutputMediaType: "application/sarif+json",
+		OKExitCodes:     []int{0, 1}, // 0 = clean, 1 = findings; >=2 is an error
+		Dispositions:    sastReachabilityRouting,
+	}
+}
+
+func (opengrepScan) Plan(in Input) (runner.RunSpec, error) {
+	if in.TargetDir == "" {
+		return runner.RunSpec{}, errors.New("opengrep: target directory required")
+	}
+	config := "auto"
+	if c, ok := in.Params["config"].(string); ok && c != "" {
+		config = c
+	}
+	// --dataflow-traces is required for codeFlows (the reachability signal); --sarif writes SARIF to stdout.
+	return runner.RunSpec{
+		Image:    opengrepImage,
+		Cmd:      []string{"opengrep", "scan", "--sarif", "--dataflow-traces", "--quiet", "--config", config, "/src"},
+		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
+		Workdir:  "/src",
+		Network:  "bridge", // fetch registry rulesets
 		Timeout:  10 * time.Minute,
 		MemoryMB: 4096,
 		CPUs:     2,
@@ -346,8 +395,8 @@ func (routeMap) Plan(in Input) (runner.RunSpec, error) {
 		return runner.RunSpec{}, fmt.Errorf("route-map: stage ruleset: %w", err)
 	}
 	return runner.RunSpec{
-		Image: semgrepImage,
-		Cmd:   []string{"semgrep", "scan", "--json", "--quiet", "--config", "/rules/routes.yml", "/src"},
+		Image: opengrepImage, // the open Semgrep fork — same CLI, and it un-masks metavars (ADR-0036)
+		Cmd:   []string{"opengrep", "scan", "--json", "--quiet", "--config", "/rules/routes.yml", "/src"},
 		Mounts: []runner.Mount{
 			{Source: in.TargetDir, Target: "/src", ReadOnly: true},
 			{Source: rulesDir, Target: "/rules", ReadOnly: true},

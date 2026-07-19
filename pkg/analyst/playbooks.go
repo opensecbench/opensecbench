@@ -107,9 +107,9 @@ var builtinPlaybooks = []Playbook{
 				Key:     "scan",
 				Profile: "code-analysis",
 				Instruction: "Run the source security scanners via run_capability against the in-scope assets — " +
-					"semgrep (SAST), grype and govulncheck (SCA/reachability), and trufflehog (secrets). Skip " +
-					"anything the knowledge base shows was run recently. The platform routes and enriches the " +
-					"results automatically; summarize what was run to analysis/scan.md.",
+					"opengrep (SAST, with dataflow reachability), grype and govulncheck (SCA/reachability), and " +
+					"trufflehog (secrets). Skip anything the knowledge base shows was run recently. The platform " +
+					"routes and enriches the results automatically; summarize what was run to analysis/scan.md.",
 				DependsOn: []string{"recon"},
 			},
 			{
