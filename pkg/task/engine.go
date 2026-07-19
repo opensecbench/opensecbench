@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
@@ -27,8 +28,10 @@ import (
 // ErrTaskNotRunning is returned when cancelling a task that is not currently executing.
 var ErrTaskNotRunning = errors.New("task: not running")
 
-// Engine executes capabilities and persists their provenance. Runs are asynchronous: Enqueue creates a
-// pending task and hands it to a bounded worker pool (ADR-0022) so callers never block on a container.
+// Engine executes capabilities and persists their provenance. Runs are asynchronous and the queue is
+// durable (ADR-0023): the tasks table IS the queue. Enqueue records a pending task; a bounded worker
+// pool atomically claims pending rows, so pending work survives a control-plane restart and interrupted
+// runs resume — callers never block on a container.
 type Engine struct {
 	store    *store.DB
 	blobs    *cas.Store
@@ -39,14 +42,13 @@ type Engine struct {
 	// (ADR-0011). nil disables secret injection.
 	Secrets func(ctx context.Context, name string) (string, error)
 
-	jobs       chan job          // enqueued work drained by the worker pool
-	baseCtx    context.Context   // parent context for background runs (survives request cancellation)
+	notify     chan struct{}   // "there may be work" wakeup, so workers claim immediately on enqueue
+	baseCtx    context.Context // parent context for background runs (survives request cancellation)
 	baseCancel context.CancelFunc
-	wg         sync.WaitGroup    // worker goroutines
+	wg         sync.WaitGroup // worker goroutines
 
-	mu        sync.Mutex
-	running   map[string]runState
-	cancelled map[string]bool // tasks cancelled while still queued (checked before a worker starts them)
+	mu      sync.Mutex
+	running map[string]runState
 }
 
 type runState struct {
@@ -54,14 +56,23 @@ type runState struct {
 	container string
 }
 
-// job is one enqueued capability run: a created (pending) task plus everything needed to execute it.
-type job struct {
-	task model.Task
-	req  RunRequest
-	prep prepared
+// pollInterval is the worker backstop poll — the belt to notify's braces (catches restart-resumed work
+// and any missed wakeup). Kept short since a local claim is cheap.
+const pollInterval = time.Second
+
+// maxAttempts caps how many times an interrupted task is re-run before it is failed, so a task that
+// keeps crashing the process can't loop forever. OSB_TASK_MAX_ATTEMPTS overrides.
+func maxAttempts() int {
+	n := 3
+	if v := os.Getenv("OSB_TASK_MAX_ATTEMPTS"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 {
+			n = p
+		}
+	}
+	return n
 }
 
-// defaultWorkers bounds concurrent capability runs; OSB_TASK_WORKERS overrides. A burst of scheduled or
+// workerCount bounds concurrent capability runs; OSB_TASK_WORKERS overrides. A burst of scheduled or
 // triggered runs queues up rather than spawning unbounded containers.
 func workerCount() int {
 	n := 3
@@ -73,67 +84,107 @@ func workerCount() int {
 	return n
 }
 
-// NewEngine wires the engine's dependencies and starts the async worker pool. Any tasks left pending or
-// running from a previous process (a crash mid-run) are reconciled to failed on startup.
+// NewEngine wires the engine's dependencies and starts the async worker pool. Tasks left running by a
+// prior process (a crash mid-run) are requeued to pending so the pool resumes them (ADR-0023).
 func NewEngine(st *store.DB, blobs *cas.Store, reg *capability.Registry, r runner.Runner) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
+	workers := workerCount()
 	e := &Engine{
 		store: st, blobs: blobs, registry: reg, runner: r,
-		jobs:       make(chan job, 256),
+		notify:     make(chan struct{}, workers),
 		baseCtx:    ctx,
 		baseCancel: cancel,
 		running:    make(map[string]runState),
-		cancelled:  make(map[string]bool),
 	}
 	if st != nil {
-		if n, err := st.FailUnfinishedTasks(ctx, "interrupted (control plane restarted)"); err == nil && n > 0 {
-			log.Printf("task: reconciled %d unfinished task(s) to failed on startup", n)
+		if n, err := st.RequeueInterruptedTasks(ctx); err == nil && n > 0 {
+			log.Printf("task: requeued %d interrupted task(s) on startup", n)
 		}
 	}
-	for i := 0; i < workerCount(); i++ {
+	for i := 0; i < workers; i++ {
 		e.wg.Add(1)
 		go e.worker()
 	}
+	e.signal() // pick up any pre-existing / just-requeued pending work
 	return e
 }
 
 // Close stops the worker pool and cancels any in-flight runs. Safe to call once.
 func (e *Engine) Close() {
 	e.baseCancel()
-	close(e.jobs)
 	e.wg.Wait()
 }
 
-// worker drains the queue, running each job on the engine's background context so a client disconnect
-// doesn't abort the run. A task cancelled while still queued is skipped and recorded as cancelled.
-func (e *Engine) worker() {
-	defer e.wg.Done()
-	for j := range e.jobs {
-		if e.claim(j.task.ID) {
-			continue // cancelled before it started
-		}
-		if err := e.store.StartTask(e.baseCtx, j.task.ID); err != nil {
-			continue // already cancelled/gone
-		}
-		j.task.Status = model.TaskRunning
-		_, _ = e.execute(e.baseCtx, j.task, j.req, j.prep)
+// signal is a non-blocking nudge that pending work may be available.
+func (e *Engine) signal() {
+	select {
+	case e.notify <- struct{}{}:
+	default:
 	}
 }
 
-// claim returns true if the task was cancelled while queued (and clears the marker); the worker then
-// skips it. False means it is clear to run.
-func (e *Engine) claim(taskID string) (cancelledBeforeStart bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.cancelled[taskID] {
-		delete(e.cancelled, taskID)
-		return true
+// worker claims and runs pending tasks. It loops claiming as long as there is work (waking a sibling
+// each time in case there is more), then parks on notify or the backstop poll until the next wakeup.
+func (e *Engine) worker() {
+	defer e.wg.Done()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		task, ok, err := e.store.ClaimNextPendingTask(e.baseCtx)
+		if err != nil {
+			if e.baseCtx.Err() != nil {
+				return
+			}
+			log.Printf("task: claim failed: %v", err)
+		} else if ok {
+			e.signal() // more may be pending — wake a sibling
+			e.runClaimed(task)
+			continue
+		}
+		select {
+		case <-e.notify:
+		case <-ticker.C:
+		case <-e.baseCtx.Done():
+			return
+		}
 	}
-	return false
+}
+
+// runClaimed reconstructs a claimed task's request from its persisted row, re-plans it, and executes it.
+// A task that has been claimed too many times (a crash loop after interruptions) is failed instead.
+func (e *Engine) runClaimed(task model.Task) {
+	if task.Attempts > maxAttempts() {
+		_ = e.store.FinishTask(e.baseCtx, task.ID, model.TaskFailed, nil, "exceeded retry limit after interruption")
+		return
+	}
+	req := requestFromTask(task)
+	prep, err := e.prepare(e.baseCtx, req)
+	if err != nil {
+		_ = e.store.FinishTask(e.baseCtx, task.ID, model.TaskFailed, nil, "reconstruct: "+err.Error())
+		return
+	}
+	_, _ = e.execute(e.baseCtx, task, req, prep)
+}
+
+// requestFromTask rebuilds a RunRequest from a persisted task row (durable-queue reconstruction).
+func requestFromTask(t model.Task) RunRequest {
+	req := RunRequest{
+		CapabilityID:  t.CapabilityID,
+		Actor:         t.Actor,
+		TargetDir:     t.TargetDir,
+		AssetID:       t.AssetID,
+		ApplicationID: t.ApplicationID,
+		ProjectID:     t.ProjectID,
+		SecretRefs:    t.SecretRefs,
+	}
+	if len(t.Params) > 0 {
+		_ = json.Unmarshal(t.Params, &req.Params)
+	}
+	return req
 }
 
 // Cancel stops a task. A running task's container is killed and its context cancelled; a still-queued
-// task is marked so the worker skips it, and recorded as cancelled now.
+// (pending) task is marked failed so a worker never claims it.
 func (e *Engine) Cancel(taskID string) error {
 	e.mu.Lock()
 	rs, running := e.running[taskID]
@@ -145,16 +196,12 @@ func (e *Engine) Cancel(taskID string) error {
 		rs.cancel()
 		return nil
 	}
-	// Not executing — it may be sitting in the queue. If the task is still pending, mark it for the
-	// worker to skip and record the cancellation immediately.
-	t, err := e.store.GetTask(context.Background(), taskID)
-	if err != nil || t.Status != model.TaskPending {
+	// Not executing — cancel it if it is still queued.
+	cancelled, err := e.store.CancelPendingTask(context.Background(), taskID)
+	if err != nil || !cancelled {
 		return ErrTaskNotRunning
 	}
-	e.mu.Lock()
-	e.cancelled[taskID] = true
-	e.mu.Unlock()
-	return e.store.FinishTask(context.Background(), taskID, model.TaskFailed, nil, "cancelled by user")
+	return nil
 }
 
 // Registry exposes the capabilities this engine can run.
@@ -240,13 +287,15 @@ func (e *Engine) createTask(ctx context.Context, req RunRequest, p prepared, que
 		Actor:             actor,
 		Runner:            e.runner.Name(),
 		Params:            paramsJSON,
+		SecretRefs:        req.SecretRefs, // reference names only, persisted for durable reconstruction
+		TargetDir:         req.TargetDir,  // raw dir (empty when derived from an asset)
 		Queued:            queued,
 	})
 }
 
-// Enqueue validates and plans the run, records a pending task, and hands it to the worker pool,
-// returning immediately. The task advances to running when a worker claims it (ADR-0022). Bad requests
-// fail fast (no task); a full queue is the only thing that blocks, and only briefly.
+// Enqueue validates and plans the run, records a pending task, and wakes the worker pool, returning
+// immediately. The task advances to running when a worker atomically claims it from the DB (ADR-0023);
+// it survives a restart because the pending row IS the queue. Bad requests fail fast (no task).
 func (e *Engine) Enqueue(ctx context.Context, req RunRequest) (model.Task, error) {
 	p, err := e.prepare(ctx, req)
 	if err != nil {
@@ -256,13 +305,8 @@ func (e *Engine) Enqueue(ctx context.Context, req RunRequest) (model.Task, error
 	if err != nil {
 		return model.Task{}, err
 	}
-	select {
-	case e.jobs <- job{task: t, req: req, prep: p}:
-		return t, nil
-	case <-e.baseCtx.Done():
-		_ = e.store.FinishTask(context.Background(), t.ID, model.TaskFailed, nil, "engine shutting down")
-		return t, errors.New("task: engine shutting down")
-	}
+	e.signal()
+	return t, nil
 }
 
 // Run plans the capability, executes it in the sandbox synchronously, stores its stdout as an output
