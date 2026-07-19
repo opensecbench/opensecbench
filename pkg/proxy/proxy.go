@@ -39,13 +39,14 @@ type Proxy struct {
 	allow      func(host string) bool
 	intercept  Interceptor
 	process    Processor
-	transport  *http.Transport
+	transport  http.RoundTripper // opens the upstream socket; may be a runner-routed forwarder (ADR-0026)
 }
 
 // New builds a proxy. onExchange persists captures; allow gates hosts (nil allows all); intercept
 // holds traffic for operator edit/forward/drop (nil disables interception); process applies automatic
-// match/replace-style transforms (nil = no transforms).
-func New(ca *CA, onExchange func(Exchange), allow func(host string) bool, intercept Interceptor, process Processor) *Proxy {
+// match/replace-style transforms (nil = no transforms). forward, when non-nil, replaces the local upstream
+// transport — used to route every forward through a remote runner's vantage (ADR-0026).
+func New(ca *CA, onExchange func(Exchange), allow func(host string) bool, intercept Interceptor, process Processor, forward http.RoundTripper) *Proxy {
 	if onExchange == nil {
 		onExchange = func(Exchange) {}
 	}
@@ -58,13 +59,8 @@ func New(ca *CA, onExchange func(Exchange), allow func(host string) bool, interc
 	if process == nil {
 		process = noopProcessor{}
 	}
-	return &Proxy{
-		ca:         ca,
-		onExchange: onExchange,
-		allow:      allow,
-		intercept:  intercept,
-		process:    process,
-		transport: &http.Transport{
+	if forward == nil {
+		forward = &http.Transport{
 			Proxy:               nil,
 			TLSHandshakeTimeout: 10 * time.Second,
 			// Assessment targets routinely present self-signed or otherwise invalid certs; an
@@ -74,7 +70,15 @@ func New(ca *CA, onExchange func(Exchange), allow func(host string) bool, interc
 			// origin cert is surfaced rather than silently accepted.
 			TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // see above
 			ResponseHeaderTimeout: 60 * time.Second,
-		},
+		}
+	}
+	return &Proxy{
+		ca:         ca,
+		onExchange: onExchange,
+		allow:      allow,
+		intercept:  intercept,
+		process:    process,
+		transport:  forward,
 	}
 }
 

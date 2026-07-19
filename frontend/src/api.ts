@@ -277,6 +277,7 @@ export interface ProxyStatus {
   running: boolean
   port?: number
   ca_spki_sha256?: string
+  egress?: string // "" = local host; else the egress runner id (ADR-0026)
 }
 
 export interface Session {
@@ -775,8 +776,8 @@ export const api = {
 
   // proxy
   getProxy: (projectId: string) => request<ProxyStatus>('GET', `/v1/projects/${projectId}/proxy`),
-  startProxy: (projectId: string, port = 0) =>
-    request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/start`, { port }),
+  startProxy: (projectId: string, port = 0, runnerId?: string) =>
+    request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/start`, { port, runner_id: runnerId || undefined }),
   stopProxy: (projectId: string) =>
     request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/stop`, {}),
   proxyCAURL: () => `${baseURL}/v1/proxy/ca`,

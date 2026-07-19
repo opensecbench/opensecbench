@@ -7,12 +7,24 @@ package runnerhub
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/runner"
+	"github.com/opensecbench/opensecbench/pkg/runnertunnel"
 )
+
+// TunnelForward is the OPEN-frame metadata for a proxy request forwarded through a runner over the
+// streaming tunnel (ADR-0026): the request line + headers; the body streams as the stream's payload.
+type TunnelForward struct {
+	Method        string      `json:"method"`
+	URL           string      `json:"url"`
+	Header        http.Header `json:"header"`
+	ContentLength int64       `json:"content_length"`
+	Insecure      bool        `json:"insecure"`
+}
 
 // Dispatch messages flow down a runner's stream.
 const (
@@ -73,9 +85,10 @@ type httpWaiter struct {
 // Hub is the control-plane-side broker. Safe for concurrent use.
 type Hub struct {
 	mu          sync.Mutex
-	conns       map[string]*conn              // runnerID -> live stream
-	pending     map[string]chan runner.Result // taskID -> capability-result waiter
-	pendingHTTP map[string]httpWaiter         // requestID -> HTTP-result waiter
+	conns       map[string]*conn                 // runnerID -> live SSE dispatch stream
+	pending     map[string]chan runner.Result    // taskID -> capability-result waiter
+	pendingHTTP map[string]httpWaiter            // requestID -> HTTP-result waiter
+	tunnels     map[string]*runnertunnel.Session // runnerID -> live streaming tunnel (ADR-0026)
 }
 
 // New builds an empty hub.
@@ -84,7 +97,36 @@ func New() *Hub {
 		conns:       map[string]*conn{},
 		pending:     map[string]chan runner.Result{},
 		pendingHTTP: map[string]httpWaiter{},
+		tunnels:     map[string]*runnertunnel.Session{},
 	}
+}
+
+// RegisterTunnel records a runner's live streaming tunnel, replacing (and closing) any prior one.
+func (h *Hub) RegisterTunnel(runnerID string, sess *runnertunnel.Session) {
+	h.mu.Lock()
+	old := h.tunnels[runnerID]
+	h.tunnels[runnerID] = sess
+	h.mu.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+}
+
+// RemoveTunnel detaches a runner's tunnel if it is still the registered one.
+func (h *Hub) RemoveTunnel(runnerID string, sess *runnertunnel.Session) {
+	h.mu.Lock()
+	if h.tunnels[runnerID] == sess {
+		delete(h.tunnels, runnerID)
+	}
+	h.mu.Unlock()
+}
+
+// TunnelFor returns a runner's live streaming tunnel, if connected.
+func (h *Hub) TunnelFor(runnerID string) (*runnertunnel.Session, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s, ok := h.tunnels[runnerID]
+	return s, ok
 }
 
 // Subscription is a connected runner's downstream stream. The SSE handler reads Ch until Done closes (the

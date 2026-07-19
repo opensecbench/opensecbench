@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -12,9 +13,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/runnerhub"
+	"github.com/opensecbench/opensecbench/pkg/runnertunnel"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
@@ -97,6 +101,7 @@ func (s *Server) RunnerHandler() http.Handler {
 	mux.HandleFunc("GET /v1/runners/stream", s.runnerAuth(s.runnerStream))
 	mux.HandleFunc("POST /v1/runners/result", s.runnerAuth(s.runnerResult))
 	mux.HandleFunc("POST /v1/runners/http-result", s.runnerAuth(s.runnerHTTPResult))
+	mux.HandleFunc("GET /v1/runners/tunnel", s.runnerAuth(s.runnerTunnel))
 	return mux
 }
 
@@ -246,4 +251,78 @@ func (s *Server) runnerHTTPResult(w http.ResponseWriter, r *http.Request) {
 	}
 	s.runners.DeliverHTTP(runnerIDFrom(r), res)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// runnerUpgrader upgrades the tunnel endpoint to a WebSocket. The connection is already authenticated by
+// the ed25519 middleware (not a browser), so any origin is accepted.
+var runnerUpgrader = websocket.Upgrader{
+	CheckOrigin:     func(*http.Request) bool { return true },
+	ReadBufferSize:  32 * 1024,
+	WriteBufferSize: 32 * 1024,
+}
+
+// runnerTunnel upgrades to the multiplexed streaming tunnel (ADR-0026) over which the control plane opens
+// a logical stream per proxy forward. The control plane is the stream initiator; the runner accepts.
+func (s *Server) runnerTunnel(w http.ResponseWriter, r *http.Request) {
+	id := runnerIDFrom(r)
+	conn, err := runnerUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return // Upgrade already wrote an error
+	}
+	sess := runnertunnel.New(conn, true)
+	s.runners.RegisterTunnel(id, sess)
+	defer s.runners.RemoveTunnel(id, sess)
+	_ = s.store.TouchRunner(r.Context(), id)
+	<-sess.Done() // hold the connection open until the tunnel dies
+}
+
+// tunnelForwarder is an http.RoundTripper that forwards a proxied request through a runner's streaming
+// tunnel (ADR-0026): it opens a stream carrying the request line + headers, streams the request body up,
+// and returns a response whose Body streams the target's response back from the runner's vantage.
+type tunnelForwarder struct {
+	hub      *runnerhub.Hub
+	runnerID string
+}
+
+func (f *tunnelForwarder) RoundTrip(req *http.Request) (*http.Response, error) {
+	sess, ok := f.hub.TunnelFor(f.runnerID)
+	if !ok {
+		return nil, fmt.Errorf("runner %s tunnel offline", f.runnerID)
+	}
+	meta, _ := json.Marshal(runnerhub.TunnelForward{
+		Method: req.Method, URL: req.URL.String(), Header: req.Header,
+		ContentLength: req.ContentLength, Insecure: true,
+	})
+	st, err := sess.Open(meta)
+	if err != nil {
+		return nil, err
+	}
+	// Stream the (already-buffered) request body up, then half-close.
+	go func() {
+		if req.Body != nil {
+			_, _ = io.Copy(st, req.Body)
+			_ = req.Body.Close()
+		}
+		_ = st.CloseWrite()
+	}()
+	// Read the response off the stream — the body streams as it arrives.
+	resp, err := http.ReadResponse(bufio.NewReader(st), req)
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	resp.Body = &tunnelBody{ReadCloser: resp.Body, st: st}
+	return resp, nil
+}
+
+// tunnelBody closes the underlying tunnel stream when the response body is closed.
+type tunnelBody struct {
+	io.ReadCloser
+	st *runnertunnel.Stream
+}
+
+func (b *tunnelBody) Close() error {
+	err := b.ReadCloser.Close()
+	_ = b.st.Close()
+	return err
 }

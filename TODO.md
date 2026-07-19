@@ -110,8 +110,12 @@ and can later ship as plugins.
   - [x] **Runners as request-egress endpoints — Phase 2a: Replay** (ADR-0025) — Replay send (UI +
         Analyst `send_request` tool) egresses from a chosen runner's vantage via an HTTP-request job on the
         runner protocol; shared `egressSend` selector; `egress` provenance recorded on the exchange; scope
-        stays control-plane-side. *Remaining: Phase 2b = proxy MITM egress via runner (per-request forward,
-        streaming/TLS over the outbound tunnel); a per-project default egress runner.*
+        stays control-plane-side.
+  - [x] **Phase 2b: proxy MITM egress via runner** (ADR-0026) — multiplexed, credit-flow-controlled
+        streaming tunnel (`pkg/runnertunnel`) over one WebSocket per runner; the proxy forwards every
+        request through a chosen runner with streaming responses; per-session egress + provenance; MITM
+        decode/capture preserved. *Remaining: raw-TCP/CONNECT passthrough tunneling; a per-project default
+        egress runner; unify the agent's SSE + WS connections.*
 - [ ] **Hosted team hub service** — accounts, uploads, submission scanning, reputation, moderation
       (the static-index hub + signed format is the foundation).
 - [ ] **RDP/VNC** interactive sessions (terminal shipped in P7).

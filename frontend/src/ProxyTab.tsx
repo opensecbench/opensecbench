@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, HTTPExchange, ProxyRule, ProxyStatus, Project } from './api'
+import { api, HTTPExchange, ProxyRule, ProxyStatus, Project, RunnerView } from './api'
 import { actionsFor, type ActionContext } from './exchangeActions'
 import { hasNativeBrowserLaunch, openProxyBrowser } from './native'
 
@@ -36,6 +36,8 @@ export function ProxyTab({
   const [status, setStatus] = useState<ProxyStatus>({ running: false })
   const [captured, setCaptured] = useState<HTTPExchange[]>([])
   const [busy, setBusy] = useState(false)
+  const [runners, setRunners] = useState<RunnerView[]>([])
+  const [via, setVia] = useState('') // '' = local host; else an egress runner id (ADR-0026)
   const [method, setMethod] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [q, setQ] = useState('')
@@ -147,10 +149,15 @@ export function ProxyTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, project.id])
 
+  // Enrolled runners offer alternate egress vantages for a proxy session (ADR-0026).
+  useEffect(() => {
+    if (online) api.listRunners().then((r) => setRunners(r ?? [])).catch(() => {})
+  }, [online])
+
   async function toggle() {
     setBusy(true)
     try {
-      setStatus(status.running ? await api.stopProxy(project.id) : await api.startProxy(project.id))
+      setStatus(status.running ? await api.stopProxy(project.id) : await api.startProxy(project.id, 0, via || undefined))
       await loadList()
     } catch (e) {
       onError((e as Error).message)
@@ -182,12 +189,21 @@ export function ProxyTab({
   return (
     <div className="proxy">
       <div className="proxy-toolbar">
+        {!status.running && runners.some((r) => r.online) && (
+          <select value={via} onChange={(e) => setVia(e.target.value)} title="Egress vantage" disabled={!online || busy}>
+            <option value="">egress: local host</option>
+            {runners.filter((r) => r.online).map((r) => (
+              <option key={r.id} value={r.id}>egress: {r.name}</option>
+            ))}
+          </select>
+        )}
         <button className={status.running ? 'stop' : ''} onClick={toggle} disabled={!online || busy}>
           {busy ? '…' : status.running ? '■ Stop proxy' : '▶ Start proxy'}
         </button>
         {status.running && (
           <span className="mono muted">
             listening on <b>127.0.0.1:{status.port}</b>
+            {status.egress && <> · via <b>{runners.find((r) => r.id === status.egress)?.name ?? status.egress}</b></>}
           </span>
         )}
         {status.running && hasNativeBrowserLaunch() && status.ca_spki_sha256 && (
