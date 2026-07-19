@@ -17,6 +17,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/replay"
+	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
@@ -30,6 +31,7 @@ var gatedTools = map[string]bool{
 	"send_request":   true,
 	"set_coverage":   true,
 	"create_finding": true,
+	"run_code":       true,
 }
 
 // assetEgressTools take an 'asset' argument and would send that asset's contents (its scan output, or
@@ -134,6 +136,10 @@ func Tools() []agent.Tool {
 			{Name: "cwe", Type: agent.TypeString, Description: "optional CWE id, e.g. CWE-89"},
 			{Name: "observations", Type: agent.TypeArray, Description: "supporting observation ids (must be confirmed)"},
 		}},
+		{Name: "run_code", Description: "Run a shell command in a sandbox with the project workspace mounted at /work — to build and run a test case or PoC over files you staged there. GATED. No network (use send_request to reach a target).", Params: []agent.Param{
+			{Name: "command", Type: agent.TypeString, Required: true, Description: "shell command, run via sh -c in /work"},
+			{Name: "image", Type: agent.TypeString, Description: "container image (default alpine:3; override for python/node/etc.)"},
+		}},
 		{Name: "run_capability", Description: "Run a security capability against a source asset. GATED — requires human authorization; if unauthorized it will be denied.", Params: []agent.Param{
 			{Name: "capability", Type: agent.TypeString, Required: true, Description: "capability id (from list_capabilities)"},
 			{Name: "asset", Type: agent.TypeString, Required: true, Description: "asset id (from list_assets)"},
@@ -170,6 +176,7 @@ type ExecDeps struct {
 	Engine        *task.Engine
 	Replay        *replay.Client
 	Blobs         *cas.Store
+	Runner        runner.Runner
 	WorkspaceRoot string
 	ProjectID     string
 }
@@ -219,6 +226,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return workspaceRead(ctx, deps, call)
 		case "workspace_list":
 			return workspaceList(ctx, deps, call)
+		case "run_code":
+			return runCode(ctx, deps, call)
 		case "get_coverage":
 			return getCoverage(ctx, deps)
 		case "send_request":
