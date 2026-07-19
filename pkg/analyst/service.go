@@ -27,6 +27,7 @@ type Service struct {
 	provider      llm.Provider
 	replay        *replay.Client
 	blobs         *cas.Store
+	workspaceRoot string
 	egressStrict  bool
 	providerLocal bool
 	tokenBudget   int
@@ -37,7 +38,7 @@ type Service struct {
 
 // NewService wires the Analyst service. Egress policy and budget are read from OSB_EGRESS_POLICY
 // (default strict) and OSB_AGENT_MAX_TOKENS.
-func NewService(st *store.DB, engine *task.Engine, blobs *cas.Store, provider llm.Provider) *Service {
+func NewService(st *store.DB, engine *task.Engine, blobs *cas.Store, workspaceRoot string, provider llm.Provider) *Service {
 	budget := defaultTokenBudget
 	if v := os.Getenv("OSB_AGENT_MAX_TOKENS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -50,6 +51,7 @@ func NewService(st *store.DB, engine *task.Engine, blobs *cas.Store, provider ll
 		provider:      provider,
 		replay:        replay.New(0),
 		blobs:         blobs,
+		workspaceRoot: workspaceRoot,
 		egressStrict:  os.Getenv("OSB_EGRESS_POLICY") != "open", // default: strict
 		providerLocal: provider != nil && llm.IsLocal(provider),
 		tokenBudget:   budget,
@@ -79,7 +81,7 @@ func (svc *Service) session(projectID string) *agent.Session {
 // under a strict policy with an external LLM provider, running a capability on a private asset is
 // blocked, because its output would be summarized by the external model.
 func (svc *Service) executeFor(projectID string) func(context.Context, agent.ToolCall) (string, error) {
-	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, ProjectID: projectID})
+	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID})
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
 		if svc.egressStrict && !svc.providerLocal {
 			// Reading a private asset's contents into an external model is data egress (ADR-0011/0020).

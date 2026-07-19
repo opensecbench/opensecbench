@@ -26,7 +26,7 @@ func TestServiceGatedToolPausesThenDenies(t *testing.T) {
 		`{"tool":"run_capability","args":{"capability":"semgrep","asset":"x"}}`, // gated -> pause
 		`{"answer":"Understood, I won't run it."}`,
 	}}
-	svc := NewService(db, nil, nil, mock) // engine nil: must not be reached (denied)
+	svc := NewService(db, nil, nil, "", mock) // engine nil: must not be reached (denied)
 
 	th, err := db.CreateThread(ctx, store.NewThread{Title: "t"})
 	if err != nil {
@@ -79,7 +79,7 @@ func TestServiceApproveRunsCapability(t *testing.T) {
 		fmt.Sprintf(`{"tool":"run_capability","args":{"capability":"source-inventory","asset":%q}}`, asset.ID),
 		`{"answer":"Inventory complete."}`,
 	}}
-	svc := NewService(db, engine, nil, mock)
+	svc := NewService(db, engine, nil, "", mock)
 
 	th, _ := db.CreateThread(ctx, store.NewThread{})
 	res, err := svc.Send(ctx, th.ID, "inventory it")
