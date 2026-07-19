@@ -1,6 +1,6 @@
 # ADR-0020 — Agent workspace & corpus investigation
 
-Status: Accepted — building. Give agents the tools to actually **read the evidence corpus** (source code,
+Status: Accepted — delivered. Give agents the tools to actually **read the evidence corpus** (source code,
 documents, correspondence) and **experiment** (a durable workspace + sandboxed execution), instead of only
 running canned capabilities over it. This is the capability layer the rest of the agent architecture
 (profiles, playbooks — ADR-0019) sits on top of; it is built **first**, because an agent that can't read
@@ -57,12 +57,13 @@ external model" — reads are not exempt.
 
 ### 4. `run_code` — sandboxed experimentation (deferred one step)
 
-Authoring and running a test case or PoC: `run_code(command, network?)` executes in a runner sandbox that
-mounts the workspace (+ the source asset read-only), resource/time-limited, **network off by default or
-scope-gated** when the PoC must reach a target. It refines "no raw shell" into "no shell *on the host*, but a
-sandboxed, gated, scope-bound execution surface." It is the biggest governance step (arbitrary agent-authored
-execution), so it is **built after** the read tools are proven, and sits at the conservative end of the
-approval policy. Designed here; implemented as a deliberate second increment.
+Authoring and running a test case or PoC: `run_code(command)` runs in a runner sandbox with the project
+workspace mounted read-write at `/work`, resource/time-limited. It refines "no raw shell" into "no shell *on
+the host*, but a sandboxed, gated execution surface." Kept deliberately minimal: **gated** (arbitrary
+execution needs approval) and **no network** — a PoC that must reach a target uses `send_request`, which is
+already scope-guarded, rather than duplicating egress policy here. The agent stages files via `workspace_write`
+and runs over them; the image defaults to `alpine:3` and is overridable per call. Built after the read tools,
+as a deliberate second increment.
 
 ## Consequences
 

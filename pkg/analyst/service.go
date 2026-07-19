@@ -13,6 +13,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/replay"
+	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
@@ -81,7 +82,7 @@ func (svc *Service) session(projectID string) *agent.Session {
 // under a strict policy with an external LLM provider, running a capability on a private asset is
 // blocked, because its output would be summarized by the external model.
 func (svc *Service) executeFor(projectID string) func(context.Context, agent.ToolCall) (string, error) {
-	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID})
+	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID})
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
 		if svc.egressStrict && !svc.providerLocal {
 			// Reading a private asset's contents into an external model is data egress (ADR-0011/0020).
