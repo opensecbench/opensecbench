@@ -407,6 +407,12 @@ export interface ToolCall {
   args: Record<string, unknown>
 }
 
+export interface AgentProfile {
+  id: string
+  name: string
+  description: string
+}
+
 export interface Msg {
   id: string
   thread_id: string
@@ -700,8 +706,10 @@ export const api = {
   getProjectUsage: (projectId: string) => request<UsageByModel[]>('GET', `/v1/projects/${projectId}/usage`),
 
   listThreads: () => request<Thread[]>('GET', '/v1/threads'),
-  createThread: (projectId?: string, title?: string) =>
-    request<Thread>('POST', '/v1/threads', { project_id: projectId, title }),
+  listAgentProfiles: () =>
+    request<{ profiles: AgentProfile[] }>('GET', '/v1/analyst/profiles').then((r) => r.profiles ?? []),
+  createThread: (projectId?: string, title?: string, agentType?: string) =>
+    request<Thread>('POST', '/v1/threads', { project_id: projectId, title, agent_type: agentType }),
   getThread: (id: string) => request<{ thread: Thread; messages: Msg[] }>('GET', '/v1/threads/' + id),
   sendMessage: (id: string, message: string) =>
     request<SendResult>('POST', `/v1/threads/${id}/messages`, { message }),

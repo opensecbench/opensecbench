@@ -1506,6 +1506,18 @@ select option {
   font-size: 11px;
   cursor: pointer;
 }
+.wb-an-profile {
+  border: 1px solid var(--line2);
+  background: var(--bg4);
+  color: var(--tx2);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  max-width: 130px;
+  cursor: pointer;
+}
 .wb-an-collapsed {
   flex: 1;
   display: flex;

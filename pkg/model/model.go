@@ -322,6 +322,7 @@ type Thread struct {
 	Title          string    `json:"title"`
 	Status         string    `json:"status"`
 	Provider       string    `json:"provider"`
+	AgentType      string    `json:"agent_type"` // the driving agent profile (ADR-0019); default "generalist"
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
