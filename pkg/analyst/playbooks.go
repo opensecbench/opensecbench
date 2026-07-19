@@ -88,6 +88,28 @@ var builtinPlaybooks = []Playbook{
 			},
 		},
 	},
+	{
+		ID:          "triage-report",
+		Name:        "Triage & report",
+		Description: "Review and prioritize the findings, then produce a report — the deliverable at a phase's end.",
+		Goal:        "Turn the collected findings into a triaged, reported deliverable.",
+		Steps: []PlaybookStep{
+			{
+				Key:     "triage",
+				Profile: "triage",
+				Instruction: "Review every finding and observation for this project (list_findings, get_finding). " +
+					"Confirm the real issues, flag likely false positives, deduplicate, and prioritize by severity " +
+					"and impact. Write your triage to analysis/triage.md in the workspace.",
+			},
+			{
+				Key:     "report",
+				Profile: "report-writer",
+				Instruction: "Using the triage, write a clear findings report: an executive summary, then each " +
+					"confirmed finding with its severity, description, and evidence. Save it to reports/report.md.",
+				DependsOn: []string{"triage"},
+			},
+		},
+	},
 }
 
 // Playbooks returns the built-in agent playbooks.
