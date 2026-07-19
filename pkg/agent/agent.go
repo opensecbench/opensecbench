@@ -121,14 +121,16 @@ type Result struct {
 
 // Loop runs the Analyst's reason-act cycle.
 type Loop struct {
-	Provider  llm.Provider
-	Tools     []Tool
-	Approve   func(ctx context.Context, call ToolCall) (bool, error)
-	Execute   func(ctx context.Context, call ToolCall) (string, error)
-	Audit     func(action, detail string)
-	MaxSteps  int
-	Model     string
-	MaxTokens int
+	Provider llm.Provider
+	Tools    []Tool
+	// SystemPrompt is the system message; empty falls back to the built-in default persona.
+	SystemPrompt string
+	Approve      func(ctx context.Context, call ToolCall) (bool, error)
+	Execute      func(ctx context.Context, call ToolCall) (string, error)
+	Audit        func(action, detail string)
+	MaxSteps     int
+	Model        string
+	MaxTokens    int
 }
 
 // Run drives the loop from a user message until the model answers or the step cap is reached.
@@ -138,8 +140,12 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 	if maxSteps <= 0 {
 		maxSteps = 8
 	}
+	sys := l.SystemPrompt
+	if sys == "" {
+		sys = buildSystemPrompt()
+	}
 	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: buildSystemPrompt()},
+		{Role: llm.RoleSystem, Content: sys},
 		{Role: llm.RoleUser, Content: userMessage},
 	}
 	var res Result

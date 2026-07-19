@@ -101,6 +101,11 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 func (svc *Service) executeFor(projectID string) func(context.Context, agent.ToolCall) (string, error) {
 	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID})
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
+		// delegate spawns a specialist sub-agent — handled at the service level (it needs the provider),
+		// not the pure tool Executor.
+		if call.Tool == "delegate" {
+			return svc.runDelegate(ctx, projectID, call)
+		}
 		if svc.egressStrict && !svc.providerLocal {
 			// Reading a private asset's contents into an external model is data egress (ADR-0011/0020).
 			if assetEgressTools[call.Tool] {
