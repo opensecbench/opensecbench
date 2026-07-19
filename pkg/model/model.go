@@ -57,11 +57,14 @@ const (
 	RuleTargetResponseBody   = "response_body"
 )
 
-// UsageRecord is one Analyst run's token usage, tagged for per-project, per-model/vendor comparison.
+// UsageRecord is one Analyst run's token usage, tagged for per-project, per-model/vendor comparison and
+// per-agent attribution. Provider/Model record the backend that actually ran the request (which, under
+// cross-provider tag routing, may differ from the active provider); AgentType names the profile.
 type UsageRecord struct {
 	ID           string    `json:"id"`
 	ProjectID    string    `json:"project_id,omitempty"`
 	ThreadID     string    `json:"thread_id,omitempty"`
+	AgentType    string    `json:"agent_type,omitempty"`
 	Provider     string    `json:"provider"` // vendor/type
 	Model        string    `json:"model"`
 	InputTokens  int       `json:"input_tokens"`
@@ -78,14 +81,23 @@ type UsageByModel struct {
 	OutputTokens int    `json:"output_tokens"`
 }
 
-// UsageSummary is a workbench-wide token-spend roll-up for the Home cockpit: this-month and
-// all-time totals plus the heaviest (provider, model) pairs. Informational — there is no budget cap.
+// UsageByAgent aggregates token usage for one agent profile (agent_type).
+type UsageByAgent struct {
+	AgentType    string `json:"agent_type"`
+	Runs         int    `json:"runs"`
+	InputTokens  int    `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+}
+
+// UsageSummary is a workbench-wide token-spend roll-up for the Home cockpit: this-month and all-time
+// totals plus the heaviest (provider, model) pairs and agents. Informational — there is no budget cap.
 type UsageSummary struct {
 	MonthInput  int            `json:"month_input"`
 	MonthOutput int            `json:"month_output"`
 	AllInput    int            `json:"all_input"`
 	AllOutput   int            `json:"all_output"`
 	TopModels   []UsageByModel `json:"top_models"`
+	TopAgents   []UsageByAgent `json:"top_agents"`
 }
 
 // Provider is a registered LLM backend for the Analyst (ADR-0006). KeySealed is the vault-sealed

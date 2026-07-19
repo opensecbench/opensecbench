@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
+	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
 // agentSem caps how many sub-agents run concurrently across the whole process (P4). It bounds the
@@ -32,10 +33,12 @@ func newAgentSem() chan struct{} {
 
 // DelegationResult is what a sub-agent reports back to whoever delegated to it.
 type DelegationResult struct {
-	Profile   string   `json:"profile"`
-	Answer    string   `json:"answer"`
-	StepCount int      `json:"step_count"`
-	ToolsUsed []string `json:"tools_used"`
+	Profile      string   `json:"profile"`
+	Answer       string   `json:"answer"`
+	StepCount    int      `json:"step_count"`
+	ToolsUsed    []string `json:"tools_used"`
+	InputTokens  int      `json:"input_tokens"`
+	OutputTokens int      `json:"output_tokens"`
 }
 
 // Delegate runs a specialist sub-agent (the given profile) synchronously on a task and returns its
@@ -58,14 +61,14 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 	}
 
 	profile := svc.resolveProfile(ctx, profileID)
-	prov, modelID := svc.providerModelForTag(ctx, profile.ModelTag)
+	tgt := svc.targetForTag(ctx, profile.ModelTag)
 	loop := &agent.Loop{
-		Provider:     prov,
-		Model:        modelID,
+		Provider:     tgt.Provider,
+		Model:        tgt.SessionModel,
 		Tools:        profile.ToolSet(),
 		SystemPrompt: profile.SystemPrompt(),
 		Approve:      Approver(authorize),
-		Execute:      svc.executeFor(projectID, prov),
+		Execute:      svc.executeFor(projectID, tgt.Provider),
 		Audit:        svc.Audit,
 		MaxSteps:     8,
 	}
@@ -73,6 +76,10 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 	if err != nil {
 		return DelegationResult{}, err
 	}
+
+	// Attribute the sub-agent's spend to its own profile (it runs mid-advance, so the api layer that
+	// records the parent thread's usage never sees it).
+	svc.recordDelegateUsage(ctx, projectID, profile.ID, tgt, res.InputTokens, res.OutputTokens)
 
 	seen := map[string]bool{}
 	tools := []string{}
@@ -82,7 +89,25 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 			tools = append(tools, st.Call.Tool)
 		}
 	}
-	return DelegationResult{Profile: profile.ID, Answer: res.Answer, StepCount: len(res.Steps), ToolsUsed: tools}, nil
+	return DelegationResult{
+		Profile: profile.ID, Answer: res.Answer, StepCount: len(res.Steps), ToolsUsed: tools,
+		InputTokens: res.InputTokens, OutputTokens: res.OutputTokens,
+	}, nil
+}
+
+// recordDelegateUsage persists a sub-agent's token usage, attributed to its profile. Provider/model come
+// from the resolved target; when the run fell back to the active provider (blank ProviderName) its
+// Name() is used as the identity.
+func (svc *Service) recordDelegateUsage(ctx context.Context, projectID, agentType string, tgt runTarget, in, out int) {
+	provider := tgt.ProviderName
+	if provider == "" && tgt.Provider != nil {
+		provider = tgt.Provider.Name()
+	}
+	_ = svc.store.RecordUsage(ctx, model.UsageRecord{
+		ProjectID: projectID, AgentType: agentType,
+		Provider: provider, Model: tgt.AttrModel,
+		InputTokens: in, OutputTokens: out,
+	})
 }
 
 // profileToolNames returns a profile's resolved tool allow-list.

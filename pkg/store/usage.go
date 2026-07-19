@@ -23,9 +23,9 @@ func (db *DB) RecordUsage(ctx context.Context, u model.UsageRecord) error {
 		projectID = u.ProjectID
 	}
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO usage_records (id, project_id, thread_id, provider, model, input_tokens, output_tokens, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, projectID, u.ThreadID, u.Provider, u.Model, u.InputTokens, u.OutputTokens, nowString())
+		`INSERT INTO usage_records (id, project_id, thread_id, agent_type, provider, model, input_tokens, output_tokens, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, projectID, u.ThreadID, u.AgentType, u.Provider, u.Model, u.InputTokens, u.OutputTokens, nowString())
 	return err
 }
 
@@ -65,7 +65,30 @@ func (db *DB) UsageSummary(ctx context.Context, monthStart time.Time, topN int) 
 		u.Model = mdl.String
 		s.TopModels = append(s.TopModels, u)
 	}
-	return s, rows.Err()
+	if err := rows.Err(); err != nil {
+		return s, err
+	}
+
+	// Per-agent attribution (blank agent_type — legacy/unattributed rows — is excluded).
+	arows, err := db.QueryContext(ctx,
+		`SELECT agent_type, COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0)
+		 FROM usage_records
+		 WHERE agent_type <> ''
+		 GROUP BY agent_type
+		 ORDER BY SUM(input_tokens) + SUM(output_tokens) DESC
+		 LIMIT ?`, topN)
+	if err != nil {
+		return s, err
+	}
+	defer func() { _ = arows.Close() }()
+	for arows.Next() {
+		var a model.UsageByAgent
+		if err := arows.Scan(&a.AgentType, &a.Runs, &a.InputTokens, &a.OutputTokens); err != nil {
+			return s, err
+		}
+		s.TopAgents = append(s.TopAgents, a)
+	}
+	return s, arows.Err()
 }
 
 // UsageByModel returns token totals grouped by (provider, model) for a project, most-used first.

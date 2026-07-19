@@ -114,9 +114,11 @@ type Step struct {
 
 // Result is the outcome of a run.
 type Result struct {
-	Answer     string        `json:"answer"`
-	Steps      []Step        `json:"steps"`
-	Transcript []llm.Message `json:"transcript"`
+	Answer       string        `json:"answer"`
+	Steps        []Step        `json:"steps"`
+	Transcript   []llm.Message `json:"transcript"`
+	InputTokens  int           `json:"input_tokens"`
+	OutputTokens int           `json:"output_tokens"`
 }
 
 // Loop runs the Analyst's reason-act cycle.
@@ -155,6 +157,8 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 		if err != nil {
 			return res, err
 		}
+		res.InputTokens += resp.InputTokens
+		res.OutputTokens += resp.OutputTokens
 		msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Content: resp.Text, ToolCalls: resp.ToolCalls})
 
 		if len(resp.ToolCalls) == 0 {
