@@ -173,10 +173,13 @@ var builtinProfiles = []Profile{
 			"knowledge base (list_kb — always check first). Then distill the durable facts — architecture, " +
 			"authentication/authorization model, technology stack, environment/deployment, data flows, team " +
 			"conventions, and gotchas — into knowledge-base drafts (draft_kb_entry), one clear entry per " +
-			"distinct fact, using the right kind and anchored to the target (list_targets). UPDATE or extend " +
-			"rather than duplicate an existing entry. Capture stable how-it-works knowledge, not transient " +
-			"vulnerabilities (those are findings). Your drafts are unreviewed until a human confirms them, and " +
-			"future engagements on this target inherit them. Do not send traffic, run scans, or create findings.",
+			"distinct fact, using the right kind and the right SCOPE — scope=org for facts that hold across the " +
+			"whole organization (shared auth provider, org-wide conventions, common infra) so every app " +
+			"inherits them; scope=target (with the target id from list_targets) for facts specific to one " +
+			"system. UPDATE or extend rather than duplicate an existing entry. Capture stable how-it-works " +
+			"knowledge, not transient vulnerabilities (those are findings). Your drafts are unreviewed until a " +
+			"human confirms them, and future engagements inherit them. Do not send traffic, run scans, or " +
+			"create findings.",
 		Tools:    with(reads, "draft_kb_entry", "workspace_read", "workspace_list"),
 		ModelTag: "default",
 	},

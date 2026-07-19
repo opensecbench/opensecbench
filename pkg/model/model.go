@@ -211,10 +211,14 @@ const (
 // KBEntry is durable knowledge about a target that survives across engagements (ADR-0010). Agent-
 // drafted entries (origin=thread) start unreviewed and are curated by a human, like observations.
 type KBEntry struct {
-	ID          string    `json:"id"`
-	TargetID    string    `json:"target_id"`
-	Kind        string    `json:"kind"`
-	Scope       string    `json:"scope"`
+	ID string `json:"id"`
+	// Anchor: exactly one of TargetID/GroupID/OrganizationID is set per Scope (all empty = global). A
+	// project inherits its target(s) + group + org + global knowledge (ADR-0041).
+	TargetID       string    `json:"target_id,omitempty"`
+	GroupID        string    `json:"group_id,omitempty"`
+	OrganizationID string    `json:"organization_id,omitempty"`
+	Kind           string    `json:"kind"`
+	Scope          string    `json:"scope"`
 	Title       string    `json:"title"`
 	Body        string    `json:"body,omitempty"`
 	Tags        string    `json:"tags,omitempty"`
