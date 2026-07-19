@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
+	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/replay"
@@ -25,6 +26,7 @@ type Service struct {
 	engine        *task.Engine
 	provider      llm.Provider
 	replay        *replay.Client
+	blobs         *cas.Store
 	egressStrict  bool
 	providerLocal bool
 	tokenBudget   int
@@ -35,7 +37,7 @@ type Service struct {
 
 // NewService wires the Analyst service. Egress policy and budget are read from OSB_EGRESS_POLICY
 // (default strict) and OSB_AGENT_MAX_TOKENS.
-func NewService(st *store.DB, engine *task.Engine, provider llm.Provider) *Service {
+func NewService(st *store.DB, engine *task.Engine, blobs *cas.Store, provider llm.Provider) *Service {
 	budget := defaultTokenBudget
 	if v := os.Getenv("OSB_AGENT_MAX_TOKENS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -47,6 +49,7 @@ func NewService(st *store.DB, engine *task.Engine, provider llm.Provider) *Servi
 		engine:        engine,
 		provider:      provider,
 		replay:        replay.New(0),
+		blobs:         blobs,
 		egressStrict:  os.Getenv("OSB_EGRESS_POLICY") != "open", // default: strict
 		providerLocal: provider != nil && llm.IsLocal(provider),
 		tokenBudget:   budget,
@@ -76,13 +79,21 @@ func (svc *Service) session(projectID string) *agent.Session {
 // under a strict policy with an external LLM provider, running a capability on a private asset is
 // blocked, because its output would be summarized by the external model.
 func (svc *Service) executeFor(projectID string) func(context.Context, agent.ToolCall) (string, error) {
-	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, ProjectID: projectID})
+	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, ProjectID: projectID})
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
-		if assetEgressTools[call.Tool] && svc.egressStrict && !svc.providerLocal {
-			if assetID, _ := call.Args["asset"].(string); assetID != "" {
-				if asset, err := svc.store.GetAsset(ctx, assetID); err == nil && asset.Sensitivity == model.SensitivityPrivate {
-					return "", fmt.Errorf("blocked by data-egress policy: %q would send a private asset's contents to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", call.Tool, svc.provider.Name())
+		if svc.egressStrict && !svc.providerLocal {
+			// Reading a private asset's contents into an external model is data egress (ADR-0011/0020).
+			if assetEgressTools[call.Tool] {
+				if assetID, _ := call.Args["asset"].(string); assetID != "" {
+					if asset, err := svc.store.GetAsset(ctx, assetID); err == nil && asset.Sensitivity == model.SensitivityPrivate {
+						return "", fmt.Errorf("blocked by data-egress policy: %q would send a private asset's contents to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", call.Tool, svc.provider.Name())
+					}
 				}
+			}
+			// Ingested corpus (documents, emails, chat) has no per-item sensitivity flag, so it is treated
+			// as private by default: its content does not leave to an external provider under a strict policy.
+			if call.Tool == "read_context" {
+				return "", fmt.Errorf("blocked by data-egress policy: read_context would send ingested document/correspondence content to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", svc.provider.Name())
 			}
 		}
 		return exec(ctx, call)

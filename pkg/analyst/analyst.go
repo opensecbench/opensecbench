@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
+	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
@@ -95,6 +96,15 @@ func Tools() []agent.Tool {
 		{Name: "get_exchange", Description: "Get one captured HTTP exchange by id, including request and response headers and bodies.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "exchange id (from list_exchanges)"},
 		}},
+		{Name: "list_context", Description: "List the project's ingested corpus — documents, emails, chat logs, notes (id, type, name). Use read_context for content.", Params: []agent.Param{
+			{Name: "type", Type: agent.TypeEnum, Description: "filter by type", Enum: []string{"document", "email", "chat", "note"}},
+		}},
+		{Name: "read_context", Description: "Read the text content of one ingested context item (a document, email, chat log, or note) by id.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "context item id (from list_context)"},
+		}},
+		{Name: "get_kb_entry", Description: "Read a full knowledge-base entry (including its body) by id.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "knowledge-base entry id"},
+		}},
 		{Name: "get_coverage", Description: "Show the current project's methodology coverage (item id, status, note)."},
 		{Name: "send_request", Description: "Send an HTTP request from the Replay tool and record the response. GATED — outbound traffic; scope-guarded and requires human authorization.", Params: []agent.Param{
 			{Name: "method", Type: agent.TypeString, Required: true, Description: "HTTP method, e.g. GET or POST"},
@@ -149,6 +159,7 @@ type ExecDeps struct {
 	Store     *store.DB
 	Engine    *task.Engine
 	Replay    *replay.Client
+	Blobs     *cas.Store
 	ProjectID string
 }
 
@@ -185,6 +196,12 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return listExchanges(ctx, deps, call)
 		case "get_exchange":
 			return getExchange(ctx, deps, call)
+		case "list_context":
+			return listContext(ctx, deps, call)
+		case "read_context":
+			return readContext(ctx, deps, call)
+		case "get_kb_entry":
+			return getKBEntry(ctx, deps, call)
 		case "get_coverage":
 			return getCoverage(ctx, deps)
 		case "send_request":

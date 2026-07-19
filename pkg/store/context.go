@@ -45,6 +45,25 @@ func (db *DB) CreateContextItem(ctx context.Context, ci model.ContextItem) (mode
 	return ci, nil
 }
 
+// GetContextItem returns one ingested context item by id.
+func (db *DB) GetContextItem(ctx context.Context, id string) (model.ContextItem, error) {
+	var ci model.ContextItem
+	var app sql.NullString
+	var created string
+	err := db.QueryRowContext(ctx,
+		`SELECT id, project_id, application_id, type, name, artifact_id, created_at
+		 FROM context_items WHERE id = ?`, id).Scan(&ci.ID, &ci.ProjectID, &app, &ci.Type, &ci.Name, &ci.ArtifactID, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.ContextItem{}, ErrNotFound
+	}
+	if err != nil {
+		return model.ContextItem{}, err
+	}
+	ci.ApplicationID = ptr(app)
+	ci.CreatedAt = parseTime(created)
+	return ci, nil
+}
+
 // ListContextItemsByProject returns a project's context items, newest first.
 func (db *DB) ListContextItemsByProject(ctx context.Context, projectID string) ([]model.ContextItem, error) {
 	rows, err := db.QueryContext(ctx,
