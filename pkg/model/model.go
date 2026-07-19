@@ -644,7 +644,10 @@ type Observation struct {
 	// Attributes are structured facts an interpreter attaches (e.g. TruffleHog verified=true) that
 	// post-run disposition rules match on (ADR-0028).
 	Attributes map[string]string `json:"attributes,omitempty"`
-	CreatedAt  time.Time         `json:"created_at"`
+	// Fingerprint is a stable content hash (origin|rule|location|detail) used to dedup the same finding
+	// across re-scans, so it is not re-created or re-dispositioned (ADR-0029).
+	Fingerprint string    `json:"fingerprint,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // Investigation statuses.

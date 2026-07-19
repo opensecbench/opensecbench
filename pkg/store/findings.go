@@ -41,10 +41,10 @@ func (db *DB) CreateObservation(ctx context.Context, o model.Observation) (model
 	}
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO observations
-		 (id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, attributes, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, attributes, fingerprint, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		o.ID, o.TaskID, o.ArtifactID, o.ProjectID, o.Origin, o.ReviewState, o.Title, o.Detail, o.Severity,
-		o.RuleID, o.Location, attrs, o.CreatedAt.Format(timeLayout))
+		o.RuleID, o.Location, attrs, o.Fingerprint, o.CreatedAt.Format(timeLayout))
 	if err != nil {
 		return model.Observation{}, err
 	}
@@ -54,7 +54,7 @@ func (db *DB) CreateObservation(ctx context.Context, o model.Observation) (model
 // ListObservationsByTask returns a task's observations, oldest first.
 func (db *DB) ListObservationsByTask(ctx context.Context, taskID string) ([]model.Observation, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, attributes, created_at
+		`SELECT id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, attributes, fingerprint, created_at
 		 FROM observations WHERE task_id = ? ORDER BY created_at`, taskID)
 	if err != nil {
 		return nil, err
@@ -69,10 +69,10 @@ func (db *DB) GetObservation(ctx context.Context, id string) (model.Observation,
 	var task, artifact, project sql.NullString
 	var attrs, created string
 	err := db.QueryRowContext(ctx,
-		`SELECT id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, attributes, created_at
+		`SELECT id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, attributes, fingerprint, created_at
 		 FROM observations WHERE id = ?`, id).
 		Scan(&o.ID, &task, &artifact, &project, &o.Origin, &o.ReviewState, &o.Title, &o.Detail,
-			&o.Severity, &o.RuleID, &o.Location, &attrs, &created)
+			&o.Severity, &o.RuleID, &o.Location, &attrs, &o.Fingerprint, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Observation{}, ErrNotFound
 	}
@@ -83,6 +83,23 @@ func (db *DB) GetObservation(ctx context.Context, id string) (model.Observation,
 	o.Attributes = parseAttrs(attrs)
 	o.CreatedAt = parseTime(created)
 	return o, nil
+}
+
+// ObservationByFingerprint returns the id of an existing observation with the same content fingerprint in
+// the project, if any. The engine uses it to dedup re-scans so the same finding is not re-created or
+// re-dispositioned (ADR-0029). An empty fingerprint or project never matches.
+func (db *DB) ObservationByFingerprint(ctx context.Context, projectID, fingerprint string) (string, bool) {
+	if projectID == "" || fingerprint == "" {
+		return "", false
+	}
+	var id string
+	err := db.QueryRowContext(ctx,
+		`SELECT id FROM observations WHERE project_id = ? AND fingerprint = ? LIMIT 1`,
+		projectID, fingerprint).Scan(&id)
+	if err != nil {
+		return "", false
+	}
+	return id, true
 }
 
 func parseAttrs(s string) map[string]string {
@@ -101,7 +118,7 @@ func scanObservations(rows *sql.Rows) ([]model.Observation, error) {
 		var task, artifact, project sql.NullString
 		var attrs, created string
 		if err := rows.Scan(&o.ID, &task, &artifact, &project, &o.Origin, &o.ReviewState, &o.Title, &o.Detail,
-			&o.Severity, &o.RuleID, &o.Location, &attrs, &created); err != nil {
+			&o.Severity, &o.RuleID, &o.Location, &attrs, &o.Fingerprint, &created); err != nil {
 			return nil, err
 		}
 		o.TaskID, o.ArtifactID, o.ProjectID = ptr(task), ptr(artifact), ptr(project)

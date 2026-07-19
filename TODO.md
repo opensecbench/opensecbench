@@ -87,7 +87,16 @@ and can later ship as plugins.
       project overrides) route interpreted observations: auto-finding / investigation / review. Observations
       gained structured `attributes`; investigations are human-triggered vuln-validator threads (findings
       stay human-gated). TruffleHog: verified→finding, unverified→investigate. *Remaining: pre-run hooks;
-      interpreter plugin registry; dispositions for more tools.*
+      interpreter plugin registry.*
+- [x] **Observation dedup + multi-tool routing** (ADR-0029) — observations gained a content `fingerprint`
+      so a re-scan doesn't re-create/re-dispose a known finding (no duplicate observations, no repeated
+      investigations / token spend). SARIF interpreter now carries `tool`/`security_severity` attributes +
+      CVSS-refined severity; semgrep & grype declare high/critical→investigate. *Remaining: fuzzy/line-
+      tolerant fingerprints; refresh a deduped observation on re-scan; SCA-specific grype interpreter.*
+- [ ] **Static reachability + exposed-service model** (ADR-0030, next) — for SCA/SAST findings on an
+      exposed service, compute real call-graph reachability (govulncheck for Go first) + correlate to grype
+      CVEs; a first-class exposed signal (nmap open-ports / proxy exchanges / cloud_deployment assets);
+      reachability becomes an attribute the disposition layer routes on (reachable+exposed → escalate).
 - [x] Report templates as extension packs; playbook/visualization pack types still to add.
 - [x] Integration **pull** — DefectDojo findings → observations into triage (ADR-0027); reusable
       per-project configs (push uses them too); external-id dedup; `observations.project_id` for task-less

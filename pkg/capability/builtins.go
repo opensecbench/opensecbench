@@ -4,8 +4,16 @@ import (
 	"errors"
 	"time"
 
+	"github.com/opensecbench/opensecbench/pkg/disposition"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 )
+
+// investigateHighSeverity routes any high- or critical-severity observation to a tracked investigation
+// (ADR-0029). SAST/SCA tools carry false positives, so nothing auto-becomes a finding; a human (or the
+// seeded vuln-validator agent, on demand) validates first. Lower severities fall through to manual review.
+var investigateHighSeverity = []disposition.Disposition{
+	{MinSeverity: "high", Action: disposition.ActionInvestigate},
+}
 
 // BuiltIns returns the registry of first-party capabilities. Third-party capabilities load as
 // extension packages later (ADR-0003), using this same contract.
@@ -66,6 +74,7 @@ func (semgrep) Manifest() Manifest {
 		OutputName:      "semgrep.sarif",
 		OutputMediaType: "application/sarif+json",
 		OKExitCodes:     []int{0, 1}, // 0 = clean, 1 = findings; >=2 is an error
+		Dispositions:    investigateHighSeverity,
 	}
 }
 
@@ -170,6 +179,7 @@ func (grypeScan) Manifest() Manifest {
 		OutputName:      "grype.sarif",
 		OutputMediaType: "application/sarif+json",
 		OKExitCodes:     []int{0},
+		Dispositions:    investigateHighSeverity,
 	}
 }
 

@@ -67,6 +67,75 @@ func TestSARIF(t *testing.T) {
 	}
 }
 
+func TestSARIFSemgrepAttributes(t *testing.T) {
+	obs, err := SARIF([]byte(sampleSARIF))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The driver name is carried as a routable attribute even without security-severity.
+	if got := obs[0].Attributes["tool"]; got != "semgrep" {
+		t.Fatalf("tool attribute = %q, want semgrep", got)
+	}
+	if _, ok := obs[0].Attributes["security_severity"]; ok {
+		t.Fatalf("no security-severity in sample, should be absent")
+	}
+}
+
+// grype emits security-severity (a CVSS base score) either on the rule definition or the result, while its
+// SARIF level collapses Critical and High to "error". The interpreter must surface the score as an
+// attribute and refine severity from it so MinSeverity routing can tell critical from high.
+const grypeSARIF = `{
+  "runs": [
+    {
+      "tool": {"driver": {"name": "grype", "rules": [
+        {"id": "CVE-2021-CRIT", "properties": {"security-severity": "9.8"}}
+      ]}},
+      "results": [
+        {
+          "ruleId": "CVE-2021-CRIT",
+          "level": "error",
+          "message": {"text": "Critical vuln in libfoo 1.2.3"},
+          "locations": [{"physicalLocation": {"artifactLocation": {"uri": "go.mod"}, "region": {"startLine": 5}}}]
+        },
+        {
+          "ruleId": "CVE-2020-HIGH",
+          "level": "error",
+          "message": {"text": "High vuln in libbar 4.5.6"},
+          "properties": {"security-severity": "7.5"},
+          "locations": [{"physicalLocation": {"artifactLocation": {"uri": "go.mod"}, "region": {"startLine": 9}}}]
+        }
+      ]
+    }
+  ]
+}`
+
+func TestSARIFGrypeSecuritySeverity(t *testing.T) {
+	obs, err := SARIF([]byte(grypeSARIF))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs) != 2 {
+		t.Fatalf("got %d observations, want 2", len(obs))
+	}
+	// Rule-level security-severity 9.8 → critical (not "high" from level=error).
+	if obs[0].Severity != "critical" {
+		t.Fatalf("first severity = %q, want critical (CVSS 9.8)", obs[0].Severity)
+	}
+	if got := obs[0].Attributes["security_severity"]; got != "9.8" {
+		t.Fatalf("first security_severity = %q, want 9.8", got)
+	}
+	if obs[0].Attributes["tool"] != "grype" {
+		t.Fatalf("first tool = %q, want grype", obs[0].Attributes["tool"])
+	}
+	// Result-level security-severity 7.5 → high.
+	if obs[1].Severity != "high" {
+		t.Fatalf("second severity = %q, want high (CVSS 7.5)", obs[1].Severity)
+	}
+	if got := obs[1].Attributes["security_severity"]; got != "7.5" {
+		t.Fatalf("second security_severity = %q, want 7.5", got)
+	}
+}
+
 func TestSARIFBadJSON(t *testing.T) {
 	if _, err := SARIF([]byte("not json")); err == nil {
 		t.Fatal("expected error for invalid SARIF")

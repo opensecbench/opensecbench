@@ -79,3 +79,37 @@ func TestReviewUnknownObservation(t *testing.T) {
 		t.Fatalf("ReviewObservation(unknown) = %v, want ErrNotFound", err)
 	}
 }
+
+func TestObservationByFingerprint(t *testing.T) {
+	db := migratedDB(t)
+	ctx := context.Background()
+	proj, err := db.CreateProject(ctx, NewProject{Name: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := db.ObservationByFingerprint(ctx, proj.ID, "fp-1"); ok {
+		t.Fatal("no observation yet, should not match")
+	}
+	if _, err := db.CreateObservation(ctx, model.Observation{
+		ProjectID: &proj.ID, Origin: model.OriginTool, Title: "vuln", Severity: "high", Fingerprint: "fp-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := db.ObservationByFingerprint(ctx, proj.ID, "fp-1")
+	if !ok || got == "" {
+		t.Fatalf("expected to find the observation by fingerprint, ok=%v id=%q", ok, got)
+	}
+	// Scoped to the project and to the exact fingerprint; empty inputs never match.
+	other, _ := db.CreateProject(ctx, NewProject{Name: "other"})
+	if _, ok := db.ObservationByFingerprint(ctx, other.ID, "fp-1"); ok {
+		t.Fatal("fingerprint should be project-scoped")
+	}
+	if _, ok := db.ObservationByFingerprint(ctx, proj.ID, "fp-2"); ok {
+		t.Fatal("different fingerprint should not match")
+	}
+	if _, ok := db.ObservationByFingerprint(ctx, proj.ID, ""); ok {
+		t.Fatal("empty fingerprint should never match")
+	}
+}
