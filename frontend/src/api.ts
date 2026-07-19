@@ -413,6 +413,36 @@ export interface AgentProfile {
   description: string
 }
 
+export interface AgentPlaybook {
+  id: string
+  name: string
+  description: string
+  goal: string
+  steps: { key: string; profile: string; depends_on: string[] }[]
+}
+
+export interface PlanStep {
+  id: string
+  key: string
+  profile: string
+  instruction: string
+  depends_on: string[]
+  status: string
+  result?: string
+  error?: string
+}
+
+export interface Plan {
+  id: string
+  project_id: string
+  playbook_id: string
+  goal: string
+  status: string
+  steps?: PlanStep[]
+  created_at: string
+  updated_at: string
+}
+
 export interface Msg {
   id: string
   thread_id: string
@@ -704,6 +734,13 @@ export const api = {
     request<{ ok: boolean; latency_ms?: number; sample?: string; error?: string }>('POST', `/v1/analyst/providers/${id}/test`, {}),
   deleteProvider: (id: string) => request<void>('DELETE', `/v1/analyst/providers/${id}`),
   getProjectUsage: (projectId: string) => request<UsageByModel[]>('GET', `/v1/projects/${projectId}/usage`),
+
+  listAgentPlaybooks: () =>
+    request<{ playbooks: AgentPlaybook[] }>('GET', '/v1/analyst/playbooks').then((r) => r.playbooks ?? []),
+  startPlan: (projectId: string, playbookId: string) =>
+    request<Plan>('POST', `/v1/projects/${projectId}/plans`, { playbook_id: playbookId }),
+  getPlan: (id: string) => request<Plan>('GET', '/v1/plans/' + id),
+  listPlans: (projectId: string) => request<Plan[]>('GET', `/v1/projects/${projectId}/plans`),
 
   listThreads: () => request<Thread[]>('GET', '/v1/threads'),
   listAgentProfiles: () =>
