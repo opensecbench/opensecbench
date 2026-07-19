@@ -42,6 +42,10 @@ type Engine struct {
 	// (ADR-0011). nil disables secret injection.
 	Secrets func(ctx context.Context, name string) (string, error)
 
+	// resolveRunner, if set, returns the runner for a task's RunnerTarget (a remote runner id). When a
+	// task targets a remote runner and this is nil or errors, the task fails cleanly (ADR-0024).
+	resolveRunner func(runnerID string) (runner.Runner, error)
+
 	notify     chan struct{}   // "there may be work" wakeup, so workers claim immediately on enqueue
 	baseCtx    context.Context // parent context for background runs (survives request cancellation)
 	baseCancel context.CancelFunc
@@ -176,6 +180,7 @@ func requestFromTask(t model.Task) RunRequest {
 		ApplicationID: t.ApplicationID,
 		ProjectID:     t.ProjectID,
 		SecretRefs:    t.SecretRefs,
+		RunnerID:      t.RunnerTarget,
 	}
 	if len(t.Params) > 0 {
 		_ = json.Unmarshal(t.Params, &req.Params)
@@ -217,6 +222,7 @@ type RunRequest struct {
 	ProjectID     *string           // scope context for network capabilities; resolved from the asset if unset
 	SecretRefs    map[string]string // envVar -> vault secret name, injected at exec time (ADR-0011)
 	Params        map[string]any
+	RunnerID      string // "" = local Docker runner; otherwise an enrolled remote runner id (ADR-0024)
 }
 
 // ErrOutOfScope is returned when a network capability's target is not in the project allowlist.
@@ -289,8 +295,16 @@ func (e *Engine) createTask(ctx context.Context, req RunRequest, p prepared, que
 		Params:            paramsJSON,
 		SecretRefs:        req.SecretRefs, // reference names only, persisted for durable reconstruction
 		TargetDir:         req.TargetDir,  // raw dir (empty when derived from an asset)
+		RunnerTarget:      req.RunnerID,   // '' = local; else an enrolled remote runner (ADR-0024)
 		Queued:            queued,
 	})
+}
+
+// SetRunnerResolver wires remote-runner selection: given a task's RunnerTarget (an enrolled runner id),
+// the resolver returns the runner.Runner that dispatches to it (ADR-0024). Without it, tasks that target
+// a remote runner fail cleanly.
+func (e *Engine) SetRunnerResolver(fn func(runnerID string) (runner.Runner, error)) {
+	e.resolveRunner = fn
 }
 
 // Enqueue validates and plans the run, records a pending task, and wakes the worker pool, returning
@@ -340,6 +354,24 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		}
 	}
 
+	// Select the runner: local Docker by default, or an enrolled remote runner (ADR-0024). Scope was
+	// already enforced above, control-plane-side, before any dispatch.
+	run := e.runner
+	if req.RunnerID != "" {
+		if e.resolveRunner == nil {
+			err := fmt.Errorf("task targets runner %q but no remote runners are configured", req.RunnerID)
+			_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, err.Error())
+			return e.outcome(ctx, task.ID), err
+		}
+		r, err := e.resolveRunner(req.RunnerID)
+		if err != nil {
+			err = fmt.Errorf("runner unavailable: %w", err)
+			_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, err.Error())
+			return e.outcome(ctx, task.ID), err
+		}
+		run = r
+	}
+
 	// Resolve secret references and inject them at exec time — never persisted, never logged; the
 	// returned redactor scrubs their values from captured output (ADR-0011).
 	redact, injErr := e.injectSecrets(ctx, req, &spec)
@@ -348,14 +380,20 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		return e.outcome(ctx, task.ID), injErr
 	}
 
-	// Name the container and register the run so Cancel can stop it.
+	// Name the container and register the run so Cancel can stop it. For a remote run the container is on
+	// the runner host, so leave the local container name empty (local `docker kill` is a no-op) and rely
+	// on run-context cancellation propagating over the protocol.
 	spec.Name = "osb-" + task.ID
+	localContainer := spec.Name
+	if req.RunnerID != "" {
+		localContainer = ""
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	e.mu.Lock()
-	e.running[task.ID] = runState{cancel: cancel, container: spec.Name}
+	e.running[task.ID] = runState{cancel: cancel, container: localContainer}
 	e.mu.Unlock()
 
-	res, runErr := e.runner.Run(runCtx, spec)
+	res, runErr := run.Run(runCtx, spec)
 
 	e.mu.Lock()
 	delete(e.running, task.ID)
