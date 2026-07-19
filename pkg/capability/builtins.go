@@ -8,13 +8,6 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/runner"
 )
 
-// investigateHighSeverity routes any high- or critical-severity observation to a tracked investigation
-// (ADR-0029). SAST/SCA tools carry false positives, so nothing auto-becomes a finding; a human (or the
-// seeded vuln-validator agent, on demand) validates first. Lower severities fall through to manual review.
-var investigateHighSeverity = []disposition.Disposition{
-	{MinSeverity: "high", Action: disposition.ActionInvestigate},
-}
-
 // reachableExposed escalates only a vulnerability that govulncheck proved reachable in the call graph AND
 // that sits on a network-exposed service (ADR-0030). Everything else — imported-but-uncalled, or reachable
 // in an internal-only service — falls to manual review, keeping triage focused on real exposure. The
@@ -22,6 +15,15 @@ var investigateHighSeverity = []disposition.Disposition{
 // derived exposure.
 var reachableExposed = []disposition.Disposition{
 	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
+}
+
+// sastReachabilityRouting routes semgrep with dataflow reachability (ADR-0032): a taint finding whose SARIF
+// codeFlow proved a source→sink path (reachable=true) on an exposed service escalates at any severity;
+// otherwise a high/critical pattern finding still investigates on severity. There is no reachable:false
+// downgrade — a plain pattern match simply has no dataflow trace.
+var sastReachabilityRouting = []disposition.Disposition{
+	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
+	{MinSeverity: "high", Action: disposition.ActionInvestigate},
 }
 
 // scaReachabilityRouting routes a general SCA tool (grype) whose CVE findings may be enriched with a shared
@@ -95,7 +97,7 @@ func (semgrep) Manifest() Manifest {
 		OutputName:      "semgrep.sarif",
 		OutputMediaType: "application/sarif+json",
 		OKExitCodes:     []int{0, 1}, // 0 = clean, 1 = findings; >=2 is an error
-		Dispositions:    investigateHighSeverity,
+		Dispositions:    sastReachabilityRouting,
 	}
 }
 

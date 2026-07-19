@@ -50,6 +50,21 @@ type sarifResult struct {
 	Message    sarifMessage    `json:"message"`
 	Locations  []sarifLocation `json:"locations"`
 	Properties sarifProperties `json:"properties"`
+	// CodeFlows carry a dataflow trace (source → sink) for taint-mode findings; their presence means the
+	// tool proved the finding is reachable from an untrusted input (ADR-0032).
+	CodeFlows []sarifCodeFlow `json:"codeFlows"`
+}
+
+type sarifCodeFlow struct {
+	ThreadFlows []sarifThreadFlow `json:"threadFlows"`
+}
+
+type sarifThreadFlow struct {
+	Locations []sarifThreadFlowLocation `json:"locations"`
+}
+
+type sarifThreadFlowLocation struct {
+	Location sarifLocation `json:"location"`
 }
 
 type sarifMessage struct {
@@ -97,6 +112,14 @@ func SARIF(data []byte) ([]model.Observation, error) {
 			}
 			if secSev != "" {
 				attrs["security_severity"] = secSev
+			}
+			// A dataflow trace means a taint finding — the tool proved a source→sink path, i.e. the sink is
+			// reachable from untrusted input (ADR-0032). Record it as reachable and note where input enters.
+			if len(r.CodeFlows) > 0 {
+				attrs["reachable"] = "true"
+				if src := dataflowSource(r.CodeFlows); src != "" {
+					attrs["dataflow_source"] = src
+				}
 			}
 			// The SARIF level collapses distinct CVSS bands (grype maps both Critical and High to "error"),
 			// so prefer the numeric security-severity when present — this is what makes MinSeverity routing
@@ -177,6 +200,19 @@ func severityFromLevel(level string) string {
 	default:
 		return "info"
 	}
+}
+
+// dataflowSource returns the origin of a taint trace — the first thread-flow location, where untrusted
+// input enters — as "file:line", or "" if the trace has no usable location.
+func dataflowSource(flows []sarifCodeFlow) string {
+	for _, cf := range flows {
+		for _, tf := range cf.ThreadFlows {
+			if len(tf.Locations) > 0 {
+				return firstLocation([]sarifLocation{tf.Locations[0].Location})
+			}
+		}
+	}
+	return ""
 }
 
 func firstLocation(locs []sarifLocation) string {
