@@ -69,9 +69,14 @@ and can later ship as plugins.
       migration 0043 recreates `kb_entries` with nullable target/group/org anchors + scope CHECK;
       `ListKBByProject` inherits target + group + org + global (most-specific first); `draft_kb_entry` gains
       a `scope` param (resolves the org from the project); the scribe captures org-wide facts at org scope.
-      *Remaining knowledge investments: a synthesized **dossier** view; **freshness** (last-verified/
-      staleness); human API/UI for org/global entries; a **group** CRUD API; RAG index inherited entries
+      *Remaining: human API/UI for org/global entries; a **group** CRUD API; RAG index inherited entries
       per-org not per-project.*
+- [x] **Knowledge dossier** (ADR-0042) — a consolidated "what we know about this system" view: `pkg/dossier`
+      deterministically groups the inherited KB by kind into a read-first brief (architecture → stack → auth
+      → deploy → data flows → conventions → gotchas), marking inherited/draft entries. `get_dossier` agent
+      tool + `GET /v1/{targets,projects}/{id}/dossier` (+`?format=markdown`) + `osb dossier`. No model call.
+      *Remaining knowledge investment: **freshness** (last-verified/staleness). Also: optional LLM-narrative
+      summary; a workbench UI surface; a "current posture" section from recent findings.*
 
 - [x] **Tech-scout research agent** (ADR-0038) — identifies the stack (`list_dependencies` from the SBOM),
       researches it from trusted web sources (`web_fetch`, gated by a **preapproved-source** allowlist —
