@@ -5,6 +5,7 @@ package controlplane
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -33,17 +34,23 @@ type Options struct {
 	// Addr is the loopback address to listen on. Use a ":0" port to auto-assign a free port
 	// (handy for the desktop app). Defaults to 127.0.0.1:7373.
 	Addr string
+	// RunnerAddr, if set, binds a separate listener serving only the remote-runner protocol
+	// (`/v1/runners/{enroll,stream,result}`, ADR-0024). Typically a routable address behind an
+	// operator-provided TLS terminator/tunnel. Empty disables remote runners.
+	RunnerAddr string
 	// DBPath is the SQLite path. Empty uses the per-user default location.
 	DBPath string
 }
 
 // Instance is a running control plane.
 type Instance struct {
-	BaseURL  string
-	db       *store.DB
-	srv      *http.Server
-	api      *api.Server
-	provider llm.Provider
+	BaseURL   string
+	RunnerURL string
+	db        *store.DB
+	srv       *http.Server
+	runnerSrv *http.Server
+	api       *api.Server
+	provider  llm.Provider
 }
 
 // ProviderName reports the configured LLM provider (or "none").
@@ -173,7 +180,22 @@ func Start(opts Options) (*Instance, error) {
 	}
 	go func() { _ = srv.Serve(ln) }()
 
-	return &Instance{BaseURL: "http://" + ln.Addr().String(), db: db, srv: srv, api: apiSrv, provider: provider}, nil
+	inst := &Instance{BaseURL: "http://" + ln.Addr().String(), db: db, srv: srv, api: apiSrv, provider: provider}
+
+	// Optional network-exposed runner listener (ADR-0024): serves only the authenticated runner protocol.
+	if opts.RunnerAddr != "" {
+		rln, err := net.Listen("tcp", opts.RunnerAddr)
+		if err != nil {
+			_ = srv.Close()
+			_ = db.Close()
+			return nil, fmt.Errorf("runner listener: %w", err)
+		}
+		inst.runnerSrv = &http.Server{Handler: apiSrv.RunnerHandler(), ReadHeaderTimeout: 5 * time.Second}
+		inst.RunnerURL = "http://" + rln.Addr().String()
+		go func() { _ = inst.runnerSrv.Serve(rln) }()
+	}
+
+	return inst, nil
 }
 
 // SchemaVersion returns the applied schema version.
@@ -184,6 +206,9 @@ func (i *Instance) SchemaVersion() (int, error) { return i.db.Version() }
 func (i *Instance) Shutdown(ctx context.Context) error {
 	if i.api != nil {
 		i.api.Close()
+	}
+	if i.runnerSrv != nil {
+		_ = i.runnerSrv.Shutdown(ctx)
 	}
 	err := i.srv.Shutdown(ctx)
 	if cerr := i.db.Close(); err == nil {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -31,6 +32,8 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/replay"
 	"github.com/opensecbench/opensecbench/pkg/report"
+	"github.com/opensecbench/opensecbench/pkg/runner"
+	"github.com/opensecbench/opensecbench/pkg/runnerhub"
 	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/secret"
 	"github.com/opensecbench/opensecbench/pkg/session"
@@ -69,6 +72,7 @@ type Server struct {
 	activeProvider providerInfo
 	replay         *replay.Client
 	events         *events.Hub
+	runners        *runnerhub.Hub
 	sessMgr        *session.Manager
 	proxyCA        *proxy.CA
 	reports        *report.Registry
@@ -105,6 +109,7 @@ func New(deps Deps) *Server {
 		provider:     deps.Provider,
 		replay:       replay.New(0),
 		events:       events.NewHub(),
+		runners:      runnerhub.New(),
 		sessMgr:      deps.SessionMgr,
 		proxyCA:      deps.ProxyCA,
 		reports:      deps.Reports,
@@ -135,6 +140,23 @@ func New(deps Deps) *Server {
 		if n, err := s.store.FailUnfinishedPlaybookRuns(context.Background()); err == nil && n > 0 {
 			log.Printf("api: reconciled %d unfinished playbook run(s) to failed on startup", n)
 		}
+	}
+	// Remote-runner selection (ADR-0024): resolve a task's runner_target to a hub-connected runner. A
+	// revoked or offline runner errors, so the engine fails the task cleanly rather than running local.
+	if s.engine != nil && s.store != nil {
+		s.engine.SetRunnerResolver(func(id string) (runner.Runner, error) {
+			r, err := s.store.GetRunner(context.Background(), id)
+			if err != nil {
+				return nil, err
+			}
+			if r.Status != model.RunnerActive {
+				return nil, fmt.Errorf("runner %s is %s", r.Name, r.Status)
+			}
+			if !s.runners.Online(id) {
+				return nil, fmt.Errorf("runner %s is offline", r.Name)
+			}
+			return s.runners.Runner(id, r.Name), nil
+		})
 	}
 	s.startScheduler()
 	return s
@@ -303,6 +325,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
 	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)
 	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
+
+	// Remote runners — operator actions on the trusted (loopback) API (ADR-0024). The runner protocol
+	// itself is served on a separate network-exposed listener; see RunnerHandler.
+	s.mux.HandleFunc("GET /v1/runners", s.listRunners)
+	s.mux.HandleFunc("POST /v1/runners/enroll-token", s.mintEnrollToken)
+	s.mux.HandleFunc("DELETE /v1/runners/{id}", s.deleteRunner)
 	s.mux.HandleFunc("GET /v1/tasks/{id}", s.getTask)
 	s.mux.HandleFunc("POST /v1/tasks/{id}/cancel", s.cancelTask)
 	s.mux.HandleFunc("GET /v1/tasks/{id}/artifacts", s.getTaskArtifacts)
