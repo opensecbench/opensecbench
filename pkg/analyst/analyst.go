@@ -105,6 +105,16 @@ func Tools() []agent.Tool {
 		{Name: "get_kb_entry", Description: "Read a full knowledge-base entry (including its body) by id.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "knowledge-base entry id"},
 		}},
+		{Name: "workspace_write", Description: "Write a file to the durable project workspace (shared scratch across agents). Conventions: inventory/, recon/, analysis/, findings/<id>/, reports/, scratch/.", Params: []agent.Param{
+			{Name: "path", Type: agent.TypeString, Required: true, Description: "path within the workspace, e.g. reports/draft.md"},
+			{Name: "content", Type: agent.TypeString, Required: true, Description: "file contents"},
+		}},
+		{Name: "workspace_read", Description: "Read a file from the project workspace.", Params: []agent.Param{
+			{Name: "path", Type: agent.TypeString, Required: true, Description: "path within the workspace"},
+		}},
+		{Name: "workspace_list", Description: "List a directory in the project workspace (root when no path given).", Params: []agent.Param{
+			{Name: "path", Type: agent.TypeString, Description: "directory within the workspace (default: root)"},
+		}},
 		{Name: "get_coverage", Description: "Show the current project's methodology coverage (item id, status, note)."},
 		{Name: "send_request", Description: "Send an HTTP request from the Replay tool and record the response. GATED — outbound traffic; scope-guarded and requires human authorization.", Params: []agent.Param{
 			{Name: "method", Type: agent.TypeString, Required: true, Description: "HTTP method, e.g. GET or POST"},
@@ -156,11 +166,12 @@ func Approver(allow []string) func(context.Context, agent.ToolCall) (bool, error
 // zero (e.g. a project-less thread or a loop built without a replay client), in which case the tools
 // that need them return a clear error instead of misbehaving.
 type ExecDeps struct {
-	Store     *store.DB
-	Engine    *task.Engine
-	Replay    *replay.Client
-	Blobs     *cas.Store
-	ProjectID string
+	Store         *store.DB
+	Engine        *task.Engine
+	Replay        *replay.Client
+	Blobs         *cas.Store
+	WorkspaceRoot string
+	ProjectID     string
 }
 
 // Executor dispatches a tool call to a store query, a capability run, or an outbound request.
@@ -202,6 +213,12 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return readContext(ctx, deps, call)
 		case "get_kb_entry":
 			return getKBEntry(ctx, deps, call)
+		case "workspace_write":
+			return workspaceWrite(ctx, deps, call)
+		case "workspace_read":
+			return workspaceRead(ctx, deps, call)
+		case "workspace_list":
+			return workspaceList(ctx, deps, call)
 		case "get_coverage":
 			return getCoverage(ctx, deps)
 		case "send_request":

@@ -39,18 +39,19 @@ import (
 
 // Deps are the control-plane services the API exposes.
 type Deps struct {
-	Store      *store.DB
-	Engine     *task.Engine
-	CAS        *cas.Store
-	Provider   llm.Provider
-	SessionMgr *session.Manager
-	ProxyCA    *proxy.CA
-	Vault      *secret.Vault
-	Methods    *methodology.Registry // built-ins + loaded extensions; nil = built-ins only
-	Reports    *report.Registry      // built-ins + loaded extensions; nil = built-ins only
-	Extensions []extension.Loaded    // loaded extension packages (for listing)
-	TrustStore *extension.TrustStore // publisher trust store (for hub install / trust)
-	ExtDir     string                // where installed packages are extracted
+	Store        *store.DB
+	Engine       *task.Engine
+	CAS          *cas.Store
+	Provider     llm.Provider
+	SessionMgr   *session.Manager
+	ProxyCA      *proxy.CA
+	Vault        *secret.Vault
+	Methods      *methodology.Registry // built-ins + loaded extensions; nil = built-ins only
+	Reports      *report.Registry      // built-ins + loaded extensions; nil = built-ins only
+	Extensions   []extension.Loaded    // loaded extension packages (for listing)
+	TrustStore   *extension.TrustStore // publisher trust store (for hub install / trust)
+	ExtDir       string                // where installed packages are extracted
+	WorkspaceDir string                // root for per-project agent workspaces (ADR-0020)
 }
 
 // Server routes control-plane HTTP requests against the control-plane services.
@@ -72,6 +73,7 @@ type Server struct {
 	integr         *integration.Registry
 	trust          *extension.TrustStore
 	extDir         string
+	workspaceDir   string
 	hubCli         *hub.Client
 
 	extMu sync.Mutex
@@ -105,6 +107,7 @@ func New(deps Deps) *Server {
 		integr:       integration.BuiltIns(),
 		trust:        deps.TrustStore,
 		extDir:       deps.ExtDir,
+		workspaceDir: deps.WorkspaceDir,
 		hubCli:       hub.NewClient(0),
 		exts:         deps.Extensions,
 		sessions:     make(map[string]*liveSession),
@@ -279,7 +282,7 @@ func (s *Server) routes() {
 }
 
 func (s *Server) analystService() *analyst.Service {
-	svc := analyst.NewService(s.store, s.engine, s.cas, s.guardedProvider())
+	svc := analyst.NewService(s.store, s.engine, s.cas, s.workspaceDir, s.guardedProvider())
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}

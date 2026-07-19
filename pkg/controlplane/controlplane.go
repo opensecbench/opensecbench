@@ -165,6 +165,7 @@ func Start(opts Options) (*Instance, error) {
 		Store: db, Engine: engine, CAS: blobs, Provider: provider,
 		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault,
 		Methods: methReg, Reports: reportReg, Extensions: loadedExt, TrustStore: trust, ExtDir: extDir,
+		WorkspaceDir: filepath.Join(filepath.Dir(opts.DBPath), "workspace"),
 	})
 	srv := &http.Server{
 		Handler:           apiSrv.Handler(),
