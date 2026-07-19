@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+
+	"github.com/opensecbench/opensecbench/pkg/store"
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -834,6 +836,24 @@ func (c *Client) PullIntegration(ctx context.Context, projectID, integration str
 func (c *Client) ListInvestigations(ctx context.Context, projectID string) ([]model.Investigation, error) {
 	var out []model.Investigation
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/investigations", nil, &out)
+}
+
+// ReindexCorpus rebuilds the project's semantic index (ADR-0039), returning the chunk count.
+func (c *Client) ReindexCorpus(ctx context.Context, projectID string) (int, error) {
+	var out struct {
+		Chunks int `json:"chunks"`
+	}
+	return out.Chunks, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/reindex", nil, &out)
+}
+
+// SearchCorpus does semantic retrieval over the project's corpus + KB (ADR-0039).
+func (c *Client) SearchCorpus(ctx context.Context, projectID, query string, k int) ([]store.ScoredChunk, error) {
+	path := "/v1/projects/" + projectID + "/search-corpus?q=" + url.QueryEscape(query)
+	if k > 0 {
+		path += "&k=" + strconv.Itoa(k)
+	}
+	var out []store.ScoredChunk
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
 // ListProjectObservations returns a project's observations (ADR-0037); unreviewedOnly narrows to untriaged.

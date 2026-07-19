@@ -359,6 +359,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/projects/{id}/integrations/{integration}/pull", s.pullIntegration)
 	// Post-run disposition routing + investigations (ADR-0028).
 	s.mux.HandleFunc("GET /v1/projects/{id}/observations", s.listProjectObservations)
+	// Semantic corpus/KB retrieval (ADR-0039).
+	s.mux.HandleFunc("POST /v1/projects/{id}/reindex", s.reindexCorpus)
+	s.mux.HandleFunc("GET /v1/projects/{id}/search-corpus", s.searchCorpus)
 	s.mux.HandleFunc("GET /v1/projects/{id}/investigations", s.listInvestigations)
 	s.mux.HandleFunc("POST /v1/investigations/{id}/run", s.runInvestigation)
 	s.mux.HandleFunc("POST /v1/investigations/{id}/status", s.setInvestigationStatus)
@@ -1568,6 +1571,10 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	// Index the ingested doc for semantic retrieval (ADR-0039). Best-effort — never fails the ingest.
+	if ix := s.analystService().Indexer(); ix != nil && ix.Available() {
+		_ = ix.IndexContextItem(r.Context(), ci.ProjectID, ci.ID)
 	}
 	writeJSON(w, http.StatusCreated, ci)
 }

@@ -189,7 +189,13 @@ and can later ship as plugins.
 - [ ] **Hosted team hub service** — accounts, uploads, submission scanning, reputation, moderation
       (the static-index hub + signed format is the foundation).
 - [ ] **RDP/VNC** interactive sessions (terminal shipped in P7).
-- [ ] **RAG index** for large corpora (tool-based read/grep retrieval today).
+- [x] **RAG index** for large corpora (ADR-0039) — semantic retrieval over the corpus + KB: chunk + embed +
+      store vectors (`corpus_chunks`, BLOB + brute-force cosine in Go; modernc SQLite has no vec extension);
+      `search_corpus` agent tool (+ `osb rag reindex|search`, `POST /reindex`, `GET /search-corpus`).
+      Embeddings default **local** (ollama, `OSB_EMBED_BASE_URL`/`OSB_EMBED_MODEL`) so the corpus stays
+      on-host; retrieval egress-gated like `read_context`; index-on-write + reindex. *Remaining: ANN for very
+      large corpora; re-ranking; hybrid lexical+semantic; index findings/observations; a pure-Go embedder to
+      drop the ollama dependency.*
 - [ ] **SSH-to-external-host** terminal + Analyst co-drive of terminals (sandboxed container terminal
       shipped; scope + DLP + audit already apply).
 - [ ] **KMS / OS-keychain** vault key custody (env var or 0600 key file today).

@@ -119,6 +119,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return hubCmd(ctx, c, args[1:])
 	case "policy":
 		return policyCmd(ctx, c, args[1:])
+	case "rag":
+		return ragCmd(ctx, c, args[1:])
 	case "observation", "obs":
 		return observationCmd(ctx, c, args[1:])
 	case "finding":
@@ -2095,4 +2097,52 @@ Commands:
   approval approve <id>       approve a gated action and resume
   approval deny <id>          deny a gated action and resume
 `)
+}
+
+func ragCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: osb rag <reindex|search>")
+	}
+	switch args[0] {
+	case "reindex":
+		fs := flag.NewFlagSet("rag reindex", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return errors.New("rag reindex: --project is required")
+		}
+		n, err := c.ReindexCorpus(ctx, *project)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("reindexed: %d chunks\n", n)
+		return nil
+	case "search":
+		fs := flag.NewFlagSet("rag search", flag.ContinueOnError)
+		project := fs.String("project", "", "project id (required)")
+		q := fs.String("q", "", "query text (required)")
+		k := fs.Int("k", 5, "number of passages")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" || *q == "" {
+			return errors.New("rag search: --project and --q are required")
+		}
+		hits, err := c.SearchCorpus(ctx, *project, *q, *k)
+		if err != nil {
+			return err
+		}
+		for _, h := range hits {
+			text := h.Text
+			if len(text) > 200 {
+				text = text[:200] + "…"
+			}
+			fmt.Printf("[%.3f] %s/%s (%s)\n    %s\n", h.Score, h.SourceKind, h.SourceName, h.SourceID, text)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown rag subcommand %q", args[0])
+	}
 }
