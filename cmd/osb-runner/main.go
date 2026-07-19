@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/opensecbench/opensecbench/pkg/replay"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/runnerhub"
 )
@@ -120,6 +121,10 @@ func (a *agent) stream(ctx context.Context) error {
 			go a.execute(ctx, d)
 		case runnerhub.KindCancel:
 			a.cancel(d.TaskID)
+		case runnerhub.KindHTTP:
+			if d.HTTP != nil {
+				go a.doHTTP(ctx, *d.HTTP)
+			}
 		}
 	}
 	return sc.Err()
@@ -144,6 +149,38 @@ func (a *agent) execute(parent context.Context, d runnerhub.Dispatch) {
 		res = runner.Result{ExitCode: 1, Stderr: []byte(err.Error())}
 	}
 	a.postResult(d.TaskID, res)
+}
+
+// doHTTP performs an outbound HTTP request from this runner's vantage (Replay egress, ADR-0025) and posts
+// the captured response back. Scope was already enforced control-plane-side before dispatch.
+func (a *agent) doHTTP(ctx context.Context, req runnerhub.HTTPRequest) {
+	res := runnerhub.HTTPResult{ID: req.ID}
+	resp, err := replay.New(0).Send(ctx, replay.Request{Method: req.Method, URL: req.URL, Headers: req.Headers, Body: req.Body})
+	if err != nil {
+		res.Error = err.Error()
+	} else {
+		res.Status = resp.Status
+		res.Headers = resp.Headers
+		res.Body = resp.Body
+		res.DurationMs = int64(resp.DurationMS)
+	}
+	const path = "/v1/runners/http-result"
+	body, _ := json.Marshal(res)
+	httpReq, err := http.NewRequest(http.MethodPost, a.url+path, bytes.NewReader(body))
+	if err != nil {
+		log.Printf("http-result for %s: %v", req.ID, err)
+		return
+	}
+	a.signHeaders(httpReq, http.MethodPost, path, body)
+	hresp, err := a.client.Do(httpReq)
+	if err != nil {
+		log.Printf("http-result for %s: %v", req.ID, err)
+		return
+	}
+	_ = hresp.Body.Close()
+	if hresp.StatusCode >= 300 {
+		log.Printf("http-result for %s rejected: %s", req.ID, hresp.Status)
+	}
 }
 
 func (a *agent) cancel(taskID string) {

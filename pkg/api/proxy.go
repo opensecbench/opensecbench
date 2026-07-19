@@ -137,7 +137,7 @@ func (s *Server) proxyCapture(projectID string) func(proxy.Exchange) {
 			log.Printf("proxy capture: %v", err)
 			return
 		}
-		if err := s.store.RecordResponse(ctx, ex.ID, e.Status, e.ResponseHeaders, e.ResponseBody, e.DurationMS); err != nil {
+		if err := s.store.RecordResponse(ctx, ex.ID, e.Status, e.ResponseHeaders, e.ResponseBody, e.DurationMS, ""); err != nil {
 			log.Printf("proxy capture response: %v", err)
 		}
 		s.publishExchange(ctx, projectID, ex.ID)

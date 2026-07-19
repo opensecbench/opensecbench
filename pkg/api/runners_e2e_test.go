@@ -81,18 +81,28 @@ func (a *fakeAgent) stream(ctx context.Context) {
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &d); err != nil {
 			continue
 		}
-		if d.Kind != runnerhub.KindRun {
-			continue
+		switch d.Kind {
+		case runnerhub.KindRun:
+			select {
+			case a.gotDispatch <- d.TaskID:
+			default:
+			}
+			// Answer with a canned result (as if the capability ran here).
+			resp := a.post(a.t, "/v1/runners/result", map[string]any{
+				"task_id": d.TaskID, "exit_code": 0, "stdout": []byte("scanned from the runner\n"),
+			})
+			_ = resp.Body.Close()
+		case runnerhub.KindHTTP:
+			select {
+			case a.gotDispatch <- d.HTTP.ID:
+			default:
+			}
+			// Answer with a canned HTTP response (as if the request went out from here).
+			resp := a.post(a.t, "/v1/runners/http-result", runnerhub.HTTPResult{
+				ID: d.HTTP.ID, Status: 200, Headers: "X-Via: runner\n", Body: "hello from the runner",
+			})
+			_ = resp.Body.Close()
 		}
-		select {
-		case a.gotDispatch <- d.TaskID:
-		default:
-		}
-		// Answer with a canned result (as if the capability ran here).
-		resp := a.post(a.t, "/v1/runners/result", map[string]any{
-			"task_id": d.TaskID, "exit_code": 0, "stdout": []byte("scanned from the runner\n"),
-		})
-		_ = resp.Body.Close()
 	}
 }
 
@@ -211,6 +221,94 @@ func TestRemoteRunnerEndToEnd(t *testing.T) {
 	_, _ = buf.ReadFrom(rc)
 	if !strings.Contains(buf.String(), "scanned from the runner") {
 		t.Fatalf("artifact content = %q, want the runner's output", buf.String())
+	}
+}
+
+// enrollOnlineRunner mints a token, enrolls a fake agent, opens its stream, and waits until the operator
+// view shows it online. Returns the agent (with its runner id) for driving dispatches.
+func enrollOnlineRunner(t *testing.T, mainURL, runnerURL string) (*fakeAgent, string) {
+	t.Helper()
+	var tok struct {
+		Token string `json:"token"`
+	}
+	if code := postJSON(t, mainURL+"/v1/runners/enroll-token", `{"label":"edge"}`, &tok); code != http.StatusCreated {
+		t.Fatalf("enroll-token = %d", code)
+	}
+	pub, priv, err := runnerhub.GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var enrolled struct {
+		RunnerID string `json:"runner_id"`
+	}
+	if code := postJSON(t, runnerURL+"/v1/runners/enroll",
+		`{"token":"`+tok.Token+`","name":"edge-1","pubkey":"`+pub+`"}`, &enrolled); code != http.StatusCreated {
+		t.Fatalf("enroll = %d", code)
+	}
+	agent := &fakeAgent{t: t, runnerURL: runnerURL, id: enrolled.RunnerID, priv: priv, client: &http.Client{}, gotDispatch: make(chan string, 1)}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go agent.stream(ctx)
+
+	for i := 0; i < 200; i++ {
+		var list []struct {
+			ID     string `json:"id"`
+			Online bool   `json:"online"`
+		}
+		resp, _ := http.Get(mainURL + "/v1/runners")
+		_ = json.NewDecoder(resp.Body).Decode(&list)
+		_ = resp.Body.Close()
+		for _, r := range list {
+			if r.ID == enrolled.RunnerID && r.Online {
+				return agent, enrolled.RunnerID
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("runner never came online")
+	return nil, ""
+}
+
+func TestReplayEgressViaRunner(t *testing.T) {
+	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	ms, _ := store.LoadMigrations(migrations.FS)
+	if _, err := db.Apply(ms); err != nil {
+		t.Fatal(err)
+	}
+	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	engine := task.NewEngine(db, blobs, capability.BuiltIns(), fakeTaskRunner{})
+	srvObj := New(Deps{Store: db, Engine: engine, CAS: blobs})
+	main := httptest.NewServer(srvObj.Handler())
+	runnerSrv := httptest.NewServer(srvObj.RunnerHandler())
+	t.Cleanup(func() { main.Close(); runnerSrv.Close(); engine.Close(); _ = db.Close() })
+
+	_, runnerID := enrollOnlineRunner(t, main.URL, runnerSrv.URL)
+
+	// A project + a draft exchange (no scope entries → any target allowed).
+	proj, _ := db.CreateProject(context.Background(), store.NewProject{Name: "p"})
+	ex, _ := db.CreateExchange(context.Background(), model.HTTPExchange{
+		ProjectID: proj.ID, Origin: model.ExchangeReplay, Method: "GET", URL: "https://target.example/health",
+	})
+
+	// Send via the runner: the fake agent answers, and the response is recorded with egress = the runner.
+	var sent model.HTTPExchange
+	if code := postJSON(t, main.URL+"/v1/exchanges/"+ex.ID+"/send", `{"runner_id":"`+runnerID+`"}`, &sent); code != http.StatusOK {
+		t.Fatalf("send via runner = %d", code)
+	}
+	if sent.Status == nil || *sent.Status != 200 || sent.ResponseBody != "hello from the runner" {
+		t.Fatalf("runner-egress response not recorded: %+v", sent)
+	}
+	if sent.Egress != runnerID {
+		t.Fatalf("egress = %q, want the runner id %q", sent.Egress, runnerID)
+	}
+
+	// An unknown/offline runner is rejected (no silent local fallback).
+	var errBody map[string]any
+	ex2, _ := db.CreateExchange(context.Background(), model.HTTPExchange{
+		ProjectID: proj.ID, Origin: model.ExchangeReplay, Method: "GET", URL: "https://target.example/x",
+	})
+	if code := postJSON(t, main.URL+"/v1/exchanges/"+ex2.ID+"/send", `{"runner_id":"ghost"}`, &errBody); code != http.StatusBadGateway {
+		t.Fatalf("send via unknown runner = %d, want 502", code)
 	}
 }
 

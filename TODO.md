@@ -107,12 +107,11 @@ and can later ship as plugins.
       from the runner's vantage; scope enforced control-plane-side before dispatch. *Remaining:* source-scan
       caps on remote runners (ship `/src`), built-in TLS + cert-pinning, split `opensecbench-runner` repo,
       Runners UI.
-  - [ ] **Runners as request-egress endpoints (Phase 2)** (builds on the above + ADR-0016) — route
-        Proxy/Replay's *host-opened* outbound requests *through a selected remote runner* (network
-        capabilities already egress from the runner in Phase 1). Unlocks distributed/geo-distributed
-        testing and origination from inside the target's network. Needs a per-tool/per-request "egress via
-        runner X" selector; scope guard + DLP + audit still governed by the control plane (the runner is
-        only the exit point). Idea from James, 2026-07-18.
+  - [x] **Runners as request-egress endpoints — Phase 2a: Replay** (ADR-0025) — Replay send (UI +
+        Analyst `send_request` tool) egresses from a chosen runner's vantage via an HTTP-request job on the
+        runner protocol; shared `egressSend` selector; `egress` provenance recorded on the exchange; scope
+        stays control-plane-side. *Remaining: Phase 2b = proxy MITM egress via runner (per-request forward,
+        streaming/TLS over the outbound tunnel); a per-project default egress runner.*
 - [ ] **Hosted team hub service** — accounts, uploads, submission scanning, reputation, moderation
       (the static-index hub + signed format is the foundation).
 - [ ] **RDP/VNC** interactive sessions (terminal shipped in P7).

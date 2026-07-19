@@ -18,7 +18,7 @@ func TestListExchangesFiltered(t *testing.T) {
 			t.Fatal(err)
 		}
 		if status != 0 {
-			if err := db.RecordResponse(ctx, e.ID, status, "", "", 5); err != nil {
+			if err := db.RecordResponse(ctx, e.ID, status, "", "", 5, ""); err != nil {
 				t.Fatal(err)
 			}
 		}

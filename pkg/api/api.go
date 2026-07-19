@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/opensecbench/opensecbench/pkg/analyst"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/dlp"
@@ -382,6 +384,8 @@ func (s *Server) analystService() *analyst.Service {
 		}
 		return s.guardProvider(built), nil
 	})
+	// The send_request tool can egress from a chosen runner's vantage (ADR-0025).
+	svc.SetEgressSender(s.egressSend)
 	return svc
 }
 
@@ -1717,8 +1721,16 @@ func (s *Server) getExchange(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ex)
 }
 
-// sendExchange scope-guards the target, issues the request, and records the response (ADR-0007).
+// sendExchange scope-guards the target, issues the request (optionally from a chosen remote runner's
+// vantage, ADR-0025), and records the response (ADR-0007).
 func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RunnerID string `json:"runner_id"`
+	}
+	if err := decodeJSONOptional(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
 	ex, err := s.store.GetExchange(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "exchange not found")
@@ -1748,23 +1760,65 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp, err := s.replay.Send(r.Context(), replay.Request{
+	resp, err := s.egressSend(r.Context(), req.RunnerID, replay.Request{
 		Method: ex.Method, URL: ex.URL, Headers: ex.RequestHeaders, Body: ex.RequestBody,
 	})
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "send failed: "+err.Error())
 		return
 	}
-	if err := s.store.RecordResponse(r.Context(), ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS); err != nil {
+	if err := s.store.RecordResponse(r.Context(), ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, req.RunnerID); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.record(r.Context(), actorOf(r), "replay.send", ex.ID, map[string]any{
-		"method": ex.Method, "url": ex.URL, "status": resp.Status,
+		"method": ex.Method, "url": ex.URL, "status": resp.Status, "egress": egressLabel(req.RunnerID),
 	})
 	updated, _ := s.store.GetExchange(r.Context(), ex.ID)
 	s.events.Publish(events.Event{Type: "exchange", ProjectID: ex.ProjectID, Payload: updated})
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// egressSend issues an HTTP request either from the control-plane host (runnerID == "") or, when a runner
+// is chosen, from that enrolled runner's network vantage over the runner protocol (ADR-0025). The caller
+// enforces scope first; this is a pure transport selector. A chosen runner that is revoked or offline is
+// an error — there is no silent fallback to the local host.
+func (s *Server) egressSend(ctx context.Context, runnerID string, req replay.Request) (replay.Response, error) {
+	if runnerID == "" {
+		return s.replay.Send(ctx, req)
+	}
+	rn, err := s.store.GetRunner(ctx, runnerID)
+	if err != nil {
+		return replay.Response{}, fmt.Errorf("runner %s: %w", runnerID, err)
+	}
+	if rn.Status != model.RunnerActive {
+		return replay.Response{}, fmt.Errorf("runner %s is %s", rn.Name, rn.Status)
+	}
+	reqID := uuid.NewString()
+	ch, err := s.runners.DispatchHTTP(runnerID, runnerhub.HTTPRequest{
+		ID: reqID, Method: req.Method, URL: req.URL, Headers: req.Headers, Body: req.Body,
+	})
+	if err != nil {
+		return replay.Response{}, fmt.Errorf("runner %s: %w", rn.Name, err)
+	}
+	select {
+	case res := <-ch:
+		if res.Error != "" {
+			return replay.Response{}, fmt.Errorf("runner %s: %s", rn.Name, res.Error)
+		}
+		return replay.Response{Status: res.Status, Headers: res.Headers, Body: res.Body, DurationMS: int(res.DurationMs)}, nil
+	case <-ctx.Done():
+		s.runners.ForgetHTTP(reqID)
+		return replay.Response{}, ctx.Err()
+	}
+}
+
+// egressLabel is the audit label for where a send went out: "local" or the runner id.
+func egressLabel(runnerID string) string {
+	if runnerID == "" {
+		return "local"
+	}
+	return runnerID
 }
 
 // exchangeEvidence promotes a sent exchange's response into the CAS as an artifact and records a

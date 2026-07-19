@@ -16,6 +16,7 @@ import {
   ReportTemplate,
   PlaybookRun,
   Project,
+  RunnerView,
   ScopeEntry,
   Task,
   TaskOutcome,
@@ -896,6 +897,8 @@ function ReplayTab({
   const [current, setCurrent] = useState<HTTPExchange | null>(null)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [runners, setRunners] = useState<RunnerView[]>([])
+  const [via, setVia] = useState('') // '' = local host; else a runner id (ADR-0025)
 
   async function reload() {
     setHistory((await api.listExchanges(project.id)) ?? [])
@@ -905,6 +908,11 @@ function ReplayTab({
     if (online) void reload().catch((e) => onError((e as Error).message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, project.id])
+
+  // Enrolled runners offer alternate egress vantages for a send (ADR-0025).
+  useEffect(() => {
+    if (online) api.listRunners().then((r) => setRunners(r ?? [])).catch(() => {})
+  }, [online])
 
   function load(ex: HTTPExchange) {
     setMethod(ex.method)
@@ -927,7 +935,7 @@ function ReplayTab({
         request_headers: headers,
         request_body: body,
       })
-      const sent = await api.sendExchange(ex.id)
+      const sent = await api.sendExchange(ex.id, via || undefined)
       setCurrent(sent)
       await reload()
     } catch (err) {
@@ -977,6 +985,14 @@ function ReplayTab({
               placeholder="https://api.acme.com/v2/users"
               disabled={!online || busy}
             />
+            {runners.some((r) => r.online) && (
+              <select value={via} onChange={(e) => setVia(e.target.value)} title="Egress vantage" disabled={!online || busy}>
+                <option value="">via: local host</option>
+                {runners.filter((r) => r.online).map((r) => (
+                  <option key={r.id} value={r.id}>via: {r.name}</option>
+                ))}
+              </select>
+            )}
             <button type="submit" disabled={!online || busy || !url.trim()}>
               {busy ? 'Sending…' : 'Send'}
             </button>
@@ -999,6 +1015,7 @@ function ReplayTab({
               <div className="replay-status">
                 <span className={`badge ${statusClass(current.status)}`}>{current.status ?? '—'}</span>
                 {current.duration_ms != null && <span className="muted">{current.duration_ms} ms</span>}
+                {current.egress && <span className="mc-pill" title="Egress vantage">via {runners.find((r) => r.id === current.egress)?.name ?? current.egress}</span>}
                 <button className="link" onClick={saveEvidence} disabled={saved}>
                   {saved ? '✓ saved as evidence' : boundItem ? 'save as evidence → item' : 'save as evidence'}
                 </button>
