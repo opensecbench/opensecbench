@@ -965,17 +965,32 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Running now: active tasks + active/awaiting Analyst threads.
-	runningTasks := 0
+	type taskView struct {
+		ID         string `json:"id"`
+		Capability string `json:"capability"`
+		ProjectID  string `json:"project_id,omitempty"`
+		Project    string `json:"project,omitempty"`
+	}
+	runningTasks := []taskView{}
 	for _, t := range must(s.store.ListTasks(ctx, 200)) {
-		if t.Status == model.TaskRunning {
-			runningTasks++
+		if t.Status != model.TaskRunning {
+			continue
 		}
+		tv := taskView{ID: t.ID, Capability: t.CapabilityID}
+		if t.ApplicationID != nil {
+			if app, err := s.store.GetApplication(ctx, *t.ApplicationID); err == nil {
+				tv.ProjectID = app.ProjectID
+				tv.Project = name[app.ProjectID]
+			}
+		}
+		runningTasks = append(runningTasks, tv)
 	}
 	type thView struct {
 		ID        string `json:"id"`
 		Title     string `json:"title"`
 		Status    string `json:"status"`
 		AgentType string `json:"agent_type"`
+		ProjectID string `json:"project_id,omitempty"`
 		Project   string `json:"project,omitempty"`
 	}
 	threads := []thView{}
@@ -985,6 +1000,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		}
 		tv := thView{ID: th.ID, Title: th.Title, Status: th.Status, AgentType: th.AgentType}
 		if th.ProjectID != nil {
+			tv.ProjectID = *th.ProjectID
 			tv.Project = name[*th.ProjectID]
 		}
 		threads = append(threads, tv)
@@ -1016,7 +1032,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"approvals": approvals,
-		"active":    map[string]any{"running_tasks": runningTasks, "threads": threads},
+		"active":    map[string]any{"tasks": runningTasks, "threads": threads},
 		"projects":  pvs,
 	})
 }

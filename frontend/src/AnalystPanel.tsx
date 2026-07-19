@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, Thread } from './api'
 import { ProviderSettings } from './ProviderSettings'
 
-export function AnalystPanel({ project, online }: { project: Project; online: boolean }) {
+export function AnalystPanel({ project, online, initialThread }: { project: Project; online: boolean; initialThread?: string }) {
   const [threads, setThreads] = useState<Thread[]>([])
   const [current, setCurrent] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Msg[]>([])
@@ -41,6 +41,18 @@ export function AnalystPanel({ project, online }: { project: Project; online: bo
     if (online) void loadThreads()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online])
+
+  // Deep-link: a cockpit click can request a specific thread — open it once threads arrive.
+  const [linked, setLinked] = useState(false)
+  useEffect(() => {
+    if (linked || !initialThread) return
+    const t = threads.find((th) => th.id === initialThread)
+    if (t) {
+      setLinked(true)
+      void open(t)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialThread, threads, linked])
 
   async function refresh(t: Thread) {
     const d = await api.getThread(t.id)

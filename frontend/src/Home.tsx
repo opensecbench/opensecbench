@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from 'react'
 import { api, HomeData, Project, Template, SearchResult } from './api'
 
-export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project) => void }) {
+export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project, target?: { surface?: string; thread?: string }) => void }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
   const [home, setHome] = useState<HomeData | null>(null)
@@ -84,8 +84,11 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project)
   const counts = new Map((home?.projects ?? []).map((p) => [p.id, p]))
   const approvals = home?.approvals ?? []
   const activeThreads = home?.active.threads ?? []
-  const runningTasks = home?.active.running_tasks ?? 0
-  const openById = (id?: string) => id && onOpen(projects.find((p) => p.id === id) as Project)
+  const runningTasks = home?.active.tasks ?? []
+  const open = (id: string | undefined, target?: { surface?: string; thread?: string }) => {
+    const p = projects.find((x) => x.id === id)
+    if (p) onOpen(p, target)
+  }
 
   return (
     <div className="content wide">
@@ -132,7 +135,7 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project)
           ) : (
             <ul className="mc-list">
               {approvals.map((a) => (
-                <li key={a.id} className="mc-row" onClick={() => openById(a.project_id)}>
+                <li key={a.id} className="mc-row link" onClick={() => open(a.project_id, { thread: a.thread_id })}>
                   <code>{a.tool}</code>
                   <span className="grow" />
                   <span className="muted">{a.project || 'no project'}</span>
@@ -146,17 +149,22 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project)
         <section className="mc-card">
           <div className="mc-head">
             ▷ Running now
-            {(activeThreads.length > 0 || runningTasks > 0) && <span className="mc-pill">{activeThreads.length + runningTasks}</span>}
+            {(activeThreads.length > 0 || runningTasks.length > 0) && <span className="mc-pill">{activeThreads.length + runningTasks.length}</span>}
           </div>
-          {activeThreads.length === 0 && runningTasks === 0 ? (
+          {activeThreads.length === 0 && runningTasks.length === 0 ? (
             <div className="mc-empty">Nothing running.</div>
           ) : (
             <ul className="mc-list">
-              {runningTasks > 0 && (
-                <li className="mc-row"><span>🧪 {runningTasks} capability task{runningTasks === 1 ? '' : 's'} running</span></li>
-              )}
+              {runningTasks.map((t) => (
+                <li key={t.id} className={`mc-row ${t.project_id ? 'link' : ''}`} onClick={() => t.project_id && open(t.project_id, { surface: 'tasks' })}>
+                  <span>🧪</span>
+                  <span>{t.capability}</span>
+                  <span className="grow" />
+                  <span className="muted">{t.project || 'no project'}</span>
+                </li>
+              ))}
               {activeThreads.map((t) => (
-                <li key={t.id} className="mc-row">
+                <li key={t.id} className={`mc-row ${t.project_id ? 'link' : ''}`} onClick={() => t.project_id && open(t.project_id, { thread: t.id })}>
                   <span className={`orch-dot s-${t.status === 'awaiting_approval' ? 'running' : 'done'}`} />
                   <span>{t.agent_type}</span>
                   <span className="grow" />

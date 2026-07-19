@@ -12,7 +12,13 @@ type Conn = 'connecting' | 'online' | 'offline'
 export function App() {
   const [conn, setConn] = useState<Conn>('connecting')
   const [project, setProject] = useState<Project | null>(null)
+  const [target, setTarget] = useState<{ surface?: string; thread?: string } | undefined>()
   const [view, setView] = useState<'home' | 'ext' | 'settings'>('home')
+
+  const openProject = (p: Project, t?: { surface?: string; thread?: string }) => {
+    setTarget(t)
+    setProject(p)
+  }
 
   useEffect(() => {
     api
@@ -39,7 +45,7 @@ export function App() {
 
   // A project open takes over the whole window as the IDE Workbench (ADR-0015).
   if (project) {
-    return <Workbench project={project} conn={conn} onHome={() => { setProject(null); setView('home') }} />
+    return <Workbench project={project} conn={conn} initial={target} onHome={() => { setProject(null); setView('home') }} />
   }
 
   return (
@@ -74,7 +80,7 @@ export function App() {
         ) : view === 'ext' ? (
           <ExtensionsView online={conn === 'online'} />
         ) : (
-          <Home online={conn === 'online'} onOpen={setProject} />
+          <Home online={conn === 'online'} onOpen={openProject} />
         )}
       </main>
     </div>

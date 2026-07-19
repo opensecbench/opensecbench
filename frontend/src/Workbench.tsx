@@ -237,7 +237,7 @@ function replayLabel(ex: HTTPExchange): string {
   }
 }
 
-export function Workbench({ project, conn, onHome }: { project: Project; conn: Conn; onHome: () => void }) {
+export function Workbench({ project, conn, initial, onHome }: { project: Project; conn: Conn; initial?: { surface?: string; thread?: string }; onHome: () => void }) {
   const online = conn === 'online'
   // Open documents are kept mounted so their state survives navigation (ADR-0015
   // Phase 3): switching surfaces hides the inactive ones, it never tears them down.
@@ -279,6 +279,12 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
     if (online) void loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, project.id])
+
+  // Deep-link: a cockpit click can request a specific surface (e.g. tasks) on open.
+  useEffect(() => {
+    if (initial?.surface) openSurface(initial.surface as Tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.surface])
 
   // Approvals feed the status bar, independent of the active surface.
   useEffect(() => {
@@ -446,7 +452,7 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
         </div>
 
         <SurfaceBoundary>
-          <AnalystPanel project={project} online={online} />
+          <AnalystPanel project={project} online={online} initialThread={initial?.thread} />
         </SurfaceBoundary>
       </div>
 
