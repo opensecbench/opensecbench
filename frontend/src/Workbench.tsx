@@ -14,9 +14,10 @@ import {
   Playbook,
   Report,
   ReportTemplate,
-  PlaybookRunResult,
+  PlaybookRun,
   Project,
   ScopeEntry,
+  Task,
   TaskOutcome,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
@@ -1194,7 +1195,8 @@ function PlaybooksTab({
   const [pbId, setPbId] = useState('')
   const [assetId, setAssetId] = useState('')
   const [running, setRunning] = useState(false)
-  const [result, setResult] = useState<PlaybookRunResult | null>(null)
+  const [pbRun, setPbRun] = useState<PlaybookRun | null>(null)
+  const [steps, setSteps] = useState<Task[]>([])
 
   useEffect(() => {
     if (!online) return
@@ -1205,9 +1207,20 @@ function PlaybooksTab({
   async function run() {
     if (!pbId || !assetId) return
     setRunning(true)
-    setResult(null)
+    setPbRun(null)
+    setSteps([])
     try {
-      setResult(await api.runPlaybook(pbId, assetId))
+      // The playbook runs asynchronously (ADR-0022): enqueue, then poll the run for live progress.
+      let pr = await api.runPlaybook(pbId, assetId)
+      setPbRun(pr)
+      for (let i = 0; i < 3600 && pr.status === 'running'; i++) {
+        await new Promise((r) => setTimeout(r, 1000))
+        pr = await api.getPlaybookRun(pr.id)
+        setPbRun(pr)
+        // Resolve the tasks recorded so far to show each step's status as it completes.
+        const tasks = await Promise.all((pr.task_ids ?? []).map((id) => api.getTask(id).catch(() => null)))
+        setSteps(tasks.filter((t): t is Task => t !== null))
+      }
     } catch (e) {
       onError((e as Error).message)
     } finally {
@@ -1243,21 +1256,24 @@ function PlaybooksTab({
         {repoAssets.length === 0 && <div className="empty">Add a source_repo asset first (Applications &amp; Assets).</div>}
       </section>
 
-      {result && (
+      {pbRun && (
         <section className="panel">
           <div className="panel-head">
-            Run <span className={`badge ${result.run.status}`}>{result.run.status}</span> · {result.outcomes.length} step(s)
+            Run <span className={`badge ${pbRun.status}`}>{pbRun.status}</span> · {steps.length}/{pbRun.task_ids?.length || 0} step(s)
           </div>
-          <ul className="rows">
-            {result.outcomes.map((o, i) => (
-              <li key={o.task.id} className="row-item">
-                <span className="muted">#{i + 1}</span>
-                <span className={`badge ${o.task.status}`}>{o.task.status}</span>
-                <span className="row-title">{o.task.capability_id}</span>
-                <span className="muted">{o.observations.length} obs</span>
-              </li>
-            ))}
-          </ul>
+          {steps.length === 0 ? (
+            <div className="empty">{pbRun.status === 'running' ? 'Starting…' : 'No steps ran.'}</div>
+          ) : (
+            <ul className="rows">
+              {steps.map((t, i) => (
+                <li key={t.id} className="row-item">
+                  <span className="muted">#{i + 1}</span>
+                  <span className={`badge ${t.status}`}>{t.status}</span>
+                  <span className="row-title">{t.capability_id}</span>
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="empty" style={{ textAlign: 'left' }}>
             Review each step's output and triage observations in the Tasks tab.
           </div>
