@@ -56,6 +56,37 @@ var builtinPlaybooks = []Playbook{
 					"provided. Save it to reports/kickoff.md.",
 				DependsOn: []string{"surface"},
 			},
+			{
+				Key:     "capture",
+				Profile: "knowledge-scribe",
+				Instruction: "Compile what onboarding discovered into DURABLE knowledge. From the inventory and " +
+					"surface analysis in the workspace (and the observations/corpus), distill the stable facts " +
+					"about how this target is set up — its architecture, auth model, technology stack, " +
+					"environment, data flows, and conventions — into knowledge-base drafts (draft_kb_entry). " +
+					"Check the existing KB first (list_kb) and update rather than duplicate. These become durable " +
+					"knowledge a human confirms and future engagements inherit.",
+				DependsOn: []string{"surface"},
+			},
+		},
+	},
+	{
+		ID:          "capture-knowledge",
+		Name:        "Capture knowledge",
+		Description: "Distill everything this engagement discovered — architecture, auth, stack, data flows, conventions, gotchas — into the durable knowledge base for reuse across engagements.",
+		Goal:        "Turn discoveries (analysis notes, observations/findings, corpus) into durable, target-anchored knowledge-base entries a human confirms.",
+		Steps: []PlaybookStep{
+			{
+				Key:     "capture",
+				Profile: "knowledge-scribe",
+				Instruction: "Review everything discovered about this project's target: the workspace analysis " +
+					"notes, the observations and findings (list_observations, list_findings), the ingested corpus " +
+					"(search_corpus), and the existing knowledge base (list_kb — always check first). Distill the " +
+					"DURABLE facts about how the target is set up — architecture, authentication/authorization, " +
+					"technology stack, environment/deployment, data flows, team conventions, and recurring " +
+					"gotchas — into knowledge-base drafts (draft_kb_entry), one per distinct fact, using the right " +
+					"kind and anchored to the target. Update or extend existing entries instead of duplicating. " +
+					"Capture stable how-it-works knowledge, not transient vulnerabilities.",
+			},
 		},
 	},
 	{
