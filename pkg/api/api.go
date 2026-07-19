@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/analyst"
 	"github.com/opensecbench/opensecbench/pkg/cas"
@@ -75,6 +76,8 @@ type Server struct {
 	extDir         string
 	workspaceDir   string
 	hubCli         *hub.Client
+	sched          *analyst.Scheduler
+	schedCancel    context.CancelFunc
 
 	extMu sync.Mutex
 	exts  []extension.Loaded
@@ -123,7 +126,25 @@ func New(deps Deps) *Server {
 	s.activeProvider = envProviderInfo(s.provider)
 	s.routes()
 	s.loadActiveProvider() // a persisted active provider overrides the env default
+	s.startScheduler()
 	return s
+}
+
+// startScheduler runs the playbook scheduler in the background (ADR-0019 step 4). A due schedule fires
+// StartPlan; it is stopped on Close.
+func (s *Server) startScheduler() {
+	if s.store == nil {
+		return
+	}
+	s.sched = analyst.NewScheduler(s.store, func(ctx context.Context, projectID, playbookID string) error {
+		_, err := s.analystService().StartPlan(ctx, projectID, playbookID)
+		return err
+	}, func(action, detail string) {
+		s.record(context.Background(), "scheduler", "analyst."+action, detail, nil)
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	s.schedCancel = cancel
+	go s.sched.Run(ctx)
 }
 
 // Handler returns the root HTTP handler, wrapped with CORS so a browser-based or Wails frontend
@@ -193,6 +214,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/projects/{id}/plans", s.listPlans)
 	s.mux.HandleFunc("GET /v1/plans/{id}", s.getPlan)
 	s.mux.HandleFunc("POST /v1/plans/{id}/save-as-playbook", s.savePlanAsPlaybook)
+	s.mux.HandleFunc("POST /v1/projects/{id}/schedules", s.createSchedule)
+	s.mux.HandleFunc("GET /v1/projects/{id}/schedules", s.listSchedules)
+	s.mux.HandleFunc("PUT /v1/schedules/{id}", s.updateSchedule)
+	s.mux.HandleFunc("DELETE /v1/schedules/{id}", s.deleteSchedule)
 	s.mux.HandleFunc("GET /v1/analyst/provider", s.getActiveProvider)
 	s.mux.HandleFunc("GET /v1/analyst/providers", s.listProviders)
 	s.mux.HandleFunc("POST /v1/analyst/providers", s.addProvider)
@@ -489,6 +514,71 @@ func (s *Server) savePlanAsPlaybook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, sp)
+}
+
+// createSchedule schedules a playbook to run on a cadence for a project (ADR-0019 step 4).
+func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PlaybookID      string `json:"playbook_id"`
+		IntervalSeconds int    `json:"interval_seconds"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.IntervalSeconds <= 0 {
+		writeErr(w, http.StatusBadRequest, "interval_seconds must be positive")
+		return
+	}
+	sc, err := s.store.CreateSchedule(r.Context(), r.PathValue("id"), req.PlaybookID, req.IntervalSeconds, time.Now().UTC())
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, sc)
+}
+
+// listSchedules returns a project's schedules.
+func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request) {
+	sched, err := s.store.ListSchedulesByProject(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, sched)
+}
+
+// updateSchedule enables or pauses a schedule.
+func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	err := s.store.SetScheduleEnabled(r.Context(), r.PathValue("id"), req.Enabled)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "schedule not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteSchedule removes a schedule.
+func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
+	err := s.store.DeleteSchedule(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "schedule not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // startPlan triggers a playbook for a project: it creates the plan and runs it in the background.

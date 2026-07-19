@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, AgentPlaybook, Plan, Project } from './api'
+import { api, AgentPlaybook, Plan, Project, Schedule } from './api'
+
+const DAY = 86400
+const WEEK = 604800
+
+function cadence(seconds: number): string {
+  if (seconds === DAY) return 'daily'
+  if (seconds === WEEK) return 'weekly'
+  if (seconds % DAY === 0) return `every ${seconds / DAY}d`
+  return `every ${Math.round(seconds / 3600)}h`
+}
 
 // OrchestrateTab lets a human trigger an agent playbook and watch the resulting plan (a DAG of steps,
 // each delegated to a specialist) run to completion (ADR-0019).
@@ -7,6 +17,7 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
   const [playbooks, setPlaybooks] = useState<AgentPlaybook[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
   const [selected, setSelected] = useState<Plan | null>(null)
+  const [schedules, setSchedules] = useState<Schedule[]>([])
   const [busy, setBusy] = useState('')
 
   const loadPlaybooks = useCallback(async () => {
@@ -17,9 +28,20 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
     }
   }, [onError])
 
+  const loadSchedules = useCallback(async () => {
+    try {
+      setSchedules((await api.listSchedules(project.id)) ?? [])
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }, [project.id, onError])
+
   useEffect(() => {
-    if (online) void loadPlaybooks()
-  }, [online, loadPlaybooks])
+    if (online) {
+      void loadPlaybooks()
+      void loadSchedules()
+    }
+  }, [online, loadPlaybooks, loadSchedules])
 
   const loadPlans = useCallback(async () => {
     try {
@@ -79,6 +101,35 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
     }
   }
 
+  async function schedule(pb: AgentPlaybook, seconds: number) {
+    try {
+      await api.createSchedule(project.id, pb.id, seconds)
+      await loadSchedules()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
+  async function toggleSchedule(sc: Schedule) {
+    try {
+      await api.setScheduleEnabled(sc.id, !sc.enabled)
+      await loadSchedules()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
+  async function removeSchedule(id: string) {
+    try {
+      await api.deleteSchedule(id)
+      await loadSchedules()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
+  const playbookName = (id: string) => playbooks.find((p) => p.id === id)?.name ?? id
+
   async function saveAsPlaybook(plan: Plan) {
     const name = window.prompt('Save this run as a reusable playbook. Name:')
     if (!name) return
@@ -116,8 +167,30 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
                 </span>
               ))}
             </div>
+            <div className="orch-sched-add">
+              <span>Schedule</span>
+              <button disabled={!online} onClick={() => schedule(pb, DAY)}>Daily</button>
+              <button disabled={!online} onClick={() => schedule(pb, WEEK)}>Weekly</button>
+            </div>
           </div>
         ))}
+
+        {schedules.length > 0 && (
+          <>
+            <div className="orch-section-h">Schedules</div>
+            {schedules.map((sc) => (
+              <div key={sc.id} className={`orch-sched ${sc.enabled ? '' : 'off'}`}>
+                <span className="orch-sched-name">{playbookName(sc.playbook_id)}</span>
+                <span className="orch-sched-cadence">{cadence(sc.interval_seconds)}</span>
+                <span className="grow" />
+                <button className="orch-sched-btn" onClick={() => toggleSchedule(sc)} title={sc.enabled ? 'Pause' : 'Resume'}>
+                  {sc.enabled ? '⏸' : '▷'}
+                </button>
+                <button className="orch-del" onClick={() => removeSchedule(sc.id)} title="Delete schedule">×</button>
+              </div>
+            ))}
+          </>
+        )}
 
         <div className="orch-section-h">Runs</div>
         {plans.length === 0 && <div className="orch-empty">No runs yet — trigger a playbook above.</div>}
