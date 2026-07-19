@@ -341,6 +341,45 @@ type Message struct {
 	CreatedAt  time.Time       `json:"created_at"`
 }
 
+// Plan / plan-step statuses (ADR-0019).
+const (
+	PlanRunning = "running"
+	PlanDone    = "done"
+	PlanFailed  = "failed"
+
+	StepPending = "pending"
+	StepRunning = "running"
+	StepDone    = "done"
+	StepFailed  = "failed"
+	StepSkipped = "skipped"
+)
+
+// Plan is a running agent playbook — a DAG of steps executed in dependency order (ADR-0019).
+type Plan struct {
+	ID         string     `json:"id"`
+	ProjectID  string     `json:"project_id"`
+	PlaybookID string     `json:"playbook_id"`
+	Goal       string     `json:"goal"`
+	Status     string     `json:"status"`
+	Steps      []PlanStep `json:"steps,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+// PlanStep is one step of a plan: a sub-task delegated to a profile, with its dependencies and outcome.
+type PlanStep struct {
+	ID          string   `json:"id"`
+	PlanID      string   `json:"plan_id"`
+	Seq         int      `json:"seq"`
+	Key         string   `json:"key"`
+	Profile     string   `json:"profile"`
+	Instruction string   `json:"instruction"`
+	DependsOn   []string `json:"depends_on"`
+	Status      string   `json:"status"`
+	Result      string   `json:"result,omitempty"`
+	Error       string   `json:"error,omitempty"`
+}
+
 // Approval statuses.
 const (
 	ApprovalPending  = "pending"

@@ -186,6 +186,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/analyst/profiles", s.listAgentProfiles)
 	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
+	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)
+	s.mux.HandleFunc("POST /v1/projects/{id}/plans", s.startPlan)
+	s.mux.HandleFunc("GET /v1/projects/{id}/plans", s.listPlans)
+	s.mux.HandleFunc("GET /v1/plans/{id}", s.getPlan)
 	s.mux.HandleFunc("GET /v1/analyst/provider", s.getActiveProvider)
 	s.mux.HandleFunc("GET /v1/analyst/providers", s.listProviders)
 	s.mux.HandleFunc("POST /v1/analyst/providers", s.addProvider)
@@ -394,6 +398,72 @@ func (s *Server) createThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, th)
+}
+
+// listAgentPlaybooks returns the built-in agent playbooks a human can trigger (ADR-0019). Distinct from
+// /v1/playbooks, which lists capability playbooks.
+func (s *Server) listAgentPlaybooks(w http.ResponseWriter, _ *http.Request) {
+	type step struct {
+		Key       string   `json:"key"`
+		Profile   string   `json:"profile"`
+		DependsOn []string `json:"depends_on"`
+	}
+	type pb struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Goal        string `json:"goal"`
+		Steps       []step `json:"steps"`
+	}
+	out := []pb{}
+	for _, p := range analyst.Playbooks() {
+		steps := make([]step, 0, len(p.Steps))
+		for _, s := range p.Steps {
+			steps = append(steps, step{Key: s.Key, Profile: s.Profile, DependsOn: s.DependsOn})
+		}
+		out = append(out, pb{ID: p.ID, Name: p.Name, Description: p.Description, Goal: p.Goal, Steps: steps})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"playbooks": out})
+}
+
+// startPlan triggers a playbook for a project: it creates the plan and runs it in the background.
+func (s *Server) startPlan(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PlaybookID string `json:"playbook_id"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	plan, err := s.analystService().StartPlan(r.Context(), r.PathValue("id"), req.PlaybookID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, plan)
+}
+
+// getPlan returns a plan with its steps (poll this to watch a run's progress).
+func (s *Server) getPlan(w http.ResponseWriter, r *http.Request) {
+	plan, err := s.store.GetPlan(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "plan not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
+// listPlans returns a project's plans (without steps), newest first.
+func (s *Server) listPlans(w http.ResponseWriter, r *http.Request) {
+	plans, err := s.store.ListPlansByProject(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, plans)
 }
 
 // getApprovalPolicy returns the sensitive tools (approve-by-default) and the current override rules
