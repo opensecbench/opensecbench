@@ -187,9 +187,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)
+	s.mux.HandleFunc("POST /v1/analyst/playbooks", s.createSavedPlaybook)
+	s.mux.HandleFunc("DELETE /v1/analyst/playbooks/{id}", s.deleteSavedPlaybook)
 	s.mux.HandleFunc("POST /v1/projects/{id}/plans", s.startPlan)
 	s.mux.HandleFunc("GET /v1/projects/{id}/plans", s.listPlans)
 	s.mux.HandleFunc("GET /v1/plans/{id}", s.getPlan)
+	s.mux.HandleFunc("POST /v1/plans/{id}/save-as-playbook", s.savePlanAsPlaybook)
 	s.mux.HandleFunc("GET /v1/analyst/provider", s.getActiveProvider)
 	s.mux.HandleFunc("GET /v1/analyst/providers", s.listProviders)
 	s.mux.HandleFunc("POST /v1/analyst/providers", s.addProvider)
@@ -400,30 +403,92 @@ func (s *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, th)
 }
 
-// listAgentPlaybooks returns the built-in agent playbooks a human can trigger (ADR-0019). Distinct from
-// /v1/playbooks, which lists capability playbooks.
-func (s *Server) listAgentPlaybooks(w http.ResponseWriter, _ *http.Request) {
-	type step struct {
-		Key       string   `json:"key"`
-		Profile   string   `json:"profile"`
-		DependsOn []string `json:"depends_on"`
-	}
-	type pb struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Goal        string `json:"goal"`
-		Steps       []step `json:"steps"`
-	}
-	out := []pb{}
+// agentPlaybookStep / agentPlaybookView are the API shapes for an agent playbook (built-in or saved).
+type agentPlaybookStep struct {
+	Key         string   `json:"key"`
+	Profile     string   `json:"profile"`
+	Instruction string   `json:"instruction"`
+	DependsOn   []string `json:"depends_on"`
+}
+type agentPlaybookView struct {
+	ID          string              `json:"id"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	Goal        string              `json:"goal"`
+	Steps       []agentPlaybookStep `json:"steps"`
+	Builtin     bool                `json:"builtin"`
+	Source      string              `json:"source,omitempty"`
+}
+
+// listAgentPlaybooks returns the agent playbooks a human can trigger — built-ins plus user-saved ones
+// (ADR-0019). Distinct from /v1/playbooks, which lists capability playbooks.
+func (s *Server) listAgentPlaybooks(w http.ResponseWriter, r *http.Request) {
+	out := []agentPlaybookView{}
 	for _, p := range analyst.Playbooks() {
-		steps := make([]step, 0, len(p.Steps))
-		for _, s := range p.Steps {
-			steps = append(steps, step{Key: s.Key, Profile: s.Profile, DependsOn: s.DependsOn})
+		steps := make([]agentPlaybookStep, 0, len(p.Steps))
+		for _, st := range p.Steps {
+			steps = append(steps, agentPlaybookStep{Key: st.Key, Profile: st.Profile, Instruction: st.Instruction, DependsOn: st.DependsOn})
 		}
-		out = append(out, pb{ID: p.ID, Name: p.Name, Description: p.Description, Goal: p.Goal, Steps: steps})
+		out = append(out, agentPlaybookView{ID: p.ID, Name: p.Name, Description: p.Description, Goal: p.Goal, Steps: steps, Builtin: true})
+	}
+	if saved, err := s.store.ListSavedPlaybooks(r.Context()); err == nil {
+		for _, sp := range saved {
+			var steps []agentPlaybookStep
+			_ = json.Unmarshal(sp.Steps, &steps)
+			out = append(out, agentPlaybookView{ID: sp.ID, Name: sp.Name, Description: sp.Description, Goal: sp.Goal, Steps: steps, Builtin: false, Source: sp.Source})
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"playbooks": out})
+}
+
+// createSavedPlaybook stores a user-authored agent playbook.
+func (s *Server) createSavedPlaybook(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string                 `json:"name"`
+		Description string                 `json:"description"`
+		Goal        string                 `json:"goal"`
+		Steps       []analyst.PlaybookStep `json:"steps"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	sp, err := s.analystService().SavePlaybook(r.Context(), req.Name, req.Description, req.Goal, req.Steps, "manual")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, sp)
+}
+
+// deleteSavedPlaybook removes a user-saved playbook (built-ins are not deletable).
+func (s *Server) deleteSavedPlaybook(w http.ResponseWriter, r *http.Request) {
+	err := s.store.DeleteSavedPlaybook(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "saved playbook not found (built-ins can't be deleted)")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// savePlanAsPlaybook records a plan's structure as a reusable playbook (record-as-playbook).
+func (s *Server) savePlanAsPlaybook(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	sp, err := s.analystService().SavePlaybookFromPlan(r.Context(), r.PathValue("id"), req.Name, req.Description)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, sp)
 }
 
 // startPlan triggers a playbook for a project: it creates the plan and runs it in the background.
