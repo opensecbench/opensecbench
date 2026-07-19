@@ -24,6 +24,7 @@ import { GraphTab } from './GraphTab'
 import { KnowledgeTab } from './KnowledgeTab'
 import { InterceptTab } from './InterceptTab'
 import { MethodologyTab } from './MethodologyTab'
+import { OrchestrateTab } from './OrchestrateTab'
 import { ProxyTab } from './ProxyTab'
 import { TasksTab } from './TasksTab'
 import { hasNativePickers, pickDirectory } from './native'
@@ -43,6 +44,7 @@ type Tab =
   | 'intercept'
   | 'terminal'
   | 'playbooks'
+  | 'orchestrate'
   | 'tasks'
   | 'findings'
   | 'reports'
@@ -70,6 +72,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
   { key: 'terminal', icon: '▤', label: 'Term' },
   { key: 'scan', icon: '▷', label: 'Scan' },
   { key: 'playbooks', icon: '🧩', label: 'Play' },
+  { key: 'orchestrate', icon: '🤖', label: 'Agents' },
   { key: 'tasks', icon: '☰', label: 'Tasks' },
   { key: 'graph', icon: '📊', label: 'Graph' },
   { key: 'scope', icon: '🛡', label: 'Scope' },
@@ -80,6 +83,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
 function surfaceTitle(t: Tab): string {
   if (t === 'assets') return 'Applications & Assets'
   if (t === 'scan') return 'Scan'
+  if (t === 'orchestrate') return 'Agent Playbooks'
   return t[0].toUpperCase() + t.slice(1)
 }
 
@@ -363,6 +367,8 @@ export function Workbench({ project, conn, onHome }: { project: Project; conn: C
         )
       case 'playbooks':
         return <PlaybooksTab assets={allAssets} online={online} onError={setError} />
+      case 'orchestrate':
+        return <OrchestrateTab project={project} online={online} onError={setError} />
       case 'tasks':
         return <TasksTab online={online} onError={setError} />
       case 'findings':
