@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, AgentPlaybook, Plan, Project, Schedule } from './api'
+import { PlaybookBuilder } from './PlaybookBuilder'
 
 const DAY = 86400
 const WEEK = 604800
@@ -19,6 +20,7 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
   const [selected, setSelected] = useState<Plan | null>(null)
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [busy, setBusy] = useState('')
+  const [building, setBuilding] = useState(false)
 
   const loadPlaybooks = useCallback(async () => {
     try {
@@ -144,7 +146,21 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
   return (
     <div className="orch-tab">
       <div className="orch-left">
-        <div className="orch-section-h">Playbooks</div>
+        <div className="orch-section-h orch-ph">
+          <span>Playbooks</span>
+          <span className="grow" />
+          <button className="orch-new" disabled={!online} onClick={() => setBuilding((v) => !v)}>{building ? 'Close' : '＋ New'}</button>
+        </div>
+        {building && (
+          <PlaybookBuilder
+            online={online}
+            onCancel={() => setBuilding(false)}
+            onSaved={() => {
+              setBuilding(false)
+              void loadPlaybooks()
+            }}
+          />
+        )}
         {playbooks.map((pb) => (
           <div key={pb.id} className="orch-pb">
             <div className="orch-pb-h">
