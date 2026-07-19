@@ -1,9 +1,11 @@
 # ADR-0019 — Agent profiles & orchestration
 
-Status: Accepted — building. Task-specialized agent **profiles** (code analysis, vuln validator, pentester,
-report writer, …) with **least-privilege** toolsets, driven by **human-triggered, adaptable playbooks** over
-a **trust-curve approval policy**. Profiles are the substrate and ship first; playbooks/orchestration layer on
-top. Built on the ADR-0020 capability layer (agents can read the corpus, use a workspace, run code).
+Status: Accepted — fully delivered. Task-specialized agent **profiles** (least-privilege) + **trust-curve
+approval policy** + **delegation/Lead** + **human-triggered, adaptable playbooks** (a plan DAG run by a
+background runner) + **record-as-playbook & a builder** + **scheduled runs** + the **triage→report
+deliverable arc** + **user-defined profiles & playbooks** — backend, API, and workbench UI (the Agents
+surface, profile picker, approval-policy editor, custom-agent builder). Built on the ADR-0020 capability
+layer. Per-action approval inside a delegation and parallel sub-agents remain out of scope (§ Consequences).
 
 ## Context
 
