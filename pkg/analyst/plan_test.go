@@ -2,7 +2,9 @@ package analyst
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -180,6 +182,67 @@ func TestRunPlanGateDenySkipsDependents(t *testing.T) {
 		if s.Key == "act" && s.Status != model.StepSkipped {
 			t.Fatalf("act should be skipped after deny, status = %q", s.Status)
 		}
+	}
+}
+
+// countingProvider records the peak number of Complete calls in flight at once — so a test can prove that
+// independent plan steps actually ran concurrently rather than one-at-a-time.
+type countingProvider struct {
+	mu       sync.Mutex
+	inflight int
+	peak     int
+}
+
+func (p *countingProvider) Name() string { return "counting" }
+
+func (p *countingProvider) Complete(_ context.Context, _ llm.CompletionRequest) (llm.CompletionResponse, error) {
+	p.mu.Lock()
+	p.inflight++
+	if p.inflight > p.peak {
+		p.peak = p.inflight
+	}
+	p.mu.Unlock()
+
+	time.Sleep(30 * time.Millisecond) // hold the call so overlapping steps actually overlap
+
+	p.mu.Lock()
+	p.inflight--
+	p.mu.Unlock()
+	return llm.CompletionResponse{Text: `{"answer":"done"}`}, nil
+}
+
+// A fan-out (root → {a,b,c} → join) runs the three independent middle steps in one concurrent wave, and the
+// join still receives every branch's result. Proves parallel scheduling (ADR-0046).
+func TestRunPlanRunsIndependentStepsConcurrently(t *testing.T) {
+	ctx := context.Background()
+	db, projectID := seedProject(t)
+	prov := &countingProvider{}
+	svc := NewService(db, nil, nil, "", prov)
+
+	plan := model.Plan{ProjectID: projectID, PlaybookID: "custom", Steps: []model.PlanStep{
+		{Key: "root", Profile: "report-writer", Instruction: "root"},
+		{Key: "a", Profile: "report-writer", Instruction: "a", DependsOn: []string{"root"}},
+		{Key: "b", Profile: "report-writer", Instruction: "b", DependsOn: []string{"root"}},
+		{Key: "c", Profile: "report-writer", Instruction: "c", DependsOn: []string{"root"}},
+		{Key: "join", Profile: "report-writer", Instruction: "join", DependsOn: []string{"a", "b", "c"}},
+	}}
+	created, err := db.CreatePlan(ctx, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.runPlan(created)
+
+	got, _ := db.GetPlan(ctx, created.ID)
+	if got.Status != model.PlanDone {
+		t.Fatalf("plan status = %q, want done", got.Status)
+	}
+	for _, s := range got.Steps {
+		if s.Status != model.StepDone {
+			t.Fatalf("step %q status = %q", s.Key, s.Status)
+		}
+	}
+	if prov.peak < 2 {
+		t.Fatalf("independent steps did not run concurrently (peak in-flight = %d, want >= 2)", prov.peak)
 	}
 }
 
