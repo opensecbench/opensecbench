@@ -72,6 +72,16 @@ var builtinProfiles = []Profile{
 		// empty Tools = full catalog
 	},
 	{
+		ID:          "lead",
+		Name:        "Lead",
+		Description: "Orchestrator — plans the work and delegates each part to the right specialist.",
+		Persona: "You are the Lead analyst. You do not act directly — you triage by reading, then delegate " +
+			"each part of the work to the right specialist (code-analysis, vuln-validator, pentester, " +
+			"report-writer) with the delegate tool, and synthesize their results into an answer. Delegate one " +
+			"clear sub-task at a time; wait for its result before deciding the next.",
+		Tools: with(reads, "delegate"),
+	},
+	{
 		ID:          "code-analysis",
 		Name:        "Code Analysis",
 		Description: "Reads source to map attack surface and find insecure patterns.",

@@ -23,6 +23,7 @@ var sensitiveTools = map[string]bool{
 	"set_coverage":   true,
 	"create_finding": true,
 	"run_code":       true,
+	"delegate":       true,
 }
 
 // Rule overrides the default decision for a tool, optionally scoped to one agent profile. An empty
