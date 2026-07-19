@@ -2,24 +2,26 @@ package interpret
 
 import "testing"
 
-// semgrep --json for the route ruleset: an Express GET route and a Flask route (no method metadata).
+// Real semgrep-OSS --json output (verified against semgrep 1.104.0 with the bundled ruleset): metavars are
+// masked, so the route path is the quoted literal interpolated into extra.message; check_id is `rules.`-
+// prefixed; paths carry the /src mount prefix. See docs/adr-0033 + the routes.yml ruleset.
 const routeJSON = `{
   "results": [
     {
-      "check_id": "osb-route-express-get",
-      "path": "src/routes/users.js",
-      "start": {"line": 20},
+      "check_id": "rules.osb-route-express-get",
+      "path": "/src/server.js",
+      "start": {"line": 2},
       "extra": {
-        "metavars": {"$ROUTE": {"abstract_content": "'/users/:id'"}},
-        "metadata": {"osb_route": true, "framework": "express", "method": "get"}
+        "message": "Express GET '/products/:id'",
+        "metadata": {"osb_route": true, "framework": "express", "method": "GET"}
       }
     },
     {
-      "check_id": "osb-route-flask",
-      "path": "app/views.py",
+      "check_id": "rules.osb-route-flask",
+      "path": "/src/app.py",
       "start": {"line": 8},
       "extra": {
-        "metavars": {"$ROUTE": {"abstract_content": "\"/health\""}},
+        "message": "Flask route \"/users/<int:id>\"",
         "metadata": {"osb_route": true, "framework": "flask"}
       }
     }
@@ -36,10 +38,10 @@ func TestRoutes(t *testing.T) {
 	}
 
 	get := routes[0]
-	if get.Method != "GET" || get.Path != "/users/:id" { // method upper-cased, quotes stripped
+	if get.Method != "GET" || get.Path != "/products/:id" { // method upper-cased, single quotes stripped
 		t.Fatalf("express route = %+v", get)
 	}
-	if get.HandlerFile != "src/routes/users.js" || get.HandlerLine != 20 || get.Framework != "express" {
+	if get.HandlerFile != "/src/server.js" || get.HandlerLine != 2 || get.Framework != "express" {
 		t.Fatalf("express route location/framework = %+v", get)
 	}
 	if get.Source != "route-map" {
@@ -47,14 +49,14 @@ func TestRoutes(t *testing.T) {
 	}
 
 	flask := routes[1]
-	if flask.Path != "/health" || flask.Method != "" { // no method metadata → any
+	if flask.Path != "/users/<int:id>" || flask.Method != "" { // no method metadata → any; double quotes stripped
 		t.Fatalf("flask route = %+v", flask)
 	}
 }
 
 func TestRoutesEmpty(t *testing.T) {
-	// A result with no $ROUTE metavar produces no route.
-	routes, err := Routes([]byte(`{"results":[{"check_id":"x","path":"a.py","start":{"line":1},"extra":{"metavars":{},"metadata":{}}}]}`))
+	// A result whose message has no quoted route literal produces no route.
+	routes, err := Routes([]byte(`{"results":[{"check_id":"x","path":"/src/a.py","start":{"line":1},"extra":{"message":"no route here","metadata":{}}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
