@@ -12,6 +12,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/rag"
 	"github.com/opensecbench/opensecbench/pkg/replay"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
@@ -33,6 +34,7 @@ type Service struct {
 	egressStrict  bool
 	providerLocal bool
 	tokenBudget   int
+	indexer       *rag.Indexer // semantic corpus index (ADR-0039)
 
 	// egressSender, if set, routes the send_request tool through a chosen runner's vantage (ADR-0025).
 	egressSender func(context.Context, string, replay.Request) (replay.Response, error)
@@ -66,8 +68,13 @@ func NewService(st *store.DB, engine *task.Engine, blobs *cas.Store, workspaceRo
 		egressStrict:  os.Getenv("OSB_EGRESS_POLICY") != "open", // default: strict
 		providerLocal: provider != nil && llm.IsLocal(provider),
 		tokenBudget:   budget,
+		// Semantic corpus index (ADR-0039): a local embedder by default, so corpus text is embedded on-host.
+		indexer: &rag.Indexer{Store: st, Blobs: blobs, Embed: llm.EmbedderFromEnv()},
 	}
 }
+
+// Indexer exposes the semantic corpus index (ADR-0039) so the API can drive reindex/search directly.
+func (svc *Service) Indexer() *rag.Indexer { return svc.indexer }
 
 // Available reports whether an LLM provider is configured.
 func (svc *Service) Available() bool { return svc.provider != nil }
@@ -194,7 +201,7 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 // under a strict policy with an external LLM provider, running a capability on a private asset is
 // blocked, because its output would be summarized by the external model.
 func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context.Context, agent.ToolCall) (string, error) {
-	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender})
+	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer})
 	// The egress guard keys on the provider that will actually receive the tool output (which, with tag
 	// routing, may differ per task); a local model is never an egress risk.
 	external := prov != nil && !llm.IsLocal(prov)
@@ -221,6 +228,10 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context
 			// as private by default: its content does not leave to an external provider under a strict policy.
 			if call.Tool == "read_context" {
 				return "", fmt.Errorf("blocked by data-egress policy: read_context would send ingested document/correspondence content to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", pname)
+			}
+			// search_corpus returns corpus/KB chunk text to the model — same egress class as read_context.
+			if call.Tool == "search_corpus" {
+				return "", fmt.Errorf("blocked by data-egress policy: search_corpus would send corpus/KB content to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", pname)
 			}
 		}
 		return exec(ctx, call)

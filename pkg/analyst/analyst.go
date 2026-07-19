@@ -16,6 +16,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
+	"github.com/opensecbench/opensecbench/pkg/rag"
 	"github.com/opensecbench/opensecbench/pkg/replay"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/scope"
@@ -44,8 +45,12 @@ func Tools() []agent.Tool {
 		{Name: "list_assets", Description: "List all source assets available to scan (id, type, location)."},
 		{Name: "list_capabilities", Description: "List the security capabilities you can run."},
 		{Name: "list_playbooks", Description: "List playbooks (named sequences of capabilities)."},
-		{Name: "search", Description: "Search across projects, applications, assets, findings, observations, and context.", Params: []agent.Param{
+		{Name: "search", Description: "Keyword search (substring) across projects, applications, assets, findings, observations, and context.", Params: []agent.Param{
 			{Name: "q", Type: agent.TypeString, Required: true, Description: "query text"},
+		}},
+		{Name: "search_corpus", Description: "Semantic search over the project's corpus + knowledge base — returns the passages most relevant to a question by meaning, not keywords. Use for 'what do we know about X', tool/vendor gotchas, and gathered documentation.", Params: []agent.Param{
+			{Name: "query", Type: agent.TypeString, Required: true, Description: "a natural-language question or topic"},
+			{Name: "k", Type: agent.TypeInteger, Description: "how many passages to return (default 5)"},
 		}},
 		{Name: "get_finding", Description: "Get one finding by id, including its supporting observation ids.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "finding id"},
@@ -200,6 +205,7 @@ type ExecDeps struct {
 	Runner        runner.Runner
 	WorkspaceRoot string
 	ProjectID     string
+	Indexer       *rag.Indexer // semantic corpus index for search_corpus + index-on-write (ADR-0039)
 
 	// EgressSender, if set, issues a send from a chosen enrolled runner's vantage (runnerID != "") or the
 	// local host (ADR-0025). When nil, sends always go out locally via Replay.
@@ -222,6 +228,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		case "search":
 			q, _ := call.Args["q"].(string)
 			return jsonify(st.Search(ctx, q, 25))
+		case "search_corpus":
+			return searchCorpus(ctx, deps, call)
 		case "get_finding":
 			id, _ := call.Args["id"].(string)
 			return jsonify(st.GetFinding(ctx, id))
@@ -236,7 +244,7 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		case "save_context":
 			return saveContext(ctx, deps, call)
 		case "draft_kb_entry":
-			return draftKBEntry(ctx, st, call)
+			return draftKBEntry(ctx, deps, call)
 		case "create_observation":
 			return createObservation(ctx, st, call)
 		case "read_file":
@@ -517,7 +525,7 @@ func createFinding(ctx context.Context, deps ExecDeps, call agent.ToolCall) (str
 
 // draftKBEntry writes an unreviewed, agent-origin knowledge-base entry (ADR-0010). It only records
 // a draft for human confirmation, so it is not gated.
-func draftKBEntry(ctx context.Context, st *store.DB, call agent.ToolCall) (string, error) {
+func draftKBEntry(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
 	target, _ := call.Args["target"].(string)
 	kind, _ := call.Args["kind"].(string)
 	title, _ := call.Args["title"].(string)
@@ -525,14 +533,22 @@ func draftKBEntry(ctx context.Context, st *store.DB, call agent.ToolCall) (strin
 	if target == "" || kind == "" || title == "" {
 		return "", errors.New("draft_kb_entry requires 'target', 'kind', and 'title'")
 	}
-	return jsonify(st.CreateKBEntry(ctx, model.KBEntry{
+	e, err := deps.Store.CreateKBEntry(ctx, model.KBEntry{
 		TargetID:  target,
 		Kind:      kind,
 		Title:     title,
 		Body:      body,
 		Origin:    model.OriginThread,
 		SourceRef: "thread:analyst",
-	}))
+	})
+	if err != nil {
+		return "", err
+	}
+	// Index the entry for semantic retrieval under the current project (ADR-0039). Best-effort.
+	if deps.ProjectID != "" && deps.Indexer != nil && deps.Indexer.Available() {
+		_ = deps.Indexer.IndexKBEntry(ctx, deps.ProjectID, e)
+	}
+	return jsonify(e, nil)
 }
 
 // createObservation records an unreviewed, Analyst-origin observation from the agent's own analysis
