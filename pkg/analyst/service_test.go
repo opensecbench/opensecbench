@@ -117,21 +117,22 @@ func TestEgressPolicyBlocksPrivateAssetOnExternalProvider(t *testing.T) {
 	priv, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/work/private", Sensitivity: model.SensitivityPrivate})
 	oss, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/oss/pub", Sensitivity: model.SensitivityOpenSource})
 
+	svc := &Service{store: db, egressStrict: true}
+	ext := &llm.AnthropicProvider{} // IsLocal → false (external)
+	local := &llm.MockProvider{}    // IsLocal → true
+
 	// Strict egress + external provider: running a capability on a PRIVATE asset is blocked.
-	external := &Service{store: db, provider: &llm.MockProvider{}, egressStrict: true, providerLocal: false}
-	_, err := external.executeFor("")(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
+	_, err := svc.executeFor("", ext)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
 	if err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("expected egress block for private asset, got %v", err)
 	}
 	// An open-source asset is not blocked by egress (it fails later for a different reason).
-	_, err = external.executeFor("")(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": oss.ID}})
+	_, err = svc.executeFor("", ext)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": oss.ID}})
 	if err != nil && strings.Contains(err.Error(), "egress") {
 		t.Fatal("open-source asset must not be egress-blocked")
 	}
-
-	// A local provider is never egress-blocked.
-	local := &Service{store: db, provider: &llm.MockProvider{}, egressStrict: true, providerLocal: true}
-	_, err = local.executeFor("")(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
+	// The same private asset on a LOCAL provider is never egress-blocked.
+	_, err = svc.executeFor("", local)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
 	if err != nil && strings.Contains(err.Error(), "egress") {
 		t.Fatal("local provider must not be egress-blocked")
 	}

@@ -23,6 +23,8 @@ type Profile struct {
 	Persona     string
 	// Tools is the allow-list of tool names this profile may call; empty means the full catalog.
 	Tools []string
+	// ModelTag is the routing tag for the model this profile prefers (ADR-0021); empty uses the default.
+	ModelTag string
 }
 
 // SystemPrompt is the profile's full system message: its task persona plus the shared safety invariants.
@@ -79,7 +81,8 @@ var builtinProfiles = []Profile{
 			"each part of the work to the right specialist (code-analysis, vuln-validator, pentester, triage, " +
 			"report-writer) with the delegate tool, and synthesize their results into an answer. Delegate one " +
 			"clear sub-task at a time; wait for its result before deciding the next.",
-		Tools: with(reads, "delegate"),
+		Tools:    with(reads, "delegate"),
+		ModelTag: "default",
 	},
 	{
 		ID:          "code-analysis",
@@ -88,7 +91,8 @@ var builtinProfiles = []Profile{
 		Persona: "You are a source-code security analyst. Read the code and the design docs, map the " +
 			"attack surface, and identify insecure patterns and their root cause. Stage notes and evidence " +
 			"in the workspace. You do not send live traffic.",
-		Tools: with(reads, "run_capability", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_observation", "draft_kb_entry"),
+		Tools:    with(reads, "run_capability", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_observation", "draft_kb_entry"),
+		ModelTag: "default",
 	},
 	{
 		ID:          "vuln-validator",
@@ -97,7 +101,8 @@ var builtinProfiles = []Profile{
 		Persona: "You are a vulnerability validator. Given a suspected issue, reproduce it and confirm it " +
 			"with concrete proof; be rigorous about ruling out false positives. Build a PoC in the workspace " +
 			"and run it; send requests to the target when needed. Record a finding only once you have proof.",
-		Tools: with(reads, "send_request", "run_capability", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_observation", "create_finding"),
+		Tools:    with(reads, "send_request", "run_capability", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_observation", "create_finding"),
+		ModelTag: "reasoning",
 	},
 	{
 		ID:          "pentester",
@@ -106,7 +111,8 @@ var builtinProfiles = []Profile{
 		Persona: "You are a penetration tester. Test the target actively and methodically, always within " +
 			"scope. Use the full toolset; build and run PoCs; record findings with evidence. Every " +
 			"outbound or state-changing action is gated for human approval — propose them clearly.",
-		Tools: with(reads, "send_request", "run_capability", "run_playbook", "run_code", "workspace_write", "workspace_read", "workspace_list", "set_coverage", "create_finding", "draft_kb_entry"),
+		Tools:    with(reads, "send_request", "run_capability", "run_playbook", "run_code", "workspace_write", "workspace_read", "workspace_list", "set_coverage", "create_finding", "draft_kb_entry"),
+		ModelTag: "reasoning",
 	},
 	{
 		ID:          "triage",
@@ -115,7 +121,8 @@ var builtinProfiles = []Profile{
 		Persona: "You are a findings triage analyst. Review the findings and observations: confirm the real " +
 			"issues, downgrade or flag likely false positives, deduplicate, and prioritize by severity and " +
 			"impact. Note gaps worth further testing. Record your conclusions; do not send traffic or run scans.",
-		Tools: with(reads, "set_coverage", "create_observation", "create_finding", "draft_kb_entry", "workspace_write", "workspace_read", "workspace_list"),
+		Tools:    with(reads, "set_coverage", "create_observation", "create_finding", "draft_kb_entry", "workspace_write", "workspace_read", "workspace_list"),
+		ModelTag: "cheap",
 	},
 	{
 		ID:          "report-writer",
@@ -124,7 +131,8 @@ var builtinProfiles = []Profile{
 		Persona: "You are a security report writer. Synthesize the evidence — findings, observations, " +
 			"traffic, and documents — into clear, precise, audience-aware findings and report sections. Draft " +
 			"in the workspace. You do not send traffic or run scans; you write up what has been found.",
-		Tools: with(reads, "workspace_write", "workspace_read", "workspace_list", "create_finding", "draft_kb_entry"),
+		Tools:    with(reads, "workspace_write", "workspace_read", "workspace_list", "create_finding", "draft_kb_entry"),
+		ModelTag: "cheap",
 	},
 }
 

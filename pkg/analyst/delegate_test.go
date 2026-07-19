@@ -49,7 +49,7 @@ func TestDelegateToolViaExecuteFor(t *testing.T) {
 	}}
 	svc := NewService(db, nil, nil, "", mock)
 
-	out, err := svc.executeFor("")(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": "report-writer", "task": "summarize"}})
+	out, err := svc.executeFor("", nil)(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": "report-writer", "task": "summarize"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestDelegateRefusesNonSpecialistTarget(t *testing.T) {
 	svc := NewService(migratedStore(t), nil, nil, "", &llm.MockProvider{})
 
 	for _, target := range []string{"lead", "generalist"} {
-		if _, err := svc.executeFor("")(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": target, "task": "x"}}); err == nil || !strings.Contains(err.Error(), "specialist") {
+		if _, err := svc.executeFor("", nil)(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": target, "task": "x"}}); err == nil || !strings.Contains(err.Error(), "specialist") {
 			t.Fatalf("delegating to %q should be refused, got %v", target, err)
 		}
 	}

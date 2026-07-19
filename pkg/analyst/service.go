@@ -26,6 +26,7 @@ type Service struct {
 	store         *store.DB
 	engine        *task.Engine
 	provider      llm.Provider
+	resolver      func(context.Context, string) (llm.Provider, error)
 	replay        *replay.Client
 	blobs         *cas.Store
 	workspaceRoot string
@@ -66,12 +67,66 @@ func (svc *Service) Available() bool { return svc.provider != nil }
 // strict, capability output for a private asset is not sent to an external provider.
 func (svc *Service) SetEgressStrict(strict bool) { svc.egressStrict = strict }
 
-func (svc *Service) session(projectID string, profile Profile, policy Policy) *agent.Session {
+// SetProviderResolver injects a function that builds a configured provider by its registry id, enabling
+// cross-provider model routing (ADR-0021). Without it, routing falls back to the active provider.
+func (svc *Service) SetProviderResolver(fn func(context.Context, string) (llm.Provider, error)) {
+	svc.resolver = fn
+}
+
+// ModelRoutingSetting is the settings key holding the tag → (provider, model) routing map (ADR-0021).
+const ModelRoutingSetting = "model_routing"
+
+// RoutingTags is the fixed routing vocabulary (ADR-0021). These drive model routing; users may also apply
+// their own tags as labels, but the runtime resolves on these.
+func RoutingTags() []string {
+	return []string{"default", "cheap", "fast", "reasoning", "long-context"}
+}
+
+type modelRef struct {
+	ProviderID string `json:"provider_id"`
+	Model      string `json:"model"`
+}
+type modelRouting struct {
+	Default modelRef            `json:"default"`
+	Tags    map[string]modelRef `json:"tags"`
+}
+
+func (svc *Service) loadRouting(ctx context.Context) modelRouting {
+	var r modelRouting
+	if raw, err := svc.store.GetSetting(ctx, ModelRoutingSetting); err == nil && raw != "" {
+		_ = json.Unmarshal([]byte(raw), &r)
+	}
+	return r
+}
+
+// providerModelForTag resolves the provider + model a task with the given tag should run on: the tag's
+// mapping, else the routing default, else the active provider (ADR-0021). Cross-provider capable.
+func (svc *Service) providerModelForTag(ctx context.Context, tag string) (llm.Provider, string) {
+	if tag == "" || svc.resolver == nil {
+		return svc.provider, ""
+	}
+	r := svc.loadRouting(ctx)
+	ref, ok := r.Tags[tag]
+	if !ok || ref.ProviderID == "" {
+		ref = r.Default
+	}
+	if ref.ProviderID == "" {
+		return svc.provider, ""
+	}
+	p, err := svc.resolver(ctx, ref.ProviderID)
+	if err != nil || p == nil {
+		return svc.provider, ""
+	}
+	return p, ref.Model
+}
+
+func (svc *Service) session(projectID string, profile Profile, policy Policy, prov llm.Provider, modelID string) *agent.Session {
 	return &agent.Session{
-		Provider:    svc.provider,
+		Provider:    prov,
+		Model:       modelID,
 		Tools:       profile.ToolSet(),
 		Gate:        func(c agent.ToolCall) bool { return policy.NeedsApproval(c.Tool, profile.ID) },
-		Execute:     svc.executeFor(projectID),
+		Execute:     svc.executeFor(projectID, prov),
 		MaxSteps:    8,
 		TokenBudget: svc.tokenBudget,
 		Audit:       svc.Audit,
@@ -98,27 +153,34 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 // executeFor builds the tool executor for a thread's project, wrapped with the data-egress policy:
 // under a strict policy with an external LLM provider, running a capability on a private asset is
 // blocked, because its output would be summarized by the external model.
-func (svc *Service) executeFor(projectID string) func(context.Context, agent.ToolCall) (string, error) {
+func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context.Context, agent.ToolCall) (string, error) {
 	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID})
+	// The egress guard keys on the provider that will actually receive the tool output (which, with tag
+	// routing, may differ per task); a local model is never an egress risk.
+	external := prov != nil && !llm.IsLocal(prov)
+	pname := "the external provider"
+	if prov != nil {
+		pname = prov.Name()
+	}
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
 		// delegate spawns a specialist sub-agent — handled at the service level (it needs the provider),
 		// not the pure tool Executor.
 		if call.Tool == "delegate" {
 			return svc.runDelegate(ctx, projectID, call)
 		}
-		if svc.egressStrict && !svc.providerLocal {
+		if svc.egressStrict && external {
 			// Reading a private asset's contents into an external model is data egress (ADR-0011/0020).
 			if assetEgressTools[call.Tool] {
 				if assetID, _ := call.Args["asset"].(string); assetID != "" {
 					if asset, err := svc.store.GetAsset(ctx, assetID); err == nil && asset.Sensitivity == model.SensitivityPrivate {
-						return "", fmt.Errorf("blocked by data-egress policy: %q would send a private asset's contents to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", call.Tool, svc.provider.Name())
+						return "", fmt.Errorf("blocked by data-egress policy: %q would send a private asset's contents to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", call.Tool, pname)
 					}
 				}
 			}
 			// Ingested corpus (documents, emails, chat) has no per-item sensitivity flag, so it is treated
 			// as private by default: its content does not leave to an external provider under a strict policy.
 			if call.Tool == "read_context" {
-				return "", fmt.Errorf("blocked by data-egress policy: read_context would send ingested document/correspondence content to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", svc.provider.Name())
+				return "", fmt.Errorf("blocked by data-egress policy: read_context would send ingested document/correspondence content to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", pname)
 			}
 		}
 		return exec(ctx, call)
@@ -154,7 +216,8 @@ func (svc *Service) Send(ctx context.Context, threadID, userMessage string) (Sen
 		return SendResult{}, err
 	}
 	profile := svc.resolveProfile(ctx, th.AgentType)
-	sess := svc.session(projectOf(th), profile, svc.loadPolicy(ctx))
+	prov, modelID := svc.providerModelForTag(ctx, profile.ModelTag)
+	sess := svc.session(projectOf(th), profile, svc.loadPolicy(ctx), prov, modelID)
 
 	existing, err := svc.store.ListMessages(ctx, threadID)
 	if err != nil {
@@ -212,7 +275,8 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 	_ = json.Unmarshal(ap.Args, &args)
 	call := agent.ToolCall{Tool: ap.Tool, Args: args}
 
-	out, err := svc.session(projectOf(th), profile, svc.loadPolicy(ctx)).Resume(ctx, prior, call, approved)
+	prov, modelID := svc.providerModelForTag(ctx, profile.ModelTag)
+	out, err := svc.session(projectOf(th), profile, svc.loadPolicy(ctx), prov, modelID).Resume(ctx, prior, call, approved)
 	if err != nil {
 		_ = svc.store.UpdateThreadStatus(ctx, ap.ThreadID, model.ThreadError)
 		return SendResult{}, err

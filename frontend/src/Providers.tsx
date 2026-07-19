@@ -3,7 +3,7 @@ import { api, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
 
 // Map a provider add-form type to its catalog provider key (Azure shares OpenAI's models; claude-cli
 // picks its own model, so it has no picker).
-const CATALOG_KEY: Record<string, string> = { anthropic: 'anthropic', openai: 'openai', azure: 'openai', deepseek: 'deepseek', grok: 'grok', ollama: 'ollama' }
+export const CATALOG_KEY: Record<string, string> = { anthropic: 'anthropic', openai: 'openai', azure: 'openai', deepseek: 'deepseek', grok: 'grok', ollama: 'ollama' }
 
 function priceLabel(m: ModelCatalogEntry): string {
   if (m.input_per_mtok === 0 && m.output_per_mtok === 0) return 'local'

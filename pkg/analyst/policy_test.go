@@ -71,7 +71,7 @@ func TestServicePolicyFromSettingsDrivesTheGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := svc.loadPolicy(ctx)
-	sess := svc.session("proj", ProfileByID("pentester"), policy)
+	sess := svc.session("proj", ProfileByID("pentester"), policy, svc.provider, "")
 	if sess.Gate(agent.ToolCall{Tool: "send_request"}) {
 		t.Fatal("send_request should no longer be gated after the rule")
 	}
