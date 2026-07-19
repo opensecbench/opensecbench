@@ -225,6 +225,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/kb/{id}", s.getKBEntry)
 	s.mux.HandleFunc("PUT /v1/kb/{id}", s.updateKBEntry)
 	s.mux.HandleFunc("POST /v1/kb/{id}/review", s.reviewKBEntry)
+	s.mux.HandleFunc("POST /v1/kb/{id}/verify", s.verifyKBEntry)
 	s.mux.HandleFunc("GET /v1/secrets", s.listSecrets)
 	s.mux.HandleFunc("POST /v1/secrets", s.setSecret)
 	s.mux.HandleFunc("DELETE /v1/secrets/{name}", s.deleteSecret)

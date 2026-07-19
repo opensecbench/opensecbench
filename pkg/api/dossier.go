@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/dossier"
 )
@@ -19,7 +20,7 @@ func (s *Server) targetDossier(w http.ResponseWriter, r *http.Request) {
 	if t, err := s.store.GetTarget(r.Context(), id); err == nil && t.Name != "" {
 		subject = t.Name
 	}
-	s.writeDossier(w, r, dossier.Assemble(subject, entries))
+	s.writeDossier(w, r, dossier.Assemble(subject, entries, time.Now()))
 }
 
 // projectDossier assembles a project's inherited knowledge (its target(s) + group + org + global).
@@ -34,7 +35,7 @@ func (s *Server) projectDossier(w http.ResponseWriter, r *http.Request) {
 	if p, err := s.store.GetProject(r.Context(), id); err == nil && p.Name != "" {
 		subject = p.Name
 	}
-	s.writeDossier(w, r, dossier.Assemble(subject, entries))
+	s.writeDossier(w, r, dossier.Assemble(subject, entries, time.Now()))
 }
 
 func (s *Server) writeDossier(w http.ResponseWriter, r *http.Request, d dossier.Dossier) {

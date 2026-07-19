@@ -58,10 +58,17 @@ func (db *DB) CreateKBEntry(ctx context.Context, e model.KBEntry) (model.KBEntry
 		}
 	}
 	ts := nowString()
+	// A confirmed-on-creation entry (human-authored) is verified as of now; an unreviewed draft is not yet
+	// verified (NULL) — it awaits a human confirm (ADR-0043).
+	var verified any
+	if e.ReviewState == model.ReviewConfirmed {
+		verified = ts
+		e.LastVerifiedAt = parseTime(ts)
+	}
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO kb_entries (id, scope, target_id, group_id, organization_id, kind, title, body, tags, sensitivity, origin, review_state, source_ref, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.Scope, nullable(e.TargetID), nullable(e.GroupID), nullable(e.OrganizationID), e.Kind, e.Title, e.Body, e.Tags, e.Sensitivity, e.Origin, e.ReviewState, e.SourceRef, ts, ts); err != nil {
+		`INSERT INTO kb_entries (id, scope, target_id, group_id, organization_id, kind, title, body, tags, sensitivity, origin, review_state, source_ref, last_verified_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.Scope, nullable(e.TargetID), nullable(e.GroupID), nullable(e.OrganizationID), e.Kind, e.Title, e.Body, e.Tags, e.Sensitivity, e.Origin, e.ReviewState, e.SourceRef, verified, ts, ts); err != nil {
 		return model.KBEntry{}, err
 	}
 	e.CreatedAt, e.UpdatedAt = parseTime(ts), parseTime(ts)
@@ -76,7 +83,7 @@ func nullable(s string) any {
 	return s
 }
 
-const kbCols = `id, scope, target_id, group_id, organization_id, kind, title, body, tags, sensitivity, origin, review_state, source_ref, created_at, updated_at`
+const kbCols = `id, scope, target_id, group_id, organization_id, kind, title, body, tags, sensitivity, origin, review_state, source_ref, last_verified_at, created_at, updated_at`
 
 // scopeOrder ranks entries most-specific first (target < group < org < global) for the inheritance walk.
 const scopeOrder = `CASE scope WHEN 'target' THEN 0 WHEN 'group' THEN 1 WHEN 'org' THEN 2 ELSE 3 END`
@@ -84,12 +91,13 @@ const scopeOrder = `CASE scope WHEN 'target' THEN 0 WHEN 'group' THEN 1 WHEN 'or
 func scanKB(s interface{ Scan(...any) error }) (model.KBEntry, error) {
 	var e model.KBEntry
 	var created, updated string
-	var target, group, org sql.NullString
+	var target, group, org, verified sql.NullString
 	if err := s.Scan(&e.ID, &e.Scope, &target, &group, &org, &e.Kind, &e.Title, &e.Body, &e.Tags,
-		&e.Sensitivity, &e.Origin, &e.ReviewState, &e.SourceRef, &created, &updated); err != nil {
+		&e.Sensitivity, &e.Origin, &e.ReviewState, &e.SourceRef, &verified, &created, &updated); err != nil {
 		return model.KBEntry{}, err
 	}
 	e.TargetID, e.GroupID, e.OrganizationID = target.String, group.String, org.String
+	e.LastVerifiedAt = parseTime(verified.String) // "" → zero time (never verified)
 	e.CreatedAt, e.UpdatedAt = parseTime(created), parseTime(updated)
 	return e, nil
 }
@@ -154,15 +162,38 @@ func scanKBRows(rows *sql.Rows) ([]model.KBEntry, error) {
 	return out, rows.Err()
 }
 
-// ReviewKBEntry sets an entry's review state (confirmed | rejected | unreviewed).
+// ReviewKBEntry sets an entry's review state (confirmed | rejected | unreviewed). Confirming an entry also
+// stamps it as verified now — a human affirming the fact is affirming it currently holds (ADR-0043).
 func (db *DB) ReviewKBEntry(ctx context.Context, id, state string) error {
 	switch state {
 	case model.ReviewConfirmed, model.ReviewRejected, model.ReviewUnreviewed:
 	default:
 		return errors.New("store: invalid kb review state")
 	}
-	res, err := db.ExecContext(ctx, `UPDATE kb_entries SET review_state = ?, updated_at = ? WHERE id = ?`,
-		state, nowString(), id)
+	ts := nowString()
+	q := `UPDATE kb_entries SET review_state = ?, updated_at = ? WHERE id = ?`
+	args := []any{state, ts, id}
+	if state == model.ReviewConfirmed {
+		q = `UPDATE kb_entries SET review_state = ?, last_verified_at = ?, updated_at = ? WHERE id = ?`
+		args = []any{state, ts, ts, id}
+	}
+	res, err := db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// VerifyKBEntry bumps an entry's last-verified timestamp — "this fact still holds as of now" (ADR-0043).
+// It does NOT change review state, so it's safe for the agent to call when it re-observes a known fact: a
+// draft stays a draft (humans confirm), a confirmed fact just gets its freshness renewed.
+func (db *DB) VerifyKBEntry(ctx context.Context, id string) error {
+	ts := nowString()
+	res, err := db.ExecContext(ctx, `UPDATE kb_entries SET last_verified_at = ?, updated_at = ? WHERE id = ?`,
+		ts, ts, id)
 	if err != nil {
 		return err
 	}

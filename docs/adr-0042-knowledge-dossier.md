@@ -39,8 +39,8 @@ first instead of enumerating raw entries; `GET /v1/targets/{id}/dossier` and `GE
 ## Out of scope — later
 An optional **LLM-narrative** executive summary layered on top of the deterministic structure (richer prose,
 but needs a provider and costs tokens); a rendered dossier surface in the workbench UI; including recent
-findings/observations as a "current posture" section; **freshness** (the last knowledge investment —
-last-verified/staleness so the dossier flags possibly-stale knowledge).
+findings/observations as a "current posture" section. (**Freshness** — last-verified/staleness so the
+dossier flags possibly-stale knowledge — was the last knowledge investment and is delivered in ADR-0043.)
 
 Composes with ADR-0010 (the KB), ADR-0040 (the capture loop that fills it), and ADR-0041 (the inheritance
 this assembles).

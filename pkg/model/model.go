@@ -214,20 +214,24 @@ type KBEntry struct {
 	ID string `json:"id"`
 	// Anchor: exactly one of TargetID/GroupID/OrganizationID is set per Scope (all empty = global). A
 	// project inherits its target(s) + group + org + global knowledge (ADR-0041).
-	TargetID       string    `json:"target_id,omitempty"`
-	GroupID        string    `json:"group_id,omitempty"`
-	OrganizationID string    `json:"organization_id,omitempty"`
-	Kind           string    `json:"kind"`
-	Scope          string    `json:"scope"`
-	Title       string    `json:"title"`
-	Body        string    `json:"body,omitempty"`
-	Tags        string    `json:"tags,omitempty"`
-	Sensitivity string    `json:"sensitivity"`
-	Origin      string    `json:"origin"`
-	ReviewState string    `json:"review_state"`
-	SourceRef   string    `json:"source_ref,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	TargetID       string `json:"target_id,omitempty"`
+	GroupID        string `json:"group_id,omitempty"`
+	OrganizationID string `json:"organization_id,omitempty"`
+	Kind           string `json:"kind"`
+	Scope          string `json:"scope"`
+	Title          string `json:"title"`
+	Body           string `json:"body,omitempty"`
+	Tags           string `json:"tags,omitempty"`
+	Sensitivity    string `json:"sensitivity"`
+	Origin         string `json:"origin"`
+	ReviewState    string `json:"review_state"`
+	SourceRef      string `json:"source_ref,omitempty"`
+	// LastVerifiedAt is when the fact was last affirmatively checked to still hold (ADR-0043). Confirming a
+	// draft stamps it; the agent bumps it (verify_kb_entry) when it re-observes a known fact. Zero = never
+	// verified (an unreviewed draft). Old-but-verified entries go stale so accumulated knowledge doesn't rot.
+	LastVerifiedAt time.Time `json:"last_verified_at,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Methodology coverage statuses (ADR-0009).
@@ -634,17 +638,17 @@ const (
 // Observation is an interpreted result awaiting or having undergone human review. It scopes to a project
 // either via its task or, when it has no task (integration pull, analyst thread), a direct ProjectID.
 type Observation struct {
-	ID          string    `json:"id"`
-	TaskID      *string   `json:"task_id,omitempty"`
-	ArtifactID  *string   `json:"artifact_id,omitempty"`
-	ProjectID   *string   `json:"project_id,omitempty"`
-	Origin      string    `json:"origin"`
-	ReviewState string    `json:"review_state"`
-	Title       string    `json:"title"`
-	Detail      string    `json:"detail,omitempty"`
-	Severity    string    `json:"severity"`
-	RuleID      string    `json:"rule_id,omitempty"`
-	Location    string    `json:"location,omitempty"`
+	ID          string  `json:"id"`
+	TaskID      *string `json:"task_id,omitempty"`
+	ArtifactID  *string `json:"artifact_id,omitempty"`
+	ProjectID   *string `json:"project_id,omitempty"`
+	Origin      string  `json:"origin"`
+	ReviewState string  `json:"review_state"`
+	Title       string  `json:"title"`
+	Detail      string  `json:"detail,omitempty"`
+	Severity    string  `json:"severity"`
+	RuleID      string  `json:"rule_id,omitempty"`
+	Location    string  `json:"location,omitempty"`
 	// Attributes are structured facts an interpreter attaches (e.g. TruffleHog verified=true) that
 	// post-run disposition rules match on (ADR-0028).
 	Attributes map[string]string `json:"attributes,omitempty"`

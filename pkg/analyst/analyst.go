@@ -86,6 +86,9 @@ func Tools() []agent.Tool {
 			{Name: "scope", Type: agent.TypeEnum, Description: "target (default) | org | global — org/global apply across the organization's apps", Enum: []string{"target", "org", "global"}},
 			{Name: "target", Type: agent.TypeString, Description: "target id (from list_targets) — required for target scope"},
 		}},
+		{Name: "verify_kb_entry", Description: "Mark a known fact as still true (bump its freshness) so the dossier stops flagging it stale. Use when you re-observe something already in the knowledge base (from get_dossier/list_kb) instead of drafting a duplicate. Does not confirm drafts — humans do that.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "kb entry id (from get_dossier or list_kb)"},
+		}},
 		{Name: "read_file", Description: "Read a file from a source_repo asset (optionally a line window). Path is relative to the repo root.", Params: []agent.Param{
 			{Name: "asset", Type: agent.TypeString, Required: true, Description: "source_repo asset id (from list_assets)"},
 			{Name: "path", Type: agent.TypeString, Required: true, Description: "file path relative to the repo root"},
@@ -254,6 +257,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return saveContext(ctx, deps, call)
 		case "draft_kb_entry":
 			return draftKBEntry(ctx, deps, call)
+		case "verify_kb_entry":
+			return verifyKBEntry(ctx, deps, call)
 		case "create_observation":
 			return createObservation(ctx, st, call)
 		case "read_file":
