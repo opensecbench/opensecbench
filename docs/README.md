@@ -27,6 +27,8 @@ scratch); these docs are the buildable, versioned foundation.
 | [0016](adr-0016-http-traffic-toolset.md) | HTTP traffic toolset (Proxy · Replay · Intercept) | Accepted — fully delivered (rename + Steps 1–4) |
 | [0017](adr-0017-first-class-tool-use.md) | First-class tool use & provider translation | Accepted — fully delivered (Phases 1–5: typed schema, tool-aware providers, canonical persistence, native adapters + conformance, expanded governed toolset). Native on by default; evolves ADR-0006 |
 | [0018](adr-0018-sandboxed-cli-provider.md) | Sandboxed claude-cli inference provider | Accepted — delivered (credential-only mount, egress network, runner stdin). Opt-in; extends ADR-0006, composes ADR-0004/0011 |
+| [0019](adr-0019-agent-profiles-orchestration.md) | Agent profiles & orchestration | Proposed — least-privilege profiles + human-triggered adaptable playbooks + trust-curve approval policy (design co-designed; see the brief). Sits on ADR-0020. Evolves ADR-0006/0017 |
+| [0020](adr-0020-agent-workspace-corpus.md) | Agent workspace & corpus investigation | Accepted — building. Corpus read tools (source `read_file`/`list_dir`/`grep_code`/`find_files` delivered + DLP guard) → corpus reads → workspace → sandboxed `run_code`. The capability layer, built first |
 
 Later subsystems get an ADR when their phase begins. See [`../TODO.md`](../TODO.md).
 

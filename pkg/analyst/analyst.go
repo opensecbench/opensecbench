@@ -31,6 +31,18 @@ var gatedTools = map[string]bool{
 	"create_finding": true,
 }
 
+// assetEgressTools take an 'asset' argument and would send that asset's contents (its scan output, or
+// its source read directly) to the model. Under a strict egress policy with an external provider, they
+// are blocked for a private asset (ADR-0011, ADR-0020) — enforced in service.executeFor.
+var assetEgressTools = map[string]bool{
+	"run_capability": true,
+	"run_playbook":   true,
+	"read_file":      true,
+	"list_dir":       true,
+	"grep_code":      true,
+	"find_files":     true,
+}
+
 // Tools are the tools the Analyst may call.
 func Tools() []agent.Tool {
 	return []agent.Tool{
@@ -51,6 +63,27 @@ func Tools() []agent.Tool {
 			{Name: "kind", Type: agent.TypeEnum, Required: true, Description: "entry kind", Enum: []string{"architecture", "auth", "endpoint", "tech_stack", "environment", "data_flow", "convention", "gotcha", "tactic"}},
 			{Name: "title", Type: agent.TypeString, Required: true, Description: "short entry title"},
 			{Name: "body", Type: agent.TypeString, Required: true, Description: "the knowledge (what was learned)"},
+		}},
+		{Name: "read_file", Description: "Read a file from a source_repo asset (optionally a line window). Path is relative to the repo root.", Params: []agent.Param{
+			{Name: "asset", Type: agent.TypeString, Required: true, Description: "source_repo asset id (from list_assets)"},
+			{Name: "path", Type: agent.TypeString, Required: true, Description: "file path relative to the repo root"},
+			{Name: "offset", Type: agent.TypeInteger, Description: "start line (0-based) for a partial read"},
+			{Name: "limit", Type: agent.TypeInteger, Description: "number of lines to read from offset"},
+		}},
+		{Name: "list_dir", Description: "List a directory in a source_repo asset (files and subdirectories).", Params: []agent.Param{
+			{Name: "asset", Type: agent.TypeString, Required: true, Description: "source_repo asset id"},
+			{Name: "path", Type: agent.TypeString, Description: "directory relative to the repo root (default: root)"},
+		}},
+		{Name: "grep_code", Description: "Search a source_repo asset for a regular expression; returns file, line, and matching text.", Params: []agent.Param{
+			{Name: "asset", Type: agent.TypeString, Required: true, Description: "source_repo asset id"},
+			{Name: "pattern", Type: agent.TypeString, Required: true, Description: "RE2 regular expression"},
+			{Name: "glob", Type: agent.TypeString, Description: "optional filename glob to limit the search, e.g. *.go"},
+			{Name: "max", Type: agent.TypeInteger, Description: "max matches (default 100)"},
+		}},
+		{Name: "find_files", Description: "List files in a source_repo asset, optionally matching a filename glob.", Params: []agent.Param{
+			{Name: "asset", Type: agent.TypeString, Required: true, Description: "source_repo asset id"},
+			{Name: "glob", Type: agent.TypeString, Description: "optional filename glob, e.g. *.tf"},
+			{Name: "max", Type: agent.TypeInteger, Description: "max results (default 500)"},
 		}},
 		{Name: "list_exchanges", Description: "List captured HTTP traffic for the current project (id, method, url, status, origin). Use get_exchange for full headers/bodies.", Params: []agent.Param{
 			{Name: "origin", Type: agent.TypeEnum, Description: "filter by origin", Enum: []string{"proxy", "replay"}},
@@ -140,6 +173,14 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return jsonify(st.GetFinding(ctx, id))
 		case "draft_kb_entry":
 			return draftKBEntry(ctx, st, call)
+		case "read_file":
+			return readFile(ctx, deps, call)
+		case "list_dir":
+			return listDir(ctx, deps, call)
+		case "grep_code":
+			return grepCode(ctx, deps, call)
+		case "find_files":
+			return findFiles(ctx, deps, call)
 		case "list_exchanges":
 			return listExchanges(ctx, deps, call)
 		case "get_exchange":
