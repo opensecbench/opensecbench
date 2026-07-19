@@ -25,14 +25,11 @@ func (svc *Service) resolvePlaybook(ctx context.Context, id string) (Playbook, e
 	return Playbook{ID: sp.ID, Name: sp.Name, Description: sp.Description, Goal: sp.Goal, Steps: steps}, nil
 }
 
-// validatePlaybookSteps checks steps reference real profiles and only earlier step keys (a DAG).
-func validatePlaybookSteps(steps []PlaybookStep) error {
+// validatePlaybookSteps checks steps reference real profiles (built-in or saved) and only earlier step
+// keys (a DAG).
+func (svc *Service) validatePlaybookSteps(ctx context.Context, steps []PlaybookStep) error {
 	if len(steps) == 0 {
 		return errors.New("a playbook needs at least one step")
-	}
-	validProfile := map[string]bool{}
-	for _, p := range Profiles() {
-		validProfile[p.ID] = true
 	}
 	keys := map[string]bool{}
 	for _, s := range steps {
@@ -42,7 +39,7 @@ func validatePlaybookSteps(steps []PlaybookStep) error {
 		if keys[s.Key] {
 			return fmt.Errorf("duplicate step key %q", s.Key)
 		}
-		if !validProfile[s.Profile] {
+		if !svc.profileExists(ctx, s.Profile) {
 			return fmt.Errorf("step %q: unknown profile %q", s.Key, s.Profile)
 		}
 		if s.Instruction == "" {
@@ -63,7 +60,7 @@ func (svc *Service) SavePlaybook(ctx context.Context, name, description, goal st
 	if name == "" {
 		return model.SavedPlaybook{}, errors.New("a playbook needs a name")
 	}
-	if err := validatePlaybookSteps(steps); err != nil {
+	if err := svc.validatePlaybookSteps(ctx, steps); err != nil {
 		return model.SavedPlaybook{}, err
 	}
 	b, err := json.Marshal(steps)

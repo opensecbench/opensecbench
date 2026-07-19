@@ -76,7 +76,7 @@ func (svc *Service) runPlan(plan model.Plan) {
 			if c := planContext(s.DependsOn, results); c != "" {
 				task += "\n\n" + c
 			}
-			res, err := svc.Delegate(ctx, plan.ProjectID, s.Profile, task, profileToolNames(ProfileByID(s.Profile)))
+			res, err := svc.Delegate(ctx, plan.ProjectID, s.Profile, task, profileToolNames(svc.resolveProfile(ctx, s.Profile)))
 			if err != nil {
 				failed[s.Key] = true
 				anyFailed = true

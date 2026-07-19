@@ -411,6 +411,14 @@ export interface AgentProfile {
   id: string
   name: string
   description: string
+  persona?: string
+  tools?: string[]
+  builtin?: boolean
+}
+
+export interface AgentTool {
+  name: string
+  description: string
 }
 
 export interface Schedule {
@@ -783,6 +791,11 @@ export const api = {
   listThreads: () => request<Thread[]>('GET', '/v1/threads'),
   listAgentProfiles: () =>
     request<{ profiles: AgentProfile[] }>('GET', '/v1/analyst/profiles').then((r) => r.profiles ?? []),
+  listAgentTools: () =>
+    request<{ tools: AgentTool[] }>('GET', '/v1/analyst/tools').then((r) => r.tools ?? []),
+  createAgentProfile: (p: { name: string; description: string; persona: string; tools: string[] }) =>
+    request<{ id: string }>('POST', '/v1/analyst/profiles', p),
+  deleteAgentProfile: (id: string) => request<void>('DELETE', '/v1/analyst/profiles/' + id),
   createThread: (projectId?: string, title?: string, agentType?: string) =>
     request<Thread>('POST', '/v1/threads', { project_id: projectId, title, agent_type: agentType }),
   getThread: (id: string) => request<{ thread: Thread; messages: Msg[] }>('GET', '/v1/threads/' + id),

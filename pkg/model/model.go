@@ -354,6 +354,17 @@ const (
 	StepSkipped = "skipped"
 )
 
+// SavedProfile is a user-defined agent profile (ADR-0019 step 4): a persona + a tool allow-list (a JSON
+// array of tool names).
+type SavedProfile struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Persona     string          `json:"persona"`
+	Tools       json.RawMessage `json:"tools"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
 // Schedule runs a playbook on a cadence for a project (ADR-0019 step 4).
 type Schedule struct {
 	ID              string     `json:"id"`

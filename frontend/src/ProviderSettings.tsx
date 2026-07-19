@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, ProviderView, UsageByModel } from './api'
 import { ApprovalPolicy } from './ApprovalPolicy'
+import { CustomAgents } from './CustomAgents'
 
 // Provider types offered in the add form. needsBase/needsKey drive which fields show; the hint steers
 // the operator (API keys recommended, claude-cli uses the local subscription, ollama is local).
@@ -168,6 +169,7 @@ export function ProviderSettings({
       </div>
 
       <ApprovalPolicy online={online} />
+      <CustomAgents online={online} />
     </div>
   )
 }

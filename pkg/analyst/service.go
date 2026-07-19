@@ -153,7 +153,7 @@ func (svc *Service) Send(ctx context.Context, threadID, userMessage string) (Sen
 	if err != nil {
 		return SendResult{}, err
 	}
-	profile := ProfileByID(th.AgentType)
+	profile := svc.resolveProfile(ctx, th.AgentType)
 	sess := svc.session(projectOf(th), profile, svc.loadPolicy(ctx))
 
 	existing, err := svc.store.ListMessages(ctx, threadID)
@@ -203,7 +203,7 @@ func (svc *Service) Decide(ctx context.Context, approvalID, decision string) (Se
 	if err != nil {
 		return SendResult{}, err
 	}
-	profile := ProfileByID(th.AgentType)
+	profile := svc.resolveProfile(ctx, th.AgentType)
 	prior, err := svc.loadMessages(ctx, ap.ThreadID)
 	if err != nil {
 		return SendResult{}, err
