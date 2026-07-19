@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -33,12 +34,17 @@ func (db *DB) CreateObservation(ctx context.Context, o model.Observation) (model
 		o.Severity = "info"
 	}
 	o.CreatedAt = time.Now().UTC()
+	attrs := ""
+	if len(o.Attributes) > 0 {
+		b, _ := json.Marshal(o.Attributes)
+		attrs = string(b)
+	}
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO observations
-		 (id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, attributes, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		o.ID, o.TaskID, o.ArtifactID, o.ProjectID, o.Origin, o.ReviewState, o.Title, o.Detail, o.Severity,
-		o.RuleID, o.Location, o.CreatedAt.Format(timeLayout))
+		o.RuleID, o.Location, attrs, o.CreatedAt.Format(timeLayout))
 	if err != nil {
 		return model.Observation{}, err
 	}
@@ -48,7 +54,7 @@ func (db *DB) CreateObservation(ctx context.Context, o model.Observation) (model
 // ListObservationsByTask returns a task's observations, oldest first.
 func (db *DB) ListObservationsByTask(ctx context.Context, taskID string) ([]model.Observation, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, created_at
+		`SELECT id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, attributes, created_at
 		 FROM observations WHERE task_id = ? ORDER BY created_at`, taskID)
 	if err != nil {
 		return nil, err
@@ -61,12 +67,12 @@ func (db *DB) ListObservationsByTask(ctx context.Context, taskID string) ([]mode
 func (db *DB) GetObservation(ctx context.Context, id string) (model.Observation, error) {
 	var o model.Observation
 	var task, artifact, project sql.NullString
-	var created string
+	var attrs, created string
 	err := db.QueryRowContext(ctx,
-		`SELECT id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, created_at
+		`SELECT id, task_id, artifact_id, project_id, origin, review_state, title, detail, severity, rule_id, location, attributes, created_at
 		 FROM observations WHERE id = ?`, id).
 		Scan(&o.ID, &task, &artifact, &project, &o.Origin, &o.ReviewState, &o.Title, &o.Detail,
-			&o.Severity, &o.RuleID, &o.Location, &created)
+			&o.Severity, &o.RuleID, &o.Location, &attrs, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Observation{}, ErrNotFound
 	}
@@ -74,8 +80,18 @@ func (db *DB) GetObservation(ctx context.Context, id string) (model.Observation,
 		return model.Observation{}, err
 	}
 	o.TaskID, o.ArtifactID, o.ProjectID = ptr(task), ptr(artifact), ptr(project)
+	o.Attributes = parseAttrs(attrs)
 	o.CreatedAt = parseTime(created)
 	return o, nil
+}
+
+func parseAttrs(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	var m map[string]string
+	_ = json.Unmarshal([]byte(s), &m)
+	return m
 }
 
 func scanObservations(rows *sql.Rows) ([]model.Observation, error) {
@@ -83,12 +99,13 @@ func scanObservations(rows *sql.Rows) ([]model.Observation, error) {
 	for rows.Next() {
 		var o model.Observation
 		var task, artifact, project sql.NullString
-		var created string
+		var attrs, created string
 		if err := rows.Scan(&o.ID, &task, &artifact, &project, &o.Origin, &o.ReviewState, &o.Title, &o.Detail,
-			&o.Severity, &o.RuleID, &o.Location, &created); err != nil {
+			&o.Severity, &o.RuleID, &o.Location, &attrs, &created); err != nil {
 			return nil, err
 		}
 		o.TaskID, o.ArtifactID, o.ProjectID = ptr(task), ptr(artifact), ptr(project)
+		o.Attributes = parseAttrs(attrs)
 		o.CreatedAt = parseTime(created)
 		out = append(out, o)
 	}

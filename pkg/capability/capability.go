@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/opensecbench/opensecbench/pkg/disposition"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 )
 
@@ -23,6 +24,9 @@ type Manifest struct {
 	// TargetParam names the input param holding a network target (host/URL). When set, the
 	// capability touches the network and the engine enforces the scope allowlist against it.
 	TargetParam string `json:"target_param,omitempty"`
+	// Dispositions route this capability's observations to a post-run action (ADR-0028). Empty means
+	// everything is left for manual review (default).
+	Dispositions []disposition.Disposition `json:"dispositions,omitempty"`
 }
 
 // ExitOK reports whether an exit code counts as a successful run.

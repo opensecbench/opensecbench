@@ -79,6 +79,8 @@ func dispatch(ctx context.Context, c *client.Client, args []string) error {
 		return runnerCmd(ctx, c, args[1:])
 	case "integration", "integrations":
 		return integrationCmd(ctx, c, args[1:])
+	case "investigation", "investigations":
+		return investigationCmd(ctx, c, args[1:])
 	case "artifact":
 		return artifactCmd(ctx, c, args[1:])
 	case "application", "app":
@@ -213,6 +215,38 @@ func capabilityCmd(ctx context.Context, c *client.Client, args []string) error {
 		return printJSON(map[string]any{"task": t, "observations": obs})
 	default:
 		return fmt.Errorf("unknown capability subcommand %q", args[0])
+	}
+}
+
+func investigationCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: osb investigation <list <project> | run|resolve|dismiss <id>>")
+	}
+	switch args[0] {
+	case "list":
+		invs, err := c.ListInvestigations(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		for _, inv := range invs {
+			fmt.Printf("%-36s %-14s %s\n", inv.ID, inv.Status, inv.Title)
+		}
+		return nil
+	case "run":
+		if err := c.RunInvestigation(ctx, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("investigation %s started (see the analyst thread)\n", args[1])
+		return nil
+	case "resolve", "dismiss":
+		status := map[string]string{"resolve": "resolved", "dismiss": "dismissed"}[args[0]]
+		if err := c.SetInvestigationStatus(ctx, args[1], status); err != nil {
+			return err
+		}
+		fmt.Printf("investigation %s %s\n", args[1], status)
+		return nil
+	default:
+		return fmt.Errorf("unknown investigation subcommand %q", args[0])
 	}
 }
 

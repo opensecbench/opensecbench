@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
+	"github.com/opensecbench/opensecbench/pkg/disposition"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 )
 
@@ -32,6 +33,8 @@ type ContainerCapability struct {
 	TimeoutSeconds  int      `json:"timeout_seconds,omitempty"`
 	MemoryMB        int      `json:"memory_mb,omitempty"`
 	CPUs            float64  `json:"cpus,omitempty"`
+	// Dispositions route this capability's observations post-run (ADR-0028).
+	Dispositions []disposition.Disposition `json:"dispositions,omitempty"`
 }
 
 // Manifest returns the capability manifest surfaced to users and the agent.
@@ -45,6 +48,7 @@ func (c ContainerCapability) Manifest() capability.Manifest {
 		OutputMediaType: c.OutputMediaType,
 		OKExitCodes:     c.OKExitCodes,
 		TargetParam:     c.TargetParam,
+		Dispositions:    c.Dispositions,
 	}
 }
 

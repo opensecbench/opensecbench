@@ -641,7 +641,44 @@ type Observation struct {
 	Severity    string    `json:"severity"`
 	RuleID      string    `json:"rule_id,omitempty"`
 	Location    string    `json:"location,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	// Attributes are structured facts an interpreter attaches (e.g. TruffleHog verified=true) that
+	// post-run disposition rules match on (ADR-0028).
+	Attributes map[string]string `json:"attributes,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+}
+
+// Investigation statuses.
+const (
+	InvestigationOpen          = "open"
+	InvestigationInvestigating = "investigating"
+	InvestigationResolved      = "resolved"
+	InvestigationDismissed     = "dismissed"
+)
+
+// Investigation is a tracked follow-up opened by a disposition rule for an observation that needs
+// validation (ADR-0028) — worked by a human and/or a seeded agent thread, ending in a validated finding.
+type Investigation struct {
+	ID            string    `json:"id"`
+	ProjectID     string    `json:"project_id"`
+	ApplicationID *string   `json:"application_id,omitempty"`
+	ObservationID string    `json:"observation_id"`
+	Title         string    `json:"title"`
+	Status        string    `json:"status"`
+	ThreadID      *string   `json:"thread_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// DispositionRule is a per-project override of a capability's manifest-declared routing (ADR-0028).
+type DispositionRule struct {
+	ID           string            `json:"id"`
+	ProjectID    string            `json:"project_id"`
+	CapabilityID string            `json:"capability_id"` // "" = all capabilities
+	When         map[string]string `json:"when"`
+	MinSeverity  string            `json:"min_severity,omitempty"`
+	Action       string            `json:"action"`
+	Priority     int               `json:"priority"`
+	CreatedAt    time.Time         `json:"created_at"`
 }
 
 // Finding statuses.

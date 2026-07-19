@@ -367,6 +367,7 @@ export interface Observation {
   id: string
   task_id?: string
   artifact_id?: string
+  project_id?: string
   origin: string
   review_state: string
   title: string
@@ -374,6 +375,17 @@ export interface Observation {
   severity: string
   rule_id?: string
   location?: string
+  attributes?: Record<string, string>
+}
+
+export interface Investigation {
+  id: string
+  project_id: string
+  observation_id: string
+  title: string
+  status: string
+  thread_id?: string
+  created_at: string
 }
 
 export interface Finding {
@@ -705,6 +717,14 @@ export const api = {
     request<void>('DELETE', `/v1/projects/${projectId}/integrations/${integration}`),
   pullIntegration: (projectId: string, integration: string) =>
     request<PullResult>('POST', `/v1/projects/${projectId}/integrations/${integration}/pull`, {}),
+
+  // Investigations (ADR-0028): disposition-routed follow-ups.
+  listInvestigations: (projectId: string) =>
+    request<Investigation[]>('GET', `/v1/projects/${projectId}/investigations`),
+  runInvestigation: (id: string) =>
+    request<{ investigation_id: string; thread: Thread }>('POST', `/v1/investigations/${id}/run`, {}),
+  setInvestigationStatus: (id: string, status: string) =>
+    request<void>('POST', `/v1/investigations/${id}/status`, { status }),
 
   // Live project event stream (SSE): captured exchanges, proxy status, and intercept queue changes,
   // so clients react instead of polling. EventSource auto-reconnects; callers resync with a fetch on

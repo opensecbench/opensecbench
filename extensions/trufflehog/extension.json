@@ -18,7 +18,11 @@
       "output_media_type": "application/x-trufflehog-json",
       "ok_exit_codes": [0, 183],
       "timeout_seconds": 600,
-      "memory_mb": 2048
+      "memory_mb": 2048,
+      "dispositions": [
+        { "when": { "verified": "true" }, "action": "finding" },
+        { "when": { "verified": "false" }, "action": "investigate" }
+      ]
     }
   ],
   "settings": [

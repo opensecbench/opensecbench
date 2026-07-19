@@ -18,6 +18,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/disposition"
 	"github.com/opensecbench/opensecbench/pkg/interpret"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
@@ -444,10 +445,17 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	case interpret.TruffleHogMediaType:
 		interpreted, _ = interpret.TruffleHog(res.Stdout)
 	}
+	var created []model.Observation
 	for _, o := range interpreted {
 		o.TaskID = &task.ID
 		o.ArtifactID = &art.ID
-		_, _ = e.store.CreateObservation(ctx, o)
+		if saved, err := e.store.CreateObservation(ctx, o); err == nil {
+			created = append(created, saved)
+		}
+	}
+	// Route new observations to a post-run disposition (ADR-0028): auto-finding, investigate, or review.
+	if len(created) > 0 {
+		e.applyDispositions(ctx, task, man, p.applicationID, created)
 	}
 
 	status := model.TaskSucceeded
@@ -461,6 +469,74 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		return e.outcome(ctx, task.ID), err
 	}
 	return e.outcome(ctx, task.ID), nil
+}
+
+// applyDispositions routes each new observation to a post-run action per the capability's declared
+// dispositions and any project overrides (ADR-0028): promote to a finding, open an investigation, or
+// leave for manual review. Best-effort — a routing failure never fails the task.
+func (e *Engine) applyDispositions(ctx context.Context, task model.Task, man capability.Manifest, appID *string, observations []model.Observation) {
+	projectID := e.projectOfTask(ctx, task, appID)
+	rules := e.dispositionRules(ctx, projectID, man)
+	if len(rules) == 0 {
+		return
+	}
+	for _, o := range observations {
+		switch disposition.Evaluate(o, rules) {
+		case disposition.ActionFinding:
+			if err := e.store.ReviewObservation(ctx, o.ID, model.ReviewConfirmed); err != nil {
+				continue
+			}
+			f, err := e.store.CreateFinding(ctx, store.NewFinding{
+				ApplicationID: appID, Title: o.Title, Severity: o.Severity,
+				Description: o.Detail, ObservationIDs: []string{o.ID},
+			})
+			if err == nil {
+				e.auditDisposition(ctx, "disposition.finding", f.ID, o)
+			}
+		case disposition.ActionInvestigate:
+			if projectID == "" {
+				continue // an investigation must be project-scoped
+			}
+			inv, err := e.store.CreateInvestigation(ctx, model.Investigation{
+				ProjectID: projectID, ApplicationID: appID, ObservationID: o.ID, Title: o.Title,
+			})
+			if err == nil {
+				e.auditDisposition(ctx, "disposition.investigate", inv.ID, o)
+			}
+		}
+	}
+}
+
+// dispositionRules merges the project's overrides (higher priority) with the capability's manifest
+// defaults into an ordered rule list for Evaluate.
+func (e *Engine) dispositionRules(ctx context.Context, projectID string, man capability.Manifest) []disposition.Disposition {
+	var rules []disposition.Disposition
+	if projectID != "" {
+		overrides, _ := e.store.ListDispositionRules(ctx, projectID)
+		for _, pr := range overrides {
+			if pr.CapabilityID == "" || pr.CapabilityID == man.ID {
+				rules = append(rules, disposition.Disposition{When: pr.When, MinSeverity: pr.MinSeverity, Action: pr.Action})
+			}
+		}
+	}
+	return append(rules, man.Dispositions...)
+}
+
+func (e *Engine) projectOfTask(ctx context.Context, task model.Task, appID *string) string {
+	if task.ProjectID != nil {
+		return *task.ProjectID
+	}
+	if appID != nil {
+		if app, err := e.store.GetApplication(ctx, *appID); err == nil {
+			return app.ProjectID
+		}
+	}
+	return ""
+}
+
+func (e *Engine) auditDisposition(ctx context.Context, action, target string, o model.Observation) {
+	data, _ := json.Marshal(map[string]string{"observation": o.ID, "rule": o.RuleID})
+	_, _ = e.store.AppendAudit(ctx, "disposition", action, target, data)
 }
 
 // injectSecrets resolves req.SecretRefs through the vault into spec.SecretEnv and returns a redactor
