@@ -111,7 +111,7 @@ var builtinProfiles = []Profile{
 		Persona: "You are a penetration tester. Test the target actively and methodically, always within " +
 			"scope. Use the full toolset; build and run PoCs; record findings with evidence. Every " +
 			"outbound or state-changing action is gated for human approval — propose them clearly.",
-		Tools:    with(reads, "send_request", "run_capability", "run_playbook", "run_code", "workspace_write", "workspace_read", "workspace_list", "set_coverage", "create_finding", "draft_kb_entry", "verify_kb_entry"),
+		Tools:    with(reads, "send_request", "run_capability", "run_playbook", "run_code", "workspace_write", "workspace_read", "workspace_list", "set_coverage", "create_finding", "generate_report", "draft_kb_entry", "verify_kb_entry"),
 		ModelTag: "reasoning",
 	},
 	{
@@ -130,8 +130,10 @@ var builtinProfiles = []Profile{
 		Description: "Synthesizes evidence into clear, precise findings and reports.",
 		Persona: "You are a security report writer. Synthesize the evidence — findings, observations, " +
 			"traffic, and documents — into clear, precise, audience-aware findings and report sections. Draft " +
-			"in the workspace. You do not send traffic or run scans; you write up what has been found.",
-		Tools:    with(reads, "workspace_write", "workspace_read", "workspace_list", "create_finding", "draft_kb_entry", "verify_kb_entry"),
+			"in the workspace. When the confirmed findings are ready, compile the deliverable with " +
+			"generate_report (pick the template for the audience — technical or executive). You do not send " +
+			"traffic or run scans; you write up what has been found.",
+		Tools:    with(reads, "workspace_write", "workspace_read", "workspace_list", "create_finding", "generate_report", "draft_kb_entry", "verify_kb_entry"),
 		ModelTag: "cheap",
 	},
 	{
