@@ -741,8 +741,10 @@ export const api = {
   cancelTask: (id: string) => request<void>('POST', `/v1/tasks/${id}/cancel`),
   getTaskArtifacts: (taskId: string) => request<Artifact[]>('GET', `/v1/tasks/${taskId}/artifacts`),
   listPlaybooks: () => request<Playbook[]>('GET', '/v1/playbooks'),
+  // Enqueues the playbook and returns the run in the running state (ADR-0022); poll getPlaybookRun.
   runPlaybook: (id: string, assetId: string) =>
-    request<PlaybookRunResult>('POST', `/v1/playbooks/${id}/run`, { asset_id: assetId }),
+    request<PlaybookRun>('POST', `/v1/playbooks/${id}/run`, { asset_id: assetId }),
+  getPlaybookRun: (runId: string) => request<PlaybookRun>('GET', `/v1/playbook-runs/${runId}`),
   listTaskObservations: (taskId: string) =>
     request<Observation[]>('GET', `/v1/tasks/${taskId}/observations`),
   artifactContent: async (id: string) => {

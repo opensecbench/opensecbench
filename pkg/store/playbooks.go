@@ -47,6 +47,19 @@ func (db *DB) FinishPlaybookRun(ctx context.Context, runID, status string) error
 	return nil
 }
 
+// FailUnfinishedPlaybookRuns marks any run left in the running state (e.g. across a control-plane
+// restart) as failed, so it doesn't linger as a ghost. Returns how many it reconciled.
+func (db *DB) FailUnfinishedPlaybookRuns(ctx context.Context) (int, error) {
+	res, err := db.ExecContext(ctx,
+		`UPDATE playbook_runs SET status = ?, finished_at = ? WHERE status = ?`,
+		model.PlaybookFailed, nowString(), model.PlaybookRunning)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // GetPlaybookRun returns a run with its task ids in order.
 func (db *DB) GetPlaybookRun(ctx context.Context, id string) (model.PlaybookRun, error) {
 	pr, err := db.scanPlaybookRun(db.QueryRowContext(ctx,

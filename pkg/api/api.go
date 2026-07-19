@@ -129,6 +129,13 @@ func New(deps Deps) *Server {
 	s.activeProvider = envProviderInfo(s.provider)
 	s.routes()
 	s.loadActiveProvider() // a persisted active provider overrides the env default
+	// Reconcile playbook runs left running by a prior process (their in-flight tasks are reconciled by
+	// the engine); the runs themselves would otherwise linger as ghosts (ADR-0022).
+	if s.store != nil {
+		if n, err := s.store.FailUnfinishedPlaybookRuns(context.Background()); err == nil && n > 0 {
+			log.Printf("api: reconciled %d unfinished playbook run(s) to failed on startup", n)
+		}
+	}
 	s.startScheduler()
 	return s
 }
@@ -1949,15 +1956,17 @@ func (s *Server) runPlaybook(w http.ResponseWriter, r *http.Request) {
 		actor = "human"
 	}
 	playbookID := r.PathValue("id")
-	res, err := playbook.NewRunner(s.engine, s.store).Run(r.Context(), playbookID, req.AssetID, actor)
+	// Enqueue the playbook and return immediately (ADR-0022); steps run in the background on the task
+	// engine and the client polls GET /v1/playbook-runs/{id}. A bad playbook fails fast with no run.
+	run, err := playbook.NewRunner(s.engine, s.store).Start(r.Context(), playbookID, req.AssetID, actor)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.record(r.Context(), actor, "playbook.run", playbookID, map[string]any{
-		"asset": req.AssetID, "status": res.Run.Status, "tasks": len(res.Run.TaskIDs),
+	s.record(r.Context(), actor, "playbook.start", playbookID, map[string]any{
+		"asset": req.AssetID, "run": run.ID,
 	})
-	writeJSON(w, http.StatusCreated, res)
+	writeJSON(w, http.StatusAccepted, run)
 }
 
 func (s *Server) listPlaybookRuns(w http.ResponseWriter, r *http.Request) {

@@ -37,7 +37,14 @@ cancels that context and drains the pool on shutdown.
 `Enqueue(req)` = prepare → create pending task → hand to the pool → return the pending task. A worker
 claims it, flips it `pending → running` (`StartTask`, stamping `started_at`), and calls `execute`.
 `Run(ctx, req)` is retained as the **synchronous** path (prepare → create running → execute) for callers
-that need in-line, ordered completion — notably the playbook runner's sequential steps.
+that need in-line, ordered completion — notably each of a playbook's sequential steps.
+
+**Playbooks run async too.** The playbook runner mirrors the pattern: `Start` validates the playbook,
+creates the run, and executes its steps on a **background goroutine** (each step a synchronous
+`engine.Run`, preserving order), returning the running `PlaybookRun` immediately. `POST /v1/playbooks/{id}/run`
+→ **202** with the run; the client polls `GET /v1/playbook-runs/{id}` and sees `task_ids` accrue as steps
+complete. The agent **plan** runner (ADR-0019) was already background (`go runPlan`), so all three
+execution engines — capability tasks, playbooks, and agent plans — are now non-blocking.
 
 **Task lifecycle.** A new `pending` status (already permitted by the tasks CHECK constraint) precedes
 `running`. Terminal states are unchanged (`succeeded` / `failed`).
@@ -63,10 +70,11 @@ lists queued tasks alongside running ones.
 - **One execution body** (`execute`) shared by sync and async paths — no drift between them.
 - **Breaking API change** — `POST /v1/tasks` no longer returns the full outcome synchronously; it returns
   the pending task (202). The desktop client was updated to poll.
-- **Not yet async:** the playbook runner still executes its steps synchronously within its request (it
-  needs ordered completion); moving whole playbooks onto the queue is a follow-up. The queue is
-  in-process (not persisted), so queued-but-unstarted work does not resume across a restart — it is
-  reconciled to failed instead.
+- **All execution is async:** capability tasks (queue + pool), playbooks (`Start` + background steps),
+  and agent plans (`go runPlan`) all return immediately and are polled. Both playbook runs and
+  individual tasks are reconciled to failed on startup if a prior process left them unfinished.
+- **In-process queue:** the task queue is not persisted, so queued-but-unstarted work does not resume
+  across a restart — it is reconciled to failed instead. A durable queue is a possible follow-up.
 
 Composes with ADR-0004 (the sandboxed runner is unchanged — only *when* it is invoked changed) and
 ADR-0019 (scheduled/triggered playbook runs now queue behind the worker pool).
