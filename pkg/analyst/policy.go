@@ -24,6 +24,7 @@ var sensitiveTools = map[string]bool{
 	"create_finding": true,
 	"run_code":       true,
 	"delegate":       true,
+	"web_fetch":      true, // gated, but a preapproved source is auto-approved before this (ADR-0038)
 }
 
 // Rule overrides the default decision for a tool, optionally scoped to one agent profile. An empty

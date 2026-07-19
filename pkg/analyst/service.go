@@ -159,7 +159,13 @@ func (svc *Service) session(projectID string, profile Profile, policy Policy, pr
 		Provider:    prov,
 		Model:       modelID,
 		Tools:       profile.ToolSet(),
-		Gate:        func(c agent.ToolCall) bool { return policy.NeedsApproval(c.Tool, profile.ID) },
+		Gate: func(c agent.ToolCall) bool {
+			// web_fetch to a preapproved research source needs no approval; any other URL pauses (ADR-0038).
+			if c.Tool == "web_fetch" && isPreapprovedSource(stringArg(c, "url")) {
+				return false
+			}
+			return policy.NeedsApproval(c.Tool, profile.ID)
+		},
 		Execute:     svc.executeFor(projectID, prov),
 		MaxSteps:    8,
 		TokenBudget: svc.tokenBudget,
