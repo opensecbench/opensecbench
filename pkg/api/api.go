@@ -352,6 +352,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/integrations", s.listIntegrations)
 	s.mux.HandleFunc("GET /v1/findings/{id}/links", s.listFindingLinks)
 	s.mux.HandleFunc("POST /v1/findings/{id}/push", s.pushFinding)
+	// Per-project integration configs + inbound pull (ADR-0027).
+	s.mux.HandleFunc("GET /v1/projects/{id}/integrations", s.listProjectIntegrations)
+	s.mux.HandleFunc("PUT /v1/projects/{id}/integrations/{integration}", s.setIntegrationConfig)
+	s.mux.HandleFunc("DELETE /v1/projects/{id}/integrations/{integration}", s.deleteIntegrationConfig)
+	s.mux.HandleFunc("POST /v1/projects/{id}/integrations/{integration}/pull", s.pullIntegration)
 
 	s.mux.HandleFunc("POST /v1/analyst/ask", s.analystAsk)
 

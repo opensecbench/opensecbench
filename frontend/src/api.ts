@@ -224,6 +224,25 @@ export interface ExtensionInfo {
   methodologies?: string[]
 }
 
+export interface IntegrationConfig {
+  id: string
+  project_id: string
+  integration: string
+  base_url: string
+  project_key: string
+  credential: string // vault secret name (never a value)
+  updated_at: string
+}
+export interface ProjectIntegrations {
+  configs: IntegrationConfig[] | null
+  connectors: { name: string; pullable: boolean }[]
+}
+export interface PullResult {
+  imported: number
+  skipped: number
+  total: number
+}
+
 export interface HubPackage {
   id: string
   name: string
@@ -672,6 +691,20 @@ export const api = {
   sendExchange: (id: string, runnerId?: string) =>
     request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, runnerId ? { runner_id: runnerId } : {}),
   listRunners: () => request<RunnerView[]>('GET', '/v1/runners'),
+
+  // Integrations (ADR-0027): per-project config + inbound pull.
+  listSecrets: () => request<{ name: string }[]>('GET', '/v1/secrets'),
+  getProjectIntegrations: (projectId: string) =>
+    request<ProjectIntegrations>('GET', `/v1/projects/${projectId}/integrations`),
+  setIntegrationConfig: (
+    projectId: string,
+    integration: string,
+    cfg: { base_url: string; project_key: string; credential: string },
+  ) => request<IntegrationConfig>('PUT', `/v1/projects/${projectId}/integrations/${integration}`, cfg),
+  deleteIntegrationConfig: (projectId: string, integration: string) =>
+    request<void>('DELETE', `/v1/projects/${projectId}/integrations/${integration}`),
+  pullIntegration: (projectId: string, integration: string) =>
+    request<PullResult>('POST', `/v1/projects/${projectId}/integrations/${integration}/pull`, {}),
 
   // Live project event stream (SSE): captured exchanges, proxy status, and intercept queue changes,
   // so clients react instead of polling. EventSource auto-reconnects; callers resync with a fetch on

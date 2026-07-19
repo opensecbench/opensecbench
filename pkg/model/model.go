@@ -140,6 +140,19 @@ type ProxyRule struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// IntegrationConfig is a reusable per-project connection to an external tracker (ADR-0027). Credential is
+// a vault secret NAME, never a value.
+type IntegrationConfig struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Integration string    `json:"integration"`
+	BaseURL     string    `json:"base_url"`
+	ProjectKey  string    `json:"project_key"`
+	Credential  string    `json:"credential"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // ExternalLink ties an OSB finding to an issue in an external tracker (idempotent per integration).
 type ExternalLink struct {
 	ID          string    `json:"id"`
@@ -614,11 +627,13 @@ const (
 	ReviewRejected   = "rejected"
 )
 
-// Observation is an interpreted result awaiting or having undergone human review.
+// Observation is an interpreted result awaiting or having undergone human review. It scopes to a project
+// either via its task or, when it has no task (integration pull, analyst thread), a direct ProjectID.
 type Observation struct {
 	ID          string    `json:"id"`
 	TaskID      *string   `json:"task_id,omitempty"`
 	ArtifactID  *string   `json:"artifact_id,omitempty"`
+	ProjectID   *string   `json:"project_id,omitempty"`
 	Origin      string    `json:"origin"`
 	ReviewState string    `json:"review_state"`
 	Title       string    `json:"title"`

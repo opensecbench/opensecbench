@@ -795,6 +795,41 @@ func (c *Client) DeleteRunner(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/runners/"+id, nil, nil)
 }
 
+// ProjectIntegrations is a project's configured integrations + available connectors (ADR-0027).
+type ProjectIntegrations struct {
+	Configs    []model.IntegrationConfig `json:"configs"`
+	Connectors []struct {
+		Name     string `json:"name"`
+		Pullable bool   `json:"pullable"`
+	} `json:"connectors"`
+}
+
+// PullResult is the outcome of an inbound integration pull.
+type PullResult struct {
+	Imported int `json:"imported"`
+	Skipped  int `json:"skipped"`
+	Total    int `json:"total"`
+}
+
+// ListProjectIntegrations returns a project's integration configs + available connectors.
+func (c *Client) ListProjectIntegrations(ctx context.Context, projectID string) (ProjectIntegrations, error) {
+	var out ProjectIntegrations
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/integrations", nil, &out)
+}
+
+// SetIntegrationConfig upserts a project's config for an integration (credential is a vault secret name).
+func (c *Client) SetIntegrationConfig(ctx context.Context, projectID, integration, baseURL, projectKey, credential string) (model.IntegrationConfig, error) {
+	var out model.IntegrationConfig
+	body := map[string]string{"base_url": baseURL, "project_key": projectKey, "credential": credential}
+	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+projectID+"/integrations/"+integration, body, &out)
+}
+
+// PullIntegration imports external findings into the project as observations.
+func (c *Client) PullIntegration(ctx context.Context, projectID, integration string) (PullResult, error) {
+	var out PullResult
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/integrations/"+integration+"/pull", nil, &out)
+}
+
 // Playbook is a tactic (sequence of capability steps).
 type Playbook struct {
 	ID          string `json:"id"`

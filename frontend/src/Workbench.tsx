@@ -24,6 +24,7 @@ import {
 import { AnalystPanel } from './AnalystPanel'
 import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
+import { IntegrationsTab } from './IntegrationsTab'
 import { KnowledgeTab } from './KnowledgeTab'
 import { InterceptTab } from './InterceptTab'
 import { MethodologyTab } from './MethodologyTab'
@@ -52,6 +53,7 @@ type Tab =
   | 'findings'
   | 'reports'
   | 'graph'
+  | 'integrations'
   | 'audit'
 
 type Conn = 'connecting' | 'online' | 'offline'
@@ -80,6 +82,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
   { key: 'graph', icon: '📊', label: 'Graph' },
   { key: 'scope', icon: '🛡', label: 'Scope' },
   { key: 'reports', icon: '📄', label: 'Report', meta: true },
+  { key: 'integrations', icon: '🔌', label: 'Integr', meta: true },
   { key: 'audit', icon: '📜', label: 'Audit', meta: true },
 ]
 
@@ -386,6 +389,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         return <ReportsTab project={project} online={online} onError={setError} />
       case 'graph':
         return <GraphTab project={project} online={online} onError={setError} />
+      case 'integrations':
+        return <IntegrationsTab project={project} online={online} onError={setError} />
       case 'audit':
         return <AuditTab online={online} onError={setError} />
     }
