@@ -19,21 +19,25 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7373", "loopback address for the control-plane API")
+	runnerAddr := flag.String("runner-addr", "", "address for the remote-runner protocol (e.g. 0.0.0.0:7374); front with TLS/tunnel. Empty disables remote runners")
 	dbPath := flag.String("db", "", "path to the SQLite database (default: user config dir)")
 	flag.Parse()
 
-	if err := run(*addr, *dbPath); err != nil {
+	if err := run(*addr, *runnerAddr, *dbPath); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(addr, dbPath string) error {
-	cp, err := controlplane.Start(controlplane.Options{Addr: addr, DBPath: dbPath})
+func run(addr, runnerAddr, dbPath string) error {
+	cp, err := controlplane.Start(controlplane.Options{Addr: addr, RunnerAddr: runnerAddr, DBPath: dbPath})
 	if err != nil {
 		return err
 	}
 	schemaVersion, _ := cp.SchemaVersion()
 	log.Printf("opensecbench control plane %s ready at %s (schema version %d)", version.Version, cp.BaseURL, schemaVersion)
+	if cp.RunnerURL != "" {
+		log.Printf("remote-runner protocol listening at %s (front with TLS/tunnel; runners authenticate with ed25519)", cp.RunnerURL)
+	}
 	log.Printf("Analyst provider: %s (configure via OSB_LLM_PROVIDER / OSB_LLM_BASE_URL / OSB_LLM_MODEL / OSB_LLM_API_KEY)", cp.ProviderName())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
