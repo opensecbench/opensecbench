@@ -682,7 +682,8 @@ a.link,
 }
 .messages {
   flex: 1;
-  overflow: auto;
+  min-height: 0; /* let the flex item shrink below content height so overflow scrolls internally */
+  overflow-y: auto;
   padding: 14px;
   display: flex;
   flex-direction: column;
