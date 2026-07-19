@@ -304,6 +304,83 @@ func TestGrypeInheritsReachabilityVerdict(t *testing.T) {
 	}
 }
 
+// semgrepLikeCap is a fake SAST tool: SARIF with a taint finding (codeFlows → reachable) and plain pattern
+// findings, routed by semgrep's dataflow-reachability rules (ADR-0032).
+type semgrepLikeCap struct{}
+
+func (semgrepLikeCap) Manifest() capability.Manifest {
+	return capability.Manifest{
+		ID: "fake-semgrep", Version: "1.0.0", OutputName: "s.sarif",
+		OutputMediaType: interpret.SARIFMediaType, OKExitCodes: []int{0, 1},
+		Dispositions: []disposition.Disposition{
+			{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
+			{MinSeverity: "high", Action: disposition.ActionInvestigate},
+		},
+	}
+}
+func (semgrepLikeCap) Plan(capability.Input) (runner.RunSpec, error) {
+	return runner.RunSpec{Image: "x", Cmd: []string{"x"}, Timeout: time.Minute}, nil
+}
+
+// taint.sql is a MEDIUM dataflow finding (has codeFlows); pattern.high is a plain HIGH; pattern.low a plain LOW.
+const semgrepSARIF = `{"runs":[{"tool":{"driver":{"name":"semgrep"}},"results":[
+  {"ruleId":"taint.sql","level":"warning","message":{"text":"SQLi"},
+   "locations":[{"physicalLocation":{"artifactLocation":{"uri":"a.py"},"region":{"startLine":42}}}],
+   "codeFlows":[{"threadFlows":[{"locations":[
+     {"location":{"physicalLocation":{"artifactLocation":{"uri":"a.py"},"region":{"startLine":12}}}}]}]}]},
+  {"ruleId":"pattern.high","level":"error","message":{"text":"hardcoded key"},
+   "locations":[{"physicalLocation":{"artifactLocation":{"uri":"b.py"},"region":{"startLine":1}}}]},
+  {"ruleId":"pattern.low","level":"note","message":{"text":"style"},
+   "locations":[{"physicalLocation":{"artifactLocation":{"uri":"c.py"},"region":{"startLine":1}}}]}
+]}]}`
+
+// On an exposed service: a dataflow-reachable finding escalates even at medium severity; a plain high still
+// escalates on severity; a plain low stays in review (ADR-0032).
+func TestSastDataflowRoutingOnExposedService(t *testing.T) {
+	db, blobs := openStore(t)
+	reg := capability.NewRegistry()
+	reg.Register(semgrepLikeCap{})
+	eng := NewEngine(db, blobs, reg, fakeRunner{out: []byte(semgrepSARIF), code: 0})
+	defer eng.Close()
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+	if _, err := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetCloudDeployment, Location: "prod"}); err != nil {
+		t.Fatal(err)
+	}
+
+	tk, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-semgrep", TargetDir: "/repo", ApplicationID: &app.ID})
+	if done := pollTask(t, eng, tk.ID); done.Status != model.TaskSucceeded {
+		t.Fatalf("task = %s (err=%q)", done.Status, done.Error)
+	}
+
+	obs, _ := db.ListObservationsByProject(ctx, proj.ID)
+	byRule := map[string]model.Observation{}
+	for _, o := range obs {
+		byRule[o.RuleID] = o
+	}
+	invs, _ := db.ListInvestigationsByProject(ctx, proj.ID)
+	investigated := map[string]bool{}
+	for _, iv := range invs {
+		investigated[iv.ObservationID] = true
+	}
+
+	// The medium taint finding is reachable and escalates on the exposed service.
+	if byRule["taint.sql"].Severity != "medium" || byRule["taint.sql"].Attributes["reachable"] != "true" {
+		t.Fatalf("taint.sql sev=%q reachable=%q, want medium/true", byRule["taint.sql"].Severity, byRule["taint.sql"].Attributes["reachable"])
+	}
+	if !investigated[byRule["taint.sql"].ID] {
+		t.Fatal("dataflow-reachable medium finding on exposed service should investigate")
+	}
+	// The plain high finding still escalates on severity; the plain low stays in review.
+	if !investigated[byRule["pattern.high"].ID] {
+		t.Fatal("plain high finding should investigate via severity fallback")
+	}
+	if investigated[byRule["pattern.low"].ID] {
+		t.Fatal("plain low finding should stay in review")
+	}
+}
+
 // A capability with no dispositions leaves plain unreviewed observations (no regression).
 func TestNoDispositionsLeavesReview(t *testing.T) {
 	db, blobs := openStore(t)

@@ -104,8 +104,13 @@ and can later ship as plugins.
       (`reachability` table; `store.SetReachability`/`ReachabilityForCVE`), populated generically by any
       analyzer (govulncheck) and reused to enrich other tools' CVE findings. grype now routes
       `reachable:false→review` (downgrade even if high), `reachable+exposed→investigate`, else severity
-      fallback. *Phase 2b remaining: retroactive re-eval of existing findings when a verdict arrives;
-      cross-tool observation merge for the same CVE; SAST reachability (exposed handler → sink).*
+      fallback. *Remaining: retroactive re-eval of existing findings when a verdict arrives; cross-tool
+      observation merge for the same CVE.*
+- [x] **SAST dataflow reachability** (ADR-0032) — a semgrep taint finding's SARIF `codeFlows` (source→sink)
+      is read as `reachable=true` + `dataflow_source`; semgrep routes `reachable+exposed→investigate` (any
+      severity) with a high-severity fallback. Free from semgrep's own taint engine; the `reachable` triage
+      pill lights up for SAST too. *Remaining: framework-aware entry-point/route resolution (which exposed
+      route reaches the source); interprocedural reachability beyond semgrep's taint engine.*
 - [x] Report templates as extension packs; playbook/visualization pack types still to add.
 - [x] Integration **pull** — DefectDojo findings → observations into triage (ADR-0027); reusable
       per-project configs (push uses them too); external-id dedup; `observations.project_id` for task-less

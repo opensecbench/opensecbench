@@ -136,6 +136,56 @@ func TestSARIFGrypeSecuritySeverity(t *testing.T) {
 	}
 }
 
+// A semgrep taint finding carries a codeFlows dataflow trace (source → sink); a plain pattern finding does
+// not. The interpreter marks the taint finding reachable and records where untrusted input enters (ADR-0032).
+const taintSARIF = `{
+  "runs": [
+    {
+      "tool": {"driver": {"name": "semgrep"}},
+      "results": [
+        {
+          "ruleId": "python.django.security.injection.sql",
+          "level": "error",
+          "message": {"text": "SQL injection from user input"},
+          "locations": [{"physicalLocation": {"artifactLocation": {"uri": "app/views.py"}, "region": {"startLine": 42}}}],
+          "codeFlows": [{"threadFlows": [{"locations": [
+            {"location": {"physicalLocation": {"artifactLocation": {"uri": "app/views.py"}, "region": {"startLine": 12}}}},
+            {"location": {"physicalLocation": {"artifactLocation": {"uri": "app/views.py"}, "region": {"startLine": 42}}}}
+          ]}]}]
+        },
+        {
+          "ruleId": "python.lang.security.hardcoded-password",
+          "level": "error",
+          "message": {"text": "Hardcoded password"},
+          "locations": [{"physicalLocation": {"artifactLocation": {"uri": "app/config.py"}, "region": {"startLine": 5}}}]
+        }
+      ]
+    }
+  ]
+}`
+
+func TestSARIFDataflowReachability(t *testing.T) {
+	obs, err := SARIF([]byte(taintSARIF))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs) != 2 {
+		t.Fatalf("got %d observations, want 2", len(obs))
+	}
+	// The taint finding is reachable, with the dataflow source (where input enters) captured.
+	taint := obs[0]
+	if taint.Attributes["reachable"] != "true" {
+		t.Fatalf("taint finding reachable = %q, want true", taint.Attributes["reachable"])
+	}
+	if taint.Attributes["dataflow_source"] != "app/views.py:12" {
+		t.Fatalf("dataflow_source = %q, want app/views.py:12", taint.Attributes["dataflow_source"])
+	}
+	// The plain pattern finding has no dataflow trace → reachability not applicable (unset, not "false").
+	if _, has := obs[1].Attributes["reachable"]; has {
+		t.Fatalf("pattern finding should have no reachable attribute, got %q", obs[1].Attributes["reachable"])
+	}
+}
+
 func TestSARIFBadJSON(t *testing.T) {
 	if _, err := SARIF([]byte("not json")); err == nil {
 		t.Fatal("expected error for invalid SARIF")
