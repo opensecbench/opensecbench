@@ -78,10 +78,10 @@ func (svc *Service) session(projectID string) *agent.Session {
 func (svc *Service) executeFor(projectID string) func(context.Context, agent.ToolCall) (string, error) {
 	exec := Executor(ExecDeps{Store: svc.store, Engine: svc.engine, Replay: svc.replay, ProjectID: projectID})
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
-		if (call.Tool == "run_capability" || call.Tool == "run_playbook") && svc.egressStrict && !svc.providerLocal {
+		if assetEgressTools[call.Tool] && svc.egressStrict && !svc.providerLocal {
 			if assetID, _ := call.Args["asset"].(string); assetID != "" {
 				if asset, err := svc.store.GetAsset(ctx, assetID); err == nil && asset.Sensitivity == model.SensitivityPrivate {
-					return "", fmt.Errorf("blocked by data-egress policy: capability output for a private asset would be sent to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", svc.provider.Name())
+					return "", fmt.Errorf("blocked by data-egress policy: %q would send a private asset's contents to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", call.Tool, svc.provider.Name())
 				}
 			}
 		}
