@@ -1338,7 +1338,7 @@ func secretCmd(ctx context.Context, c *client.Client, args []string) error {
 
 func kbCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: osb kb <list|add|review>")
+		return errors.New("usage: osb kb <list|add|review|verify>")
 	}
 	switch args[0] {
 	case "list":
@@ -1394,6 +1394,20 @@ func kbCmd(ctx context.Context, c *client.Client, args []string) error {
 			return errors.New("kb review: --id and --state are required")
 		}
 		e, err := c.ReviewKBEntry(ctx, *id, *state)
+		if err != nil {
+			return err
+		}
+		return printJSON(e)
+	case "verify":
+		fs := flag.NewFlagSet("kb verify", flag.ContinueOnError)
+		id := fs.String("id", "", "entry id (required)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *id == "" {
+			return errors.New("kb verify: --id is required")
+		}
+		e, err := c.VerifyKBEntry(ctx, *id)
 		if err != nil {
 			return err
 		}

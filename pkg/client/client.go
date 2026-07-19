@@ -413,6 +413,12 @@ func (c *Client) ReviewKBEntry(ctx context.Context, id, state string) (model.KBE
 	return out, c.do(ctx, http.MethodPost, "/v1/kb/"+id+"/review", map[string]string{"state": state}, &out)
 }
 
+// VerifyKBEntry bumps a KB entry's freshness — marks the fact as still true as of now (ADR-0043).
+func (c *Client) VerifyKBEntry(ctx context.Context, id string) (model.KBEntry, error) {
+	var out model.KBEntry
+	return out, c.do(ctx, http.MethodPost, "/v1/kb/"+id+"/verify", nil, &out)
+}
+
 // ListMethodologies returns the methodology catalog (raw JSON packs).
 func (c *Client) ListMethodologies(ctx context.Context) ([]methodologyPack, error) {
 	var out []methodologyPack

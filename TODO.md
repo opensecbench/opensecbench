@@ -75,8 +75,16 @@ and can later ship as plugins.
       deterministically groups the inherited KB by kind into a read-first brief (architecture → stack → auth
       → deploy → data flows → conventions → gotchas), marking inherited/draft entries. `get_dossier` agent
       tool + `GET /v1/{targets,projects}/{id}/dossier` (+`?format=markdown`) + `osb dossier`. No model call.
-      *Remaining knowledge investment: **freshness** (last-verified/staleness). Also: optional LLM-narrative
-      summary; a workbench UI surface; a "current posture" section from recent findings.*
+      *Also later: optional LLM-narrative summary; a workbench UI surface; a "current posture" section from
+      recent findings.*
+- [x] **Knowledge freshness** (ADR-0043) — the last knowledge investment. KB entries carry a `last_verified_at`
+      (set on human create + on confirm); confirmed facts go **stale** past a kind-specific window
+      (architecture 1yr, auth/data 180d, endpoints/env 90d) so knowledge doesn't silently rot. Migration 0044.
+      `verify_kb_entry` agent tool + `POST /v1/kb/{id}/verify` + `osb kb verify` bump freshness **without**
+      confirming drafts (human gate preserved). Dossier orders fresh→stale→draft and tags stale entries;
+      `list_kb` returns a `stale` flag. Closes the loop: capture → scope → consolidate → keep current.
+      *Also later: auto-expiry/hiding of long-stale entries; a workbench staleness nudge; a scheduled
+      re-confirm playbook; per-entry window overrides; freshness-weighted RAG ranking.*
 
 - [x] **Tech-scout research agent** (ADR-0038) — identifies the stack (`list_dependencies` from the SBOM),
       researches it from trusted web sources (`web_fetch`, gated by a **preapproved-source** allowlist —

@@ -111,3 +111,19 @@ func (s *Server) reviewKBEntry(w http.ResponseWriter, r *http.Request) {
 	entry, _ := s.store.GetKBEntry(r.Context(), id)
 	writeJSON(w, http.StatusOK, entry)
 }
+
+// verifyKBEntry bumps a fact's freshness — "still true as of now" — without changing its review state (ADR-0043).
+func (s *Server) verifyKBEntry(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.VerifyKBEntry(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "kb entry not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "kb.verify", id, nil)
+	entry, _ := s.store.GetKBEntry(r.Context(), id)
+	writeJSON(w, http.StatusOK, entry)
+}

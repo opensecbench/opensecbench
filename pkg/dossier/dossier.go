@@ -7,6 +7,7 @@ package dossier
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
@@ -49,13 +50,15 @@ type Entry struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Body        string `json:"body,omitempty"`
-	Scope       string `json:"scope"`        // target | group | org | global (where the knowledge lives)
-	ReviewState string `json:"review_state"` // confirmed | unreviewed (draft) | rejected
+	Scope       string `json:"scope"`           // target | group | org | global (where the knowledge lives)
+	ReviewState string `json:"review_state"`    // confirmed | unreviewed (draft) | rejected
+	Stale       bool   `json:"stale,omitempty"` // confirmed but aged past its kind's freshness window (ADR-0043)
 }
 
-// Assemble groups KB entries into a dossier: kinds in reading order; within a kind, confirmed before drafts,
-// then most-specific scope first; rejected entries are dropped.
-func Assemble(subject string, entries []model.KBEntry) Dossier {
+// Assemble groups KB entries into a dossier as of `now`: kinds in reading order; within a kind, fresh
+// confirmed before stale confirmed before drafts, then most-specific scope first; rejected entries dropped.
+// `now` drives staleness (ADR-0043) — a confirmed fact aged past its kind's window is flagged stale.
+func Assemble(subject string, entries []model.KBEntry, now time.Time) Dossier {
 	byKind := map[string][]Entry{}
 	total := 0
 	for _, e := range entries {
@@ -64,6 +67,7 @@ func Assemble(subject string, entries []model.KBEntry) Dossier {
 		}
 		byKind[e.Kind] = append(byKind[e.Kind], Entry{
 			ID: e.ID, Title: e.Title, Body: e.Body, Scope: e.Scope, ReviewState: e.ReviewState,
+			Stale: e.ReviewState == model.ReviewConfirmed && IsStale(e.Kind, e.LastVerifiedAt, now),
 		})
 		total++
 	}
@@ -75,7 +79,7 @@ func Assemble(subject string, entries []model.KBEntry) Dossier {
 			return
 		}
 		sort.SliceStable(es, func(i, j int) bool {
-			if r := reviewRank(es[i].ReviewState) - reviewRank(es[j].ReviewState); r != 0 {
+			if r := statusRank(es[i]) - statusRank(es[j]); r != 0 {
 				return r < 0
 			}
 			return scopeRank(es[i].Scope) < scopeRank(es[j].Scope)
@@ -107,11 +111,15 @@ func sectionTitle(kind string) string {
 	return strings.Title(strings.ReplaceAll(kind, "_", " ")) //nolint:staticcheck // titles are ASCII labels
 }
 
-func reviewRank(s string) int {
-	if s == model.ReviewConfirmed {
-		return 0
+// statusRank orders within a kind: fresh confirmed knowledge first, then stale confirmed, then drafts last.
+func statusRank(e Entry) int {
+	if e.ReviewState != model.ReviewConfirmed {
+		return 2 // unreviewed drafts after all confirmed
 	}
-	return 1 // unreviewed drafts after confirmed
+	if e.Stale {
+		return 1 // confirmed but aged
+	}
+	return 0
 }
 
 func scopeRank(s string) int {
@@ -139,7 +147,7 @@ func (d Dossier) Markdown() string {
 		b.WriteString("## " + s.Title + "\n\n")
 		for _, e := range s.Entries {
 			b.WriteString("- **" + e.Title + "**")
-			tags := scopeTag(e.Scope) + reviewTag(e.ReviewState)
+			tags := scopeTag(e.Scope) + reviewTag(e.ReviewState) + staleTag(e.Stale)
 			if tags != "" {
 				b.WriteString(" " + tags)
 			}
@@ -165,4 +173,12 @@ func reviewTag(state string) string {
 		return ""
 	}
 	return "_(draft)_"
+}
+
+// staleTag flags a confirmed fact that has aged past its freshness window — re-verify it (ADR-0043).
+func staleTag(stale bool) string {
+	if !stale {
+		return ""
+	}
+	return "⚠️ _(stale — re-verify)_"
 }
