@@ -357,6 +357,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /v1/projects/{id}/integrations/{integration}", s.setIntegrationConfig)
 	s.mux.HandleFunc("DELETE /v1/projects/{id}/integrations/{integration}", s.deleteIntegrationConfig)
 	s.mux.HandleFunc("POST /v1/projects/{id}/integrations/{integration}/pull", s.pullIntegration)
+	// Post-run disposition routing + investigations (ADR-0028).
+	s.mux.HandleFunc("GET /v1/projects/{id}/investigations", s.listInvestigations)
+	s.mux.HandleFunc("POST /v1/investigations/{id}/run", s.runInvestigation)
+	s.mux.HandleFunc("POST /v1/investigations/{id}/status", s.setInvestigationStatus)
+	s.mux.HandleFunc("GET /v1/projects/{id}/dispositions", s.listDispositions)
+	s.mux.HandleFunc("POST /v1/projects/{id}/dispositions", s.setDispositionRule)
+	s.mux.HandleFunc("DELETE /v1/projects/{id}/dispositions/{rule}", s.deleteDispositionRule)
 
 	s.mux.HandleFunc("POST /v1/analyst/ask", s.analystAsk)
 

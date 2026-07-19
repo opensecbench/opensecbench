@@ -82,7 +82,12 @@ and can later ship as plugins.
 
 - [ ] Broaden audit coverage to remaining entity CRUD (project/app/asset/finding create/update).
 - [ ] Decide fail-closed vs best-effort on an audit-append failure (currently logged, not fatal).
-- [ ] Interpret TruffleHog JSON output into observations (currently captured as a raw artifact).
+- [x] Interpret TruffleHog JSON output into observations (verified→high/unverified→medium; verified/detector attributes).
+- [x] **Post-run disposition routing** (ADR-0028) — tool-declared rules (`pkg/disposition`, manifest +
+      project overrides) route interpreted observations: auto-finding / investigation / review. Observations
+      gained structured `attributes`; investigations are human-triggered vuln-validator threads (findings
+      stay human-gated). TruffleHog: verified→finding, unverified→investigate. *Remaining: pre-run hooks;
+      interpreter plugin registry; dispositions for more tools.*
 - [x] Report templates as extension packs; playbook/visualization pack types still to add.
 - [x] Integration **pull** — DefectDojo findings → observations into triage (ADR-0027); reusable
       per-project configs (push uses them too); external-id dedup; `observations.project_id` for task-less

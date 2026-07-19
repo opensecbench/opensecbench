@@ -25,6 +25,7 @@ import { AnalystPanel } from './AnalystPanel'
 import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
 import { IntegrationsTab } from './IntegrationsTab'
+import { InvestigationsTab } from './InvestigationsTab'
 import { KnowledgeTab } from './KnowledgeTab'
 import { InterceptTab } from './InterceptTab'
 import { MethodologyTab } from './MethodologyTab'
@@ -51,6 +52,7 @@ type Tab =
   | 'orchestrate'
   | 'tasks'
   | 'findings'
+  | 'investigations'
   | 'reports'
   | 'graph'
   | 'integrations'
@@ -71,6 +73,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
   { key: 'knowledge', icon: '📚', label: 'Know' },
   { key: 'context', icon: '🔬', label: 'Context' },
   { key: 'findings', icon: '⚑', label: 'Find' },
+  { key: 'investigations', icon: '🔎', label: 'Investg' },
   { key: 'replay', icon: '↔', label: 'Replay' },
   { key: 'proxy', icon: '📡', label: 'Proxy' },
   { key: 'intercept', icon: '✋', label: 'Intcpt' },
@@ -385,6 +388,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         return <TasksTab online={online} onError={setError} />
       case 'findings':
         return <FindingsTab findings={findings} />
+      case 'investigations':
+        return <InvestigationsTab project={project} online={online} onError={setError} />
       case 'reports':
         return <ReportsTab project={project} online={online} onError={setError} />
       case 'graph':
@@ -1175,7 +1180,10 @@ function ScanTab({
                 <li key={o.id} className="obs">
                   <span className={`sev sev-${o.severity}`}>{o.severity}</span>
                   <div className="obs-main">
-                    <div className="obs-title">{o.title}</div>
+                    <div className="obs-title">
+                      {o.title}
+                      {o.attributes?.verified === 'true' && <span className="mc-pill" title="Verified by the tool"> verified</span>}
+                    </div>
                     <div className="muted mono">{o.rule_id} {o.location}</div>
                   </div>
                   <div className="obs-actions">

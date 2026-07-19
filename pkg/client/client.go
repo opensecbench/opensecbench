@@ -830,6 +830,22 @@ func (c *Client) PullIntegration(ctx context.Context, projectID, integration str
 	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/integrations/"+integration+"/pull", nil, &out)
 }
 
+// ListInvestigations returns a project's disposition-opened investigations (ADR-0028).
+func (c *Client) ListInvestigations(ctx context.Context, projectID string) ([]model.Investigation, error) {
+	var out []model.Investigation
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/investigations", nil, &out)
+}
+
+// RunInvestigation starts a vuln-validator agent thread for an investigation.
+func (c *Client) RunInvestigation(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/v1/investigations/"+id+"/run", nil, nil)
+}
+
+// SetInvestigationStatus resolves/dismisses/reopens an investigation.
+func (c *Client) SetInvestigationStatus(ctx context.Context, id, status string) error {
+	return c.do(ctx, http.MethodPost, "/v1/investigations/"+id+"/status", map[string]string{"status": status}, nil)
+}
+
 // Playbook is a tactic (sequence of capability steps).
 type Playbook struct {
 	ID          string `json:"id"`

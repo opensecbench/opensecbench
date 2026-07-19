@@ -63,6 +63,12 @@ func TruffleHog(data []byte) ([]model.Observation, error) {
 			Severity:    sev,
 			RuleID:      "trufflehog:" + f.DetectorName,
 			Location:    loc,
+			// Structured facts for post-run disposition routing (ADR-0028): a verified secret is a live
+			// finding; an unverified one warrants investigation.
+			Attributes: map[string]string{
+				"verified": strconv.FormatBool(f.Verified),
+				"detector": f.DetectorName,
+			},
 		})
 	}
 	if err := sc.Err(); err != nil {
