@@ -1183,6 +1183,9 @@ function ScanTab({
                     <div className="obs-title">
                       {o.title}
                       {o.attributes?.verified === 'true' && <span className="mc-pill" title="Verified by the tool"> verified</span>}
+                      {o.attributes?.reachable === 'true' && <span className="mc-pill" title="Reachable in the call graph"> reachable</span>}
+                      {o.attributes?.reachable === 'false' && <span className="mc-pill" title="Imported but not called"> not reached</span>}
+                      {o.attributes?.exposed === 'true' && <span className="mc-pill" title="On a network-exposed service"> exposed</span>}
                     </div>
                     <div className="muted mono">{o.rule_id} {o.location}</div>
                   </div>

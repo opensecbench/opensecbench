@@ -15,6 +15,15 @@ var investigateHighSeverity = []disposition.Disposition{
 	{MinSeverity: "high", Action: disposition.ActionInvestigate},
 }
 
+// reachableExposed escalates only a vulnerability that govulncheck proved reachable in the call graph AND
+// that sits on a network-exposed service (ADR-0030). Everything else — imported-but-uncalled, or reachable
+// in an internal-only service — falls to manual review, keeping triage focused on real exposure. The
+// `reachable` attribute comes from govulncheck; `exposed` is enriched by the engine from the project's
+// derived exposure.
+var reachableExposed = []disposition.Disposition{
+	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
+}
+
 // BuiltIns returns the registry of first-party capabilities. Third-party capabilities load as
 // extension packages later (ADR-0003), using this same contract.
 func BuiltIns() *Registry {
@@ -25,6 +34,7 @@ func BuiltIns() *Registry {
 	r.Register(nmapScan{})
 	r.Register(grypeScan{})
 	r.Register(syftSBOM{})
+	r.Register(govulncheck{})
 	return r
 }
 
@@ -224,6 +234,44 @@ func (syftSBOM) Plan(in Input) (runner.RunSpec, error) {
 		Network:  "none",
 		Timeout:  10 * time.Minute,
 		MemoryMB: 2048,
+		CPUs:     2,
+	}, nil
+}
+
+// govulncheck is reachability-aware SCA for Go: it builds the call graph and reports whether each known
+// vulnerability's symbol is actually *called*, not merely imported (ADR-0030). Its observations carry a
+// `reachable` attribute; combined with the engine's `exposed` enrichment, only reachable vulns on an
+// exposed service escalate. Needs the Go toolchain + network (installs the analyzer, fetches the vuln DB
+// and module graph).
+type govulncheck struct{}
+
+func (govulncheck) Manifest() Manifest {
+	return Manifest{
+		ID:              "govulncheck",
+		Version:         "1.0.0",
+		Title:           "govulncheck (Go reachability SCA)",
+		Description:     "Call-graph reachability analysis of Go dependency vulnerabilities; emits govulncheck JSON. Escalates only reachable vulns on an exposed service.",
+		OutputName:      "govulncheck.json",
+		OutputMediaType: "application/vnd.govulncheck+json", // interpret.GovulncheckMediaType
+		OKExitCodes:     []int{0, 3},                        // 3 = vulnerabilities found
+		Dispositions:    reachableExposed,
+	}
+}
+
+func (govulncheck) Plan(in Input) (runner.RunSpec, error) {
+	if in.TargetDir == "" {
+		return runner.RunSpec{}, errors.New("govulncheck: target directory required")
+	}
+	// The golang image has no govulncheck; install it, then analyse /src. Module/build caches land in the
+	// writable GOPATH/GOCACHE, so the /src mount stays read-only.
+	return runner.RunSpec{
+		Image: "golang:1.23",
+		Cmd: []string{"sh", "-c",
+			"go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck -C /src -json ./..."},
+		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
+		Network:  "bridge", // install analyzer + fetch vuln DB and modules
+		Timeout:  15 * time.Minute,
+		MemoryMB: 4096,
 		CPUs:     2,
 	}, nil
 }

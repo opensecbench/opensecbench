@@ -93,10 +93,13 @@ and can later ship as plugins.
       investigations / token spend). SARIF interpreter now carries `tool`/`security_severity` attributes +
       CVSS-refined severity; semgrep & grype declare high/critical→investigate. *Remaining: fuzzy/line-
       tolerant fingerprints; refresh a deduped observation on re-scan; SCA-specific grype interpreter.*
-- [ ] **Static reachability + exposed-service model** (ADR-0030, next) — for SCA/SAST findings on an
-      exposed service, compute real call-graph reachability (govulncheck for Go first) + correlate to grype
-      CVEs; a first-class exposed signal (nmap open-ports / proxy exchanges / cloud_deployment assets);
-      reachability becomes an attribute the disposition layer routes on (reachable+exposed → escalate).
+- [x] **Static reachability + exposed-service model** (ADR-0030, Phase 1) — real Go call-graph reachability
+      (`govulncheck` capability + interpreter → `reachable` attribute) + a derived exposed-service signal
+      (`store.ProjectExposure` from nmap open-ports / proxy exchanges / cloud_deployment+infra assets; engine
+      enriches `exposed` on observations); govulncheck routes `reachable + exposed → investigate`. Reachable/
+      exposed pills in the triage view. *Phase 2 remaining: SAST reachability (exposed handler → sink);
+      correlate govulncheck reachability onto grype CVEs + parse the SBOM into tables; explicit/periodic
+      exposure; multi-language reachability; a prebuilt govulncheck image.*
 - [x] Report templates as extension packs; playbook/visualization pack types still to add.
 - [x] Integration **pull** — DefectDojo findings → observations into triage (ADR-0027); reusable
       per-project configs (push uses them too); external-id dedup; `observations.project_id` for task-less

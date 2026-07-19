@@ -123,6 +123,96 @@ func TestReScanDedupsObservationsAndDispositions(t *testing.T) {
 	}
 }
 
+// reachCap is a fake reachability-SCA capability: its output is a govulncheck stream (one reachable + one
+// imported-only vuln), and it declares the reachable+exposed disposition the real govulncheck ships (ADR-0030).
+type reachCap struct{ dispositions []disposition.Disposition }
+
+func (c reachCap) Manifest() capability.Manifest {
+	return capability.Manifest{
+		ID: "fake-reach", Version: "1.0.0", OutputName: "gv.json",
+		OutputMediaType: interpret.GovulncheckMediaType, OKExitCodes: []int{0, 3},
+		Dispositions: c.dispositions,
+	}
+}
+func (reachCap) Plan(capability.Input) (runner.RunSpec, error) {
+	return runner.RunSpec{Image: "x", Cmd: []string{"x"}, Timeout: time.Minute}, nil
+}
+
+// GO-1/CVE-AAA is called (symbol-level trace → reachable); GO-2/CVE-BBB is only imported (→ not reachable).
+const reachStream = `{"osv":{"id":"GO-1","aliases":["CVE-AAA"],"summary":"reachable vuln","affected":[{"package":{"name":"pkg/a"}}]}}
+{"osv":{"id":"GO-2","aliases":["CVE-BBB"],"summary":"imported vuln","affected":[{"package":{"name":"pkg/b"}}]}}
+{"finding":{"osv":"GO-1","trace":[{"module":"pkg/a","package":"pkg/a","function":"Vuln","position":{"filename":"a.go","line":10}}]}}
+{"finding":{"osv":"GO-2","trace":[{"module":"pkg/b","package":"pkg/b"}]}}`
+
+func reachEngine(t *testing.T) (*Engine, *store.DB) {
+	t.Helper()
+	db, blobs := openStore(t)
+	reg := capability.NewRegistry()
+	reg.Register(reachCap{dispositions: []disposition.Disposition{
+		{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
+	}})
+	eng := NewEngine(db, blobs, reg, fakeRunner{out: []byte(reachStream), code: 0})
+	t.Cleanup(func() { eng.Close() })
+	return eng, db
+}
+
+// A reachable vuln on an exposed service escalates to an investigation; the imported-but-uncalled one does not.
+func TestReachabilityRoutesOnExposedService(t *testing.T) {
+	eng, db := reachEngine(t)
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+	// A cloud_deployment asset marks the service network-exposed.
+	if _, err := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetCloudDeployment, Location: "prod"}); err != nil {
+		t.Fatal(err)
+	}
+
+	tk, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-reach", TargetDir: "/repo", ApplicationID: &app.ID})
+	if done := pollTask(t, eng, tk.ID); done.Status != model.TaskSucceeded {
+		t.Fatalf("task = %s (err=%q)", done.Status, done.Error)
+	}
+
+	invs, _ := db.ListInvestigationsByProject(ctx, proj.ID)
+	if len(invs) != 1 {
+		t.Fatalf("want 1 investigation (reachable+exposed only), got %d", len(invs))
+	}
+	obs, _ := db.ListObservationsByProject(ctx, proj.ID)
+	if len(obs) != 2 {
+		t.Fatalf("want 2 observations, got %d", len(obs))
+	}
+	for _, o := range obs {
+		if o.Attributes["exposed"] != "true" {
+			t.Fatalf("observation %s exposed = %q, want true", o.RuleID, o.Attributes["exposed"])
+		}
+	}
+}
+
+// Reachable but on a service with no exposure evidence → manual review, no investigation.
+func TestReachabilityNotExposedStaysReview(t *testing.T) {
+	eng, db := reachEngine(t)
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app") // no exposure evidence
+
+	tk, _ := eng.Enqueue(ctx, RunRequest{CapabilityID: "fake-reach", TargetDir: "/repo", ApplicationID: &app.ID})
+	if done := pollTask(t, eng, tk.ID); done.Status != model.TaskSucceeded {
+		t.Fatalf("task = %s (err=%q)", done.Status, done.Error)
+	}
+
+	if inv, _ := db.ListInvestigationsByProject(ctx, proj.ID); len(inv) != 0 {
+		t.Fatalf("not-exposed should not escalate, got %d investigations", len(inv))
+	}
+	obs, _ := db.ListObservationsByProject(ctx, proj.ID)
+	if len(obs) != 2 {
+		t.Fatalf("want 2 observations, got %d", len(obs))
+	}
+	for _, o := range obs {
+		if o.Attributes["exposed"] != "false" {
+			t.Fatalf("observation %s exposed = %q, want false", o.RuleID, o.Attributes["exposed"])
+		}
+	}
+}
+
 // A capability with no dispositions leaves plain unreviewed observations (no regression).
 func TestNoDispositionsLeavesReview(t *testing.T) {
 	db, blobs := openStore(t)

@@ -444,9 +444,19 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		interpreted, _ = interpret.NmapXML(res.Stdout)
 	case interpret.TruffleHogMediaType:
 		interpreted, _ = interpret.TruffleHog(res.Stdout)
+	case interpret.GovulncheckMediaType:
+		interpreted, _ = interpret.Govulncheck(res.Stdout)
 	}
 	// Resolve the project once: it scopes both fingerprint dedup and disposition routing.
 	projectID := e.projectOfTask(ctx, task, p.applicationID)
+	// Derive the exposed-service signal once per run (ADR-0030): reachability-gated routing escalates only
+	// findings on a network-exposed service, so every new observation is tagged with the project's exposure.
+	exposedAttr := ""
+	if projectID != "" {
+		if exp, err := e.store.ProjectExposure(ctx, projectID); err == nil {
+			exposedAttr = strconv.FormatBool(exp.Exposed)
+		}
+	}
 	var created []model.Observation
 	for _, o := range interpreted {
 		o.TaskID = &task.ID
@@ -456,9 +466,15 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		// investigation / re-seed an agent thread and burn tokens on a finding we've already seen).
 		if projectID != "" {
 			o.ProjectID = &projectID
-			o.Fingerprint = interpret.Fingerprint(o)
+			o.Fingerprint = interpret.Fingerprint(o) // computed before enrichment; excludes attributes anyway
 			if _, dup := e.store.ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
 				continue
+			}
+			if exposedAttr != "" {
+				if o.Attributes == nil {
+					o.Attributes = map[string]string{}
+				}
+				o.Attributes["exposed"] = exposedAttr
 			}
 		}
 		if saved, err := e.store.CreateObservation(ctx, o); err == nil {
