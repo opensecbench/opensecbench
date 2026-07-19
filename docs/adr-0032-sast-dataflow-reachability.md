@@ -48,7 +48,13 @@ finding still escalates on severity; a low/medium pattern match stays in review.
   this specific handler is the exposed one. Mapping a dataflow source to a specific exposed HTTP route
   (framework-aware entry-point resolution) remains future work.
 
-## Real-tool validation (2026-07-19, Docker) — OSS limitation
+## Update — resolved by opengrep (ADR-0036)
+The OSS limitation below is superseded for the default path: **opengrep** (the open Semgrep fork) emits SARIF
+`codeFlows` with `--dataflow-traces`, so this reachability signal now works with a free engine — validated
+end-to-end (real opengrep flagged the sample SQLi `reachable=true` with the taint source). The interpreter is
+unchanged. Semgrep CE still masks codeFlows (needs Pro); opengrep is the default.
+
+## Real-tool validation (2026-07-19, Docker) — OSS limitation (Semgrep CE)
 Verified against real semgrep 1.104.0: **OSS semgrep does NOT emit `codeFlows`** in SARIF (it is masked
 alongside `metavars`/`lines` as a login/Pro feature), so this dataflow-reachability signal is **inert on
 semgrep OSS** — a taint finding gets no `reachable` attribute. It degrades gracefully: the finding still

@@ -93,6 +93,12 @@ and can later ship as plugins.
 - [ ] Broaden audit coverage to remaining entity CRUD (project/app/asset/finding create/update).
 - [ ] Decide fail-closed vs best-effort on an audit-append failure (currently logged, not fatal).
 - [x] Interpret TruffleHog JSON output into observations (verified→high/unverified→medium; verified/detector attributes).
+- [x] **Pluggable SAST engines** (ADR-0036) — **opengrep** (LGPL Semgrep fork, `osb/opengrep` image) is the
+      default SAST engine: `--dataflow-traces` emits the SARIF `codeFlows` Semgrep CE masks, so ADR-0032
+      reachability works free (validated in Docker; route-map also moved to it). **semgrep** kept for
+      existing licenses (`pro=true` + `SEMGREP_APP_TOKEN` secret → Pro engine). *Remaining: build the
+      **Checkmarx** capability (Checkmarx One `cx` CLI, credential-gated — needs a tenant to build/test);
+      verify the Semgrep-Pro path against a real license; per-project default-engine setting; arm64 image.*
 - [x] **Post-run disposition routing** (ADR-0028) — tool-declared rules (`pkg/disposition`, manifest +
       project overrides) route interpreted observations: auto-finding / investigation / review. Observations
       gained structured `attributes`; investigations are human-triggered vuln-validator threads (findings
