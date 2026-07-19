@@ -214,6 +214,8 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 		interpreted, _ = interpret.SARIF(res.Stdout)
 	case interpret.NmapMediaType:
 		interpreted, _ = interpret.NmapXML(res.Stdout)
+	case interpret.TruffleHogMediaType:
+		interpreted, _ = interpret.TruffleHog(res.Stdout)
 	}
 	for _, o := range interpreted {
 		o.TaskID = &task.ID

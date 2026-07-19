@@ -7,8 +7,7 @@ infrastructure pieces that warrant their own focused efforts.
 
 ## Decisions to confirm
 
-- [ ] **OSS license** — Apache-2.0 (patent grant, common for security tooling) vs MIT. No LICENSE
-      committed yet; decide before the repo goes public.
+- [x] **OSS license** — Apache-2.0 (patent grant, common for security tooling). `LICENSE` committed.
 - [ ] Name for the chat/thread container concept (Analyst threads — "investigations"? keep "threads"?).
 
 ## Delivered (kept for provenance)

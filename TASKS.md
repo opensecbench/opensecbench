@@ -40,7 +40,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Capability contract + registry (pkg/capability); built-ins: source-inventory, semgrep
 - [x] Task engine (pkg/task): capability → sandbox → CAS artifact → provenance
 - [x] API + osb CLI: capabilities list, task run/get, artifact content
-- [ ] Resolve target dir from an asset (needs asset endpoints); async task scheduling
+- [x] Resolve target dir from an asset (task engine resolves AssetID→location; asset endpoints shipped)
+- [ ] Async capability scheduling — capabilities still run synchronously (agent playbooks run async via the plan runner + scheduler, ADR-0019)
 - [x] Semgrep verified against a real repo (offline, local rule; --config auto needs egress)
 
 ## P3 — Evidence loop (SARIF → observations → findings)
@@ -51,7 +52,7 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Triage API + osb CLI: observation list/review, finding create/list/get
 - [x] Verified end-to-end: semgrep → observation → confirm → finding (via CLI)
 - [x] Observation/finding views in the frontend (Scan + Findings tabs)
-- [ ] LLM interpreter (origin=thread) — P4+
+- [x] LLM interpreter (origin=thread) — the `create_observation` tool: the Analyst records unreviewed, thread-origin observations a human triages
 - [ ] Fragment-level evidence tagging (ADR-0002 evidence entity) — later
 
 ## P4 — Analyst (agent runtime + providers)
@@ -66,8 +67,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Threads + fork persistence (schema + store + fork)
 - [x] Budgets (token) + data-egress policy by sensitivity
 - [x] Analyst panel in the frontend (threads, chat, approve/deny)
-- [ ] Native tool-use for backends that support it (reliability on small models)
-- [ ] Concurrent-agent cap; usage/$ tracking surfaced on Home
+- [x] Native tool-use (ADR-0017): native Anthropic + OpenAI adapters + conformance suite; on by default, prompted fallback for the rest
+- [x] Concurrent-agent cap (`OSB_AGENT_MAX_CONCURRENT` semaphore over sub-agents); usage/$ tracking by model/provider (usage_records + provider panel table)
 
 ## P5 — Playbooks (tactics)
 
@@ -188,7 +189,7 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Report extension pack type
 - [ ] Playbook/visualization extension pack types; manifest `permissions` schema
 - [ ] Runtime install/reload (drop-in without restart) + trust management over the API
-- [ ] Interpret trufflehog JSON output into observations (currently captured as a raw artifact)
+- [x] Interpret trufflehog JSON output into observations (`pkg/interpret/trufflehog.go`; media type `application/x-trufflehog-json`)
 
 ## P12 — Community extension hub (ADR-0014)
 

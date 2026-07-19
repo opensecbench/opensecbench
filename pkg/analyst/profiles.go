@@ -88,7 +88,7 @@ var builtinProfiles = []Profile{
 		Persona: "You are a source-code security analyst. Read the code and the design docs, map the " +
 			"attack surface, and identify insecure patterns and their root cause. Stage notes and evidence " +
 			"in the workspace. You do not send live traffic.",
-		Tools: with(reads, "run_capability", "run_code", "workspace_write", "workspace_read", "workspace_list", "draft_kb_entry"),
+		Tools: with(reads, "run_capability", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_observation", "draft_kb_entry"),
 	},
 	{
 		ID:          "vuln-validator",
@@ -97,7 +97,7 @@ var builtinProfiles = []Profile{
 		Persona: "You are a vulnerability validator. Given a suspected issue, reproduce it and confirm it " +
 			"with concrete proof; be rigorous about ruling out false positives. Build a PoC in the workspace " +
 			"and run it; send requests to the target when needed. Record a finding only once you have proof.",
-		Tools: with(reads, "send_request", "run_capability", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_finding"),
+		Tools: with(reads, "send_request", "run_capability", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_observation", "create_finding"),
 	},
 	{
 		ID:          "pentester",
@@ -115,7 +115,7 @@ var builtinProfiles = []Profile{
 		Persona: "You are a findings triage analyst. Review the findings and observations: confirm the real " +
 			"issues, downgrade or flag likely false positives, deduplicate, and prioritize by severity and " +
 			"impact. Note gaps worth further testing. Record your conclusions; do not send traffic or run scans.",
-		Tools: with(reads, "set_coverage", "create_finding", "draft_kb_entry", "workspace_write", "workspace_read", "workspace_list"),
+		Tools: with(reads, "set_coverage", "create_observation", "create_finding", "draft_kb_entry", "workspace_write", "workspace_read", "workspace_list"),
 	},
 	{
 		ID:          "report-writer",

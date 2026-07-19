@@ -4,9 +4,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 )
+
+// agentSem caps how many sub-agents run concurrently across the whole process (P4). It bounds the
+// fan-out of delegation and concurrent plans so a burst of scheduled/triggered runs can't overload the
+// host or the provider. OSB_AGENT_MAX_CONCURRENT overrides the default.
+var agentSem = newAgentSem()
+
+func newAgentSem() chan struct{} {
+	n := 4
+	if v := os.Getenv("OSB_AGENT_MAX_CONCURRENT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 {
+			n = p
+		}
+	}
+	return make(chan struct{}, n)
+}
 
 // Delegation (ADR-0019 §4). The Lead agent doesn't act directly — it hands each part of the work to the
 // right specialist via the `delegate` tool, which runs that specialist as a sub-agent to completion and
@@ -32,6 +49,14 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 	if task == "" {
 		return DelegationResult{}, errors.New("delegate requires a task")
 	}
+	// Cap concurrent sub-agents (P4); respect cancellation while waiting for a slot.
+	select {
+	case agentSem <- struct{}{}:
+		defer func() { <-agentSem }()
+	case <-ctx.Done():
+		return DelegationResult{}, ctx.Err()
+	}
+
 	profile := svc.resolveProfile(ctx, profileID)
 	loop := &agent.Loop{
 		Provider:     svc.provider,
