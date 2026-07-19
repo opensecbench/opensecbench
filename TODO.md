@@ -60,6 +60,15 @@ and can later ship as plugins.
 
 ## Analyst autonomy
 
+- [x] **Knowledge capture loop** (ADR-0040) — a `knowledge-scribe` profile distills what a run discovers
+      (analysis notes, observations/findings, corpus) into durable KB drafts (architecture/auth/tech_stack/
+      data_flow/conventions/gotchas); `list_kb` tool to see + dedupe existing knowledge; capture wired into
+      the playbooks (`capture-knowledge` + an onboarding capture step). Drafts human-confirmed, carry across
+      engagements on the same target. *Remaining (the other knowledge investments): **org/team-level scope**
+      (KB above target — group/org anchoring + inheritance walk); a synthesized **dossier** view;
+      **freshness** (last-verified/staleness); a `derived` KB origin; project→target RAG carry-over without
+      a manual reindex.*
+
 - [x] **Tech-scout research agent** (ADR-0038) — identifies the stack (`list_dependencies` from the SBOM),
       researches it from trusted web sources (`web_fetch`, gated by a **preapproved-source** allowlist —
       NVD/OSV/GHSA/MITRE/OWASP/CIS auto, anything else needs approval), and drafts gotchas/hardening into the
