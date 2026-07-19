@@ -1880,3 +1880,17 @@ select option {
 .ps-status.s-failed, .ps-status.s-skipped { color: var(--red); }
 .ps-result { margin-top: 8px; font-size: 12.5px; color: var(--tx2); line-height: 1.5; white-space: pre-wrap; border-top: 1px solid var(--line); padding-top: 8px; }
 .ps-error { margin-top: 8px; font-size: 12px; color: var(--red); }
+
+/* --- Approval policy editor (ApprovalPolicy, ADR-0019) --- */
+.policy { padding: 14px 15px; border-top: 1px solid var(--line); }
+.policy-note { color: var(--tx3); font-size: 12px; line-height: 1.5; margin: 4px 0 12px; }
+.policy-note b { color: var(--tx2); }
+.policy-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.policy-row code { font-family: var(--mono); font-size: 12px; color: var(--tx2); }
+.policy-row .grow { flex: 1; }
+.policy-toggle { display: inline-flex; border: 1px solid var(--line2); border-radius: 7px; overflow: hidden; }
+.policy-toggle.saving { opacity: 0.5; }
+.policy-toggle button { border: 0; background: var(--bg3); color: var(--tx3); font-size: 11.5px; padding: 3px 11px; cursor: pointer; }
+.policy-toggle button.on { background: var(--bg4); color: var(--amber); font-weight: 700; }
+.policy-toggle button.on.auto { color: var(--green); }
+.policy-toggle button:disabled { cursor: default; }
