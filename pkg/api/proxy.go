@@ -186,6 +186,9 @@ func (s *Server) Close() {
 	if s.schedCancel != nil {
 		s.schedCancel()
 	}
+	if s.engine != nil {
+		s.engine.Close()
+	}
 	s.shutdownProxies()
 	s.sessMu.Lock()
 	ids := make([]string, 0, len(s.sessions))

@@ -189,8 +189,9 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
             <ul className="mc-list">
               {runningTasks.map((t) => (
                 <li key={t.id} className={`mc-row ${t.project_id ? 'link' : ''}`} onClick={() => t.project_id && open(t.project_id, { surface: 'tasks' })}>
-                  <span>🧪</span>
+                  <span className={`orch-dot s-${t.status === 'pending' ? 'pending' : 'running'}`} />
                   <span>{t.capability}</span>
+                  {t.status === 'pending' && <span className="muted">queued</span>}
                   <span className="grow" />
                   <span className="muted">{t.project || 'no project'}</span>
                 </li>

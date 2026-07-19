@@ -531,6 +531,7 @@ type Asset struct {
 
 // Task status values (mirrored by a CHECK constraint in the schema).
 const (
+	TaskPending   = "pending" // queued, not yet picked up by a worker (async execution, ADR-0022)
 	TaskRunning   = "running"
 	TaskSucceeded = "succeeded"
 	TaskFailed    = "failed"
