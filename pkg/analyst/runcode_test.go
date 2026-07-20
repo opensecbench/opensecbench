@@ -7,6 +7,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/runner"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 // captureRunner records the RunSpec and returns canned output, so run_code's wiring can be tested
@@ -24,7 +25,7 @@ func TestRunCode(t *testing.T) {
 	db, projectID := seedProject(t)
 	root := t.TempDir()
 	cr := &captureRunner{}
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID, WorkspaceRoot: root, Runner: cr})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID, WorkspaceRoot: root, Runner: cr})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "run_code", Args: map[string]any{"command": "echo hi > out.txt && cat out.txt"}})
 	if err != nil {
@@ -67,7 +68,7 @@ func TestRunCodeIsGated(t *testing.T) {
 func TestRunCodeNeedsWorkspace(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID, Runner: &captureRunner{}}) // no WorkspaceRoot
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID, Runner: &captureRunner{}}) // no WorkspaceRoot
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "run_code", Args: map[string]any{"command": "echo hi"}}); err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("run_code without a workspace should error, got %v", err)

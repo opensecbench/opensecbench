@@ -22,7 +22,7 @@ func TestListKB(t *testing.T) {
 	_, _ = db.CreateKBEntry(ctx, model.KBEntry{TargetID: tgt.ID, Kind: "auth", Title: "OIDC via Keycloak", Origin: model.OriginHuman})
 	_, _ = db.CreateKBEntry(ctx, model.KBEntry{TargetID: tgt.ID, Kind: "tech_stack", Title: "nginx + Postgres", Origin: model.OriginHuman})
 
-	exec := Executor(ExecDeps{Store: db, ProjectID: proj.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: proj.ID})
 	out, err := exec(ctx, agent.ToolCall{Tool: "list_kb", Args: map[string]any{}})
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestDraftKBOrgScope(t *testing.T) {
 	org, _ := db.CreateOrganization(ctx, "Acme")
 	tgt, _ := db.CreateTarget(ctx, "acme-web", "", &org.ID)
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p", OrganizationID: &org.ID, TargetIDs: []string{tgt.ID}})
-	exec := Executor(ExecDeps{Store: db, ProjectID: proj.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: proj.ID})
 
 	// Org-scoped draft anchors to the project's organization (no target needed).
 	out, err := exec(ctx, agent.ToolCall{Tool: "draft_kb_entry", Args: map[string]any{

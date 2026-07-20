@@ -7,12 +7,13 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 func TestCreateObservation(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
-	exec := Executor(ExecDeps{Store: db})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db)})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "create_observation", Args: map[string]any{
 		"title": "Hardcoded API key", "severity": "high", "detail": "in config", "location": "config.go:12",

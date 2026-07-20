@@ -22,7 +22,7 @@ func listContext(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if err != nil {
 		return "", err
 	}
-	items, err := deps.Store.ListContextItemsByProject(ctx, projectID)
+	items, err := deps.p().ListContextItemsByProject(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
@@ -52,7 +52,7 @@ func readContext(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if id == "" {
 		return "", errors.New("read_context requires 'id'")
 	}
-	ci, err := deps.Store.GetContextItem(ctx, id)
+	ci, err := deps.p().GetContextItem(ctx, id)
 	if err != nil {
 		return "", err
 	}
@@ -62,7 +62,7 @@ func readContext(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if deps.Blobs == nil {
 		return "", errors.New("context store unavailable")
 	}
-	art, err := deps.Store.GetArtifact(ctx, ci.ArtifactID)
+	art, err := deps.p().GetArtifact(ctx, ci.ArtifactID)
 	if err != nil {
 		return "", err
 	}
@@ -99,5 +99,5 @@ func getKBEntry(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string
 	if id == "" {
 		return "", errors.New("get_kb_entry requires 'id'")
 	}
-	return jsonify(deps.Store.GetKBEntry(ctx, id))
+	return jsonify(deps.g().GetKBEntry(ctx, id))
 }

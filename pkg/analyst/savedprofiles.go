@@ -15,7 +15,7 @@ func (svc *Service) resolveProfile(ctx context.Context, id string) Profile {
 	if p, ok := builtinProfile(id); ok {
 		return p
 	}
-	if sp, err := svc.store.GetSavedProfile(ctx, id); err == nil {
+	if sp, err := svc.g().GetSavedProfile(ctx, id); err == nil {
 		var tools []string
 		_ = json.Unmarshal(sp.Tools, &tools)
 		return Profile{ID: sp.ID, Name: sp.Name, Description: sp.Description, Persona: sp.Persona, Tools: tools}
@@ -28,7 +28,7 @@ func (svc *Service) profileExists(ctx context.Context, id string) bool {
 	if _, ok := builtinProfile(id); ok {
 		return true
 	}
-	_, err := svc.store.GetSavedProfile(ctx, id)
+	_, err := svc.g().GetSavedProfile(ctx, id)
 	return err == nil
 }
 
@@ -53,5 +53,5 @@ func (svc *Service) SaveProfile(ctx context.Context, name, description, persona 
 	if err != nil {
 		return model.SavedProfile{}, err
 	}
-	return svc.store.CreateSavedProfile(ctx, model.SavedProfile{Name: name, Description: description, Persona: persona, Tools: b})
+	return svc.g().CreateSavedProfile(ctx, model.SavedProfile{Name: name, Description: description, Persona: persona, Tools: b})
 }

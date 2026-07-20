@@ -44,7 +44,7 @@ func TestWebFetch(t *testing.T) {
 	defer srv.Close()
 	db := migratedStore(t)
 	proj, _ := db.CreateProject(context.Background(), store.NewProject{Name: "P"})
-	exec := Executor(ExecDeps{Store: db, Replay: replay.New(0), ProjectID: proj.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Replay: replay.New(0), ProjectID: proj.ID})
 
 	out, err := exec(context.Background(), agent.ToolCall{Tool: "web_fetch", Args: map[string]any{"url": srv.URL}})
 	if err != nil {
@@ -80,7 +80,7 @@ func TestSaveContext(t *testing.T) {
 	db := migratedStore(t)
 	blobs, _ := cas.Open(t.TempDir())
 	proj, _ := db.CreateProject(context.Background(), store.NewProject{Name: "P"})
-	exec := Executor(ExecDeps{Store: db, Blobs: blobs, ProjectID: proj.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Blobs: blobs, ProjectID: proj.ID})
 
 	out, err := exec(context.Background(), agent.ToolCall{Tool: "save_context", Args: map[string]any{
 		"name": "keycloak-hardening.md", "body": "Disable the admin console on the public listener.",
@@ -146,7 +146,7 @@ func TestListDependencies(t *testing.T) {
 	if _, err := db.CreateArtifact(ctx, model.Artifact{TaskID: &task.ID, SHA256: digest, MediaType: "application/vnd.cyclonedx+json", Size: int64(len(sbom)), Name: "sbom.cdx.json", Kind: "output"}); err != nil {
 		t.Fatal(err)
 	}
-	exec := Executor(ExecDeps{Store: db, Blobs: blobs, ProjectID: proj.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Blobs: blobs, ProjectID: proj.ID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "list_dependencies", Args: map[string]any{}})
 	if err != nil {

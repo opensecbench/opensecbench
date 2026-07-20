@@ -77,7 +77,7 @@ func webFetch(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, 
 		return "", errors.New("web_fetch: url must be an http(s) URL")
 	}
 	runnerID := stringArg(call, "runner")
-	ex, err := deps.Store.CreateExchange(ctx, model.HTTPExchange{
+	ex, err := deps.p().CreateExchange(ctx, model.HTTPExchange{
 		ProjectID: projectID, Origin: "replay", Method: "GET", URL: target,
 	})
 	if err != nil {
@@ -93,7 +93,7 @@ func webFetch(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, 
 	if err != nil {
 		return "", fmt.Errorf("web_fetch failed: %w", err)
 	}
-	if err := deps.Store.RecordResponse(ctx, ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, runnerID); err != nil {
+	if err := deps.p().RecordResponse(ctx, ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, runnerID); err != nil {
 		return "", err
 	}
 	egress := "local"
@@ -145,7 +145,7 @@ func listDependencies(ctx context.Context, deps ExecDeps, call agent.ToolCall) (
 	if err != nil {
 		return "", err
 	}
-	sha, err := deps.Store.LatestArtifactSHA(ctx, projectID, "syft")
+	sha, err := deps.p().LatestArtifactSHA(ctx, projectID, "syft")
 	if err != nil || sha == "" {
 		return jsonify(map[string]any{"components": []any{}, "note": "no SBOM yet — run the 'syft' capability first"}, nil)
 	}
@@ -199,13 +199,13 @@ func saveContext(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if err != nil {
 		return "", err
 	}
-	art, err := deps.Store.CreateArtifact(ctx, model.Artifact{
+	art, err := deps.p().CreateArtifact(ctx, model.Artifact{
 		SHA256: digest, Kind: model.ArtifactInput, Name: name, MediaType: "text/plain", Size: int64(len(body)),
 	})
 	if err != nil {
 		return "", err
 	}
-	ci, err := deps.Store.CreateContextItem(ctx, model.ContextItem{
+	ci, err := deps.p().CreateContextItem(ctx, model.ContextItem{
 		ProjectID: projectID, Type: "document", Name: name, ArtifactID: art.ID,
 	})
 	if err != nil {

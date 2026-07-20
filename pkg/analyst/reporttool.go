@@ -39,7 +39,7 @@ func generateReport(ctx context.Context, deps ExecDeps, call agent.ToolCall) (st
 		format = report.FormatMarkdown // agent-safe default: no browser dependency
 	}
 
-	data, err := report.NewBuilder(deps.Store).Build(ctx, projectID, time.Now())
+	data, err := report.NewBuilder(deps.p()).Build(ctx, projectID, time.Now())
 	if err != nil {
 		return "", errors.New("generate_report: build: " + err.Error())
 	}
@@ -56,7 +56,7 @@ func generateReport(ctx context.Context, deps ExecDeps, call agent.ToolCall) (st
 	if format == report.FormatHTML {
 		mediaType = "text/html; charset=utf-8"
 	}
-	art, err := deps.Store.CreateArtifact(ctx, model.Artifact{
+	art, err := deps.p().CreateArtifact(ctx, model.Artifact{
 		SHA256:    digest,
 		Size:      int64(len(rendered)),
 		Kind:      model.ArtifactOutput,
@@ -66,7 +66,7 @@ func generateReport(ctx context.Context, deps ExecDeps, call agent.ToolCall) (st
 	if err != nil {
 		return "", err
 	}
-	rep, err := deps.Store.CreateReport(ctx, model.Report{
+	rep, err := deps.p().CreateReport(ctx, model.Report{
 		ProjectID:  projectID,
 		TemplateID: tmpl.ID,
 		Format:     string(format),

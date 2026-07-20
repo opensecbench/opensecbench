@@ -33,7 +33,7 @@ func TestExchangeToolsAreProjectScoped(t *testing.T) {
 	mine, _ := db.CreateExchange(ctx, model.HTTPExchange{ProjectID: projectID, Origin: "proxy", Method: "GET", URL: "https://acme.test/a"})
 	theirs, _ := db.CreateExchange(ctx, model.HTTPExchange{ProjectID: other.ID, Origin: "proxy", Method: "GET", URL: "https://other.test/b"})
 
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 
 	// list_exchanges only returns the current project's traffic.
 	out, err := exec(ctx, agent.ToolCall{Tool: "list_exchanges", Args: map[string]any{}})
@@ -56,7 +56,7 @@ func TestExchangeToolsAreProjectScoped(t *testing.T) {
 func TestCoverageRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "set_coverage", Args: map[string]any{"item": "OWASP-A01", "status": "covered", "note": "tested"}}); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestCoverageRoundTrip(t *testing.T) {
 func TestCreateFindingTool(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "create_finding", Args: map[string]any{
 		"title": "Reflected XSS in search", "severity": "high", "description": "…", "cwe": "CWE-79",
@@ -97,7 +97,7 @@ func TestSendRequestScopeGuard(t *testing.T) {
 	if _, err := db.AddScopeEntry(ctx, projectID, "domain", "acme.test"); err != nil {
 		t.Fatal(err)
 	}
-	exec := Executor(ExecDeps{Store: db, Replay: replay.New(0), ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Replay: replay.New(0), ProjectID: projectID})
 
 	// Out-of-scope target is refused before anything is sent.
 	if _, err := exec(ctx, agent.ToolCall{Tool: "send_request", Args: map[string]any{"method": "GET", "url": "https://evil.test/x"}}); err == nil || !strings.Contains(err.Error(), "scope") {
@@ -118,7 +118,7 @@ func TestSendRequestSendsAndRecords(t *testing.T) {
 	if _, err := db.AddScopeEntry(ctx, projectID, "host", "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	exec := Executor(ExecDeps{Store: db, Replay: replay.New(0), ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Replay: replay.New(0), ProjectID: projectID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "send_request", Args: map[string]any{"method": "GET", "url": srv.URL}})
 	if err != nil {
@@ -148,7 +148,7 @@ func TestSendRequestSendsAndRecords(t *testing.T) {
 func TestProjectScopedToolsNeedProject(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
-	exec := Executor(ExecDeps{Store: db}) // no project
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db)}) // no project
 
 	for _, tool := range []string{"list_exchanges", "get_coverage", "set_coverage", "send_request"} {
 		args := map[string]any{"item": "x", "status": "covered", "title": "t", "severity": "low", "method": "GET", "url": "https://acme.test"}

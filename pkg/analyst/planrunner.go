@@ -30,7 +30,7 @@ func (svc *Service) StartPlan(ctx context.Context, projectID, playbookID string)
 	for _, s := range pb.Steps {
 		plan.Steps = append(plan.Steps, model.PlanStep{Key: s.Key, Profile: s.Profile, Instruction: s.Instruction, DependsOn: s.DependsOn, Gate: s.Gate})
 	}
-	created, err := svc.store.CreatePlan(ctx, plan)
+	created, err := svc.p(projectID).CreatePlan(ctx, plan)
 	if err != nil {
 		return model.Plan{}, err
 	}
@@ -50,7 +50,7 @@ func (svc *Service) StartPlan(ctx context.Context, projectID, playbookID string)
 func (svc *Service) runPlan(plan model.Plan) {
 	ctx := context.Background()
 	// Reload so a resumed run sees the persisted step ids/statuses/results (and any just-resolved gate).
-	if reloaded, err := svc.store.GetPlan(ctx, plan.ID); err == nil {
+	if reloaded, err := svc.p(plan.ProjectID).GetPlan(ctx, plan.ID); err == nil {
 		plan = reloaded
 	}
 
@@ -84,7 +84,7 @@ func (svc *Service) runPlan(plan model.Plan) {
 				failed[s.Key] = true
 				anyFailed = true
 				progressed = true
-				_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepSkipped, "", "skipped: a dependency did not complete")
+				_ = svc.p(plan.ProjectID).UpdatePlanStep(ctx, s.ID, model.StepSkipped, "", "skipped: a dependency did not complete")
 				continue
 			}
 			if isReady {
@@ -100,7 +100,7 @@ func (svc *Service) runPlan(plan model.Plan) {
 				done[s.Key] = true
 				results[s.Key] = s.Result
 				clearedGate = true
-				_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepDone, s.Result, "")
+				_ = svc.p(plan.ProjectID).UpdatePlanStep(ctx, s.ID, model.StepDone, s.Result, "")
 			}
 		}
 		if clearedGate {
@@ -112,8 +112,8 @@ func (svc *Service) runPlan(plan model.Plan) {
 		// human might veto.
 		for _, s := range ready {
 			if s.Gate {
-				_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepWaiting, "", "awaiting human approval")
-				_ = svc.store.UpdatePlanStatus(ctx, plan.ID, model.PlanWaiting)
+				_ = svc.p(plan.ProjectID).UpdatePlanStep(ctx, s.ID, model.StepWaiting, "", "awaiting human approval")
+				_ = svc.p(plan.ProjectID).UpdatePlanStatus(ctx, plan.ID, model.PlanWaiting)
 				svc.notifyPlanWaiting(ctx, plan, *s)
 				return
 			}
@@ -138,7 +138,7 @@ func (svc *Service) runPlan(plan model.Plan) {
 				s := &plan.Steps[i]
 				if !done[s.Key] && !failed[s.Key] {
 					anyFailed = true
-					_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepFailed, "", "unresolved dependency")
+					_ = svc.p(plan.ProjectID).UpdatePlanStep(ctx, s.ID, model.StepFailed, "", "unresolved dependency")
 				}
 			}
 			break
@@ -149,7 +149,7 @@ func (svc *Service) runPlan(plan model.Plan) {
 	if anyFailed {
 		status = model.PlanFailed
 	}
-	_ = svc.store.UpdatePlanStatus(ctx, plan.ID, status)
+	_ = svc.p(plan.ProjectID).UpdatePlanStatus(ctx, plan.ID, status)
 }
 
 // stepReady reports whether a step's dependencies are all satisfied (isReady), or whether any dependency
@@ -183,7 +183,7 @@ func (svc *Service) runWave(ctx context.Context, projectID string, wave []*model
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepRunning, "", "")
+			_ = svc.p(projectID).UpdatePlanStep(ctx, s.ID, model.StepRunning, "", "")
 			mu.Lock()
 			task := s.Instruction
 			if c := planContext(s.DependsOn, results); c != "" {
@@ -198,12 +198,12 @@ func (svc *Service) runWave(ctx context.Context, projectID string, wave []*model
 			if err != nil {
 				failed[s.Key] = true
 				*anyFailed = true
-				_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepFailed, "", err.Error())
+				_ = svc.p(projectID).UpdatePlanStep(ctx, s.ID, model.StepFailed, "", err.Error())
 				return
 			}
 			done[s.Key] = true
 			results[s.Key] = res.Answer
-			_ = svc.store.UpdatePlanStep(ctx, s.ID, model.StepDone, res.Answer, "")
+			_ = svc.p(projectID).UpdatePlanStep(ctx, s.ID, model.StepDone, res.Answer, "")
 		}()
 	}
 	wg.Wait()
@@ -221,8 +221,8 @@ func allResolved(steps []model.PlanStep, done, failed map[string]bool) bool {
 // ResolvePlanGate records a human's decision on a plan's waiting gate and resumes the run (ADR-0044).
 // Approving clears the gate so the step executes; denying skips it (its dependents are skipped and the plan
 // ends). The plan must be waiting on the given gate step, else it returns an error.
-func (svc *Service) ResolvePlanGate(ctx context.Context, planID, stepID string, approve bool, note string) (model.Plan, error) {
-	plan, err := svc.store.GetPlan(ctx, planID)
+func (svc *Service) ResolvePlanGate(ctx context.Context, projectID, planID, stepID string, approve bool, note string) (model.Plan, error) {
+	plan, err := svc.p(projectID).GetPlan(ctx, planID)
 	if err != nil {
 		return model.Plan{}, err
 	}
@@ -239,19 +239,19 @@ func (svc *Service) ResolvePlanGate(ctx context.Context, planID, stepID string, 
 	if gate == nil || !gate.Gate || gate.Status != model.StepWaiting {
 		return model.Plan{}, errors.New("no waiting gate step with that id on this plan")
 	}
-	if err := svc.store.ResolvePlanGate(ctx, stepID, approve, note); err != nil {
+	if err := svc.p(projectID).ResolvePlanGate(ctx, stepID, approve, note); err != nil {
 		return model.Plan{}, err
 	}
 	// Flip back to running and relaunch; the resumed run reconstructs state and continues (or ends).
-	_ = svc.store.UpdatePlanStatus(ctx, planID, model.PlanRunning)
+	_ = svc.p(projectID).UpdatePlanStatus(ctx, planID, model.PlanRunning)
 	go svc.runPlan(plan)
-	return svc.store.GetPlan(ctx, planID)
+	return svc.p(projectID).GetPlan(ctx, planID)
 }
 
 // notifyPlanWaiting raises a notification so a human knows a plan has paused for their approval.
 func (svc *Service) notifyPlanWaiting(ctx context.Context, plan model.Plan, gate model.PlanStep) {
 	pid := plan.ProjectID
-	_, _ = svc.store.CreateNotification(ctx, model.Notification{
+	_, _ = svc.p(plan.ProjectID).CreateNotification(ctx, model.Notification{
 		Kind:      model.NotifyApproval,
 		Title:     "Assessment paused for approval",
 		Body:      "Step \"" + gate.Key + "\" needs your approval before the run continues.",

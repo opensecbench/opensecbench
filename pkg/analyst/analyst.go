@@ -210,7 +210,7 @@ func Approver(allow []string) func(context.Context, agent.ToolCall) (bool, error
 // zero (e.g. a project-less thread or a loop built without a replay client), in which case the tools
 // that need them return a clear error instead of misbehaving.
 type ExecDeps struct {
-	Store         *store.DB
+	Mgr           *store.Manager
 	Engine        *task.Engine
 	Replay        *replay.Client
 	Blobs         *cas.Store
@@ -224,27 +224,46 @@ type ExecDeps struct {
 	EgressSender func(ctx context.Context, runnerID string, req replay.Request) (replay.Response, error)
 }
 
+// g is the instance-wide database (targets, KB, settings); p is the current thread's project database
+// (ADR-0049), falling back to global so a nil handle never panics.
+func (d ExecDeps) g() *store.DB {
+	if d.Mgr == nil {
+		return nil
+	}
+	return d.Mgr.Global()
+}
+func (d ExecDeps) p() *store.DB {
+	if d.Mgr == nil {
+		return nil
+	}
+	db, err := d.Mgr.Project(d.ProjectID)
+	if err != nil || db == nil {
+		return d.Mgr.Global()
+	}
+	return db
+}
+
 // Executor dispatches a tool call to a store query, a capability run, or an outbound request.
 func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, error) {
-	st, engine := deps.Store, deps.Engine
+	engine := deps.Engine
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
 		switch call.Tool {
 		case "list_projects":
-			return jsonify(st.ListProjects(ctx))
+			return jsonify(deps.Mgr.ListProjects(ctx))
 		case "list_targets":
-			return jsonify(st.ListTargets(ctx))
+			return jsonify(deps.g().ListTargets(ctx))
 		case "list_findings":
-			return jsonify(st.ListFindings(ctx))
+			return jsonify(deps.p().ListFindings(ctx))
 		case "list_assets":
-			return jsonify(st.ListAssets(ctx))
+			return jsonify(deps.p().ListAssets(ctx))
 		case "search":
 			q, _ := call.Args["q"].(string)
-			return jsonify(st.Search(ctx, q, 25))
+			return jsonify(deps.p().Search(ctx, q, 25))
 		case "search_corpus":
 			return searchCorpus(ctx, deps, call)
 		case "get_finding":
 			id, _ := call.Args["id"].(string)
-			return jsonify(st.GetFinding(ctx, id))
+			return jsonify(deps.p().GetFinding(ctx, id))
 		case "list_observations":
 			return listObservations(ctx, deps, call)
 		case "list_investigations":
@@ -266,7 +285,7 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		case "generate_report":
 			return generateReport(ctx, deps, call)
 		case "create_observation":
-			return createObservation(ctx, st, call)
+			return createObservation(ctx, deps.p(), call)
 		case "read_file":
 			return readFile(ctx, deps, call)
 		case "list_dir":
@@ -311,7 +330,7 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		case "run_capability":
 			return runCapability(ctx, engine, call)
 		case "run_playbook":
-			return runPlaybook(ctx, st, deps.ProjectID, engine, call)
+			return runPlaybook(ctx, deps.Mgr, deps.ProjectID, engine, call)
 		default:
 			return "", fmt.Errorf("unknown tool %q", call.Tool)
 		}
@@ -333,7 +352,7 @@ func listObservations(ctx context.Context, deps ExecDeps, call agent.ToolCall) (
 	if err != nil {
 		return "", err
 	}
-	all, err := deps.Store.ListObservationsByProject(ctx, projectID)
+	all, err := deps.p().ListObservationsByProject(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
@@ -364,7 +383,7 @@ func listInvestigations(ctx context.Context, deps ExecDeps, call agent.ToolCall)
 	if err != nil {
 		return "", err
 	}
-	all, err := deps.Store.ListInvestigationsByProject(ctx, projectID)
+	all, err := deps.p().ListInvestigationsByProject(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
@@ -401,7 +420,7 @@ func listExchanges(ctx context.Context, deps ExecDeps, call agent.ToolCall) (str
 	if f.Limit <= 0 {
 		f.Limit = 50
 	}
-	exchanges, err := deps.Store.ListExchangesFiltered(ctx, projectID, f)
+	exchanges, err := deps.p().ListExchangesFiltered(ctx, projectID, f)
 	if err != nil {
 		return "", err
 	}
@@ -425,7 +444,7 @@ func getExchange(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if id == "" {
 		return "", errors.New("get_exchange requires 'id'")
 	}
-	ex, err := deps.Store.GetExchange(ctx, id)
+	ex, err := deps.p().GetExchange(ctx, id)
 	if err != nil {
 		return "", err
 	}
@@ -441,7 +460,7 @@ func getCoverage(ctx context.Context, deps ExecDeps) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return jsonify(deps.Store.ListCoverage(ctx, projectID))
+	return jsonify(deps.p().ListCoverage(ctx, projectID))
 }
 
 // sendRequest scope-guards the target, sends it via Replay, records the exchange, and returns a
@@ -460,7 +479,7 @@ func sendRequest(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	}
 
 	// Scope guard: refuse an out-of-scope target before anything leaves the host (ADR-0001).
-	entries, err := deps.Store.ListScopeEntries(ctx, projectID)
+	entries, err := deps.p().ListScopeEntries(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
@@ -476,7 +495,7 @@ func sendRequest(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 
 	headers, body := stringArg(call, "headers"), stringArg(call, "body")
 	runnerID := stringArg(call, "runner")
-	ex, err := deps.Store.CreateExchange(ctx, model.HTTPExchange{
+	ex, err := deps.p().CreateExchange(ctx, model.HTTPExchange{
 		ProjectID: projectID, Origin: "replay", Method: method, URL: url,
 		RequestHeaders: headers, RequestBody: body,
 	})
@@ -494,7 +513,7 @@ func sendRequest(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if err != nil {
 		return "", fmt.Errorf("send failed: %w", err)
 	}
-	if err := deps.Store.RecordResponse(ctx, ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, runnerID); err != nil {
+	if err := deps.p().RecordResponse(ctx, ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, runnerID); err != nil {
 		return "", err
 	}
 	egress := "local"
@@ -521,7 +540,7 @@ func setCoverage(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if item == "" || status == "" {
 		return "", errors.New("set_coverage requires 'item' and 'status'")
 	}
-	if err := deps.Store.SetCoverage(ctx, projectID, item, status, stringArg(call, "note")); err != nil {
+	if err := deps.p().SetCoverage(ctx, projectID, item, status, stringArg(call, "note")); err != nil {
 		return "", err
 	}
 	return jsonify(map[string]any{"item": item, "status": status}, nil)
@@ -540,7 +559,7 @@ func createFinding(ctx context.Context, deps ExecDeps, call agent.ToolCall) (str
 		CWE:            stringArg(call, "cwe"),
 		ObservationIDs: stringsArg(call, "observations"),
 	}
-	return jsonify(deps.Store.CreateFinding(ctx, nf))
+	return jsonify(deps.p().CreateFinding(ctx, nf))
 }
 
 // draftKBEntry writes an unreviewed, agent-origin knowledge-base entry (ADR-0010). It only records
@@ -576,7 +595,7 @@ func draftKBEntry(ctx context.Context, deps ExecDeps, call agent.ToolCall) (stri
 	default:
 		return "", errors.New("draft_kb_entry: scope must be target, org, or global")
 	}
-	e, err := deps.Store.CreateKBEntry(ctx, entry)
+	e, err := deps.g().CreateKBEntry(ctx, entry)
 	if err != nil {
 		return "", err
 	}
@@ -647,7 +666,7 @@ func runCapability(ctx context.Context, engine *task.Engine, call agent.ToolCall
 	}, nil)
 }
 
-func runPlaybook(ctx context.Context, st *store.DB, projectID string, engine *task.Engine, call agent.ToolCall) (string, error) {
+func runPlaybook(ctx context.Context, mgr *store.Manager, projectID string, engine *task.Engine, call agent.ToolCall) (string, error) {
 	if engine == nil {
 		return "", errors.New("capability engine unavailable")
 	}
@@ -658,7 +677,7 @@ func runPlaybook(ctx context.Context, st *store.DB, projectID string, engine *ta
 	}
 	// The analyst still holds a single (combined) handle; wrap it so it satisfies the Manager-based
 	// runner. Full per-project routing arrives with the analyst's Manager conversion (ADR-0049).
-	res, err := playbook.NewRunner(engine, store.NewCombinedManager(st)).Run(ctx, projectID, pbID, assetID, "thread:analyst")
+	res, err := playbook.NewRunner(engine, mgr).Run(ctx, projectID, pbID, assetID, "thread:analyst")
 	if err != nil {
 		return "", err
 	}
@@ -670,12 +689,12 @@ func runPlaybook(ctx context.Context, st *store.DB, projectID string, engine *ta
 
 // NewLoop builds an Analyst loop over a provider, the store, and the engine, authorizing the given
 // gated tools for this run.
-func NewLoop(provider llm.Provider, st *store.DB, engine *task.Engine, allow []string, audit func(action, detail string)) *agent.Loop {
+func NewLoop(provider llm.Provider, mgr *store.Manager, engine *task.Engine, allow []string, audit func(action, detail string)) *agent.Loop {
 	return &agent.Loop{
 		Provider: provider,
 		Tools:    Tools(),
 		Approve:  Approver(allow),
-		Execute:  Executor(ExecDeps{Store: st, Engine: engine}),
+		Execute:  Executor(ExecDeps{Mgr: mgr, Engine: engine}),
 		Audit:    audit,
 		MaxSteps: 8,
 	}

@@ -43,7 +43,7 @@ func TestListAndReadContext(t *testing.T) {
 	ctx := context.Background()
 	const body = "Design doc: auth uses JWT; the password-reset flow skips rate limiting."
 	db, blobs, projectID, itemID := seedContext(t, body)
-	exec := Executor(ExecDeps{Store: db, Blobs: blobs, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Blobs: blobs, ProjectID: projectID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "list_context", Args: map[string]any{}})
 	if err != nil {
@@ -72,7 +72,7 @@ func TestReadContextCrossProjectRefused(t *testing.T) {
 	ctx := context.Background()
 	db, blobs, _, itemID := seedContext(t, "secret")
 	other, _ := db.CreateProject(ctx, store.NewProject{Name: "Other"})
-	exec := Executor(ExecDeps{Store: db, Blobs: blobs, ProjectID: other.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Blobs: blobs, ProjectID: other.ID})
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err == nil || !strings.Contains(err.Error(), "different project") {
 		t.Fatalf("cross-project read_context should be refused, got %v", err)
@@ -82,7 +82,7 @@ func TestReadContextCrossProjectRefused(t *testing.T) {
 func TestReadContextBinaryReturnsMetadata(t *testing.T) {
 	ctx := context.Background()
 	db, blobs, projectID, itemID := seedContext(t, "PDF\x00\x01binary\x00blob")
-	exec := Executor(ExecDeps{Store: db, Blobs: blobs, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Blobs: blobs, ProjectID: projectID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}})
 	if err != nil {
@@ -97,7 +97,7 @@ func TestReadContextEgressBlocked(t *testing.T) {
 	ctx := context.Background()
 	db, blobs, projectID, itemID := seedContext(t, "client email thread")
 
-	svc := &Service{store: db, blobs: blobs, egressStrict: true}
+	svc := &Service{mgr: store.NewCombinedManager(db), blobs: blobs, egressStrict: true}
 	// Strict egress + external provider: ingested corpus content does not leave to the external model.
 	if _, err := svc.executeFor(projectID, &llm.AnthropicProvider{})(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("read_context should be egress-blocked on an external provider, got %v", err)
@@ -119,7 +119,7 @@ func TestGetKBEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exec := Executor(ExecDeps{Store: db})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db)})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "get_kb_entry", Args: map[string]any{"id": entry.ID}})
 	if err != nil {

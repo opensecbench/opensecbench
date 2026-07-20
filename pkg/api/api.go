@@ -114,13 +114,15 @@ func (s *Server) global() *store.DB {
 	return s.mgr.Global()
 }
 
-// projectFromReq resolves the active project for a request: the {id} path value on project-nested routes
-// takes precedence, otherwise the X-Project-Id header the frontend sets from the active project.
+// projectFromReq resolves the active project for a request. The X-Project-Id header (which the frontend
+// sets to the project being viewed) is authoritative — on a flat route like /v1/threads/{id}/messages the
+// {id} is an entity, not the project. It falls back to the {id} path value only for project-nested routes
+// (/v1/projects/{id}/...) used by clients that don't send the header (tests, CLI).
 func projectFromReq(r *http.Request) string {
-	if id := r.PathValue("id"); id != "" {
-		return id
+	if h := r.Header.Get("X-Project-Id"); h != "" {
+		return h
 	}
-	return r.Header.Get("X-Project-Id")
+	return r.PathValue("id")
 }
 
 // projectDB returns the per-project database handle for a request's active project. In the transitional
@@ -235,7 +237,7 @@ func (s *Server) startScheduler() {
 	if s.mgr == nil {
 		return
 	}
-	s.sched = analyst.NewScheduler(s.global(), func(ctx context.Context, projectID, playbookID string) error {
+	s.sched = analyst.NewScheduler(s.mgr, func(ctx context.Context, projectID, playbookID string) error {
 		_, err := s.analystService().StartPlan(ctx, projectID, playbookID)
 		return err
 	}, func(action, detail string) {
@@ -452,7 +454,7 @@ func (s *Server) routes() {
 }
 
 func (s *Server) analystService() *analyst.Service {
-	svc := analyst.NewService(s.global(), s.engine, s.cas, s.workspaceDir, s.guardedProvider())
+	svc := analyst.NewService(s.mgr, s.engine, s.cas, s.workspaceDir, s.guardedProvider())
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}
@@ -547,7 +549,7 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	res, err := s.analystService().Send(r.Context(), th.ID, req.Message)
+	res, err := s.analystService().Send(r.Context(), projectFromReq(r), th.ID, req.Message)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -663,7 +665,7 @@ func (s *Server) savePlanAsPlaybook(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	sp, err := s.analystService().SavePlaybookFromPlan(r.Context(), r.PathValue("id"), req.Name, req.Description)
+	sp, err := s.analystService().SavePlaybookFromPlan(r.Context(), projectFromReq(r), r.PathValue("id"), req.Name, req.Description)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -775,7 +777,7 @@ func (s *Server) resolvePlanGate(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	plan, err := s.analystService().ResolvePlanGate(r.Context(), r.PathValue("id"), r.PathValue("stepID"), req.Approve, req.Note)
+	plan, err := s.analystService().ResolvePlanGate(r.Context(), projectFromReq(r), r.PathValue("id"), r.PathValue("stepID"), req.Approve, req.Note)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "plan or gate step not found")
 		return
@@ -1031,7 +1033,7 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "message is required")
 		return
 	}
-	res, err := s.analystService().Send(r.Context(), r.PathValue("id"), req.Message)
+	res, err := s.analystService().Send(r.Context(), projectFromReq(r), r.PathValue("id"), req.Message)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "thread not found")
 		return
@@ -1309,7 +1311,7 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	approvalID := r.PathValue("id")
-	res, err := s.analystService().Decide(r.Context(), approvalID, req.Decision)
+	res, err := s.analystService().Decide(r.Context(), projectFromReq(r), approvalID, req.Decision)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "approval not found")
 		return

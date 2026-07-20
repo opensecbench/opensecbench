@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 func TestProviderModelForTag(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
 	active := &llm.MockProvider{}
-	svc := NewService(db, nil, nil, "", active)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", active)
 
 	// No resolver / no routing → the active provider, no model override.
 	if p, m := svc.providerModelForTag(ctx, "cheap"); p != active || m != "" {

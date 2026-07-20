@@ -44,14 +44,14 @@ func resolveSourceAsset(ctx context.Context, deps ExecDeps, tool string, call ag
 	if assetID == "" {
 		return model.Asset{}, fmt.Errorf("%s requires 'asset'", tool)
 	}
-	asset, err := deps.Store.GetAsset(ctx, assetID)
+	asset, err := deps.p().GetAsset(ctx, assetID)
 	if err != nil {
 		return model.Asset{}, err
 	}
 	if asset.Type != model.AssetSourceRepo {
 		return model.Asset{}, fmt.Errorf("asset %s is %s; %s reads source_repo assets", asset.ID, asset.Type, tool)
 	}
-	app, err := deps.Store.GetApplication(ctx, asset.ApplicationID)
+	app, err := deps.p().GetApplication(ctx, asset.ApplicationID)
 	if err != nil {
 		return model.Asset{}, err
 	}

@@ -28,7 +28,7 @@ func TestListObservationsToolExposesAttributes(t *testing.T) {
 		ProjectID: &other.ID, Origin: model.OriginTool, Title: "other", Severity: "low",
 	})
 
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 	out, err := exec(ctx, agent.ToolCall{Tool: "list_observations", Args: map[string]any{}})
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestListObservationsUnreviewedOnly(t *testing.T) {
 	if err := db.ReviewObservation(ctx, conf.ID, model.ReviewConfirmed); err != nil {
 		t.Fatal(err)
 	}
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 	out, _ := exec(ctx, agent.ToolCall{Tool: "list_observations", Args: map[string]any{"unreviewed_only": true}})
 	if !strings.Contains(out, un.ID) || strings.Contains(out, conf.ID) {
 		t.Fatalf("unreviewed_only filter wrong: %s", out)
@@ -67,7 +67,7 @@ func TestListInvestigationsTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 	out, err := exec(ctx, agent.ToolCall{Tool: "list_investigations", Args: map[string]any{"open_only": true}})
 	if err != nil {
 		t.Fatal(err)
