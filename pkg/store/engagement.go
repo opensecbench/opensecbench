@@ -23,11 +23,11 @@ func (db *DB) GetEngagement(ctx context.Context, projectID string) (model.Engage
 	var kinds, techniques, created, updated string
 	var authorized int
 	err := db.QueryRowContext(ctx,
-		`SELECT project_id, kinds, objective, reference, environment, data_class, standard, compliance,
+		`SELECT project_id, base_path, kinds, objective, reference, environment, data_class, standard, compliance,
 		        severity_scale, authorized, authorizer, auth_ref, auth_from, auth_to,
 		        window_start, window_end, report_due, techniques, notes, created_at, updated_at
 		 FROM engagement WHERE project_id = ?`, projectID).
-		Scan(&e.ProjectID, &kinds, &e.Objective, &e.Reference, &e.Environment, &e.DataClass, &e.Standard,
+		Scan(&e.ProjectID, &e.BasePath, &kinds, &e.Objective, &e.Reference, &e.Environment, &e.DataClass, &e.Standard,
 			&e.Compliance, &e.SeverityScale, &authorized, &e.Authorizer, &e.AuthRef, &e.AuthFrom, &e.AuthTo,
 			&e.WindowStart, &e.WindowEnd, &e.ReportDue, &techniques, &e.Notes, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -85,19 +85,19 @@ func (db *DB) SetEngagement(ctx context.Context, e model.Engagement) (model.Enga
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO engagement
-		 (project_id, kinds, objective, reference, environment, data_class, standard, compliance,
+		 (project_id, base_path, kinds, objective, reference, environment, data_class, standard, compliance,
 		  severity_scale, authorized, authorizer, auth_ref, auth_from, auth_to,
 		  window_start, window_end, report_due, techniques, notes, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(project_id) DO UPDATE SET
-		  kinds=excluded.kinds, objective=excluded.objective, reference=excluded.reference,
+		  base_path=excluded.base_path, kinds=excluded.kinds, objective=excluded.objective, reference=excluded.reference,
 		  environment=excluded.environment, data_class=excluded.data_class, standard=excluded.standard,
 		  compliance=excluded.compliance, severity_scale=excluded.severity_scale, authorized=excluded.authorized,
 		  authorizer=excluded.authorizer, auth_ref=excluded.auth_ref, auth_from=excluded.auth_from,
 		  auth_to=excluded.auth_to, window_start=excluded.window_start, window_end=excluded.window_end,
 		  report_due=excluded.report_due, techniques=excluded.techniques, notes=excluded.notes,
 		  updated_at=excluded.updated_at`,
-		e.ProjectID, strings.Join(e.Kinds, ","), e.Objective, e.Reference, e.Environment, e.DataClass,
+		e.ProjectID, e.BasePath, strings.Join(e.Kinds, ","), e.Objective, e.Reference, e.Environment, e.DataClass,
 		e.Standard, e.Compliance, e.SeverityScale, authorized, e.Authorizer, e.AuthRef, e.AuthFrom, e.AuthTo,
 		e.WindowStart, e.WindowEnd, e.ReportDue, techniques, e.Notes, created, now); err != nil {
 		return model.Engagement{}, err

@@ -2317,3 +2317,6 @@ select.em-in { cursor: pointer; }
 .em-btn:hover { color: var(--tx); }
 .em-btn.pri { background: var(--acc); border-color: var(--acc); color: #04101f; font-weight: 700; }
 .em-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.em-browse { display: flex; gap: 8px; align-items: stretch; }
+.em-browse .em-in { flex: 1; }
+.em-browse .em-btn { white-space: nowrap; padding: 8px 12px; }

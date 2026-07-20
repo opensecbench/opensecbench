@@ -93,6 +93,7 @@ export interface EngagementTestAccount {
 }
 export interface Engagement {
   project_id: string
+  base_path?: string // project root on disk; relative asset paths resolve against it (ADR-0051)
   kinds?: string[]
   objective?: string
   reference?: string

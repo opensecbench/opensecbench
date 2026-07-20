@@ -12,7 +12,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"strconv"
 	"sync"
 	"time"
@@ -1713,10 +1715,11 @@ func (s *Server) createAsset(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	location := s.resolveAssetLocation(r, r.PathValue("id"), req.Location)
 	asset, err := s.pdb(r).CreateAsset(r.Context(), store.NewAsset{
 		ApplicationID: r.PathValue("id"),
 		Type:          req.Type,
-		Location:      req.Location,
+		Location:      location,
 		Sensitivity:   req.Sensitivity,
 	})
 	if err != nil {
@@ -1724,6 +1727,24 @@ func (s *Server) createAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, asset)
+}
+
+// resolveAssetLocation anchors a relative filesystem location under the project's engagement base path
+// (ADR-0051), so an operator who set a base folder can add assets by relative path. URLs and already-absolute
+// paths pass through unchanged, as does anything when no base path is set.
+func (s *Server) resolveAssetLocation(r *http.Request, appID, loc string) string {
+	if loc == "" || strings.Contains(loc, "://") || filepath.IsAbs(loc) {
+		return loc
+	}
+	app, err := s.pdb(r).GetApplication(r.Context(), appID)
+	if err != nil {
+		return loc
+	}
+	eng, err := s.pdb(r).GetEngagement(r.Context(), app.ProjectID)
+	if err != nil || eng.BasePath == "" {
+		return loc
+	}
+	return filepath.Join(eng.BasePath, loc)
 }
 
 func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {

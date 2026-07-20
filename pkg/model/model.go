@@ -77,7 +77,10 @@ const (
 // Techniques is a map of allow-flags (intrusive, automated_exploit, brute_force, dos, social, destructive)
 // that gates which capabilities may run. DataClass tightens external-provider egress for this engagement.
 type Engagement struct {
-	ProjectID     string                  `json:"project_id"`
+	ProjectID string `json:"project_id"`
+	// BasePath is the project's root directory on disk (ADR-0051). Relative asset locations resolve against
+	// it, so an operator points at the codebase once and adds assets by relative path. Empty = unset.
+	BasePath      string                  `json:"base_path,omitempty"`
 	Kinds         []string                `json:"kinds,omitempty"`
 	Objective     string                  `json:"objective,omitempty"`
 	Reference     string                  `json:"reference,omitempty"`

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { api, Engagement, EngagementContact, EngagementTestAccount, Methodology, Project, ScopeSeed } from './api'
+import { hasNativePickers, pickDirectory } from './native'
 
 // The engagement setup modal (ADR-0051): create a project with its properties in one place instead of a bare
 // name field. Captures the frame of an assessment — identity, scope + authorization, rules of engagement,
@@ -79,6 +80,7 @@ export function EngagementModal({
   const [authTo, setAuthTo] = useState('')
   const [techniques, setTechniques] = useState<Record<string, boolean>>({ intrusive: true })
   // kickstart
+  const [basePath, setBasePath] = useState('')
   const [firstRepo, setFirstRepo] = useState('')
   const [adopt, setAdopt] = useState<string[]>([])
   const [tracker, setTracker] = useState('')
@@ -127,7 +129,7 @@ export function EngagementModal({
     setError(null)
     try {
       const engagement: Engagement = {
-        project_id: '', kinds, objective: objective.trim(), reference: reference.trim(),
+        project_id: '', base_path: basePath.trim(), kinds, objective: objective.trim(), reference: reference.trim(),
         environment, data_class: dataClass, authorized, authorizer: authorizer.trim(), auth_to: authTo,
         techniques, window_start: windowStart, window_end: windowEnd, report_due: reportDue,
         standard, compliance, severity_scale: severity,
@@ -259,8 +261,22 @@ export function EngagementModal({
           <section className="em-sect">
             <div className="em-sh"><span className="em-n">3</span><span className="em-t">Kickstart</span><span className="em-note">so you can run day one</span></div>
             <div className="em-field">
-              <label>First {hasActive ? 'repo or base URL' : 'repository'} <span className="em-opt">→ asset</span></label>
-              <input className="em-in" value={firstRepo} onChange={(e) => setFirstRepo(e.target.value)} placeholder={hasActive ? 'git@github.com:acme/storefront  or  https://shop.acme.com' : 'git@github.com:acme/storefront'} />
+              <label>Base folder <span className="em-opt">project root on disk — assets resolve against it</span></label>
+              <div className="em-browse">
+                <input className="em-in" value={basePath} onChange={(e) => setBasePath(e.target.value)} placeholder="/home/you/src/acme" />
+                {hasNativePickers() && (
+                  <button className="em-btn" onClick={async () => { const p = await pickDirectory(); if (p) setBasePath(p) }}>📁 Browse…</button>
+                )}
+              </div>
+            </div>
+            <div className="em-field">
+              <label>First {hasActive ? 'repo or base URL' : 'repository'} <span className="em-opt">→ asset{basePath ? ', relative to base folder' : ''}</span></label>
+              <div className="em-browse">
+                <input className="em-in" value={firstRepo} onChange={(e) => setFirstRepo(e.target.value)} placeholder={basePath ? 'services/api  (relative to base folder)' : hasActive ? 'git@github.com:acme/storefront  or  https://shop.acme.com' : '/home/you/src/acme/repo'} />
+                {hasNativePickers() && (
+                  <button className="em-btn" onClick={async () => { const p = await pickDirectory(); if (p) setFirstRepo(p) }}>📁</button>
+                )}
+              </div>
             </div>
             {methodologies.length > 0 && (
               <div className="em-field">

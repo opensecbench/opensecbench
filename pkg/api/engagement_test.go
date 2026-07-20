@@ -68,3 +68,35 @@ func TestCreateProjectWithEngagement(t *testing.T) {
 		t.Fatalf("update not applied: %+v", updated)
 	}
 }
+
+func TestAssetLocationResolvesAgainstBasePath(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := store.LoadMigrations(migrations.FS)
+	if _, err := db.Apply(ms); err != nil {
+		t.Fatal(err)
+	}
+	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
+	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+
+	var proj model.Project
+	postJSON(t, srv.URL+"/v1/projects", `{"name":"P","engagement":{"base_path":"/work/acme"}}`, &proj)
+	var app model.Application
+	postJSON(t, srv.URL+"/v1/projects/"+proj.ID+"/applications", `{"name":"a"}`, &app)
+
+	// Relative location is anchored under the base path.
+	var rel model.Asset
+	postJSON(t, srv.URL+"/v1/applications/"+app.ID+"/assets", `{"type":"source_repo","location":"services/api","sensitivity":"private"}`, &rel)
+	if rel.Location != "/work/acme/services/api" {
+		t.Fatalf("relative location not anchored: %q", rel.Location)
+	}
+	// Absolute location and URLs pass through unchanged.
+	var abs model.Asset
+	postJSON(t, srv.URL+"/v1/applications/"+app.ID+"/assets", `{"type":"source_repo","location":"/opt/other","sensitivity":"private"}`, &abs)
+	if abs.Location != "/opt/other" {
+		t.Fatalf("absolute location should pass through: %q", abs.Location)
+	}
+}
