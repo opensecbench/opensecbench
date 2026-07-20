@@ -2339,3 +2339,12 @@ select.em-in { cursor: pointer; }
 .tls-badge { margin-right: 5px; font-size: 11px; }
 .tls-badge.tls-ok { filter: grayscale(0.2); opacity: 0.75; }
 .tls-badge.tls-bad { color: var(--red); }
+/* Engagement settings surface + authorization soft-gate (ADR-0051) */
+.banner.warn { background: color-mix(in srgb, var(--amber) 14%, var(--bg2)); border: 1px solid var(--amber); color: var(--tx); }
+.banner.warn .link { color: var(--amber); margin-left: 6px; }
+.wb-banner.warn { border-radius: 0; }
+.panel.es { max-width: 760px; }
+.panel.es .em-field { margin-bottom: 13px; }
+.es-note { margin-left: 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--acc); }
+.es-actions { display: flex; align-items: center; gap: 12px; justify-content: flex-end; max-width: 760px; margin: 4px 0 30px; }
+.es-saved { color: var(--green); font-size: 13px; }

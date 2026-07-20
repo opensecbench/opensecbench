@@ -11,7 +11,7 @@ import { hasNativePickers, pickDirectory } from './native'
 // network-scope + rules-of-engagement sections; static/advisory ones (code audit, secrets, threat model)
 // don't — that's what keeps the form from reading pentest-heavy for a code review. `tech` maps to a
 // methodology pack so the type drives kickstart (there is no separate archetype picker).
-const KINDS: { k: string; label: string; active: boolean; tech?: string }[] = [
+export const KINDS: { k: string; label: string; active: boolean; tech?: string }[] = [
   { k: 'web', label: 'Web app', active: true, tech: 'web' },
   { k: 'api', label: 'REST API', active: true, tech: 'api' },
   { k: 'graphql', label: 'GraphQL', active: true, tech: 'api' },
@@ -23,7 +23,7 @@ const KINDS: { k: string; label: string; active: boolean; tech?: string }[] = [
   { k: 'secrets', label: 'Secrets audit', active: false },
   { k: 'threat-model', label: 'Threat model', active: false },
 ]
-const TECHNIQUES = [
+export const TECHNIQUES = [
   { k: 'intrusive', label: 'Intrusive scanning' }, { k: 'automated_exploit', label: 'Automated exploitation' },
   { k: 'brute_force', label: 'Brute force / cred stuffing' }, { k: 'dos', label: 'DoS / stress' },
   { k: 'social', label: 'Social engineering' }, { k: 'destructive', label: 'Destructive / data-altering' },
