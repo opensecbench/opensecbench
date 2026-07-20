@@ -279,7 +279,11 @@ const brandedMD = `# {{if .Brand.Name}}{{.Brand.Name}} — {{end}}Security Asses
 {{if .Brand.Tagline}}_{{.Brand.Tagline}}_{{end}}
 
 _Generated {{date .GeneratedAt}}{{if .Brand.Name}} · Prepared by {{.Brand.Name}}{{end}}_
+{{if .ExecutiveSummary}}
+## Executive summary
 
+{{.ExecutiveSummary}}
+{{end}}
 ## Summary
 
 **{{.Summary.Total}}** finding(s) with supporting evidence across **{{.Summary.Applications}}**
@@ -298,6 +302,10 @@ application(s).{{if .Methodology.Summary.Total}} Methodology coverage: **{{.Meth
 _{{.AppName}} · {{.Status}}{{if .CWE}} · {{.CWE}}{{end}}_
 
 {{if .Description}}{{.Description}}
+{{end}}{{if .Impact}}
+**Impact:** {{.Impact}}
+{{end}}{{if .Remediation}}
+**Remediation:** {{.Remediation}}
 {{end}}
 {{range .Evidence}}- {{.Title}}{{if .Location}} — ` + "`{{.Location}}`" + `{{end}}
 {{end}}
@@ -316,6 +324,8 @@ const brandedHTML = `<!doctype html><html><head><meta charset="utf-8">
 {{if .Brand.Tagline}}<p class="meta">{{.Brand.Tagline}}</p>{{end}}
 <p class="meta">Generated {{date .GeneratedAt}}{{if .Brand.Name}} · Prepared by {{.Brand.Name}}{{end}}</p>
 </div>
+{{if .ExecutiveSummary}}<h2>Executive summary</h2>
+<div class="summary" style="white-space:pre-wrap">{{.ExecutiveSummary}}</div>{{end}}
 <h2>Summary</h2>
 <p><b>{{.Summary.Total}}</b> finding(s) with supporting evidence across <b>{{.Summary.Applications}}</b> application(s).{{if .Methodology.Summary.Total}} Methodology coverage: <b>{{.Methodology.Summary.CoveredPct}}%</b>.{{end}}</p>
 <figure class="chart">{{.SeverityChart}}</figure>
@@ -324,6 +334,8 @@ const brandedHTML = `<!doctype html><html><head><meta charset="utf-8">
 <h3><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}}</h3>
 <p class="fmeta">{{.AppName}} · {{.Status}}{{if .CWE}} · {{.CWE}}{{end}}</p>
 {{if .Description}}<p>{{.Description}}</p>{{end}}
+{{if .Impact}}<p><b>Impact:</b> {{.Impact}}</p>{{end}}
+{{if .Remediation}}<p><b>Remediation:</b> {{.Remediation}}</p>{{end}}
 <ul class="evidence">{{range .Evidence}}<li>{{.Title}}{{if .Location}} — <code>{{.Location}}</code>{{end}}</li>{{end}}</ul>
 </div>{{end}}{{else}}<p><em>No reportable findings.</em></p>{{end}}
 </body></html>`

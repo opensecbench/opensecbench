@@ -18,28 +18,28 @@ import (
 //
 // Egress note: narration sends finding titles/descriptions + evidence details to the provider. It reuses the
 // service's active provider; the caller gates it (a restricted engagement / no provider ⇒ don't narrate).
+// reportNarratorTag is the report-writer profile's model tag: narration is a cheap summarization, so it
+// routes to whatever model that tag maps to (ADR-0021) rather than the (possibly expensive) active model.
+const reportNarratorTag = "cheap"
+
 func (svc *Service) Narrate(ctx context.Context, d report.Data) (report.Narrative, error) {
 	if svc.provider == nil {
 		return report.Narrative{}, errors.New("no LLM provider configured")
 	}
-	if len(d.Findings) == 0 {
-		// Nothing to write findings prose for; still produce a short executive summary of the coverage.
-		return svc.completeNarrative(ctx, buildNarratorPrompt(d))
-	}
-	return svc.completeNarrative(ctx, buildNarratorPrompt(d))
-}
-
-func (svc *Service) completeNarrative(ctx context.Context, prompt string) (report.Narrative, error) {
-	resp, err := svc.provider.Complete(ctx, llm.CompletionRequest{
+	tgt := svc.targetForTag(ctx, reportNarratorTag)
+	resp, err := tgt.Provider.Complete(ctx, llm.CompletionRequest{
+		Model:     tgt.SessionModel,
 		MaxTokens: 4000,
 		Messages: []llm.Message{
 			{Role: "system", Content: narratorSystem},
-			{Role: "user", Content: prompt},
+			{Role: "user", Content: buildNarratorPrompt(d)},
 		},
 	})
 	if err != nil {
 		return report.Narrative{}, err
 	}
+	// Attribute the narration tokens like any other agent run (ADR-0021).
+	svc.recordDelegateUsage(ctx, d.Project.ID, "report-writer", tgt, resp.InputTokens, resp.OutputTokens)
 	return parseNarrative(resp.Text)
 }
 

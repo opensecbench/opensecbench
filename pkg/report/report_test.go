@@ -339,6 +339,15 @@ func TestNarrativeRendersIntoTemplates(t *testing.T) {
 		t.Fatalf("impact/remediation not rendered:\n%s", techOut)
 	}
 
+	// The client-facing branded template carries the narrative too (MD + HTML).
+	branded, _ := reg.Get("branded")
+	for _, f := range []Format{FormatMarkdown, FormatHTML} {
+		out, _ := branded.Render(d, f)
+		if !bytesContains(out, "critical authorization flaw") || !bytesContains(out, "per-object authorization") {
+			t.Fatalf("branded (%s) missing narrative:\n%s", f, out)
+		}
+	}
+
 	// Without narrative, those strings are absent.
 	d.ExecutiveSummary = ""
 	d.Findings[0].Impact = ""
