@@ -257,3 +257,26 @@ and can later ship as plugins.
       shipped; scope + DLP + audit already apply).
 - [ ] **KMS / OS-keychain** vault key custody (env var or 0600 key file today).
 - [ ] Hosted team **collaboration/sync** (portable export/import + webhook sharing today).
+
+## Functional gaps (2026-07-20 project review — untracked stubs/gaps)
+
+- [ ] **Finding lifecycle** — `store.SetFindingStatus` exists (open|confirmed|remediated|accepted) but has
+      NO API route and NO UI, so findings are write-once. Add `POST /v1/findings/{id}/status` + a status
+      control on finding rows. *(highest value, small)*
+- [ ] **Methodology un-adopt UI** — `unadoptMethodology` (store+API+client) exists but has no button; you can
+      adopt a pack but never remove it.
+- [ ] **Analyst can't read binary context** — `pkg/analyst/corpustools.go:82` returns a note, not content,
+      for PDF/docx/binary docs; a doc/email-ingesting assessment tool should extract text.
+- [ ] **Swallowed persistence errors in orchestration** — `planrunner.go:87-206` discards every
+      `UpdatePlanStep`/`UpdatePlanStatus`; `scheduler.go:54` swallows `markRun`. A DB failure mid-plan is
+      invisible (wrong resume / schedule re-fire). Surface/handle these.
+- [ ] **Interactive sessions are bare** — `session/docker.go:16` hardcoded image, no assessment toolchain /
+      cloud CLIs baked; `:42` no scoped network.
+- [ ] **Proxy TLS cert capture** — `proxy/proxy.go:69` captures no upstream cert chain/validity, so invalid/
+      expired certs can't be flagged on an exchange.
+- [ ] **API 400-vs-500 mapping** — user-input errors (e.g. createProject unknown target, `api.go:1577`)
+      return 500 instead of 400.
+- [ ] **Cleanup: orphaned template-create flow** — the engagement modal replaced it (+ archetype picker
+      removed), leaving `listTemplates`/`createProjectFromTemplate`/`createProject` and the `/v1/templates`
+      + from-template endpoints unused. Wire templates back into the modal or retire the endpoints. Also dead
+      client methods: `getProject`, `getSession`, `getFinding`, `pickFile`.
