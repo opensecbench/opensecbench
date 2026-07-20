@@ -20,6 +20,9 @@ type OpenAIProvider struct {
 	APIKey  string // empty for keyless local servers
 	Model   string
 	HTTP    *http.Client
+	// AuthHeader overrides how the key is sent. Empty (default) uses "Authorization: Bearer <key>";
+	// Azure AI Foundry uses "api-key: <key>" (ADR-0052).
+	AuthHeader string
 	// UseNativeTools sends tools and tool turns as native tool_calls / role:"tool" messages
 	// (ADR-0017) instead of the prompted text protocol. The config paths enable it by default
 	// (OSB_LLM_NATIVE_TOOLS=0 forces the prompted fallback).
@@ -36,6 +39,18 @@ func (p *OpenAIProvider) Name() string {
 
 // NativeTools reports whether this provider handles tools natively (ToolAware).
 func (p *OpenAIProvider) NativeTools() bool { return p.UseNativeTools }
+
+// setAuth attaches the API key using the configured header (default Authorization: Bearer).
+func (p *OpenAIProvider) setAuth(req *http.Request) {
+	if p.APIKey == "" {
+		return
+	}
+	if p.AuthHeader != "" {
+		req.Header.Set(p.AuthHeader, p.APIKey)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+p.APIKey)
+}
 
 // Complete calls the chat/completions endpoint.
 func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
@@ -71,9 +86,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		return CompletionResponse{}, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	if p.APIKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.APIKey)
-	}
+	p.setAuth(httpReq)
 
 	client := p.HTTP
 	if client == nil {

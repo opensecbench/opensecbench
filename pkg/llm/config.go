@@ -64,6 +64,26 @@ func New(cfg Config) (Provider, error) {
 		return openAICompat("deepseek", orDefault(cfg.BaseURL, "https://api.deepseek.com/v1"), cfg.APIKey, orDefault(cfg.Model, "deepseek-v4-flash"), cfg.NativeTools), nil
 	case "grok", "xai":
 		return openAICompat("grok", orDefault(cfg.BaseURL, "https://api.x.ai/v1"), cfg.APIKey, orDefault(cfg.Model, "grok-4-fast"), cfg.NativeTools), nil
+	case "bedrock":
+		// A gateway serving many families behind one credential (ADR-0052). BaseURL carries the AWS
+		// region; APIKey carries the sealed AWS credentials (JSON or ACCESS:SECRET[:TOKEN]).
+		region := strings.TrimSpace(cfg.BaseURL)
+		if region == "" {
+			return nil, fmt.Errorf("llm: bedrock requires an AWS region (in the base URL / region field)")
+		}
+		creds, err := parseBedrockCreds(cfg.APIKey)
+		if err != nil {
+			return nil, err
+		}
+		return &BedrockProvider{Region: region, Creds: creds, Model: cfg.Model}, nil
+	case "azure-foundry", "foundry":
+		// Azure AI Foundry: OpenAI-compatible inference + /models discovery, with Azure's api-key header.
+		if cfg.BaseURL == "" {
+			return nil, fmt.Errorf("llm: azure-foundry requires an endpoint (base URL)")
+		}
+		p := openAICompat("azure-foundry", cfg.BaseURL, cfg.APIKey, cfg.Model, cfg.NativeTools)
+		p.AuthHeader = "api-key"
+		return p, nil
 	case "openai", "azure", "openai-compat":
 		if cfg.BaseURL == "" {
 			return nil, fmt.Errorf("llm: %s requires a base URL", cfg.Type)
