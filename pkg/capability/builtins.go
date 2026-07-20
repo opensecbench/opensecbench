@@ -233,6 +233,7 @@ func (nmapScan) Manifest() Manifest {
 		OutputMediaType: "application/x-nmap-xml", // interpret.NmapMediaType
 		OKExitCodes:     []int{0},
 		TargetParam:     "target",
+		Technique:       "intrusive", // active service probing — gated by the engagement's rules of engagement (ADR-0051)
 	}
 }
 

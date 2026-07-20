@@ -24,6 +24,10 @@ type Manifest struct {
 	// TargetParam names the input param holding a network target (host/URL). When set, the
 	// capability touches the network and the engine enforces the scope allowlist against it.
 	TargetParam string `json:"target_param,omitempty"`
+	// Technique tags this capability with a rules-of-engagement technique (ADR-0051): one of
+	// "intrusive", "automated_exploit", "brute_force", "dos", "social", "destructive". When set, the engine
+	// blocks the run unless the project's engagement permits that technique. Empty = passive, always allowed.
+	Technique string `json:"technique,omitempty"`
 	// Dispositions route this capability's observations to a post-run action (ADR-0028). Empty means
 	// everything is left for manual review (default).
 	Dispositions []disposition.Disposition `json:"dispositions,omitempty"`

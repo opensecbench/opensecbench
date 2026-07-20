@@ -272,6 +272,10 @@ type RunRequest struct {
 // ErrOutOfScope is returned when a network capability's target is not in the project allowlist.
 var ErrOutOfScope = errors.New("task: target out of scope")
 
+// ErrTechniqueNotPermitted is returned when a capability's rules-of-engagement technique is not allowed by
+// the project's engagement (ADR-0051).
+var ErrTechniqueNotPermitted = errors.New("task: technique not permitted by this engagement")
+
 // Outcome is a completed task with its artifacts and any observations interpreted from them.
 type Outcome struct {
 	Task         model.Task          `json:"task"`
@@ -314,11 +318,52 @@ func (e *Engine) prepare(ctx context.Context, req RunRequest) (prepared, error) 
 		}
 	}
 
+	// Rules-of-engagement gate (ADR-0051): block a technique the engagement does not permit, at enqueue so
+	// no task is created. applicationID is resolved above, so the project (and its engagement) is reachable.
+	if err := e.checkTechnique(ctx, req, applicationID, man); err != nil {
+		return prepared{}, err
+	}
+
 	spec, err := c.Plan(capability.Input{TargetDir: targetDir, Params: req.Params})
 	if err != nil {
 		return prepared{}, err
 	}
 	return prepared{man: man, spec: spec, applicationID: applicationID}, nil
+}
+
+// checkTechnique blocks a run whose capability is tagged with a technique the project's engagement does not
+// permit. It fails open — no project context, no engagement, or no techniques configured means no restriction
+// — so it only ever tightens once an operator has set rules of engagement.
+func (e *Engine) checkTechnique(ctx context.Context, req RunRequest, applicationID *string, man capability.Manifest) error {
+	if man.Technique == "" {
+		return nil
+	}
+	projectID := ""
+	switch {
+	case req.ProjectID != nil:
+		projectID = *req.ProjectID
+	case applicationID != nil:
+		if app, err := e.p(pidPtr(req.ProjectID)).GetApplication(ctx, *applicationID); err == nil {
+			projectID = app.ProjectID
+		}
+	}
+	if projectID == "" {
+		return nil
+	}
+	eng, err := e.p(pidPtr(req.ProjectID)).GetEngagement(ctx, projectID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil // no engagement configured → unconstrained
+	}
+	if err != nil {
+		return fmt.Errorf("load engagement: %w", err)
+	}
+	if len(eng.Techniques) == 0 {
+		return nil // rules of engagement not configured → unconstrained
+	}
+	if !eng.Techniques[man.Technique] {
+		return fmt.Errorf("%w: capability %q uses technique %q", ErrTechniqueNotPermitted, man.ID, man.Technique)
+	}
+	return nil
 }
 
 // createTask records a task for a prepared run. queued marks it pending (a worker starts it later).
@@ -806,7 +851,7 @@ func (e *Engine) checkScope(ctx context.Context, req RunRequest, applicationID *
 	target, _ := req.Params[targetParam].(string)
 	rules := make([]scope.Entry, len(entries))
 	for i, en := range entries {
-		rules[i] = scope.Entry{Kind: en.Kind, Value: en.Value}
+		rules[i] = scope.Entry{Kind: en.Kind, Value: en.Value, Disposition: en.Disposition}
 	}
 	if err := scope.Check(rules, target); err != nil {
 		return fmt.Errorf("%w: %v", ErrOutOfScope, err)
