@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api, ConnectionModel, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
 
-// Map a provider add-form type to its catalog provider key (Azure shares OpenAI's models; claude-cli
-// picks its own model, so it has no picker; the Bedrock/Foundry gateways serve many families, so they
-// have no single overlay list — their models come from discovery, ADR-0052).
-export const CATALOG_KEY: Record<string, string> = { anthropic: 'anthropic', openai: 'openai', azure: 'openai', deepseek: 'deepseek', grok: 'grok', ollama: 'ollama', bedrock: '', 'azure-foundry': '' }
+// Map a provider add-form type to its catalog provider key. The Claude CLI subscription runs the same
+// Anthropic models a direct API connection does (passed as --model, ADR-0052), so it shares Anthropic's
+// list. Azure shares OpenAI's. The Bedrock/Foundry gateways serve many families, so they have no single
+// overlay list — their models come from discovery.
+export const CATALOG_KEY: Record<string, string> = { anthropic: 'anthropic', 'claude-cli': 'anthropic', openai: 'openai', azure: 'openai', deepseek: 'deepseek', grok: 'grok', ollama: 'ollama', bedrock: '', 'azure-foundry': '' }
 
 function priceLabel(m: ModelCatalogEntry): string {
   if (m.input_per_mtok === 0 && m.output_per_mtok === 0) return 'local'
@@ -18,7 +19,7 @@ export const PROVIDER_TYPES = [
   { value: 'anthropic', label: 'Anthropic API', needsKey: true, needsBase: false, modelHint: 'claude-sonnet-5', baseHint: '', keyHint: '' },
   { value: 'openai', label: 'OpenAI-compatible', needsKey: true, needsBase: true, modelHint: 'gpt-5', baseHint: '', keyHint: '' },
   { value: 'ollama', label: 'Ollama (local)', needsKey: false, needsBase: true, modelHint: 'llama3', baseHint: '', keyHint: '' },
-  { value: 'claude-cli', label: 'Claude CLI (subscription)', needsKey: false, needsBase: false, modelHint: '', baseHint: '', keyHint: '' },
+  { value: 'claude-cli', label: 'Claude CLI (subscription)', needsKey: false, needsBase: false, modelHint: 'claude-sonnet-5', baseHint: '', keyHint: '' },
   { value: 'deepseek', label: 'DeepSeek', needsKey: true, needsBase: false, modelHint: 'deepseek-v4-flash', baseHint: '', keyHint: '' },
   { value: 'grok', label: 'xAI Grok', needsKey: true, needsBase: false, modelHint: 'grok-4-fast', baseHint: '', keyHint: '' },
   { value: 'bedrock', label: 'AWS Bedrock (gateway)', needsKey: true, needsBase: true, modelHint: 'default model (optional)', baseHint: 'AWS region · e.g. us-east-1', keyHint: 'ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN]' },

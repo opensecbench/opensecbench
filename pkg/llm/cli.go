@@ -25,6 +25,10 @@ import (
 type CLIProvider struct {
 	Bin  string
 	Args []string // base args before flags; default -p
+	// Model, when set, is the connection's default model, passed as `--model` (ADR-0052). A per-request
+	// req.Model (e.g. from tag routing) overrides it. Empty → the CLI's own default model. This lets a
+	// subscription connection run the same Anthropic models a direct API connection does.
+	Model string
 	// Sandbox, when set, runs the CLI inside a runner container mounting only the credential file,
 	// instead of exec'ing it on the host (ADR-0018). Nil → direct host exec (the default).
 	Sandbox *CLISandbox
@@ -83,13 +87,11 @@ type cliResult struct {
 func (c *CLIProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	system, convo := splitSystem(req.Messages)
 
-	args := append([]string{}, c.Args...)
-	args = append(args, "--output-format", "json")
-	args = append(args, "--disallowed-tools")
-	args = append(args, disabledCLITools...)
-	if system != "" {
-		args = append(args, "--append-system-prompt", system)
+	model := req.Model
+	if model == "" {
+		model = c.Model
 	}
+	args := c.buildArgs(system, model)
 	stdin := []byte(RenderPrompt(convo))
 
 	var stdout []byte
@@ -103,6 +105,22 @@ func (c *CLIProvider) Complete(ctx context.Context, req CompletionRequest) (Comp
 		return CompletionResponse{}, err
 	}
 	return c.parseResult(stdout)
+}
+
+// buildArgs assembles the CLI flags: JSON output, disabled agent tools, the system prompt as a real
+// system prompt, and (when set) the model. The prompt itself goes on stdin, not here.
+func (c *CLIProvider) buildArgs(system, model string) []string {
+	args := append([]string{}, c.Args...)
+	args = append(args, "--output-format", "json")
+	args = append(args, "--disallowed-tools")
+	args = append(args, disabledCLITools...)
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	if system != "" {
+		args = append(args, "--append-system-prompt", system)
+	}
+	return args
 }
 
 // runHost execs the CLI directly on the host, returning its stdout.

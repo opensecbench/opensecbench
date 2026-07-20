@@ -59,6 +59,44 @@ func TestCLIProviderPassesSystemAsFlagAndConvoOnStdin(t *testing.T) {
 	}
 }
 
+func TestCLIProviderPassesModel(t *testing.T) {
+	bin, argsFile, _ := fakeClaude(t, `{"is_error":false,"result":"OK"}`)
+
+	// A per-request model (e.g. from tag routing) is passed as --model.
+	p := NewCLIProvider(bin)
+	if _, err := p.Complete(context.Background(), CompletionRequest{
+		Model:    "claude-opus-4-8",
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(argsFile)
+	if !strings.Contains(string(args), "--model claude-opus-4-8") {
+		t.Fatalf("per-request model not passed; args = %q", args)
+	}
+
+	// The connection default model is used when the request names none.
+	p2 := NewCLIProvider(bin)
+	p2.Model = "claude-haiku-4-5"
+	if _, err := p2.Complete(context.Background(), CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}}); err != nil {
+		t.Fatal(err)
+	}
+	args, _ = os.ReadFile(argsFile)
+	if !strings.Contains(string(args), "--model claude-haiku-4-5") {
+		t.Fatalf("connection default model not passed; args = %q", args)
+	}
+
+	// No model configured → no --model flag (CLI uses its own default).
+	p3 := NewCLIProvider(bin)
+	if _, err := p3.Complete(context.Background(), CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}}); err != nil {
+		t.Fatal(err)
+	}
+	args, _ = os.ReadFile(argsFile)
+	if strings.Contains(string(args), "--model") {
+		t.Fatalf("--model should be absent when no model set; args = %q", args)
+	}
+}
+
 // TestCLIProviderReal exercises the adapter against the real `claude` binary + ambient credentials.
 // Skipped by default (CI has neither); run with OSB_TEST_CLAUDE=1 locally.
 func TestCLIProviderReal(t *testing.T) {
