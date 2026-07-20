@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from 'react'
-import { api, HomeData, Project, Template, SearchResult } from './api'
+import { api, HomeData, Project, SearchResult } from './api'
 import { EngagementModal } from './EngagementModal'
 
 // Compact number for token counts: 1_240_000 -> "1.2M", 310_000 -> "310k".
@@ -32,7 +32,6 @@ function Ring({ pct }: { pct: number }) {
 
 export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project, target?: { surface?: string; thread?: string }) => void }) {
   const [projects, setProjects] = useState<Project[]>([])
-  const [templates, setTemplates] = useState<Template[]>([])
   const [home, setHome] = useState<HomeData | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,7 +50,6 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
   const refresh = useCallback(async () => {
     try {
       setProjects((await api.listProjects()) ?? [])
-      setTemplates((await api.listTemplates()) ?? [])
       setError(null)
       await loadHome()
     } catch (e) {
@@ -311,7 +309,6 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
       {showCreate && (
         <EngagementModal
           online={online}
-          templates={templates}
           onClose={() => setShowCreate(false)}
           onCreated={(p) => { setShowCreate(false); void refresh(); onOpen(p) }}
         />
