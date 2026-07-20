@@ -8,6 +8,7 @@ import {
   ContextItem,
   CoverageView,
   AuditEvent,
+  Engagement,
   Finding,
   HTTPExchange,
   Observation,
@@ -25,6 +26,7 @@ import {
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
 import { LocationChip, OpenCode, parseLoc } from './CodeLink'
+import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
 import { IntegrationsTab } from './IntegrationsTab'
@@ -62,6 +64,7 @@ type Tab =
   | 'graph'
   | 'integrations'
   | 'audit'
+  | 'settings'
   | 'code'
 
 type Conn = 'connecting' | 'online' | 'offline'
@@ -92,6 +95,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
   { key: 'scope', icon: '🛡', label: 'Scope' },
   { key: 'reports', icon: '📄', label: 'Report', meta: true },
   { key: 'integrations', icon: '🔌', label: 'Integr', meta: true },
+  { key: 'settings', icon: '⚙', label: 'Settings', meta: true },
   { key: 'audit', icon: '📜', label: 'Audit', meta: true },
 ]
 
@@ -106,6 +110,7 @@ function surfaceTitle(t: Tab): string {
   if (t === 'assets') return 'Applications & Assets'
   if (t === 'scan') return 'Scan'
   if (t === 'orchestrate') return 'Agent Playbooks'
+  if (t === 'settings') return 'Engagement settings'
   if (t === 'code') return 'Source'
   return t[0].toUpperCase() + t.slice(1)
 }
@@ -115,6 +120,16 @@ function surfaceTitle(t: Tab): string {
 function docIcon(surface: Tab): string {
   if (surface === 'code') return '📄'
   return SURFACES.find((s) => s.key === surface)?.icon ?? '📄'
+}
+
+// authWarning returns a soft-gate message when an engagement lacks recorded authorization or it has expired
+// (ADR-0051). Soft: it warns (banner + pre-run confirm), it does not block — an engagement shouldn't trap
+// mid-flight work, and authorization is a record, not cryptographic proof.
+function authWarning(e: Engagement | null): string | null {
+  if (!e) return null
+  if (!e.authorized) return 'No written authorization is recorded for this engagement.'
+  if (e.auth_to && new Date(e.auth_to) < new Date(new Date().toDateString())) return `Authorization expired on ${e.auth_to}.`
+  return null
 }
 
 
@@ -545,7 +560,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const [context, setContext] = useState<ContextItem[]>([])
   const [findings, setFindings] = useState<Finding[]>([])
   const [observations, setObservations] = useState<Observation[]>([])
-  const [engTechniques, setEngTechniques] = useState<Record<string, boolean> | null>(null) // engagement's allowed techniques (ADR-0051)
+  const [engagement, setEngagement] = useState<Engagement | null>(null) // the engagement record (ADR-0051)
+  const engTechniques = engagement?.techniques ?? null
   // Deep-link target: a surface + row id to scroll to and flash, with a nonce so repeats re-fire.
   const [focus, setFocus] = useState<{ surface: Tab; id: string; n: number } | null>(null)
   const [coverage, setCoverage] = useState<CoverageView | null>(null)
@@ -568,7 +584,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       setContext((await api.listContext(project.id)) ?? [])
       setFindings((await api.listFindings()) ?? [])
       setObservations((await api.listObservations(project.id)) ?? [])
-      setEngTechniques((await api.getEngagement(project.id))?.techniques ?? null)
+      setEngagement((await api.getEngagement(project.id)) ?? null)
       setCoverage(await api.getMethodologyCoverage(project.id))
       setError(null)
     } catch (e) {
@@ -692,7 +708,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'scope':
         return <ScopeTab project={project} online={online} onError={setError} />
       case 'scan':
-        return <ScanTab assets={allAssets} capabilities={capabilities} techniques={engTechniques} online={online} afterFinding={loadAll} onError={setError} />
+        return <ScanTab assets={allAssets} capabilities={capabilities} techniques={engTechniques} authWarn={authWarning(engagement)} online={online} afterFinding={loadAll} onError={setError} />
       case 'replay':
         return <ReplayTab project={project} online={online} onError={setError} boundItem={doc.bind} seed={doc.seed} onEvidenceLinked={afterEvidenceLinked} />
       case 'proxy':
@@ -733,6 +749,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         return <IntegrationsTab project={project} online={online} onError={setError} />
       case 'audit':
         return <AuditTab online={online} onError={setError} />
+      case 'settings':
+        return <EngagementSettings project={project} online={online} onError={setError} onSaved={loadAll} />
       case 'code':
         return doc.code ? (
           <Suspense fallback={<div className="empty">Loading viewer…</div>}>
@@ -811,6 +829,11 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
               {activeSurface === 'replay' && (
                 <button className="wb-doctab-new" title="New Replay" onClick={() => openSurface('replay')}>＋</button>
               )}
+            </div>
+          )}
+          {authWarning(engagement) && (
+            <div className="banner warn wb-banner">
+              ⚠ {authWarning(engagement)} <button className="link" onClick={() => activateSurface('settings')}>Record authorization →</button>
             </div>
           )}
           {error && <div className="banner error wb-banner">⚠ {error}</div>}
@@ -1450,6 +1473,7 @@ function ScanTab({
   assets,
   capabilities,
   techniques,
+  authWarn,
   online,
   afterFinding,
   onError,
@@ -1457,6 +1481,7 @@ function ScanTab({
   assets: { asset: Asset; appName: string }[]
   capabilities: CapabilityManifest[]
   techniques: Record<string, boolean> | null
+  authWarn: string | null
   online: boolean
   afterFinding: () => Promise<void>
   onError: (m: string) => void
@@ -1483,6 +1508,8 @@ function ScanTab({
       onError(`${cap.title} uses the ${cap.technique} technique, which this engagement does not permit.`)
       return
     }
+    // Authorization soft-gate (ADR-0051): warn before running when authorization isn't on file / has expired.
+    if (authWarn && !window.confirm(`${authWarn}\n\nRun anyway?`)) return
     setRunning(true)
     setOutcome(null)
     try {

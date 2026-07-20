@@ -243,5 +243,5 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Adaptive modal: assessment type drives the form (no archetype picker); active types reveal
       scope/environment/techniques, static types (code/secrets/threat-model) hide them
 - [x] scope deny enforced in the task engine too (checkScope passes Disposition)
-- [ ] Edit-after-create: a Project Settings surface bound to GET/PUT /engagement (modal is create-only today)
-- [ ] Authorization soft-gate (banner + pre-run warning when unauthorized/expired)
+- [x] Edit-after-create: Project Settings surface (⚙) bound to GET/PUT /engagement
+- [x] Authorization soft-gate: Workbench banner + Scan pre-run confirm when unauthorized/expired
