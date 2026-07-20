@@ -63,7 +63,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	src, srcBlobs := newStore(t)
 	projID := seedProject(t, src, srcBlobs)
 
-	blob, err := Export(ctx, src, srcBlobs, projID, "correct horse battery staple")
+	blob, err := Export(ctx, store.NewCombinedManager(src), srcBlobs, projID, "correct horse battery staple")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 
 	// Import into a fresh instance.
 	dst, dstBlobs := newStore(t)
-	newProjID, err := Import(ctx, dst, dstBlobs, blob, "correct horse battery staple")
+	newProjID, err := Import(ctx, store.NewCombinedManager(dst), cas.Fixed(dstBlobs), blob, "correct horse battery staple")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 
 	// Re-import is safe: a second import yields a distinct project.
-	again, err := Import(ctx, dst, dstBlobs, blob, "correct horse battery staple")
+	again, err := Import(ctx, store.NewCombinedManager(dst), cas.Fixed(dstBlobs), blob, "correct horse battery staple")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,10 +134,10 @@ func TestWrongPassphraseFails(t *testing.T) {
 	ctx := context.Background()
 	src, srcBlobs := newStore(t)
 	projID := seedProject(t, src, srcBlobs)
-	blob, _ := Export(ctx, src, srcBlobs, projID, "right")
+	blob, _ := Export(ctx, store.NewCombinedManager(src), srcBlobs, projID, "right")
 
 	dst, dstBlobs := newStore(t)
-	if _, err := Import(ctx, dst, dstBlobs, blob, "wrong"); err == nil {
+	if _, err := Import(ctx, store.NewCombinedManager(dst), cas.Fixed(dstBlobs), blob, "wrong"); err == nil {
 		t.Fatal("import with wrong passphrase should fail")
 	}
 }

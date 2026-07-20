@@ -9,16 +9,21 @@ import (
 )
 
 // Export gathers a project's shareable assessment graph (findings + evidence + KB) and returns an
-// encrypted bundle sealed with passphrase.
-func Export(ctx context.Context, db *store.DB, blobs *cas.Store, projectID, passphrase string) ([]byte, error) {
-	proj, err := db.GetProject(ctx, projectID)
+// encrypted bundle sealed with passphrase. It reads the project's rows from its own database and its
+// durable targets/KB from the global database (ADR-0049); blobs is the project's own content store.
+func Export(ctx context.Context, mgr *store.Manager, blobs *cas.Store, projectID, passphrase string) ([]byte, error) {
+	proj, err := mgr.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	db, err := mgr.Project(projectID)
 	if err != nil {
 		return nil, err
 	}
 	d := &Data{Version: FormatVersion, Project: proj, Blobs: map[string][]byte{}}
 
 	for _, tid := range proj.TargetIDs {
-		if t, err := db.GetTarget(ctx, tid); err == nil {
+		if t, err := mgr.Global().GetTarget(ctx, tid); err == nil {
 			d.Targets = append(d.Targets, t)
 		}
 	}
@@ -83,7 +88,7 @@ func Export(ctx context.Context, db *store.DB, blobs *cas.Store, projectID, pass
 		}
 	}
 
-	if d.KB, err = db.ListKBByProject(ctx, projectID); err != nil {
+	if d.KB, err = mgr.ListKBForProject(ctx, projectID); err != nil {
 		return nil, err
 	}
 

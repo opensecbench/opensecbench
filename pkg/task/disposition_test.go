@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
+	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/disposition"
 	"github.com/opensecbench/opensecbench/pkg/interpret"
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -40,7 +41,7 @@ func dispoEngine(t *testing.T) (*Engine, *store.DB) {
 		{When: map[string]string{"verified": "true"}, Action: disposition.ActionFinding},
 		{When: map[string]string{"verified": "false"}, Action: disposition.ActionInvestigate},
 	}})
-	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, fakeRunner{out: []byte(twoSecrets), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte(twoSecrets), code: 0})
 	t.Cleanup(func() { eng.Close() })
 	return eng, db
 }
@@ -151,7 +152,7 @@ func reachEngine(t *testing.T) (*Engine, *store.DB) {
 	reg.Register(reachCap{dispositions: []disposition.Disposition{
 		{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
 	}})
-	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, fakeRunner{out: []byte(reachStream), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte(reachStream), code: 0})
 	t.Cleanup(func() { eng.Close() })
 	return eng, db
 }
@@ -253,7 +254,7 @@ func TestGrypeInheritsReachabilityVerdict(t *testing.T) {
 	db, blobs := openStore(t)
 	reg := capability.NewRegistry()
 	reg.Register(grypeLikeCap{})
-	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, fakeRunner{out: []byte(grypeSARIF), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte(grypeSARIF), code: 0})
 	defer eng.Close()
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
@@ -340,7 +341,7 @@ func TestSastDataflowRoutingOnExposedService(t *testing.T) {
 	db, blobs := openStore(t)
 	reg := capability.NewRegistry()
 	reg.Register(semgrepLikeCap{})
-	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, fakeRunner{out: []byte(semgrepSARIF), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte(semgrepSARIF), code: 0})
 	defer eng.Close()
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
@@ -405,7 +406,7 @@ func TestRouteMapPopulatesInventory(t *testing.T) {
 	db, blobs := openStore(t)
 	reg := capability.NewRegistry()
 	reg.Register(routeMapCap{})
-	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, fakeRunner{out: []byte(routeMapJSON), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte(routeMapJSON), code: 0})
 	defer eng.Close()
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
@@ -442,7 +443,7 @@ func TestExposedRouteAssociation(t *testing.T) {
 	db, blobs := openStore(t)
 	reg := capability.NewRegistry()
 	reg.Register(semgrepLikeCap{})
-	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, fakeRunner{out: []byte(semgrepSARIF), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte(semgrepSARIF), code: 0})
 	defer eng.Close()
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
@@ -519,7 +520,7 @@ func TestReachabilityCorrelatesAcrossCVEandGHSA(t *testing.T) {
 	sarif := `{"runs":[{"tool":{"driver":{"name":"grype"}},"results":[
 	  {"ruleId":"GHSA-ppp9-7jff-5vj2-golang.org/x/text","level":"error","message":{"text":"x/text vuln"},
 	   "locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":1}}}]}]}]}`
-	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, fakeRunner{out: []byte(sarif), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte(sarif), code: 0})
 	defer eng.Close()
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
@@ -569,7 +570,7 @@ func TestReScanRefreshesObservation(t *testing.T) {
 	// A cap whose fake output the govulncheck interpreter turns into observations; run it, then flip its
 	// reachability and re-run — the fingerprint (rule|location|detail) is unchanged, so it dedups+refreshes.
 	reg.Register(reachCap{dispositions: []disposition.Disposition{}})
-	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, fakeRunner{out: []byte(reachStream), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte(reachStream), code: 0})
 	defer eng.Close()
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
@@ -614,7 +615,7 @@ func TestCrossToolInvestigationDedup(t *testing.T) {
 {"finding":{"osv":"GO-2021-0113","trace":[{"module":"golang.org/x/text","package":"golang.org/x/text/language","function":"Parse","position":{"filename":"parse.go","line":228}}]}}`
 	regGV := capability.NewRegistry()
 	regGV.Register(reachCap{dispositions: []disposition.Disposition{{When: map[string]string{"reachable": "true"}, Action: disposition.ActionInvestigate}}})
-	engGV := NewEngine(store.NewCombinedManager(db), blobs, regGV, fakeRunner{out: []byte(gv), code: 0})
+	engGV := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), regGV, fakeRunner{out: []byte(gv), code: 0})
 	tkg, _ := engGV.Enqueue(ctx, RunRequest{CapabilityID: "fake-reach", TargetDir: "/r", ApplicationID: &app.ID})
 	pollTask(t, engGV, tkg.ID)
 	engGV.Close()
@@ -628,7 +629,7 @@ func TestCrossToolInvestigationDedup(t *testing.T) {
 	   "locations":[{"physicalLocation":{"artifactLocation":{"uri":"go.mod"},"region":{"startLine":1}}}]}]}]}`
 	regGr := capability.NewRegistry()
 	regGr.Register(grypeLikeCap{})
-	engGr := NewEngine(store.NewCombinedManager(db), blobs, regGr, fakeRunner{out: []byte(grype), code: 0})
+	engGr := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), regGr, fakeRunner{out: []byte(grype), code: 0})
 	defer engGr.Close()
 	tkr, _ := engGr.Enqueue(ctx, RunRequest{CapabilityID: "fake-grype", TargetDir: "/r", ApplicationID: &app.ID})
 	pollTask(t, engGr, tkr.ID)
@@ -644,7 +645,7 @@ func TestNoDispositionsLeavesReview(t *testing.T) {
 	db, blobs := openStore(t)
 	reg := capability.NewRegistry()
 	reg.Register(dispoCap{}) // no dispositions
-	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, fakeRunner{out: []byte(twoSecrets), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte(twoSecrets), code: 0})
 	defer eng.Close()
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})

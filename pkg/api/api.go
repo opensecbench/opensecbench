@@ -50,7 +50,8 @@ import (
 type Deps struct {
 	Store        *store.Manager
 	Engine       *task.Engine
-	CAS          *cas.Store
+	CAS          *cas.Store   // single store for tests/combined; production passes CASResolver instead
+	CASResolver  cas.Resolver // per-project CAS (ADR-0049); takes precedence over CAS when set
 	Provider     llm.Provider
 	SessionMgr   *session.Manager
 	ProxyCA      *proxy.CA
@@ -68,7 +69,7 @@ type Server struct {
 	mux            *http.ServeMux
 	mgr            *store.Manager
 	engine         *task.Engine
-	cas            *cas.Store
+	casr           cas.Resolver
 	providerMu     sync.RWMutex
 	provider       llm.Provider
 	activeProvider providerInfo
@@ -103,6 +104,31 @@ type Server struct {
 
 // errNoStore is returned when a handler needs the database but the server was built without one.
 var errNoStore = errors.New("api: no store configured")
+
+// casResolver picks the per-project CAS resolver when provided (production/split), otherwise wraps the
+// single store as a fixed resolver (tests/combined). Nil when neither is set.
+func casResolver(deps Deps) cas.Resolver {
+	if deps.CASResolver != nil {
+		return deps.CASResolver
+	}
+	if deps.CAS != nil {
+		return cas.Fixed(deps.CAS)
+	}
+	return nil
+}
+
+// casFor returns the content store owning a project's blobs (ADR-0049). Returns nil if CAS is
+// unconfigured or the project can't be resolved; callers treat that like any store error.
+func (s *Server) casFor(projectID string) *cas.Store {
+	if s.casr == nil {
+		return nil
+	}
+	st, err := s.casr.For(projectID)
+	if err != nil {
+		return nil
+	}
+	return st
+}
 
 // global returns the instance-wide database handle (ADR-0049): org tree, targets, KB, settings,
 // providers, runners, secrets, audit, and the project index. Nil-safe so partially-built test servers
@@ -178,7 +204,7 @@ func New(deps Deps) *Server {
 		mux:          http.NewServeMux(),
 		mgr:          deps.Store,
 		engine:       deps.Engine,
-		cas:          deps.CAS,
+		casr:         casResolver(deps),
 		provider:     deps.Provider,
 		replay:       replay.New(0),
 		events:       events.NewHub(),
@@ -458,7 +484,7 @@ func (s *Server) routes() {
 }
 
 func (s *Server) analystService() *analyst.Service {
-	svc := analyst.NewService(s.mgr, s.engine, s.cas, s.workspaceDir, s.guardedProvider())
+	svc := analyst.NewService(s.mgr, s.engine, s.casr, s.workspaceDir, s.guardedProvider())
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}
@@ -1644,7 +1670,7 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	digest, err := s.cas.Put(bytes.NewReader(data))
+	digest, err := s.casFor(projectFromReq(r)).Put(bytes.NewReader(data))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1966,7 +1992,7 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 	_ = decodeJSONOptional(r, &req)
 
 	blob := ex.ResponseHeaders + "\n" + ex.ResponseBody
-	digest, err := s.cas.Put(bytes.NewReader([]byte(blob)))
+	digest, err := s.casFor(projectFromReq(r)).Put(bytes.NewReader([]byte(blob)))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2125,7 +2151,7 @@ func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	rc, err := s.cas.Open(art.SHA256)
+	rc, err := s.casFor(projectFromReq(r)).Open(art.SHA256)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "artifact bytes unavailable")
 		return

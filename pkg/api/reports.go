@@ -118,7 +118,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 // storeReport writes rendered report bytes to the CAS, records the report, audits, notifies, and
 // responds. Shared by every format path.
 func (s *Server) storeReport(w http.ResponseWriter, r *http.Request, projectID string, tmpl *report.Template, format report.Format, rendered []byte, findings int) {
-	digest, err := s.cas.Put(bytes.NewReader(rendered))
+	digest, err := s.casFor(projectID).Put(bytes.NewReader(rendered))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

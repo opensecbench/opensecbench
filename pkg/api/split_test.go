@@ -24,8 +24,7 @@ func TestSplitModeEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = mgr.Close() })
-	blobs, _ := cas.Open(filepath.Join(dir, "cas"))
-	srv := httptest.NewServer(New(Deps{Store: mgr, CAS: blobs}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: mgr, CASResolver: cas.NewPerProject(dir)}).Handler())
 	t.Cleanup(srv.Close)
 
 	// do issues a request with the active-project header and decodes the JSON response.
@@ -107,6 +106,28 @@ func TestSplitModeEndToEnd(t *testing.T) {
 	rows, err := mgr.Global().ListProjectIndex(t.Context())
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("project index = %v (err %v), want 2", rows, err)
+	}
+
+	// Ingesting a document into project A writes its blob under projects/A/cas — not a shared store.
+	req, _ := http.NewRequest("POST",
+		srv.URL+"/v1/projects/"+pA.ID+"/context?name=doc&type=document", bytes.NewReader([]byte("secret notes")))
+	req.Header.Set("X-Project-Id", pA.ID)
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("ingest context = %d, want 201", resp.StatusCode)
+	}
+	casDir := filepath.Join(dir, "projects", pA.ID, "cas")
+	if entries, err := os.ReadDir(casDir); err != nil || len(entries) == 0 {
+		t.Errorf("project A CAS %s empty or missing (err %v) — blob not routed to per-project store", casDir, err)
+	}
+	// Project B's CAS stays empty.
+	if entries, _ := os.ReadDir(filepath.Join(dir, "projects", pB.ID, "cas")); len(entries) != 0 {
+		t.Errorf("project B CAS unexpectedly has %d entries", len(entries))
 	}
 }
 

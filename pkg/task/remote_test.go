@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
+	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
@@ -26,7 +27,7 @@ func (r *recordingRunner) Run(context.Context, runner.RunSpec) (runner.Result, e
 func TestEngineDispatchesToRemoteRunner(t *testing.T) {
 	db, blobs := openStore(t)
 	// The local runner would be used if selection failed; make it fail so the test can't pass by accident.
-	eng := NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeRunner{code: 2})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakeRunner{code: 2})
 	defer eng.Close()
 	remote := &recordingRunner{name: "edge-1"}
 	eng.SetRunnerResolver(func(id string) (runner.Runner, error) {
@@ -67,7 +68,7 @@ func TestEngineReconstructsRemoteTarget(t *testing.T) {
 		t.Fatalf("seed runner_target = %q", seeded.RunnerTarget)
 	}
 
-	eng := NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeRunner{code: 2})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakeRunner{code: 2})
 	defer eng.Close()
 	remote := &recordingRunner{name: "edge-1"}
 	eng.SetRunnerResolver(func(id string) (runner.Runner, error) { return remote, nil })
@@ -82,7 +83,7 @@ func TestEngineReconstructsRemoteTarget(t *testing.T) {
 
 func TestEngineRemoteTargetWithoutResolverFails(t *testing.T) {
 	db, blobs := openStore(t)
-	eng := NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeRunner{code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakeRunner{code: 0})
 	defer eng.Close()
 	// No resolver set → a remote-targeted task fails cleanly rather than running locally.
 	task, err := eng.Enqueue(context.Background(), RunRequest{

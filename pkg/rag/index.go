@@ -19,7 +19,7 @@ const maxIndexBytes = 1 << 20 // 1 MiB
 // Embedder and persists vectors in the store. A nil Embedder disables indexing/search (best-effort).
 type Indexer struct {
 	Mgr   *store.Manager
-	Blobs *cas.Store
+	Casr  cas.Resolver
 	Embed llm.Embedder
 }
 
@@ -27,6 +27,18 @@ type Indexer struct {
 func (ix *Indexer) Available() bool { return ix != nil && ix.Embed != nil }
 
 // p resolves the project's database, falling back to global so a nil handle never panics (ADR-0049).
+// casForBlob returns the project's content store (ADR-0049), nil if unresolved.
+func (ix *Indexer) casForBlob(projectID string) *cas.Store {
+	if ix.Casr == nil {
+		return nil
+	}
+	st, err := ix.Casr.For(projectID)
+	if err != nil {
+		return nil
+	}
+	return st
+}
+
 func (ix *Indexer) p(projectID string) *store.DB {
 	if ix.Mgr == nil {
 		return nil
@@ -53,7 +65,7 @@ func (ix *Indexer) IndexContextItem(ctx context.Context, projectID, itemID strin
 	if err != nil {
 		return err
 	}
-	rc, err := ix.Blobs.Open(art.SHA256)
+	rc, err := ix.casForBlob(projectID).Open(art.SHA256)
 	if err != nil {
 		return err
 	}
