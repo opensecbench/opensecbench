@@ -185,10 +185,28 @@ type Provider struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Type      string    `json:"type"`
-	Model     string    `json:"model"`
+	Model     string    `json:"model"` // optional default model (ADR-0052 back-compat); the connection serves many
 	BaseURL   string    `json:"base_url"`
 	KeySealed string    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
+	// ModelsRefreshedAt is when this connection's model set was last discovered (ADR-0052); zero = never.
+	ModelsRefreshedAt time.Time `json:"models_refreshed_at,omitempty"`
+}
+
+// ConnectionModel is one model a connection can serve, discovered from the backend and enriched by the
+// curated overlay (ADR-0052). Cached in connection_models so the picker and routing reflect what the
+// backend actually serves. Source is "live" | "overlay" | "custom".
+type ConnectionModel struct {
+	ConnectionID  string    `json:"connection_id"`
+	ModelID       string    `json:"model_id"`
+	DisplayName   string    `json:"display_name"`
+	Family        string    `json:"family"`
+	ContextWindow int       `json:"context_window"`
+	InputPerMTok  float64   `json:"input_per_mtok"`
+	OutputPerMTok float64   `json:"output_per_mtok"`
+	Tags          []string  `json:"tags"`
+	Source        string    `json:"source"`
+	LastSeen      time.Time `json:"last_seen"`
 }
 
 // Runner statuses.

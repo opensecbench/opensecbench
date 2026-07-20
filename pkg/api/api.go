@@ -375,6 +375,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/models/catalog", s.getModelCatalog)
 	s.mux.HandleFunc("GET /v1/models/routing", s.getModelRouting)
 	s.mux.HandleFunc("PUT /v1/models/routing", s.setModelRouting)
+	// A connection (providers row) serves many models, discovered live and enriched by the overlay (ADR-0052).
+	s.mux.HandleFunc("GET /v1/connections/{id}/models", s.listConnectionModels)
+	s.mux.HandleFunc("POST /v1/connections/{id}/models/refresh", s.refreshConnectionModelsHandler)
 	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)

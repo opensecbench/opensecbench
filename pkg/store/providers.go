@@ -30,15 +30,18 @@ func (db *DB) CreateProvider(ctx context.Context, p model.Provider) (model.Provi
 	return p, nil
 }
 
-const providerCols = `id, name, type, model, base_url, key_sealed, created_at`
+const providerCols = `id, name, type, model, base_url, key_sealed, created_at, models_refreshed_at`
 
 func scanProvider(s interface{ Scan(...any) error }) (model.Provider, error) {
 	var p model.Provider
-	var created string
-	if err := s.Scan(&p.ID, &p.Name, &p.Type, &p.Model, &p.BaseURL, &p.KeySealed, &created); err != nil {
+	var created, refreshed string
+	if err := s.Scan(&p.ID, &p.Name, &p.Type, &p.Model, &p.BaseURL, &p.KeySealed, &created, &refreshed); err != nil {
 		return model.Provider{}, err
 	}
 	p.CreatedAt = parseTime(created)
+	if refreshed != "" {
+		p.ModelsRefreshedAt = parseTime(refreshed)
+	}
 	return p, nil
 }
 
