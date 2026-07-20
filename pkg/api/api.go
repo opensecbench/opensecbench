@@ -485,6 +485,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/findings", s.listFindings)
 	s.mux.HandleFunc("POST /v1/findings", s.createFinding)
 	s.mux.HandleFunc("GET /v1/findings/{id}", s.getFinding)
+	s.mux.HandleFunc("POST /v1/findings/{id}/status", s.setFindingStatus)
 	s.mux.HandleFunc("GET /v1/integrations", s.listIntegrations)
 	s.mux.HandleFunc("GET /v1/findings/{id}/links", s.listFindingLinks)
 	s.mux.HandleFunc("POST /v1/findings/{id}/push", s.pushFinding)
@@ -2545,6 +2546,43 @@ func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "finding not found")
 		return
 	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
+}
+
+// validFindingStatus is the set a finding may transition to (model constants).
+var validFindingStatus = map[string]bool{
+	model.FindingOpen: true, model.FindingConfirmed: true, model.FindingRemediated: true,
+	model.FindingAccepted: true, model.FindingFalsePositive: true,
+}
+
+// setFindingStatus advances a finding through its lifecycle (open → confirmed → remediated / accepted /
+// false_positive). Findings were write-once before this — the store method existed but had no route.
+func (s *Server) setFindingStatus(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Status string `json:"status"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !validFindingStatus[req.Status] {
+		writeErr(w, http.StatusBadRequest, "invalid status (open|confirmed|remediated|accepted|false_positive)")
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.pdb(r).SetFindingStatus(r.Context(), id, req.Status); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "finding not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "finding.status", id, map[string]string{"status": req.Status})
+	f, err := s.pdb(r).GetFinding(r.Context(), id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

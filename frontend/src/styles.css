@@ -2329,3 +2329,10 @@ select.em-in { cursor: pointer; }
 .orch-edit { border: 0; background: transparent; color: var(--tx3); font-size: 11px; padding: 0 6px; cursor: pointer; }
 .orch-edit:hover { color: var(--acc); }
 .orch-chip.gate { color: var(--amber); border-color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+
+/* Finding status control + methodology remove (2026-07-20 review fixes) */
+.finding-status { border: 0; cursor: pointer; font-family: inherit; -webkit-appearance: none; appearance: none; padding-right: 6px; }
+.finding-status:focus { outline: 1px solid var(--acc); }
+.mpack-head { display: flex; align-items: center; gap: 8px; }
+.mpack-remove { border: 1px solid var(--line2); background: transparent; color: var(--tx3); border-radius: 6px; font-size: 11px; padding: 2px 9px; cursor: pointer; }
+.mpack-remove:hover { color: var(--red); border-color: var(--red); }
