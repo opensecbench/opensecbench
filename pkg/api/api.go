@@ -122,6 +122,10 @@ func projectFromReq(r *http.Request) string {
 	if h := r.Header.Get("X-Project-Id"); h != "" {
 		return h
 	}
+	// URL-embedded requests (artifact <img>/<a>) can't set a header, so they pass ?project=.
+	if q := r.URL.Query().Get("project"); q != "" {
+		return q
+	}
 	return r.PathValue("id")
 }
 

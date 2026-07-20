@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, Project } from './api'
+import { api, Project, setActiveProject } from './api'
 import { Home } from './Home'
 import { Workbench } from './Workbench'
 import { NotificationBell } from './NotificationBell'
@@ -19,6 +19,12 @@ export function App() {
     setTarget(t)
     setProject(p)
   }
+
+  // Scope every API request to the open project (ADR-0049): its id rides as X-Project-Id so the backend
+  // routes flat-route entities to that project's database. Cleared on return to home.
+  useEffect(() => {
+    setActiveProject(project?.id)
+  }, [project])
 
   useEffect(() => {
     api
