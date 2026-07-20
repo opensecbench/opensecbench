@@ -217,5 +217,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Click-to-file: observation location "path:line" → resolved source asset (task.asset_id) → CodeView;
       Findings chips + Explorer "findings in files"; GET /v1/projects/{id}/observations returns asset_id
 - [x] Explorer fleshed out: lazy source file-tree per source_repo asset, context items by type, richer facts
+- [x] Taint "jump to source": source+sink chips on a finding (attributes.dataflow_source, ADR-0032)
+- [x] Investigations click-to-file chip (observation_id → source location)
+- [x] Shared CodeLink module (parseLoc + LocationChip) used by Findings, Explorer, Investigations
 - [ ] Deep-link into surfaces (scroll/select a specific finding row); syntax-highlight for more languages
-- [ ] Investigations click-to-file chip (observation_id → location); persisted dataflow steps for taint path
+- [ ] Persisted multi-step dataflow trace for a step-through taint viewer (needs interpreter change, ADR-0032)

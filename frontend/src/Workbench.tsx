@@ -25,6 +25,7 @@ import {
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
 import { CodeView } from './CodeView'
+import { LocationChip, OpenCode, parseLoc } from './CodeLink'
 import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
 import { IntegrationsTab } from './IntegrationsTab'
@@ -115,33 +116,6 @@ function docIcon(surface: Tab): string {
   return SURFACES.find((s) => s.key === surface)?.icon ?? '📄'
 }
 
-type OpenCode = (assetId: string, path: string, line?: number) => void
-
-// parseLoc splits a scanner location "path:line" into its parts (split on the LAST colon). A bare path with
-// no line is returned as-is. Callers only treat it as a source jump when the observation also resolved to an
-// asset_id — that presence is what distinguishes a code scanner's file path from nmap's "host:port/proto".
-function parseLoc(loc: string): { path: string; line?: number } {
-  const m = loc.match(/^(.*):(\d+)$/)
-  if (m) return { path: m[1], line: parseInt(m[2], 10) }
-  return { path: loc }
-}
-
-// LocationChip renders an observation's location. When the observation resolved to a source asset it is a
-// clickable jump that opens the file at its line (ADR-0050); otherwise it is plain monospace text.
-function LocationChip({ obs, onOpenCode }: { obs: Observation; onOpenCode: OpenCode }) {
-  if (!obs.location) return null
-  if (!obs.asset_id) return <span className="loc-plain">{obs.location}</span>
-  const { path, line } = parseLoc(obs.location)
-  return (
-    <button
-      className="loc-chip"
-      title={`Open ${obs.location}`}
-      onClick={() => onOpenCode(obs.asset_id!, path, line)}
-    >
-      ↦ {obs.location}
-    </button>
-  )
-}
 
 // A crash in one surface must never blank the shell, the docked Analyst, or the
 // status bar. Re-keyed per surface so switching away and back clears the error.
@@ -729,7 +703,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'findings':
         return <FindingsTab findings={findings} observations={observations} onOpenCode={openCodeFile} />
       case 'investigations':
-        return <InvestigationsTab project={project} online={online} onError={setError} />
+        return <InvestigationsTab project={project} online={online} observations={observations} onOpenCode={openCodeFile} onError={setError} />
       case 'reports':
         return <ReportsTab project={project} online={online} onError={setError} />
       case 'graph':
