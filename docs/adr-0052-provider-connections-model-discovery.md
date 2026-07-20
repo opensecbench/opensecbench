@@ -1,6 +1,6 @@
 # ADR-0052 — Provider connections, model discovery & the catalog as overlay
 
-Status: Proposed. Split the fused **provider = type + one model + credential** record into three separable
+Status: Accepted — implemented (build order below all landed). Split the fused **provider = type + one model + credential** record into three separable
 concepts — **connection** (how to reach an inference API), **model** (an id that connection can serve), and
 **model metadata** (price / context / routing tags, keyed by model *family*, connection-independent). Models
 for a connection are **discovered live** from the backend and **enriched** by a curated overlay. This lets a
@@ -127,16 +127,25 @@ that connection's **default model**; existing `model_routing` entries keep resol
   backend with no discovery endpoint degrades to overlay + custom ids.
 - **Egress/DLP unchanged.** Every backend still enters through the `Provider` boundary where policy attaches
   (ADR-0006/0011/0025).
-- **Build order:**
-  1. Schema: `connection_models` companion + connection columns; back-compat read of existing rows (§7).
-  2. `ModelLister` interface + `openai`/`anthropic`/`ollama` listers; catalog → family-keyed overlay +
-     normalizer + enrichment join (§2, §3).
-  3. API: `GET /v1/connections/{id}/models`, `POST …/refresh`; routing picker off the enriched set (§4).
-  4. Frontend: split into **Connections** + **Models** sections; wire Refresh (§6).
-  5. **Bedrock** adapter (SigV4, Converse, discovery) (§5).
-  6. **Azure AI Foundry** adapter (§5).
-  7. Refresh `models.json` overlay to current families (Grok 4, DeepSeek V3.2, current OpenAI) — can land
-     first, independently, to kill staleness immediately.
+- **Build order (all landed):**
+  1. ✅ Schema: `connection_models` companion + `providers.models_refreshed_at`; back-compat read of
+     existing rows (§7). (`migrations/global/0002` + legacy `0050`.)
+  2. ✅ `ModelLister` interface + `openai`/`anthropic` listers (Ollama via the OpenAI shim); catalog →
+     family-keyed overlay + `Family()` normalizer + enrichment join (§2, §3).
+  3. ✅ API: `GET /v1/connections/{id}/models` (lazy) + `POST …/refresh`; routing picker off the
+     enriched set (§4).
+  4. ✅ Frontend: per-connection **Models** panel (discovered list + ↻ Refresh) under Models &
+     Providers; **Model Routing** picker draws from discovered models (§6). *(A dedicated top-level
+     Models section is a cosmetic follow-up; the functional split is in place.)*
+  5. ✅ **Bedrock** adapter — hand-rolled SigV4 (verified vs AWS canonical vectors), `Converse`
+     inference, `ListFoundationModels` discovery (§5). *Prompted tool protocol for now; native Converse
+     tool-use is a refinement.*
+  6. ✅ **Azure AI Foundry** adapter — OpenAI-compatible inference + `/models` discovery with the Azure
+     `api-key` header (§5).
+  7. ✅ Refreshed `models.json` overlay to current families (landed first, independently).
+- **Not yet runtime-verified against live Bedrock/Foundry endpoints** (no credentials in this
+  environment): request shaping, SigV4, Converse translation, and discovery parsing are unit-tested, but
+  a real end-to-end call should be smoke-tested once credentials exist.
 - **Out of scope now:** Vertex/Gemini adapter; per-connection rate/quota config; automatic periodic refresh
   (manual Refresh only for v1).
 

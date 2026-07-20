@@ -56,9 +56,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]DiscoveredModel, err
 	if err != nil {
 		return nil, err
 	}
-	if p.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+p.APIKey)
-	}
+	p.setAuth(req)
 	body, err := doDiscovery(p.HTTP, req, p.Name())
 	if err != nil {
 		return nil, err

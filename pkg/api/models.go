@@ -27,6 +27,10 @@ func catalogKey(connType string) string {
 		return "grok"
 	case "ollama":
 		return "ollama"
+	case "bedrock", "azure-foundry", "foundry":
+		// Gateways serve many families behind one credential — there is no single overlay-provider list;
+		// enrichment is per-model via the family normalizer instead (ADR-0052).
+		return ""
 	default:
 		return strings.ToLower(strings.TrimSpace(connType))
 	}

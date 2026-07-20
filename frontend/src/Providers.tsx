@@ -2,23 +2,27 @@ import { useEffect, useState } from 'react'
 import { api, ConnectionModel, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
 
 // Map a provider add-form type to its catalog provider key (Azure shares OpenAI's models; claude-cli
-// picks its own model, so it has no picker).
-export const CATALOG_KEY: Record<string, string> = { anthropic: 'anthropic', openai: 'openai', azure: 'openai', deepseek: 'deepseek', grok: 'grok', ollama: 'ollama' }
+// picks its own model, so it has no picker; the Bedrock/Foundry gateways serve many families, so they
+// have no single overlay list — their models come from discovery, ADR-0052).
+export const CATALOG_KEY: Record<string, string> = { anthropic: 'anthropic', openai: 'openai', azure: 'openai', deepseek: 'deepseek', grok: 'grok', ollama: 'ollama', bedrock: '', 'azure-foundry': '' }
 
 function priceLabel(m: ModelCatalogEntry): string {
   if (m.input_per_mtok === 0 && m.output_per_mtok === 0) return 'local'
   return `$${m.input_per_mtok}/$${m.output_per_mtok} per Mtok`
 }
 
-// Provider types offered in the add form. needsBase/needsKey drive which fields show; the hint steers
-// the operator (API keys recommended, claude-cli uses the local subscription, ollama is local).
+// Provider types offered in the add form. needsBase/needsKey drive which fields show; the hints steer the
+// operator. baseHint/keyHint override the generic field placeholders — Bedrock reuses the base field for
+// its AWS region and the key field for AWS credentials (ADR-0052).
 export const PROVIDER_TYPES = [
-  { value: 'anthropic', label: 'Anthropic API', needsKey: true, needsBase: false, modelHint: 'claude-sonnet-5' },
-  { value: 'openai', label: 'OpenAI-compatible', needsKey: true, needsBase: true, modelHint: 'gpt-5' },
-  { value: 'ollama', label: 'Ollama (local)', needsKey: false, needsBase: true, modelHint: 'llama3' },
-  { value: 'claude-cli', label: 'Claude CLI (subscription)', needsKey: false, needsBase: false, modelHint: '' },
-  { value: 'deepseek', label: 'DeepSeek', needsKey: true, needsBase: false, modelHint: 'deepseek-v4-flash' },
-  { value: 'grok', label: 'xAI Grok', needsKey: true, needsBase: false, modelHint: 'grok-4-fast' },
+  { value: 'anthropic', label: 'Anthropic API', needsKey: true, needsBase: false, modelHint: 'claude-sonnet-5', baseHint: '', keyHint: '' },
+  { value: 'openai', label: 'OpenAI-compatible', needsKey: true, needsBase: true, modelHint: 'gpt-5', baseHint: '', keyHint: '' },
+  { value: 'ollama', label: 'Ollama (local)', needsKey: false, needsBase: true, modelHint: 'llama3', baseHint: '', keyHint: '' },
+  { value: 'claude-cli', label: 'Claude CLI (subscription)', needsKey: false, needsBase: false, modelHint: '', baseHint: '', keyHint: '' },
+  { value: 'deepseek', label: 'DeepSeek', needsKey: true, needsBase: false, modelHint: 'deepseek-v4-flash', baseHint: '', keyHint: '' },
+  { value: 'grok', label: 'xAI Grok', needsKey: true, needsBase: false, modelHint: 'grok-4-fast', baseHint: '', keyHint: '' },
+  { value: 'bedrock', label: 'AWS Bedrock (gateway)', needsKey: true, needsBase: true, modelHint: 'default model (optional)', baseHint: 'AWS region · e.g. us-east-1', keyHint: 'ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN]' },
+  { value: 'azure-foundry', label: 'Azure AI Foundry (gateway)', needsKey: true, needsBase: true, modelHint: 'default model (optional)', baseHint: 'endpoint · e.g. https://<res>.services.ai.azure.com/models', keyHint: '' },
 ]
 
 type TestState = { ok?: boolean; latency_ms?: number; sample?: string; error?: string; testing?: boolean }
@@ -224,8 +228,8 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
           }
           return <input placeholder={cfg?.modelHint ? `model · e.g. ${cfg.modelHint}` : 'model (optional)'} value={model} onChange={(e) => setModel(e.target.value)} />
         })()}
-        {cfg?.needsBase && <input placeholder="base URL" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />}
-        {cfg?.needsKey && <input type="password" placeholder="API key (sealed in the vault)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />}
+        {cfg?.needsBase && <input placeholder={cfg?.baseHint || 'base URL'} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />}
+        {cfg?.needsKey && <input type="password" placeholder={cfg?.keyHint || 'API key (sealed in the vault)'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} />}
         <button className="prov-add-btn" onClick={add} disabled={!online}>＋ Add provider</button>
         <div className="prov-hint">
           {type === 'claude-cli'
