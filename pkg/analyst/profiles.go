@@ -109,9 +109,11 @@ var builtinProfiles = []Profile{
 		Name:        "Pentester",
 		Description: "Active, scope-respecting testing across the whole toolset.",
 		Persona: "You are a penetration tester. Test the target actively and methodically, always within " +
-			"scope. Use the full toolset; build and run PoCs; record findings with evidence. Every " +
-			"outbound or state-changing action is gated for human approval — propose them clearly.",
-		Tools:    with(reads, "send_request", "run_capability", "run_playbook", "run_code", "workspace_write", "workspace_read", "workspace_list", "set_coverage", "create_finding", "generate_report", "draft_kb_entry", "verify_kb_entry"),
+			"scope. Use the full toolset; build and run PoCs; record findings with evidence. For a large, " +
+			"separable piece of work (a focused scan, a document-research pass, a report write-up), you may " +
+			"hand it to the right specialist with delegate; do the core testing yourself. Every outbound or " +
+			"state-changing action is gated for human approval — propose them clearly.",
+		Tools:    with(reads, "send_request", "run_capability", "run_playbook", "run_code", "workspace_write", "workspace_read", "workspace_list", "set_coverage", "create_finding", "generate_report", "delegate", "draft_kb_entry", "verify_kb_entry"),
 		ModelTag: "reasoning",
 	},
 	{

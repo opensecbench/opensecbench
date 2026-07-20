@@ -69,15 +69,51 @@ func TestDelegateRefusesNonSpecialistTarget(t *testing.T) {
 	}
 }
 
-func TestOnlyLeadCanDelegate(t *testing.T) {
-	if !hasTool(ProfileByID("lead"), "delegate") {
-		t.Fatal("the Lead must have the delegate tool")
+func TestDelegationCapabilityByProfile(t *testing.T) {
+	// The Lead delegates; the pentester can decompose a large engagement deeper (ADR-0047).
+	for _, id := range []string{"lead", "pentester"} {
+		if !hasTool(ProfileByID(id), "delegate") {
+			t.Fatalf("%q should have the delegate tool", id)
+		}
 	}
-	// Specialists must NOT have delegate — delegation nests one level only.
-	for _, id := range []string{"code-analysis", "vuln-validator", "pentester", "report-writer", "generalist"} {
-		if id != "generalist" && hasTool(ProfileByID(id), "delegate") {
+	// Narrow specialists must NOT delegate — deeper delegation stays with coordinator roles.
+	for _, id := range []string{"code-analysis", "vuln-validator", "report-writer", "knowledge-scribe"} {
+		if hasTool(ProfileByID(id), "delegate") {
 			t.Fatalf("specialist %q must not have delegate", id)
 		}
+	}
+}
+
+// Deeper delegation is bounded: a sub-agent already at the max nesting depth is refused a further delegate,
+// while one below the cap proceeds (ADR-0047).
+func TestDeeperDelegationBoundedByDepth(t *testing.T) {
+	ctx := context.Background()
+	db := migratedStore(t)
+	mock := &llm.MockProvider{Responses: []string{`{"answer":"done"}`}}
+	svc := NewService(db, nil, nil, "", mock)
+	exec := svc.executeFor("", nil)
+	call := agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": "report-writer", "task": "summarize"}}
+
+	atCap := withDelegationDepth(ctx, maxDelegationDepth())
+	if _, err := exec(atCap, call); err == nil || !strings.Contains(err.Error(), "depth") {
+		t.Fatalf("delegate at max depth should be refused, got %v", err)
+	}
+	belowCap := withDelegationDepth(ctx, maxDelegationDepth()-1)
+	if _, err := exec(belowCap, call); err != nil {
+		t.Fatalf("delegate below max depth should proceed, got %v", err)
+	}
+}
+
+// Delegate runs its sub-agent one level deeper, so depth accumulates down a chain (ADR-0047).
+func TestDelegateIncrementsDepth(t *testing.T) {
+	ctx := context.Background()
+	if delegationDepth(ctx) != 0 {
+		t.Fatal("a fresh context should be depth 0")
+	}
+	d1 := withDelegationDepth(ctx, delegationDepth(ctx)+1)
+	d2 := withDelegationDepth(d1, delegationDepth(d1)+1)
+	if delegationDepth(d1) != 1 || delegationDepth(d2) != 2 {
+		t.Fatalf("depth did not accumulate: d1=%d d2=%d", delegationDepth(d1), delegationDepth(d2))
 	}
 }
 
