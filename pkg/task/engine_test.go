@@ -38,7 +38,11 @@ func newEngine(t *testing.T, r runner.Runner) (*Engine, *cas.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), r), blobs
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), r)
+	// Stop the worker pool before the DB closes (Cleanup is LIFO). Without this the engine's workers leak
+	// and busy-poll the closed DB for the rest of the run — starving other tests and causing flakes.
+	t.Cleanup(eng.Close)
+	return eng, blobs
 }
 
 // fakeRunner returns canned output without touching Docker, so the provenance wiring can be
@@ -222,6 +226,7 @@ func TestEngineCancelStopsRun(t *testing.T) {
 	reg := capability.NewRegistry()
 	reg.Register(sleepCap{})
 	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, runner.LocalRunner{})
+	defer eng.Close()
 
 	ctx := context.Background()
 	done := make(chan Outcome, 1)
@@ -433,6 +438,7 @@ func TestEngineInjectsSecretsAndRedactsOutput(t *testing.T) {
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	t.Cleanup(func() { _ = db.Close() })
 	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), cr)
+	t.Cleanup(eng.Close)
 	eng.Secrets = func(_ context.Context, name string) (string, error) {
 		if name == "api_token" {
 			return secretVal, nil
