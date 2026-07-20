@@ -102,6 +102,22 @@ func TestSplitModeEndToEnd(t *testing.T) {
 		t.Errorf("cross-project findings = %d, want 1", len(all))
 	}
 
+	// A thread created under project A is both routed to A's database AND stamped with A's id in its
+	// project_id column (ADR-0049) — not left NULL, which would break usage attribution/display.
+	var th struct {
+		ID string `json:"id"`
+	}
+	if code := do("POST", "/v1/threads", pA.ID, map[string]string{"title": "t"}, &th); code != http.StatusCreated {
+		t.Fatalf("create thread = %d, want 201", code)
+	}
+	var stamped string
+	if err := aDB.QueryRow(`SELECT coalesce(project_id,'') FROM threads WHERE id = ?`, th.ID).Scan(&stamped); err != nil {
+		t.Fatalf("thread row: %v", err)
+	}
+	if stamped != pA.ID {
+		t.Errorf("thread project_id = %q, want %q (routed but not stamped)", stamped, pA.ID)
+	}
+
 	// The global project index lists both projects.
 	rows, err := mgr.Global().ListProjectIndex(t.Context())
 	if err != nil || len(rows) != 2 {

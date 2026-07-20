@@ -105,6 +105,29 @@ type Server struct {
 // errNoStore is returned when a handler needs the database but the server was built without one.
 var errNoStore = errors.New("api: no store configured")
 
+// globalAskProjectID is the reserved project that homes project-less analyst threads (the global
+// assistant). Every thread must live in some project's database (ADR-0049); this is theirs. The leading
+// underscore keeps it out of the UUID space, and it's never registered in the project index, so it never
+// shows up as an engagement in cross-project listings.
+const globalAskProjectID = "_global"
+
+// threadProject maps an empty project id to the reserved global project so a thread always has a home.
+func threadProject(projectID string) string {
+	if projectID == "" {
+		return globalAskProjectID
+	}
+	return projectID
+}
+
+// ptrIfSet returns &s, or nil when s is empty — for a nullable project_id that must stay NULL for a
+// genuinely project-less (global-assistant) thread while a real project stamps its id.
+func ptrIfSet(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // casResolver picks the per-project CAS resolver when provided (production/split), otherwise wraps the
 // single store as a fixed resolver (tests/combined). Nil when neither is set.
 func casResolver(deps Deps) cas.Resolver {
@@ -574,12 +597,17 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "message is required")
 		return
 	}
-	th, err := s.pdb(r).CreateThread(r.Context(), store.NewThread{Title: "ask", Provider: s.providerName()})
+	// A thread lives in a project's database (ADR-0049): a real-project thread is routed to and stamped
+	// with that project; a project-less "ask" (the global assistant) is homed in the reserved global db
+	// but keeps a NULL project_id because it genuinely has no project. So routing id and stamp differ.
+	pid := projectFromReq(r)
+	routing := threadProject(pid)
+	th, err := s.pdbID(routing).CreateThread(r.Context(), store.NewThread{ProjectID: ptrIfSet(pid), Title: "ask", Provider: s.providerName()})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	res, err := s.analystService().Send(r.Context(), projectFromReq(r), th.ID, req.Message)
+	res, err := s.analystService().Send(r.Context(), routing, th.ID, req.Message)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -607,7 +635,13 @@ func (s *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	th, err := s.pdb(r).CreateThread(r.Context(), store.NewThread{ProjectID: req.ProjectID, Title: req.Title, AgentType: req.AgentType, Provider: s.providerName()})
+	// Route and stamp with one project id: an explicit body project_id wins, else the active-project
+	// header, else the reserved global project. A thread lives in that project's database (ADR-0049).
+	pid := projectFromReq(r)
+	if req.ProjectID != nil && *req.ProjectID != "" {
+		pid = *req.ProjectID
+	}
+	th, err := s.pdbID(threadProject(pid)).CreateThread(r.Context(), store.NewThread{ProjectID: ptrIfSet(pid), Title: req.Title, AgentType: req.AgentType, Provider: s.providerName()})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
