@@ -46,7 +46,7 @@ type Options struct {
 type Instance struct {
 	BaseURL   string
 	RunnerURL string
-	db        *store.DB
+	mgr       *store.Manager
 	srv       *http.Server
 	runnerSrv *http.Server
 	api       *api.Server
@@ -75,23 +75,17 @@ func Start(opts Options) (*Instance, error) {
 		opts.DBPath = p
 	}
 
-	db, err := store.Open(opts.DBPath)
+	// Transitional two-tier storage (ADR-0049 phase 2a): a combined-mode Manager backs both domains
+	// with one database so call sites can adopt the Manager API before the physical split (phase 2b).
+	mgr, err := store.OpenCombined(opts.DBPath, migrations.Global(), migrations.Project())
 	if err != nil {
 		return nil, err
 	}
-	ms, err := store.LoadMigrations(migrations.FS)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if _, err := db.Apply(ms); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
+	db := mgr.Global()
 
 	blobs, err := cas.Open(filepath.Join(filepath.Dir(opts.DBPath), "cas"))
 	if err != nil {
-		_ = db.Close()
+		_ = mgr.Close()
 		return nil, err
 	}
 	// Build the capability + methodology registries from built-ins, then load installed extension
@@ -165,11 +159,11 @@ func Start(opts Options) (*Instance, error) {
 
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
-		_ = db.Close()
+		_ = mgr.Close()
 		return nil, err
 	}
 	apiSrv := api.New(api.Deps{
-		Store: db, Engine: engine, CAS: blobs, Provider: provider,
+		Store: mgr, Engine: engine, CAS: blobs, Provider: provider,
 		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault,
 		Methods: methReg, Reports: reportReg, Extensions: loadedExt, TrustStore: trust, ExtDir: extDir,
 		WorkspaceDir: filepath.Join(filepath.Dir(opts.DBPath), "workspace"),
@@ -180,14 +174,14 @@ func Start(opts Options) (*Instance, error) {
 	}
 	go func() { _ = srv.Serve(ln) }()
 
-	inst := &Instance{BaseURL: "http://" + ln.Addr().String(), db: db, srv: srv, api: apiSrv, provider: provider}
+	inst := &Instance{BaseURL: "http://" + ln.Addr().String(), mgr: mgr, srv: srv, api: apiSrv, provider: provider}
 
 	// Optional network-exposed runner listener (ADR-0024): serves only the authenticated runner protocol.
 	if opts.RunnerAddr != "" {
 		rln, err := net.Listen("tcp", opts.RunnerAddr)
 		if err != nil {
 			_ = srv.Close()
-			_ = db.Close()
+			_ = mgr.Close()
 			return nil, fmt.Errorf("runner listener: %w", err)
 		}
 		inst.runnerSrv = &http.Server{Handler: apiSrv.RunnerHandler(), ReadHeaderTimeout: 5 * time.Second}
@@ -199,7 +193,7 @@ func Start(opts Options) (*Instance, error) {
 }
 
 // SchemaVersion returns the applied schema version.
-func (i *Instance) SchemaVersion() (int, error) { return i.db.Version() }
+func (i *Instance) SchemaVersion() (int, error) { return i.mgr.Global().Version() }
 
 // Shutdown stops the HTTP server, releases live resources (proxies, terminal sessions), and closes
 // the database.
@@ -211,7 +205,7 @@ func (i *Instance) Shutdown(ctx context.Context) error {
 		_ = i.runnerSrv.Shutdown(ctx)
 	}
 	err := i.srv.Shutdown(ctx)
-	if cerr := i.db.Close(); err == nil {
+	if cerr := i.mgr.Close(); err == nil {
 		err = cerr
 	}
 	return err

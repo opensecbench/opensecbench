@@ -124,7 +124,7 @@ func TestProxyEgressViaRunnerStreams(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := task.NewEngine(db, blobs, capability.BuiltIns(), fakeTaskRunner{})
-	srvObj := New(Deps{Store: db, Engine: engine, CAS: blobs, ProxyCA: ca})
+	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs, ProxyCA: ca})
 	main := httptest.NewServer(srvObj.Handler())
 	runnerSrv := httptest.NewServer(srvObj.RunnerHandler())
 	t.Cleanup(func() { main.Close(); runnerSrv.Close(); srvObj.Close(); engine.Close(); _ = db.Close() })
@@ -198,7 +198,7 @@ func TestProxyStartViaOfflineRunnerRejected(t *testing.T) {
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	ca, _ := proxy.LoadOrCreate(filepath.Join(t.TempDir(), "proxy-ca"))
 	engine := task.NewEngine(db, blobs, capability.BuiltIns(), fakeTaskRunner{})
-	srvObj := New(Deps{Store: db, Engine: engine, CAS: blobs, ProxyCA: ca})
+	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs, ProxyCA: ca})
 	main := httptest.NewServer(srvObj.Handler())
 	t.Cleanup(func() { main.Close(); srvObj.Close(); engine.Close(); _ = db.Close() })
 

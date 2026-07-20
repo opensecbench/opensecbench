@@ -46,7 +46,7 @@ func newIntegrationServer(t *testing.T) (*httptest.Server, *store.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(New(Deps{Store: db, CAS: blobs, Vault: vault}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs, Vault: vault}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 	return srv, db
 }

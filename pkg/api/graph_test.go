@@ -19,7 +19,7 @@ func TestProjectStructureGraph(t *testing.T) {
 	ms, _ := store.LoadMigrations(migrations.FS)
 	_, _ = db.Apply(ms)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	srv := httptest.NewServer(New(Deps{Store: db, CAS: blobs}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 	ctx := context.Background()
 
@@ -51,7 +51,7 @@ func TestProjectTrafficGraph(t *testing.T) {
 	ms, _ := store.LoadMigrations(migrations.FS)
 	_, _ = db.Apply(ms)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	srv := httptest.NewServer(New(Deps{Store: db, CAS: blobs}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 	ctx := context.Background()
 
@@ -84,7 +84,7 @@ func TestTopologyGraph(t *testing.T) {
 	ms, _ := store.LoadMigrations(migrations.FS)
 	_, _ = db.Apply(ms)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	srv := httptest.NewServer(New(Deps{Store: db, CAS: blobs}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 	ctx := context.Background()
 
@@ -117,7 +117,7 @@ func TestDependencyGraph(t *testing.T) {
 	ms, _ := store.LoadMigrations(migrations.FS)
 	_, _ = db.Apply(ms)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	srv := httptest.NewServer(New(Deps{Store: db, CAS: blobs}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 	ctx := context.Background()
 

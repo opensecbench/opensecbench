@@ -91,7 +91,7 @@ func (s *Server) rebuildRules(projectID string) {
 	if eng == nil {
 		return
 	}
-	rules, err := s.store.ListProxyRules(context.Background(), projectID)
+	rules, err := s.global().ListProxyRules(context.Background(), projectID)
 	if err != nil {
 		return
 	}
@@ -112,7 +112,7 @@ func (s *Server) rebuildRules(projectID string) {
 // --- HTTP handlers ---
 
 func (s *Server) listProxyRules(w http.ResponseWriter, r *http.Request) {
-	rules, err := s.store.ListProxyRules(r.Context(), r.PathValue("id"))
+	rules, err := s.global().ListProxyRules(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -142,7 +142,7 @@ func (s *Server) createProxyRule(w http.ResponseWriter, r *http.Request) {
 		enabled = *req.Enabled
 	}
 	projectID := r.PathValue("id")
-	rule, err := s.store.CreateProxyRule(r.Context(), model.ProxyRule{
+	rule, err := s.global().CreateProxyRule(r.Context(), model.ProxyRule{
 		ProjectID: projectID, Enabled: enabled, Target: req.Target, Match: req.Match, Replace: req.Replace,
 	})
 	if err != nil {
@@ -161,7 +161,7 @@ func (s *Server) updateProxyRule(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	projectID, err := s.store.SetProxyRuleEnabled(r.Context(), r.PathValue("ruleId"), req.Enabled)
+	projectID, err := s.global().SetProxyRuleEnabled(r.Context(), r.PathValue("ruleId"), req.Enabled)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "rule not found")
 		return
@@ -171,7 +171,7 @@ func (s *Server) updateProxyRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteProxyRule(w http.ResponseWriter, r *http.Request) {
-	projectID, err := s.store.DeleteProxyRule(r.Context(), r.PathValue("ruleId"))
+	projectID, err := s.global().DeleteProxyRule(r.Context(), r.PathValue("ruleId"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "rule not found")
 		return

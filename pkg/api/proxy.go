@@ -68,7 +68,7 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := r.PathValue("id")
-	if _, err := s.store.GetProject(r.Context(), projectID); err != nil {
+	if _, err := s.global().GetProject(r.Context(), projectID); err != nil {
 		writeErr(w, http.StatusBadRequest, "unknown project")
 		return
 	}
@@ -81,7 +81,7 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 	// If an egress runner is chosen, it must be active and have a live tunnel — no silent local fallback.
 	var forward http.RoundTripper
 	if req.RunnerID != "" {
-		rn, err := s.store.GetRunner(r.Context(), req.RunnerID)
+		rn, err := s.global().GetRunner(r.Context(), req.RunnerID)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "unknown runner")
 			return
@@ -148,7 +148,7 @@ func (s *Server) stopProxy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) proxyCapture(projectID, runnerID string) func(proxy.Exchange) {
 	return func(e proxy.Exchange) {
 		ctx := context.Background()
-		ex, err := s.store.CreateExchange(ctx, model.HTTPExchange{
+		ex, err := s.global().CreateExchange(ctx, model.HTTPExchange{
 			ProjectID:      projectID,
 			Origin:         model.ExchangeProxy,
 			Method:         e.Method,
@@ -160,7 +160,7 @@ func (s *Server) proxyCapture(projectID, runnerID string) func(proxy.Exchange) {
 			log.Printf("proxy capture: %v", err)
 			return
 		}
-		if err := s.store.RecordResponse(ctx, ex.ID, e.Status, e.ResponseHeaders, e.ResponseBody, e.DurationMS, runnerID); err != nil {
+		if err := s.global().RecordResponse(ctx, ex.ID, e.Status, e.ResponseHeaders, e.ResponseBody, e.DurationMS, runnerID); err != nil {
 			log.Printf("proxy capture response: %v", err)
 		}
 		s.publishExchange(ctx, projectID, ex.ID)
@@ -170,7 +170,7 @@ func (s *Server) proxyCapture(projectID, runnerID string) func(proxy.Exchange) {
 // publishExchange emits the current, complete state of an exchange to subscribers (SSE). Best-effort:
 // a fetch failure just skips the live update, which the client's next fetch reconciles.
 func (s *Server) publishExchange(ctx context.Context, projectID, id string) {
-	full, err := s.store.GetExchange(ctx, id)
+	full, err := s.global().GetExchange(ctx, id)
 	if err != nil {
 		return
 	}
@@ -180,7 +180,7 @@ func (s *Server) publishExchange(ctx context.Context, projectID, id string) {
 // projectAllows returns a host gate enforcing the project's scope allowlist (empty = allow all).
 func (s *Server) projectAllows(projectID string) func(string) bool {
 	return func(host string) bool {
-		entries, err := s.store.ListScopeEntries(context.Background(), projectID)
+		entries, err := s.global().ListScopeEntries(context.Background(), projectID)
 		if err != nil || len(entries) == 0 {
 			return true
 		}

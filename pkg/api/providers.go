@@ -86,14 +86,14 @@ func (s *Server) buildProvider(p model.Provider) (llm.Provider, error) {
 // loadActiveProvider swaps in the persisted active provider on startup (falling back to the env
 // provider if none is set or it fails to build).
 func (s *Server) loadActiveProvider() {
-	if s.store == nil {
+	if s.mgr == nil {
 		return
 	}
-	id, err := s.store.GetSetting(context.Background(), activeProviderSetting)
+	id, err := s.global().GetSetting(context.Background(), activeProviderSetting)
 	if err != nil || id == "" {
 		return
 	}
-	p, err := s.store.GetProvider(context.Background(), id)
+	p, err := s.global().GetProvider(context.Background(), id)
 	if err != nil {
 		return
 	}
@@ -123,7 +123,7 @@ type providerView struct {
 }
 
 func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
-	ps, err := s.store.ListProviders(r.Context())
+	ps, err := s.global().ListProviders(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -169,7 +169,7 @@ func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	saved, err := s.store.CreateProvider(r.Context(), p)
+	saved, err := s.global().CreateProvider(r.Context(), p)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -183,7 +183,7 @@ func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) activateProvider(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	p, err := s.store.GetProvider(r.Context(), id)
+	p, err := s.global().GetProvider(r.Context(), id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "provider not found")
 		return
@@ -194,7 +194,7 @@ func (s *Server) activateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setProvider(built, infoFor(id, p, built))
-	if err := s.store.SetSetting(r.Context(), activeProviderSetting, id); err != nil {
+	if err := s.global().SetSetting(r.Context(), activeProviderSetting, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -203,7 +203,7 @@ func (s *Server) activateProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
-	p, err := s.store.GetProvider(r.Context(), r.PathValue("id"))
+	p, err := s.global().GetProvider(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "provider not found")
 		return
@@ -233,7 +233,7 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 
 // projectUsage returns a project's Analyst token usage grouped by provider/model, for comparison.
 func (s *Server) projectUsage(w http.ResponseWriter, r *http.Request) {
-	u, err := s.store.UsageByModel(r.Context(), r.PathValue("id"))
+	u, err := s.global().UsageByModel(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -246,12 +246,12 @@ func (s *Server) projectUsage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.store.DeleteProvider(r.Context(), id); err != nil {
+	if err := s.global().DeleteProvider(r.Context(), id); err != nil {
 		writeErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
 	if s.activeInfo().ID == id {
-		_ = s.store.SetSetting(r.Context(), activeProviderSetting, "")
+		_ = s.global().SetSetting(r.Context(), activeProviderSetting, "")
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

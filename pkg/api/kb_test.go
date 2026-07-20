@@ -23,7 +23,7 @@ func TestKBInheritanceAndReviewAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	srv := httptest.NewServer(New(Deps{Store: db, CAS: blobs}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 	ctx := context.Background()
 

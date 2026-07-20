@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Server) listCanaries(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListCanaries(r.Context())
+	items, err := s.global().ListCanaries(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -25,7 +25,7 @@ func (s *Server) createCanary(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	c, err := s.store.CreateCanary(r.Context(), req.Label)
+	c, err := s.global().CreateCanary(r.Context(), req.Label)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -35,7 +35,7 @@ func (s *Server) createCanary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteCanary(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteCanary(r.Context(), r.PathValue("id")); err != nil {
+	if err := s.global().DeleteCanary(r.Context(), r.PathValue("id")); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "canary not found")
 			return
@@ -53,7 +53,7 @@ func (s *Server) listDLPEvents(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	events, err := s.store.ListDLPEvents(r.Context(), limit)
+	events, err := s.global().ListDLPEvents(r.Context(), limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

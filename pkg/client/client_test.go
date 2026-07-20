@@ -24,7 +24,7 @@ func newServer(t *testing.T) *Client {
 	if _, err := db.Apply(ms); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(api.New(api.Deps{Store: db}).Handler())
+	srv := httptest.NewServer(api.New(api.Deps{Store: store.NewCombinedManager(db)}).Handler())
 	t.Cleanup(func() {
 		srv.Close()
 		_ = db.Close()

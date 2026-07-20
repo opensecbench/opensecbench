@@ -15,12 +15,12 @@ func (s *Server) listMethodologies(w http.ResponseWriter, _ *http.Request) {
 // getMethodologyCoverage returns a project's adopted packs with per-item status and a roll-up.
 func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	adopted, err := s.store.ListAdoptedMethodologies(r.Context(), projectID)
+	adopted, err := s.global().ListAdoptedMethodologies(r.Context(), projectID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	entries, err := s.store.ListCoverage(r.Context(), projectID)
+	entries, err := s.global().ListCoverage(r.Context(), projectID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -33,7 +33,7 @@ func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) 
 
 	// Enrich items with attached-evidence counts (ADR-0015 P3b). Done here rather than in
 	// BuildCoverage so the dependency-free coverage builder and its other callers stay unchanged.
-	evidence, err := s.store.CountCoverageEvidence(r.Context(), projectID)
+	evidence, err := s.global().CountCoverageEvidence(r.Context(), projectID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -49,7 +49,7 @@ func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) 
 // methodologySuggestions recommends packs to adopt based on the project's inherited knowledge base.
 func (s *Server) methodologySuggestions(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	kb, err := s.store.ListKBByProject(r.Context(), projectID)
+	kb, err := s.global().ListKBByProject(r.Context(), projectID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -65,7 +65,7 @@ func (s *Server) methodologySuggestions(w http.ResponseWriter, r *http.Request) 
 		sb.WriteString(e.Tags)
 		sb.WriteByte('\n')
 	}
-	adopted, _ := s.store.ListAdoptedMethodologies(r.Context(), projectID)
+	adopted, _ := s.global().ListAdoptedMethodologies(r.Context(), projectID)
 	writeJSON(w, http.StatusOK, methodology.Suggest(s.methods, sb.String(), adopted))
 }
 
@@ -81,7 +81,7 @@ func (s *Server) adoptMethodology(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown methodology "+req.MethodologyID)
 		return
 	}
-	if err := s.store.AdoptMethodology(r.Context(), projectID, req.MethodologyID); err != nil {
+	if err := s.global().AdoptMethodology(r.Context(), projectID, req.MethodologyID); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -97,7 +97,7 @@ func (s *Server) unadoptMethodology(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if err := s.store.UnadoptMethodology(r.Context(), projectID, req.MethodologyID); err != nil {
+	if err := s.global().UnadoptMethodology(r.Context(), projectID, req.MethodologyID); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -119,7 +119,7 @@ func (s *Server) setCoverage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown methodology item "+req.ItemID)
 		return
 	}
-	if err := s.store.SetCoverage(r.Context(), projectID, req.ItemID, req.Status, req.Note); err != nil {
+	if err := s.global().SetCoverage(r.Context(), projectID, req.ItemID, req.Status, req.Note); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
