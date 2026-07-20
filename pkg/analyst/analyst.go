@@ -486,7 +486,7 @@ func sendRequest(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if len(entries) > 0 {
 		rules := make([]scope.Entry, len(entries))
 		for i, e := range entries {
-			rules[i] = scope.Entry{Kind: e.Kind, Value: e.Value}
+			rules[i] = scope.Entry{Kind: e.Kind, Value: e.Value, Disposition: e.Disposition}
 		}
 		if serr := scope.Check(rules, url); serr != nil {
 			return "", fmt.Errorf("blocked by scope guard: %w", serr)

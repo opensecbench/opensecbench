@@ -1832,19 +1832,20 @@ func (s *Server) listScope(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addScope(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Kind  string `json:"kind"`
-		Value string `json:"value"`
+		Kind        string `json:"kind"`
+		Value       string `json:"value"`
+		Disposition string `json:"disposition"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	entry, err := s.pdb(r).AddScopeEntry(r.Context(), r.PathValue("id"), req.Kind, req.Value)
+	entry, err := s.pdb(r).AddScopeEntry(r.Context(), r.PathValue("id"), req.Kind, req.Value, req.Disposition)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.record(r.Context(), actorOf(r), "scope.add", entry.ID, map[string]string{
-		"project": entry.ProjectID, "kind": entry.Kind, "value": entry.Value,
+		"project": entry.ProjectID, "kind": entry.Kind, "value": entry.Value, "disposition": entry.Disposition,
 	})
 	writeJSON(w, http.StatusCreated, entry)
 }
@@ -1929,7 +1930,7 @@ func (s *Server) annotateScope(ctx context.Context, projectID string, items []mo
 	entries, _ := s.pdbID(projectID).ListScopeEntries(ctx, projectID)
 	rules := make([]scope.Entry, 0, len(entries))
 	for _, e := range entries {
-		rules = append(rules, scope.Entry{Kind: e.Kind, Value: e.Value})
+		rules = append(rules, scope.Entry{Kind: e.Kind, Value: e.Value, Disposition: e.Disposition})
 	}
 	views := make([]exchangeView, len(items))
 	for i, ex := range items {
@@ -2011,7 +2012,7 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 	if len(entries) > 0 {
 		rules := make([]scope.Entry, len(entries))
 		for i, en := range entries {
-			rules[i] = scope.Entry{Kind: en.Kind, Value: en.Value}
+			rules[i] = scope.Entry{Kind: en.Kind, Value: en.Value, Disposition: en.Disposition}
 		}
 		if serr := scope.Check(rules, ex.URL); serr != nil {
 			s.record(r.Context(), actorOf(r), "replay.blocked", ex.ID, map[string]string{"url": ex.URL, "reason": serr.Error()})

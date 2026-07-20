@@ -94,7 +94,7 @@ func TestSendRequestScopeGuard(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
 	// Only acme.test is in scope.
-	if _, err := db.AddScopeEntry(ctx, projectID, "domain", "acme.test"); err != nil {
+	if _, err := db.AddScopeEntry(ctx, projectID, "domain", "acme.test", "allow"); err != nil {
 		t.Fatal(err)
 	}
 	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Replay: replay.New(0), ProjectID: projectID})
@@ -115,7 +115,7 @@ func TestSendRequestSendsAndRecords(t *testing.T) {
 	}))
 	defer srv.Close()
 	// Allow the loopback host the test server runs on.
-	if _, err := db.AddScopeEntry(ctx, projectID, "host", "127.0.0.1"); err != nil {
+	if _, err := db.AddScopeEntry(ctx, projectID, "host", "127.0.0.1", "allow"); err != nil {
 		t.Fatal(err)
 	}
 	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Replay: replay.New(0), ProjectID: projectID})
