@@ -88,7 +88,31 @@ func Namespace(extID string, secs []Section) []Section {
 // CoreSections returns the built-in declarative sections. Custom core sections (Providers, Approvals,
 // Custom Agents) are declared client-side and composed by the settings shell; they are not listed here.
 func CoreSections() []Section {
-	return []Section{appearance, engagements}
+	return []Section{appearance, engagements, notifications, runtime}
+}
+
+var notifications = Section{
+	ID:    "notifications",
+	Title: "Notifications",
+	Icon:  "🔔",
+	Order: 30,
+	Fields: []Field{
+		{Key: "notifications.approval", Label: "Approvals waiting", Type: TypeBool, Default: "true", Description: "Notify when an agent action needs your approval."},
+		{Key: "notifications.report", Label: "Report ready", Type: TypeBool, Default: "true", Description: "Notify when a report finishes generating."},
+		{Key: "notifications.task", Label: "Task / scan complete", Type: TypeBool, Default: "true", Description: "Notify when a capability run finishes."},
+		{Key: "notifications.info", Label: "Alerts (canaries, etc.)", Type: TypeBool, Default: "true", Description: "Notify on security alerts like a tripped canary. Leave on."},
+	},
+}
+
+var runtime = Section{
+	ID:    "runtime",
+	Title: "Runtime",
+	Icon:  "⚙",
+	Order: 40,
+	Fields: []Field{
+		{Key: "runtime.session_image", Label: "Terminal session image", Type: TypeString, Default: "", Description: "Docker image interactive terminals open into (e.g. one built from pkg/session/Dockerfile). Empty uses the built-in minimal image. Overrides OSB_SESSION_IMAGE. Applies on restart."},
+		{Key: "runtime.browser", Label: "Browser for PDF export", Type: TypeString, Default: "", Description: "Chromium-based browser binary used to render PDF reports. Empty autodetects / uses OSB_BROWSER."},
+	},
 }
 
 var engagements = Section{

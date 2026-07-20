@@ -21,8 +21,8 @@ var ErrNoBrowser = errors.New("report: PDF rendering needs a Chromium browser (s
 // HTMLToPDF renders an HTML document to PDF using a headless Chromium. It writes the HTML to a temp
 // file and drives the browser's --print-to-pdf; the whole thing runs offline. Returns ErrNoBrowser
 // if no browser is installed, so callers can degrade to MD/HTML.
-func HTMLToPDF(ctx context.Context, htmlDoc []byte) ([]byte, error) {
-	bin, err := browser.Resolve("")
+func HTMLToPDF(ctx context.Context, htmlDoc []byte, browserOverride string) ([]byte, error) {
+	bin, err := browser.Resolve(browserOverride)
 	if err != nil {
 		return nil, ErrNoBrowser
 	}

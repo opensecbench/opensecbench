@@ -13,6 +13,10 @@ import (
 // notify records an in-app notification (best-effort) and, if a "notify_webhook" secret is set,
 // mirrors it to a Slack/Teams incoming webhook (P11 mediated sharing).
 func (s *Server) notify(ctx context.Context, kind, title, body string, projectID *string, link string) {
+	// Muted by the per-kind notification setting (default on): skip both the in-app record and the webhook.
+	if v, _ := s.global().GetSetting(ctx, "notifications."+kind); v == "false" {
+		return
+	}
 	if _, err := s.pdbPtr(projectID).CreateNotification(ctx, model.Notification{
 		Kind: kind, Title: title, Body: body, ProjectID: projectID, Link: link,
 	}); err != nil {

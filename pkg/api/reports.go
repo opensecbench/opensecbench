@@ -132,7 +132,8 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if format == report.FormatPDF {
-		pdf, perr := report.HTMLToPDF(r.Context(), rendered)
+		browserBin, _ := s.global().GetSetting(r.Context(), "runtime.browser")
+		pdf, perr := report.HTMLToPDF(r.Context(), rendered, browserBin)
 		if errors.Is(perr, report.ErrNoBrowser) {
 			writeErr(w, http.StatusServiceUnavailable, perr.Error())
 			return
