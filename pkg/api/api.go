@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"sync"
@@ -40,6 +41,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/secret"
 	"github.com/opensecbench/opensecbench/pkg/session"
 	"github.com/opensecbench/opensecbench/pkg/settings"
+	"github.com/opensecbench/opensecbench/pkg/srcfile"
 	"github.com/opensecbench/opensecbench/pkg/store"
 	"github.com/opensecbench/opensecbench/pkg/task"
 	"github.com/opensecbench/opensecbench/pkg/template"
@@ -447,6 +449,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/applications/{id}/assets", s.listAssets)
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
+	// Source viewer (ADR-0050): read a source_repo asset's tree/files for the in-app code viewer and
+	// click-to-file from findings. Reads are path-confined to the asset root (pkg/srcfile).
+	s.mux.HandleFunc("GET /v1/assets/{id}/source", s.getAssetSource)
+	s.mux.HandleFunc("GET /v1/assets/{id}/tree", s.getAssetTree)
 
 	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
 	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)
@@ -1673,6 +1679,76 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, asset)
+}
+
+// maxSourceViewBytes caps a single source-file response. Larger than the analyst read window because a
+// human viewer wants whole files, but still bounded so a pathological file can't be streamed unbounded.
+const maxSourceViewBytes = 1 << 20 // 1 MiB
+
+// sourceAsset loads a source_repo asset from the request's project DB and verifies it is readable on disk.
+// Project confinement is inherent — s.pdb(r) is the per-project database (ADR-0049), so an asset id from
+// another project simply is not found here.
+func (s *Server) sourceAsset(w http.ResponseWriter, r *http.Request) (model.Asset, bool) {
+	asset, err := s.pdb(r).GetAsset(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "asset not found")
+		return model.Asset{}, false
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return model.Asset{}, false
+	}
+	if asset.Type != model.AssetSourceRepo {
+		writeErr(w, http.StatusBadRequest, "asset is not a source_repo")
+		return model.Asset{}, false
+	}
+	if asset.Location == "" {
+		writeErr(w, http.StatusBadRequest, "asset has no location on disk")
+		return model.Asset{}, false
+	}
+	return asset, true
+}
+
+// getAssetSource serves one source file's contents from a source_repo asset, path-confined to the asset
+// root. It backs the in-app code viewer and click-to-file jumps.
+func (s *Server) getAssetSource(w http.ResponseWriter, r *http.Request) {
+	asset, ok := s.sourceAsset(w, r)
+	if !ok {
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeErr(w, http.StatusBadRequest, "path query parameter is required")
+		return
+	}
+	file, err := srcfile.ReadFile(asset.Location, path, maxSourceViewBytes)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeErr(w, http.StatusNotFound, "file not found")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, file)
+}
+
+// getAssetTree lists one directory of a source_repo asset (default: the root), for the source browser.
+func (s *Server) getAssetTree(w http.ResponseWriter, r *http.Request) {
+	asset, ok := s.sourceAsset(w, r)
+	if !ok {
+		return
+	}
+	entries, err := srcfile.ListDir(asset.Location, r.URL.Query().Get("path"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeErr(w, http.StatusNotFound, "directory not found")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
 }
 
 // --- context items ---
