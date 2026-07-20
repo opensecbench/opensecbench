@@ -70,14 +70,29 @@ func NewCLIProvider(bin string, args ...string) *CLIProvider {
 // Name identifies the provider.
 func (c *CLIProvider) Name() string { return "cli:" + c.Bin }
 
-// cliResult is the subset of `claude --output-format json` we consume.
+// cliResult is the subset of `claude --output-format json` we consume. ModelUsage is keyed by the model
+// id(s) that actually served the request.
 type cliResult struct {
-	IsError bool   `json:"is_error"`
-	Result  string `json:"result"`
-	Usage   struct {
+	IsError    bool                       `json:"is_error"`
+	Result     string                     `json:"result"`
+	Model      string                     `json:"model"`
+	ModelUsage map[string]json.RawMessage `json:"modelUsage"`
+	Usage      struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
+}
+
+// servedModel returns the model the CLI reports actually ran: the top-level `model`, else the (single)
+// key of modelUsage. Empty if the CLI reported neither.
+func (r cliResult) servedModel() string {
+	if r.Model != "" {
+		return r.Model
+	}
+	for id := range r.ModelUsage {
+		return id
+	}
+	return ""
 }
 
 // Complete runs the CLI once: system prompt via flag, conversation on stdin, JSON out. The prompt goes
@@ -182,7 +197,7 @@ func (c *CLIProvider) parseResult(stdout []byte) (CompletionResponse, error) {
 	if res.IsError {
 		return CompletionResponse{}, fmt.Errorf("llm cli %s reported an error: %s", c.Bin, res.Result)
 	}
-	return CompletionResponse{Text: res.Result, InputTokens: res.Usage.InputTokens, OutputTokens: res.Usage.OutputTokens}, nil
+	return CompletionResponse{Text: res.Result, InputTokens: res.Usage.InputTokens, OutputTokens: res.Usage.OutputTokens, Model: res.servedModel()}, nil
 }
 
 // splitSystem separates system message(s) from the user/assistant turns.

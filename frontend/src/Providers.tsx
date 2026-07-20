@@ -26,7 +26,7 @@ export const PROVIDER_TYPES = [
   { value: 'azure-foundry', label: 'Azure AI Foundry (gateway)', needsKey: true, needsBase: true, modelHint: 'default model (optional)', baseHint: 'endpoint · e.g. https://<res>.services.ai.azure.com/models', keyHint: '' },
 ]
 
-type TestState = { ok?: boolean; latency_ms?: number; sample?: string; error?: string; testing?: boolean }
+type TestState = { ok?: boolean; latency_ms?: number; sample?: string; error?: string; testing?: boolean; requested_model?: string; served_model?: string }
 
 // Providers lists/configures inference providers. projectId is optional — the per-project token-usage
 // table shows only when it's given (e.g. from a project's Analyst dock, not global settings).
@@ -144,7 +144,15 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
                 <div className="prov-meta">{p.type}{p.model ? ` · ${p.model}` : ''}{p.has_key ? ' · 🔑' : ''}</div>
                 {t && !t.testing && (
                   t.ok ? (
-                    <div className="prov-test ok">✓ {t.latency_ms}ms · {t.sample}</div>
+                    <div className="prov-test ok">
+                      ✓ {t.latency_ms}ms · {t.sample}
+                      {t.served_model && (
+                        <div className={`prov-served ${t.requested_model && t.requested_model !== t.served_model ? 'mismatch' : ''}`}>
+                          served: {t.served_model}
+                          {t.requested_model && t.requested_model !== t.served_model && <> · requested: {t.requested_model || '(none)'} ⚠</>}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="prov-test err">✕ {t.error}</div>
                   )

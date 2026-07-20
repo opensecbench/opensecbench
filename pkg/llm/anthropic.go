@@ -103,6 +103,7 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	}
 
 	var out struct {
+		Model   string                  `json:"model"`
 		Content []anthropicContentBlock `json:"content"`
 		Usage   struct {
 			InputTokens  int `json:"input_tokens"`
@@ -113,5 +114,5 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 		return CompletionResponse{}, err
 	}
 	text, calls := parseAnthropicContent(out.Content)
-	return CompletionResponse{Text: text, ToolCalls: calls, InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens}, nil
+	return CompletionResponse{Text: text, ToolCalls: calls, InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, Model: out.Model}, nil
 }

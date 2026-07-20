@@ -1658,6 +1658,8 @@ select option {
 .prov-meta { font-family: var(--mono); font-size: 11px; color: var(--tx3); margin-top: 2px; }
 .prov-test { font-size: 11px; margin-top: 4px; word-break: break-word; }
 .prov-test.ok { color: var(--green); }
+.prov-served { font-family: var(--mono); font-size: 10.5px; color: var(--tx3); margin-top: 2px; }
+.prov-served.mismatch { color: var(--red); }
 .prov-test.err { color: var(--red); }
 .prov-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 .prov-models-toggle { margin-top: 5px; font-size: 11px; padding: 1px 6px; }
