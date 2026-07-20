@@ -65,7 +65,7 @@ func (s *Server) projectGraph(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) structureGraph(r *http.Request, projectID string) (graphResp, error) {
 	ctx := r.Context()
-	proj, err := s.global().GetProject(ctx, projectID)
+	proj, err := s.mgr.GetProject(ctx, projectID)
 	if err != nil {
 		return graphResp{}, err
 	}
@@ -94,7 +94,7 @@ func (s *Server) structureGraph(r *http.Request, projectID string) (graphResp, e
 		}
 	}
 
-	findings, err := s.global().ListFindings(ctx)
+	findings, err := s.pdb(r).ListFindings(ctx)
 	if err != nil {
 		return graphResp{}, err
 	}

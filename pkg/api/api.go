@@ -204,7 +204,7 @@ func New(deps Deps) *Server {
 	// Reconcile playbook runs left running by a prior process (their in-flight tasks are reconciled by
 	// the engine); the runs themselves would otherwise linger as ghosts (ADR-0022).
 	if s.mgr != nil {
-		if n, err := s.global().FailUnfinishedPlaybookRuns(context.Background()); err == nil && n > 0 {
+		if n, err := s.mgr.FailUnfinishedPlaybookRuns(context.Background()); err == nil && n > 0 {
 			log.Printf("api: reconciled %d unfinished playbook run(s) to failed on startup", n)
 		}
 	}
@@ -558,7 +558,7 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listThreads(w http.ResponseWriter, r *http.Request) {
-	ts, err := s.global().ListThreads(r.Context())
+	ts, err := s.mgr.ListAllThreads(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1106,7 +1106,7 @@ func (s *Server) forkThread(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projects, _ := s.global().ListProjects(ctx)
+	projects, _ := s.mgr.ListProjects(ctx)
 	name := map[string]string{}
 	for _, p := range projects {
 		name[p.ID] = p.Name
@@ -1122,7 +1122,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		CreatedAt time.Time `json:"created_at"`
 	}
 	approvals := []apView{}
-	for _, a := range must(s.global().ListPendingApprovals(ctx)) {
+	for _, a := range must(s.mgr.ListAllPendingApprovals(ctx)) {
 		v := apView{ID: a.ID, Tool: a.Tool, ThreadID: a.ThreadID, CreatedAt: a.CreatedAt}
 		if th, err := s.pdb(r).GetThread(ctx, a.ThreadID); err == nil && th.ProjectID != nil {
 			v.ProjectID = *th.ProjectID
@@ -1140,7 +1140,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		Project    string `json:"project,omitempty"`
 	}
 	runningTasks := []taskView{}
-	for _, t := range must(s.global().ListTasks(ctx, 200)) {
+	for _, t := range must(s.mgr.ListAllTasks(ctx, 200)) {
 		if t.Status != model.TaskRunning && t.Status != model.TaskPending {
 			continue
 		}
@@ -1162,7 +1162,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		Project   string `json:"project,omitempty"`
 	}
 	threads := []thView{}
-	for _, th := range must(s.global().ListThreads(ctx)) {
+	for _, th := range must(s.mgr.ListAllThreads(ctx)) {
 		if th.Status != model.ThreadActive && th.Status != model.ThreadAwaitingApproval {
 			continue
 		}
@@ -1285,7 +1285,7 @@ func (s *Server) scheduleViews(ctx context.Context, projects []model.Project, na
 func must[T any](v []T, _ error) []T { return v }
 
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
-	aps, err := s.global().ListPendingApprovals(r.Context())
+	aps, err := s.mgr.ListAllPendingApprovals(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1405,7 +1405,7 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 // --- projects ---
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := s.global().ListProjects(r.Context())
+	projects, err := s.mgr.ListProjects(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1427,7 +1427,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	project, err := s.global().CreateProject(r.Context(), store.NewProject{
+	project, err := s.mgr.CreateProject(r.Context(), store.NewProject{
 		Name:           req.Name,
 		OrganizationID: req.OrganizationID,
 		GroupID:        req.GroupID,
@@ -1442,7 +1442,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
-	project, err := s.global().GetProject(r.Context(), r.PathValue("id"))
+	project, err := s.mgr.GetProject(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
@@ -1455,7 +1455,7 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
-	err := s.global().DeleteProject(r.Context(), r.PathValue("id"))
+	err := s.mgr.DeleteProject(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
@@ -1502,7 +1502,7 @@ func (s *Server) createProjectFromTemplate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	proj, err := s.global().CreateProject(r.Context(), store.NewProject{Name: req.Name})
+	proj, err := s.mgr.CreateProject(r.Context(), store.NewProject{Name: req.Name})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2062,7 +2062,7 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := s.global().ListTasks(r.Context(), 50)
+	tasks, err := s.mgr.ListAllTasks(r.Context(), 50)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2170,7 +2170,7 @@ func (s *Server) runPlaybook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listPlaybookRuns(w http.ResponseWriter, r *http.Request) {
-	runs, err := s.global().ListPlaybookRuns(r.Context(), 50)
+	runs, err := s.mgr.ListAllPlaybookRuns(r.Context(), 50)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2222,7 +2222,7 @@ func (s *Server) reviewObservation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
-	findings, err := s.global().ListFindings(r.Context())
+	findings, err := s.mgr.ListAllFindings(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

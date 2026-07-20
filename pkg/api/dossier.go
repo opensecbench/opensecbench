@@ -26,13 +26,13 @@ func (s *Server) targetDossier(w http.ResponseWriter, r *http.Request) {
 // projectDossier assembles a project's inherited knowledge (its target(s) + group + org + global).
 func (s *Server) projectDossier(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	entries, err := s.global().ListKBByProject(r.Context(), id)
+	entries, err := s.mgr.ListKBForProject(r.Context(), id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	subject := id
-	if p, err := s.global().GetProject(r.Context(), id); err == nil && p.Name != "" {
+	if p, err := s.mgr.GetProject(r.Context(), id); err == nil && p.Name != "" {
 		subject = p.Name
 	}
 	s.writeDossier(w, r, dossier.Assemble(subject, entries, time.Now()))

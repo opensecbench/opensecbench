@@ -68,7 +68,7 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := r.PathValue("id")
-	if _, err := s.global().GetProject(r.Context(), projectID); err != nil {
+	if _, err := s.mgr.GetProject(r.Context(), projectID); err != nil {
 		writeErr(w, http.StatusBadRequest, "unknown project")
 		return
 	}

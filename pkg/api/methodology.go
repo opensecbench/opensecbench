@@ -49,7 +49,7 @@ func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) 
 // methodologySuggestions recommends packs to adopt based on the project's inherited knowledge base.
 func (s *Server) methodologySuggestions(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
-	kb, err := s.global().ListKBByProject(r.Context(), projectID)
+	kb, err := s.mgr.ListKBForProject(r.Context(), projectID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
