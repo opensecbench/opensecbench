@@ -1,26 +1,32 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { api, Engagement, EngagementContact, EngagementTestAccount, Methodology, Project, ScopeSeed, Template } from './api'
+import { api, Engagement, EngagementContact, EngagementTestAccount, Methodology, Project, ScopeSeed } from './api'
 
 // The engagement setup modal (ADR-0051): create a project with its properties in one place instead of a bare
 // name field. Captures the frame of an assessment — identity, scope + authorization, rules of engagement,
 // kickstart, and (collapsed) the long tail — then creates the project with its engagement record + scope in
 // one call, and best-effort seeds methodology adoption + a first asset.
 
-const KINDS = [
-  { k: 'web', label: 'Web app' }, { k: 'api', label: 'REST API' }, { k: 'graphql', label: 'GraphQL' },
-  { k: 'mobile', label: 'Mobile' }, { k: 'cloud', label: 'Cloud' }, { k: 'network', label: 'Network / infra' },
-  { k: 'code', label: 'Code / SAST' }, { k: 'secrets', label: 'Secrets audit' }, { k: 'threat-model', label: 'Threat model' },
-  { k: 'red-team', label: 'Red team' },
+// Each assessment type also says whether it involves live/dynamic testing (`active`). Active types get the
+// network-scope + rules-of-engagement sections; static/advisory ones (code audit, secrets, threat model)
+// don't — that's what keeps the form from reading pentest-heavy for a code review. `tech` maps to a
+// methodology pack so the type drives kickstart (there is no separate archetype picker).
+const KINDS: { k: string; label: string; active: boolean; tech?: string }[] = [
+  { k: 'web', label: 'Web app', active: true, tech: 'web' },
+  { k: 'api', label: 'REST API', active: true, tech: 'api' },
+  { k: 'graphql', label: 'GraphQL', active: true, tech: 'api' },
+  { k: 'mobile', label: 'Mobile', active: true },
+  { k: 'cloud', label: 'Cloud', active: true },
+  { k: 'network', label: 'Network / infra', active: true },
+  { k: 'red-team', label: 'Red team', active: true },
+  { k: 'code', label: 'Code / SAST', active: false },
+  { k: 'secrets', label: 'Secrets audit', active: false },
+  { k: 'threat-model', label: 'Threat model', active: false },
 ]
 const TECHNIQUES = [
   { k: 'intrusive', label: 'Intrusive scanning' }, { k: 'automated_exploit', label: 'Automated exploitation' },
   { k: 'brute_force', label: 'Brute force / cred stuffing' }, { k: 'dos', label: 'DoS / stress' },
   { k: 'social', label: 'Social engineering' }, { k: 'destructive', label: 'Destructive / data-altering' },
 ]
-// A template preset just pre-fills the form — it is not a separate create path (ADR-0051).
-const TEMPLATE_KINDS: Record<string, string[]> = {
-  'web-app': ['web'], 'rest-api': ['api'], graphql: ['graphql'], mobile: ['mobile'], 'cloud-aws': ['cloud'],
-}
 
 function inferKind(value: string): string {
   if (value.includes('/')) return 'cidr'
@@ -53,12 +59,10 @@ function ScopeInput({ tokens, onChange, deny }: { tokens: string[]; onChange: (t
 
 export function EngagementModal({
   online,
-  templates,
   onClose,
   onCreated,
 }: {
   online: boolean
-  templates: Template[]
   onClose: () => void
   onCreated: (p: Project) => void
 }) {
@@ -75,7 +79,6 @@ export function EngagementModal({
   const [authTo, setAuthTo] = useState('')
   const [techniques, setTechniques] = useState<Record<string, boolean>>({ intrusive: true })
   // kickstart
-  const [template, setTemplate] = useState('')
   const [firstRepo, setFirstRepo] = useState('')
   const [adopt, setAdopt] = useState<string[]>([])
   const [tracker, setTracker] = useState('')
@@ -104,13 +107,13 @@ export function EngagementModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online])
 
-  function applyTemplate(id: string) {
-    setTemplate(id)
-    if (TEMPLATE_KINDS[id]) setKinds(TEMPLATE_KINDS[id])
-    // Suggest the matching methodology pack.
-    const suggested = methodologies.filter((m) => TEMPLATE_KINDS[id]?.includes(m.tech) || m.id === id).map((m) => m.id)
-    if (suggested.length) setAdopt(suggested)
-  }
+  // The assessment type drives the form: active types reveal network scope + rules of engagement, and their
+  // methodology packs are suggested for adoption. No separate archetype picker.
+  const hasActive = useMemo(() => kinds.some((k) => KINDS.find((x) => x.k === k)?.active), [kinds])
+  useEffect(() => {
+    const techs = new Set(kinds.map((k) => KINDS.find((x) => x.k === k)?.tech).filter(Boolean))
+    setAdopt(methodologies.filter((m) => techs.has(m.tech)).map((m) => m.id))
+  }, [kinds, methodologies])
 
   const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
   const scopeSeeds = useMemo<ScopeSeed[]>(() => [
@@ -131,14 +134,13 @@ export function EngagementModal({
         contacts: contacts.filter((c) => c.name || c.email),
         test_accounts: testAccounts.filter((a) => a.username || a.role),
       }
-      const project = await api.createEngagement({ name: name.trim(), engagement, scope: scopeSeeds })
+      const project = await api.createEngagement({ name: name.trim(), engagement, scope: hasActive ? scopeSeeds : [] })
       // Kickstart (best-effort — never block the created project on a seed failure).
       try {
         for (const id of adopt) await api.adoptMethodology(project.id, id)
-        const appName = templates.find((t) => t.id === template)?.default_application || (firstRepo ? 'app' : '')
-        if (appName || firstRepo) {
-          const app = await api.createApplication(project.id, appName || 'app')
-          if (firstRepo.trim()) await api.createAsset(app.id, 'source_repo', firstRepo.trim(), 'private')
+        if (firstRepo.trim()) {
+          const app = await api.createApplication(project.id, kinds[0] || 'app')
+          await api.createAsset(app.id, 'source_repo', firstRepo.trim(), 'private')
         }
       } catch { /* seeds are optional; the project exists */ }
       onCreated(project)
@@ -188,26 +190,36 @@ export function EngagementModal({
             </div>
           </section>
 
-          {/* 2 SCOPE & AUTHORIZATION */}
+          {/* 2 SCOPE & AUTHORIZATION — adapts to the assessment type */}
           <section className="em-sect">
-            <div className="em-sh"><span className="em-n">2</span><span className="em-t req">Scope &amp; authorization</span><span className="em-note">enforced</span></div>
-            <div className="em-field">
-              <label>In scope</label>
-              <ScopeInput tokens={inScope} onChange={setInScope} />
+            <div className="em-sh">
+              <span className="em-n">2</span>
+              <span className="em-t req">{hasActive ? 'Scope & authorization' : 'Authorization & data handling'}</span>
+              <span className="em-note">{hasActive ? 'enforced' : ''}</span>
             </div>
-            <div className="em-field">
-              <label>Out of scope — do not touch</label>
-              <ScopeInput tokens={outScope} onChange={setOutScope} deny />
-            </div>
-            <div className="em-two">
-              <div className="em-field">
-                <label>Environment</label>
-                <div className="em-seg">
-                  {['production', 'staging', 'dev'].map((e) => (
-                    <button key={e} className={environment === e ? 'on' : ''} onClick={() => setEnvironment(e)}>{e === 'production' ? 'Prod' : e === 'staging' ? 'Staging' : 'Dev'}</button>
-                  ))}
+            {hasActive && (
+              <>
+                <div className="em-field">
+                  <label>In-scope targets <span className="em-opt">host · domain · CIDR</span></label>
+                  <ScopeInput tokens={inScope} onChange={setInScope} />
                 </div>
-              </div>
+                <div className="em-field">
+                  <label>Out of scope — do not touch</label>
+                  <ScopeInput tokens={outScope} onChange={setOutScope} deny />
+                </div>
+              </>
+            )}
+            <div className="em-two">
+              {hasActive && (
+                <div className="em-field">
+                  <label>Environment</label>
+                  <div className="em-seg">
+                    {['production', 'staging', 'dev'].map((e) => (
+                      <button key={e} className={environment === e ? 'on' : ''} onClick={() => setEnvironment(e)}>{e === 'production' ? 'Prod' : e === 'staging' ? 'Staging' : 'Dev'}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="em-field">
                 <label>Data sensitivity <span className="em-opt">gates external AI</span></label>
                 <div className="em-seg">
@@ -220,7 +232,7 @@ export function EngagementModal({
             <div className="em-field">
               <label className="em-check" onClick={() => setAuthorized(!authorized)}>
                 <span className={`em-box ${authorized ? 'on' : ''}`}>{authorized ? '✓' : ''}</span>
-                Written authorization is on file for these targets
+                Written authorization is on file for this work
               </label>
               {authorized && (
                 <div className="em-two" style={{ marginTop: 8 }}>
@@ -229,33 +241,26 @@ export function EngagementModal({
                 </div>
               )}
             </div>
-            <div className="em-field">
-              <label>Allowed techniques</label>
-              <div className="em-toggles">
-                {TECHNIQUES.map((t) => (
-                  <button key={t.k} className="em-tog" onClick={() => setTechniques({ ...techniques, [t.k]: !techniques[t.k] })}>
-                    <span className={`em-sw ${techniques[t.k] ? 'on' : ''}`}><i /></span> {t.label}
-                  </button>
-                ))}
+            {hasActive && (
+              <div className="em-field">
+                <label>Allowed techniques <span className="em-opt">disallowed ones are blocked</span></label>
+                <div className="em-toggles">
+                  {TECHNIQUES.map((t) => (
+                    <button key={t.k} className="em-tog" onClick={() => setTechniques({ ...techniques, [t.k]: !techniques[t.k] })}>
+                      <span className={`em-sw ${techniques[t.k] ? 'on' : ''}`}><i /></span> {t.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </section>
 
           {/* 3 KICKSTART */}
           <section className="em-sect">
             <div className="em-sh"><span className="em-n">3</span><span className="em-t">Kickstart</span><span className="em-note">so you can run day one</span></div>
-            <div className="em-two">
-              <div className="em-field">
-                <label>Archetype <span className="em-opt">preset</span></label>
-                <select className="em-in" value={template} onChange={(e) => applyTemplate(e.target.value)}>
-                  <option value="">None</option>
-                  {templates.filter((t) => t.id !== 'blank').map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-              <div className="em-field">
-                <label>First repo / URL <span className="em-opt">→ asset</span></label>
-                <input className="em-in" value={firstRepo} onChange={(e) => setFirstRepo(e.target.value)} placeholder="git@github.com:acme/storefront" />
-              </div>
+            <div className="em-field">
+              <label>First {hasActive ? 'repo or base URL' : 'repository'} <span className="em-opt">→ asset</span></label>
+              <input className="em-in" value={firstRepo} onChange={(e) => setFirstRepo(e.target.value)} placeholder={hasActive ? 'git@github.com:acme/storefront  or  https://shop.acme.com' : 'git@github.com:acme/storefront'} />
             </div>
             {methodologies.length > 0 && (
               <div className="em-field">

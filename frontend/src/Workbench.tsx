@@ -545,6 +545,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const [context, setContext] = useState<ContextItem[]>([])
   const [findings, setFindings] = useState<Finding[]>([])
   const [observations, setObservations] = useState<Observation[]>([])
+  const [engTechniques, setEngTechniques] = useState<Record<string, boolean> | null>(null) // engagement's allowed techniques (ADR-0051)
   // Deep-link target: a surface + row id to scroll to and flash, with a nonce so repeats re-fire.
   const [focus, setFocus] = useState<{ surface: Tab; id: string; n: number } | null>(null)
   const [coverage, setCoverage] = useState<CoverageView | null>(null)
@@ -567,6 +568,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       setContext((await api.listContext(project.id)) ?? [])
       setFindings((await api.listFindings()) ?? [])
       setObservations((await api.listObservations(project.id)) ?? [])
+      setEngTechniques((await api.getEngagement(project.id))?.techniques ?? null)
       setCoverage(await api.getMethodologyCoverage(project.id))
       setError(null)
     } catch (e) {
@@ -690,7 +692,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'scope':
         return <ScopeTab project={project} online={online} onError={setError} />
       case 'scan':
-        return <ScanTab assets={allAssets} capabilities={capabilities} online={online} afterFinding={loadAll} onError={setError} />
+        return <ScanTab assets={allAssets} capabilities={capabilities} techniques={engTechniques} online={online} afterFinding={loadAll} onError={setError} />
       case 'replay':
         return <ReplayTab project={project} online={online} onError={setError} boundItem={doc.bind} seed={doc.seed} onEvidenceLinked={afterEvidenceLinked} />
       case 'proxy':
@@ -1423,17 +1425,23 @@ function statusClass(status?: number): string {
 function ScanTab({
   assets,
   capabilities,
+  techniques,
   online,
   afterFinding,
   onError,
 }: {
   assets: { asset: Asset; appName: string }[]
   capabilities: CapabilityManifest[]
+  techniques: Record<string, boolean> | null
   online: boolean
   afterFinding: () => Promise<void>
   onError: (m: string) => void
 }) {
   const repoAssets = assets.filter((a) => a.asset.type === 'source_repo')
+  // A capability is blocked when its technique isn't permitted by the engagement's rules (ADR-0051). When no
+  // engagement/techniques are configured, nothing is gated (fail-open, matching the engine).
+  const roeConfigured = !!techniques && Object.keys(techniques).length > 0
+  const blockedCap = (c: CapabilityManifest) => !!c.technique && roeConfigured && !techniques![c.technique]
   const [capId, setCapId] = useState('')
   const [assetId, setAssetId] = useState('')
   const [config, setConfig] = useState('')
@@ -1446,6 +1454,11 @@ function ScanTab({
 
   async function run() {
     if (!capId || !assetId) return
+    const cap = capabilities.find((c) => c.id === capId)
+    if (cap && blockedCap(cap)) {
+      onError(`${cap.title} uses the ${cap.technique} technique, which this engagement does not permit.`)
+      return
+    }
     setRunning(true)
     setOutcome(null)
     try {
@@ -1509,7 +1522,9 @@ function ScanTab({
           <select value={capId} onChange={(e) => setCapId(e.target.value)}>
             <option value="">capability…</option>
             {capabilities.map((c) => (
-              <option key={c.id} value={c.id}>{c.title}</option>
+              <option key={c.id} value={c.id} disabled={blockedCap(c)}>
+                {c.title}{blockedCap(c) ? ` — blocked (${c.technique} not permitted)` : ''}
+              </option>
             ))}
           </select>
           <select value={assetId} onChange={(e) => setAssetId(e.target.value)}>

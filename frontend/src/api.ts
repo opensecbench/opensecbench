@@ -128,6 +128,7 @@ export interface CapabilityManifest {
   title: string
   description: string
   target_param?: string
+  technique?: string // rules-of-engagement technique gated by the engagement (ADR-0051)
 }
 
 export interface AuditEvent {
