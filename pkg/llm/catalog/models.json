@@ -1,8 +1,13 @@
 [
-  { "provider": "anthropic", "id": "claude-opus-4-8",           "name": "Claude Opus 4.8",   "family": "opus",   "context_window": 1000000, "input_per_mtok": 5.0,  "output_per_mtok": 25.0, "default_tags": ["reasoning", "long-context"] },
-  { "provider": "anthropic", "id": "claude-fable-5",            "name": "Claude Fable 5",    "family": "fable",  "context_window": 1000000, "input_per_mtok": 10.0, "output_per_mtok": 50.0, "default_tags": ["reasoning", "long-context"] },
-  { "provider": "anthropic", "id": "claude-sonnet-5",           "name": "Claude Sonnet 5",   "family": "sonnet", "context_window": 1000000, "input_per_mtok": 3.0,  "output_per_mtok": 15.0, "default_tags": ["default", "fast"] },
-  { "provider": "anthropic", "id": "claude-haiku-4-5",          "name": "Claude Haiku 4.5",  "family": "haiku",  "context_window": 200000,  "input_per_mtok": 1.0,  "output_per_mtok": 5.0,  "default_tags": ["cheap", "fast"] },
+  { "provider": "anthropic", "id": "claude-fable-5",   "name": "Claude Fable 5",   "family": "fable",  "context_window": 1000000, "input_per_mtok": 10.0, "output_per_mtok": 50.0, "default_tags": ["reasoning", "long-context"] },
+  { "provider": "anthropic", "id": "claude-opus-4-8",  "name": "Claude Opus 4.8",  "family": "opus",   "context_window": 1000000, "input_per_mtok": 5.0,  "output_per_mtok": 25.0, "default_tags": ["reasoning", "long-context"] },
+  { "provider": "anthropic", "id": "claude-opus-4-7",  "name": "Claude Opus 4.7",  "family": "opus",   "context_window": 1000000, "input_per_mtok": 5.0,  "output_per_mtok": 25.0, "default_tags": [] },
+  { "provider": "anthropic", "id": "claude-opus-4-6",  "name": "Claude Opus 4.6",  "family": "opus",   "context_window": 1000000, "input_per_mtok": 5.0,  "output_per_mtok": 25.0, "default_tags": [] },
+  { "provider": "anthropic", "id": "claude-opus-4-5",  "name": "Claude Opus 4.5",  "family": "opus",   "context_window": 200000,  "input_per_mtok": 5.0,  "output_per_mtok": 25.0, "default_tags": [] },
+  { "provider": "anthropic", "id": "claude-sonnet-5",  "name": "Claude Sonnet 5",  "family": "sonnet", "context_window": 1000000, "input_per_mtok": 3.0,  "output_per_mtok": 15.0, "default_tags": ["default", "fast"] },
+  { "provider": "anthropic", "id": "claude-sonnet-4-6","name": "Claude Sonnet 4.6","family": "sonnet", "context_window": 1000000, "input_per_mtok": 3.0,  "output_per_mtok": 15.0, "default_tags": [] },
+  { "provider": "anthropic", "id": "claude-sonnet-4-5","name": "Claude Sonnet 4.5","family": "sonnet", "context_window": 200000,  "input_per_mtok": 3.0,  "output_per_mtok": 15.0, "default_tags": [] },
+  { "provider": "anthropic", "id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "family": "haiku",  "context_window": 200000,  "input_per_mtok": 1.0,  "output_per_mtok": 5.0,  "default_tags": ["cheap", "fast"] },
 
   { "provider": "openai", "id": "gpt-5.5", "name": "GPT-5.5", "family": "gpt-5", "context_window": 1000000, "input_per_mtok": 5.0,   "output_per_mtok": 30.0, "default_tags": ["reasoning", "long-context"] },
   { "provider": "openai", "id": "gpt-5",   "name": "GPT-5",   "family": "gpt-5", "context_window": 400000,  "input_per_mtok": 0.625, "output_per_mtok": 5.0,  "default_tags": ["default", "fast"] },
