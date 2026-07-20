@@ -265,7 +265,7 @@ and can later ship as plugins.
       control on finding rows. *(highest value, small)*
 - [x] **Methodology un-adopt UI** — `unadoptMethodology` (store+API+client) exists but has no button; you can
       adopt a pack but never remove it.
-- [ ] **Analyst can't read binary context** — `pkg/analyst/corpustools.go:82` returns a note, not content,
+- [x] **Analyst reads binary context** (PDF via ledongthuc/pdf; docx/pptx via stdlib zip+XML) — `pkg/analyst/corpustools.go:82` returns a note, not content,
       for PDF/docx/binary docs; a doc/email-ingesting assessment tool should extract text.
 - [x] **Swallowed persistence errors in orchestration** — `planrunner.go:87-206` discards every
       `UpdatePlanStep`/`UpdatePlanStatus`; `scheduler.go:54` swallows `markRun`. A DB failure mid-plan is
