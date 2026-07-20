@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from 'react'
 import { api, HomeData, Project, Template, SearchResult } from './api'
+import { EngagementModal } from './EngagementModal'
 
 // Compact number for token counts: 1_240_000 -> "1.2M", 310_000 -> "310k".
 const fmtTokens = (n: number): string =>
@@ -33,10 +34,9 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
   const [projects, setProjects] = useState<Project[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
   const [home, setHome] = useState<HomeData | null>(null)
-  const [name, setName] = useState('')
-  const [template, setTemplate] = useState('')
+  const [showCreate, setShowCreate] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [, setBusy] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[] | null>(null)
 
@@ -65,23 +65,6 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
     const t = setInterval(loadHome, 5000) // keep "waiting on you" / "running now" live
     return () => clearInterval(t)
   }, [online, refresh, loadHome])
-
-  async function create(e: FormEvent) {
-    e.preventDefault()
-    if (!name.trim()) return
-    setBusy(true)
-    try {
-      if (template) await api.createProjectFromTemplate(template, name.trim())
-      else await api.createProject(name.trim())
-      setName('')
-      setTemplate('')
-      await refresh()
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
 
   async function remove(p: Project, e: MouseEvent) {
     e.stopPropagation()
@@ -290,16 +273,9 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
 
       <section className="panel">
         <div className="panel-head">Projects</div>
-        <form className="create-row" onSubmit={create}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New project name…" disabled={!online || busy} />
-          <select value={template} onChange={(e) => setTemplate(e.target.value)} disabled={!online || busy}>
-            <option value="">Blank (no template)</option>
-            {templates.filter((t) => t.id !== 'blank').map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-          <button type="submit" disabled={!online || busy || !name.trim()}>＋ Create</button>
-        </form>
+        <div className="create-row">
+          <button className="create-open" onClick={() => setShowCreate(true)} disabled={!online}>＋ New engagement</button>
+        </div>
 
         {projects.length === 0 ? (
           <div className="empty">Nothing here yet.</div>
@@ -331,6 +307,15 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
           </ul>
         )}
       </section>
+
+      {showCreate && (
+        <EngagementModal
+          online={online}
+          templates={templates}
+          onClose={() => setShowCreate(false)}
+          onCreated={(p) => { setShowCreate(false); void refresh(); onOpen(p) }}
+        />
+      )}
     </div>
   )
 }
