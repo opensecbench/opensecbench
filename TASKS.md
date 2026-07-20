@@ -233,7 +233,10 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
   - [x] out-of-scope first-class: scope_entries.disposition + scope.Check deny precedence
   - [x] store Get/SetEngagement (atomic); createProject accepts engagement+scope; GET/PUT engagement
   - [x] full setup modal (essentials · scope/auth · kickstart · advanced) replacing name+template create
-- [ ] Phase 2 — egress by data class: restricted engagement behaves as `strict` egress regardless of global
-- [ ] Phase 3 — technique → capability gating: manifest `technique` tag + enqueue/Scan-UI gate
+- [x] Phase 2 — egress by data class: restricted engagement forces strict egress (executeFor OR-s data_class)
+- [x] Phase 3 — technique gating: manifest `technique` tag; engine enqueue block + Scan-UI disable; nmap="intrusive"
+- [x] Adaptive modal: assessment type drives the form (no archetype picker); active types reveal
+      scope/environment/techniques, static types (code/secrets/threat-model) hide them
+- [x] scope deny enforced in the task engine too (checkScope passes Disposition)
 - [ ] Edit-after-create: a Project Settings surface bound to GET/PUT /engagement (modal is create-only today)
 - [ ] Authorization soft-gate (banner + pre-run warning when unauthorized/expired)
