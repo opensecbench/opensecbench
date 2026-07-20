@@ -936,6 +936,8 @@ export const api = {
     request<void>('POST', `/v1/observations/${id}/review`, { state }),
   listFindings: () => request<Finding[]>('GET', '/v1/findings'),
   getFinding: (id: string) => request<Finding>('GET', '/v1/findings/' + id),
+  setFindingStatus: (id: string, status: string) =>
+    request<Finding>('POST', `/v1/findings/${id}/status`, { status }),
   createFinding: (req: { title: string; severity?: string; cwe?: string; observation_ids: string[] }) =>
     request<Finding>('POST', '/v1/findings', req),
 

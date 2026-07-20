@@ -717,6 +717,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             findings={findings}
             observations={observations}
             onOpenCode={openCodeFile}
+            reload={loadAll}
+            onError={setError}
             focusId={focus?.surface === 'findings' ? focus.id : undefined}
             focusNonce={focus?.n ?? 0}
           />
@@ -1690,16 +1692,22 @@ function PlaybooksTab({
   )
 }
 
+const FINDING_STATUSES = ['open', 'confirmed', 'remediated', 'accepted', 'false_positive']
+
 function FindingsTab({
   findings,
   observations,
   onOpenCode,
+  reload,
+  onError,
   focusId,
   focusNonce,
 }: {
   findings: Finding[]
   observations: Observation[]
   onOpenCode: OpenCode
+  reload: () => Promise<void>
+  onError: (m: string) => void
   focusId?: string
   focusNonce?: number
 }) {
@@ -1739,9 +1747,26 @@ function FindingsTab({
               >
                 <div className="row-main">
                   <span className={`sev sev-${f.severity}`}>{f.severity}</span>
-                  <span className={`badge ${f.status}`}>{f.status}</span>
                   <span className="row-title">{f.title}</span>
                   {f.cwe && <span className="muted">{f.cwe}</span>}
+                  <span className="grow" />
+                  <select
+                    className={`finding-status badge ${f.status}`}
+                    value={f.status}
+                    title="Finding status"
+                    onChange={async (e) => {
+                      try {
+                        await api.setFindingStatus(f.id, e.target.value)
+                        await reload()
+                      } catch (err) {
+                        onError((err as Error).message)
+                      }
+                    }}
+                  >
+                    {FINDING_STATUSES.map((s) => (
+                      <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                    ))}
+                  </select>
                 </div>
                 {located.length > 0 && (
                   <div className="loc-row">

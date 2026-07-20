@@ -56,6 +56,16 @@ export function MethodologyTab({
       onError((e as Error).message)
     }
   }
+
+  async function doUnadopt(id: string, title: string) {
+    if (!window.confirm(`Remove the "${title}" methodology from this project? Coverage recorded against it is dropped.`)) return
+    try {
+      await api.unadoptMethodology(project.id, id)
+      await reload()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
   async function doAdopt() {
     await doAdoptID(adopt)
   }
@@ -113,7 +123,11 @@ export function MethodologyTab({
 
       {packs.map((p) => (
         <div key={p.id} className="mpack">
-          <h3 className="mpack-head">{p.title} <span className="muted">{p.tech}</span></h3>
+          <h3 className="mpack-head">
+            {p.title} <span className="muted">{p.tech}</span>
+            <span className="grow" />
+            <button className="mpack-remove" title="Remove this methodology from the project" disabled={!online} onClick={() => void doUnadopt(p.id, p.title)}>Remove</button>
+          </h3>
           <ul className="mitems">
             {(p.items ?? []).map((ic) => (
               <li key={ic.item.id} className={`mitem status-${ic.status}`}>
