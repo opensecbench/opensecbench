@@ -21,8 +21,10 @@ import {
   SearchResult,
   Task,
   TaskOutcome,
+  TreeEntry,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
+import { CodeView } from './CodeView'
 import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
 import { IntegrationsTab } from './IntegrationsTab'
@@ -58,6 +60,7 @@ type Tab =
   | 'graph'
   | 'integrations'
   | 'audit'
+  | 'code'
 
 type Conn = 'connecting' | 'online' | 'offline'
 
@@ -93,13 +96,51 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
 // Surfaces that can hold more than one open document at a time — only these get a
 // document-tab row. Every other surface is a singleton reached solely via the
 // activity bar, so it needs no tabs (ADR-0015: one way to switch, not two or three).
-const MULTI_DOC_SURFACES: Tab[] = ['replay']
+// `code` (source files, ADR-0050) has no activity-bar icon — you open specific files,
+// you don't navigate to a blank Code surface — but many can be open at once.
+const MULTI_DOC_SURFACES: Tab[] = ['replay', 'code']
 
 function surfaceTitle(t: Tab): string {
   if (t === 'assets') return 'Applications & Assets'
   if (t === 'scan') return 'Scan'
   if (t === 'orchestrate') return 'Agent Playbooks'
+  if (t === 'code') return 'Source'
   return t[0].toUpperCase() + t.slice(1)
+}
+
+// Icon for a document's tab. `code` documents aren't in SURFACES (no activity-bar icon), so give them a
+// file glyph directly; everything else looks up its surface icon.
+function docIcon(surface: Tab): string {
+  if (surface === 'code') return '📄'
+  return SURFACES.find((s) => s.key === surface)?.icon ?? '📄'
+}
+
+type OpenCode = (assetId: string, path: string, line?: number) => void
+
+// parseLoc splits a scanner location "path:line" into its parts (split on the LAST colon). A bare path with
+// no line is returned as-is. Callers only treat it as a source jump when the observation also resolved to an
+// asset_id — that presence is what distinguishes a code scanner's file path from nmap's "host:port/proto".
+function parseLoc(loc: string): { path: string; line?: number } {
+  const m = loc.match(/^(.*):(\d+)$/)
+  if (m) return { path: m[1], line: parseInt(m[2], 10) }
+  return { path: loc }
+}
+
+// LocationChip renders an observation's location. When the observation resolved to a source asset it is a
+// clickable jump that opens the file at its line (ADR-0050); otherwise it is plain monospace text.
+function LocationChip({ obs, onOpenCode }: { obs: Observation; onOpenCode: OpenCode }) {
+  if (!obs.location) return null
+  if (!obs.asset_id) return <span className="loc-plain">{obs.location}</span>
+  const { path, line } = parseLoc(obs.location)
+  return (
+    <button
+      className="loc-chip"
+      title={`Open ${obs.location}`}
+      onClick={() => onOpenCode(obs.asset_id!, path, line)}
+    >
+      ↦ {obs.location}
+    </button>
+  )
 }
 
 // A crash in one surface must never blank the shell, the docked Analyst, or the
@@ -146,7 +187,68 @@ function explorerTitle(t: Tab | null): string {
   if (t === 'methodology') return 'Coverage'
   if (t === 'assets') return 'Applications'
   if (t === 'findings') return 'Findings'
+  if (t === 'context') return 'Context'
+  if (t === 'code') return 'Source'
+  if (t === 'investigations') return 'Investigations'
   return 'Project'
+}
+
+// TreeNode is one row in a lazy source file tree: directories fetch their children on first expand, files
+// open in CodeView on click (ADR-0050). Kept deliberately simple — a compact browser for the 220px Explorer.
+function TreeNode({
+  assetId,
+  entry,
+  depth,
+  online,
+  onOpenFile,
+}: {
+  assetId: string
+  entry: TreeEntry
+  depth: number
+  online: boolean
+  onOpenFile: (path: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [kids, setKids] = useState<TreeEntry[] | null>(null)
+  async function toggle() {
+    if (!entry.dir) {
+      onOpenFile(entry.path)
+      return
+    }
+    const next = !open
+    setOpen(next)
+    if (next && kids === null && online) {
+      try {
+        setKids((await api.assetTree(assetId, entry.path)) ?? [])
+      } catch {
+        setKids([])
+      }
+    }
+  }
+  return (
+    <>
+      <div className="wb-exp-row file" style={{ paddingLeft: 12 + depth * 12 }} onClick={toggle} title={entry.path}>
+        <span className="ic">{entry.dir ? (open ? '▾' : '▸') : '·'}</span>
+        <span className="lbl">{entry.name}</span>
+      </div>
+      {open && kids?.map((k) => (
+        <TreeNode key={k.path} assetId={assetId} entry={k} depth={depth + 1} online={online} onOpenFile={onOpenFile} />
+      ))}
+    </>
+  )
+}
+
+function FileTree({ assetId, online, onOpenFile }: { assetId: string; online: boolean; onOpenFile: (path: string) => void }) {
+  const [roots, setRoots] = useState<TreeEntry[] | null>(null)
+  useEffect(() => {
+    if (!online) return
+    let alive = true
+    api.assetTree(assetId, '').then((r) => alive && setRoots(r ?? [])).catch(() => alive && setRoots([]))
+    return () => { alive = false }
+  }, [assetId, online])
+  if (roots === null) return <div className="wb-exp-empty">Loading files…</div>
+  if (roots.length === 0) return <div className="wb-exp-empty">No files on disk.</div>
+  return <>{roots.map((e) => <TreeNode key={e.path} assetId={assetId} entry={e} depth={0} online={online} onOpenFile={onOpenFile} />)}</>
 }
 
 function WorkbenchExplorer({
@@ -154,16 +256,30 @@ function WorkbenchExplorer({
   project,
   apps,
   findings,
+  observations,
+  context,
   coverage,
+  online,
+  codeAssetId,
   onJump,
+  onOpenCode,
 }: {
   tab: Tab | null
   project: Project
   apps: AppAssets[]
   findings: Finding[]
+  observations: Observation[]
+  context: ContextItem[]
   coverage: CoverageView | null
+  online: boolean
+  codeAssetId: string | null
   onJump: (t: Tab) => void
+  onOpenCode: OpenCode
 }) {
+  // Source-repo assets, and the observations that carry a source location — the inputs to the file browser
+  // and the "findings in files" view.
+  const sourceAssets = apps.flatMap((a) => a.assets.filter((as) => as.type === 'source_repo'))
+  const located = observations.filter((o) => o.asset_id && o.location)
   return (
     <aside className="wb-explorer">
       <div className="wb-exp-head">
@@ -192,34 +308,92 @@ function WorkbenchExplorer({
             apps.map((a) => (
               <div key={a.app.id}>
                 <div className="wb-exp-row grp">📦 {a.app.name}</div>
-                {a.assets.map((as) => (
-                  <div key={as.id} className="wb-exp-row ind" title={as.location}>
-                    <span className="ic">{ASSET_ICON[as.type] ?? '•'}</span>
-                    <span className="lbl">{as.location}</span>
+                {a.assets.map((as) =>
+                  as.type === 'source_repo' ? (
+                    <div key={as.id}>
+                      <div className="wb-exp-row ind" title={as.location}>
+                        <span className="ic">🗄</span>
+                        <span className="lbl">{as.location.split('/').pop() || as.location}</span>
+                      </div>
+                      <FileTree assetId={as.id} online={online} onOpenFile={(path) => onOpenCode(as.id, path)} />
+                    </div>
+                  ) : (
+                    <div key={as.id} className="wb-exp-row ind" title={as.location}>
+                      <span className="ic">{ASSET_ICON[as.type] ?? '•'}</span>
+                      <span className="lbl">{as.location}</span>
+                    </div>
+                  ),
+                )}
+              </div>
+            ))
+          )
+        ) : tab === 'code' ? (
+          codeAssetId ? (
+            <FileTree assetId={codeAssetId} online={online} onOpenFile={(path) => onOpenCode(codeAssetId, path)} />
+          ) : (
+            <div className="wb-exp-empty">Open a file to browse its repo.</div>
+          )
+        ) : tab === 'findings' ? (
+          findings.length === 0 && located.length === 0 ? (
+            <div className="wb-exp-empty">No findings yet.</div>
+          ) : (
+            <>
+              {SEVERITIES.map((sev) => {
+                const n = findings.filter((f) => f.severity === sev).length
+                if (!n) return null
+                return (
+                  <div key={sev} className="wb-exp-row">
+                    <span className={`sev sev-${sev}`}>{sev}</span>
+                    <span className="pct">{n}</span>
+                  </div>
+                )
+              })}
+              {located.length > 0 && (
+                <>
+                  <div className="wb-exp-row grp" style={{ marginTop: 8 }}>In files ({located.length})</div>
+                  {located.map((o) => {
+                    const { path, line } = parseLoc(o.location!)
+                    return (
+                      <div
+                        key={o.id}
+                        className="wb-exp-row file"
+                        title={`${o.title} — ${o.location}`}
+                        onClick={() => onOpenCode(o.asset_id!, path, line)}
+                      >
+                        <span className={`dot sev-${o.severity}`} />
+                        <span className="lbl">{o.location}</span>
+                      </div>
+                    )
+                  })}
+                </>
+              )}
+            </>
+          )
+        ) : tab === 'context' ? (
+          context.length === 0 ? (
+            <div className="wb-exp-empty">No context ingested yet.</div>
+          ) : (
+            Object.entries(
+              context.reduce<Record<string, ContextItem[]>>((acc, c) => {
+                ;(acc[c.type] ??= []).push(c)
+                return acc
+              }, {}),
+            ).map(([type, items]) => (
+              <div key={type}>
+                <div className="wb-exp-row grp">{type} ({items.length})</div>
+                {items.map((c) => (
+                  <div key={c.id} className="wb-exp-row ind" title={c.name}>
+                    <span className="lbl">{c.name}</span>
                   </div>
                 ))}
               </div>
             ))
           )
-        ) : tab === 'findings' ? (
-          findings.length === 0 ? (
-            <div className="wb-exp-empty">No findings yet.</div>
-          ) : (
-            SEVERITIES.map((sev) => {
-              const n = findings.filter((f) => f.severity === sev).length
-              if (!n) return null
-              return (
-                <div key={sev} className="wb-exp-row">
-                  <span className={`sev sev-${sev}`}>{sev}</span>
-                  <span className="pct">{n}</span>
-                </div>
-              )
-            })
-          )
         ) : (
           <div className="wb-exp-project">
             <div className="wb-exp-fact"><span className={`badge ${project.status}`}>{project.status}</span></div>
             <div className="wb-exp-fact">{apps.length} app{apps.length === 1 ? '' : 's'} · {findings.length} finding{findings.length === 1 ? '' : 's'}</div>
+            <div className="wb-exp-fact">{sourceAssets.length} source repo{sourceAssets.length === 1 ? '' : 's'}</div>
             {coverage && <div className="wb-exp-fact">Coverage {coverage.summary.covered_pct}%</div>}
             <div className="wb-exp-links">
               {(['methodology', 'assets', 'findings', 'replay'] as Tab[]).map((t) => (
@@ -242,6 +416,7 @@ interface Doc {
   title: string
   bind?: { itemId: string; itemTitle: string }
   seed?: HTTPExchange // prefill a Replay from a captured request (Send to Replay)
+  code?: { assetId: string; path: string; line?: number } // a source file opened in CodeView (ADR-0050)
 }
 
 function replayLabel(ex: HTTPExchange): string {
@@ -394,6 +569,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const [capabilities, setCapabilities] = useState<CapabilityManifest[]>([])
   const [context, setContext] = useState<ContextItem[]>([])
   const [findings, setFindings] = useState<Finding[]>([])
+  const [observations, setObservations] = useState<Observation[]>([])
   const [coverage, setCoverage] = useState<CoverageView | null>(null)
   const [methodReload, setMethodReload] = useState(0) // bump to make Methodology docs re-fetch
   const [approvals, setApprovals] = useState(0)
@@ -413,6 +589,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       setCapabilities((await api.listCapabilities()) ?? [])
       setContext((await api.listContext(project.id)) ?? [])
       setFindings((await api.listFindings()) ?? [])
+      setObservations((await api.listObservations(project.id)) ?? [])
       setCoverage(await api.getMethodologyCoverage(project.id))
       setError(null)
     } catch (e) {
@@ -493,6 +670,20 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   function openReplayFromExchange(ex: HTTPExchange) {
     focusOrAdd({ key: `replay:ex:${ex.id}`, surface: 'replay', title: replayLabel(ex), seed: ex })
   }
+  // Open a source file in a CodeView document, scrolled to `line` (ADR-0050). One document per file; opening
+  // the same file at a different line re-targets and re-scrolls the existing document rather than duplicating.
+  function openCodeFile(assetId: string, path: string, line?: number) {
+    const key = `code:${assetId}:${path}`
+    const title = path.split('/').pop() ?? path
+    setOpenDocs((docs) => {
+      const existing = docs.find((d) => d.key === key)
+      if (existing) {
+        return docs.map((d) => (d.key === key ? { ...d, code: { assetId, path, line } } : d))
+      }
+      return [...docs, { key, surface: 'code' as Tab, title, code: { assetId, path, line } }]
+    })
+    setActiveKey(key)
+  }
   function closeDoc(key: string, e?: ReactMouseEvent) {
     e?.stopPropagation()
     const idx = openDocs.findIndex((d) => d.key === key)
@@ -536,7 +727,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'tasks':
         return <TasksTab online={online} onError={setError} />
       case 'findings':
-        return <FindingsTab findings={findings} />
+        return <FindingsTab findings={findings} observations={observations} onOpenCode={openCodeFile} />
       case 'investigations':
         return <InvestigationsTab project={project} online={online} onError={setError} />
       case 'reports':
@@ -547,6 +738,10 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         return <IntegrationsTab project={project} online={online} onError={setError} />
       case 'audit':
         return <AuditTab online={online} onError={setError} />
+      case 'code':
+        return doc.code ? (
+          <CodeView assetId={doc.code.assetId} path={doc.code.path} line={doc.code.line} online={online} />
+        ) : null
     }
   }
 
@@ -556,6 +751,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   // surface's documents, never a mix across surfaces.
   const showDocTabs = activeSurface !== null && MULTI_DOC_SURFACES.includes(activeSurface)
   const surfaceDocs = showDocTabs ? openDocs.filter((d) => d.surface === activeSurface) : []
+  // When a source file is active, the Explorer browses that file's repo.
+  const codeAssetId = openDocs.find((d) => d.key === activeKey)?.code?.assetId ?? null
 
   return (
     <div className="wb">
@@ -589,20 +786,34 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         </nav>
 
         <SurfaceBoundary>
-          <WorkbenchExplorer tab={activeSurface} project={project} apps={apps} findings={findings} coverage={coverage} onJump={activateSurface} />
+          <WorkbenchExplorer
+            tab={activeSurface}
+            project={project}
+            apps={apps}
+            findings={findings}
+            observations={observations}
+            context={context}
+            coverage={coverage}
+            online={online}
+            codeAssetId={codeAssetId}
+            onJump={activateSurface}
+            onOpenCode={openCodeFile}
+          />
         </SurfaceBoundary>
 
         <div className="wb-center">
           {showDocTabs && (
             <div className="wb-doctabs">
               {surfaceDocs.map((d) => (
-                <div key={d.key} className={`wb-doctab ${activeKey === d.key ? 'on' : ''}`} onClick={() => setActiveKey(d.key)} title={d.title}>
-                  <span className="em">{SURFACES.find((s) => s.key === d.surface)?.icon}</span>
+                <div key={d.key} className={`wb-doctab ${activeKey === d.key ? 'on' : ''}`} onClick={() => setActiveKey(d.key)} title={d.code?.path ?? d.title}>
+                  <span className="em">{docIcon(d.surface)}</span>
                   <span className="lbl">{d.title}</span>
                   <span className="x" title="Close" onClick={(e) => closeDoc(d.key, e)}>✕</span>
                 </div>
               ))}
-              <button className="wb-doctab-new" title="New Replay" onClick={() => openSurface('replay')}>＋</button>
+              {activeSurface === 'replay' && (
+                <button className="wb-doctab-new" title="New Replay" onClick={() => openSurface('replay')}>＋</button>
+              )}
             </div>
           )}
           {error && <div className="banner error wb-banner">⚠ {error}</div>}
@@ -1471,7 +1682,18 @@ function PlaybooksTab({
   )
 }
 
-function FindingsTab({ findings }: { findings: Finding[] }) {
+function FindingsTab({
+  findings,
+  observations,
+  onOpenCode,
+}: {
+  findings: Finding[]
+  observations: Observation[]
+  onOpenCode: OpenCode
+}) {
+  // Index observations by id so each finding can show its supporting locations (findings carry no location
+  // of their own — it lives on the observations they were promoted from, ADR-0050).
+  const byId = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
   return (
     <section className="panel">
       <div className="panel-head">Findings ({findings.length})</div>
@@ -1479,14 +1701,27 @@ function FindingsTab({ findings }: { findings: Finding[] }) {
         <div className="empty">No findings yet. Run a scan and promote confirmed observations.</div>
       ) : (
         <ul className="rows">
-          {findings.map((f) => (
-            <li key={f.id} className="row-item">
-              <span className={`sev sev-${f.severity}`}>{f.severity}</span>
-              <span className={`badge ${f.status}`}>{f.status}</span>
-              <span className="row-title">{f.title}</span>
-              <span className="muted">{f.observation_ids.length} obs</span>
-            </li>
-          ))}
+          {findings.map((f) => {
+            const obs = f.observation_ids.map((id) => byId.get(id)).filter((o): o is Observation => !!o)
+            const located = obs.filter((o) => o.location)
+            return (
+              <li key={f.id} className="row-item col">
+                <div className="row-main">
+                  <span className={`sev sev-${f.severity}`}>{f.severity}</span>
+                  <span className={`badge ${f.status}`}>{f.status}</span>
+                  <span className="row-title">{f.title}</span>
+                  {f.cwe && <span className="muted">{f.cwe}</span>}
+                </div>
+                {located.length > 0 && (
+                  <div className="loc-row">
+                    {located.map((o) => (
+                      <LocationChip key={o.id} obs={o} onOpenCode={onOpenCode} />
+                    ))}
+                  </div>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

@@ -17,6 +17,14 @@
   --red-bg: #2a1416;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* syntax-highlight tokens (ADR-0050) — mapped to highlight.js classes, themed light/dark */
+  --sx-key: #7c9cff;
+  --sx-str: #6fca8e;
+  --sx-num: #f0a83c;
+  --sx-com: #5c6675;
+  --sx-fn: #4aa8ff;
+  --sx-type: #b58cff;
+  --sx-attr: #e0a0d8;
 }
 
 * {
@@ -2054,6 +2062,13 @@ select option {
   --amber: #a8710f;
   --red: #cc3a44;
   --red-bg: #f7dde0;
+  --sx-key: #7a3ea8;
+  --sx-str: #1a7a45;
+  --sx-num: #9a5a00;
+  --sx-com: #8a94a0;
+  --sx-fn: #1f6fd0;
+  --sx-type: #7a3ea8;
+  --sx-attr: #9a3a7a;
 }
 
 /* ===== Settings surface (ADR-0021) ===== */
@@ -2129,3 +2144,65 @@ select option {
 .cov-ring .cov-track { fill: none; stroke: var(--bg4); stroke-width: 3; }
 .cov-ring .cov-fill { fill: none; stroke: var(--acc); stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray 0.3s ease; }
 .cov-pct { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 7.5px; font-weight: 700; color: var(--tx2); font-variant-numeric: tabular-nums; }
+
+/* ===== Source viewer & click-to-file (ADR-0050) ===== */
+/* Clickable location chip on a finding/observation */
+.loc-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--acc) 35%, transparent);
+  border-radius: 6px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+.loc-chip:hover { background: color-mix(in srgb, var(--acc) 22%, transparent); }
+.loc-plain { font-family: var(--mono); font-size: 11px; color: var(--tx3); }
+.loc-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.row-item.col { flex-direction: column; align-items: stretch; }
+.row-item.col .row-main { display: flex; align-items: center; gap: 9px; }
+
+/* Explorer: file-tree rows and finding-in-file rows */
+.wb-exp-row.file { cursor: pointer; font-family: var(--mono); font-size: 11.5px; }
+.wb-exp-row.file:hover { background: var(--bg3); color: var(--tx); }
+.wb-exp-row.file .dot { width: 7px; height: 7px; min-width: 7px; border-radius: 50%; background: var(--tx3); }
+.wb-exp-row.file .dot.sev-critical, .wb-exp-row.file .dot.sev-high { background: var(--red); }
+.wb-exp-row.file .dot.sev-medium { background: var(--amber); }
+.wb-exp-row.file .dot.sev-low, .wb-exp-row.file .dot.sev-info { background: var(--acc); }
+
+/* The code document */
+.cv { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.cv-head {
+  display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+  border-bottom: 1px solid var(--line); background: var(--bg2);
+}
+.cv-path { font-family: var(--mono); font-size: 12px; color: var(--tx); }
+.cv-meta { margin-left: auto; font-size: 11px; color: var(--tx3); }
+.cv-body { flex: 1; min-height: 0; overflow: auto; background: var(--bg); }
+.cv-code {
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+  tab-size: 4; min-width: max-content;
+}
+.cv-line { display: flex; }
+.cv-line.target { background: color-mix(in srgb, var(--amber) 16%, transparent); }
+.cv-line.target .cv-num { color: var(--amber); font-weight: 700; }
+.cv-num {
+  flex: 0 0 auto; width: 52px; padding: 0 12px 0 0; text-align: right;
+  color: var(--tx3); user-select: none; border-right: 1px solid var(--line);
+  position: sticky; left: 0; background: var(--bg);
+}
+.cv-line.target .cv-num { background: color-mix(in srgb, var(--amber) 16%, var(--bg)); }
+.cv-text { padding: 0 14px; white-space: pre; color: var(--tx); background: none; }
+
+/* highlight.js token → theme mapping (so code colours flip with light/dark) */
+.hljs-comment, .hljs-quote { color: var(--sx-com); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-built_in, .hljs-name { color: var(--sx-key); }
+.hljs-string, .hljs-regexp, .hljs-symbol, .hljs-meta-string { color: var(--sx-str); }
+.hljs-number, .hljs-bullet, .hljs-link { color: var(--sx-num); }
+.hljs-title, .hljs-title.function_, .hljs-section { color: var(--sx-fn); }
+.hljs-type, .hljs-class .hljs-title, .hljs-title.class_ { color: var(--sx-type); }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-tag { color: var(--sx-attr); }
+.hljs-meta, .hljs-comment .hljs-doctag { color: var(--tx3); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }

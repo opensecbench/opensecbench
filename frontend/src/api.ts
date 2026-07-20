@@ -376,6 +376,26 @@ export interface Observation {
   rule_id?: string
   location?: string
   attributes?: Record<string, string>
+  // Resolved by the project-observations endpoint (ADR-0050): the source_repo asset the `location` path is
+  // relative to, so the UI can offer click-to-file. Empty when the producing task had no source asset.
+  asset_id?: string
+}
+
+// A source file's contents, from GET /v1/assets/{id}/source (ADR-0050).
+export interface SourceFile {
+  path: string
+  content: string
+  bytes: number
+  lines: number
+  truncated: boolean
+}
+
+// One entry in a source_repo directory listing, from GET /v1/assets/{id}/tree.
+export interface TreeEntry {
+  name: string
+  path: string
+  dir: boolean
+  size?: number
 }
 
 export interface Investigation {
@@ -675,6 +695,14 @@ export const api = {
   listAssets: (appId: string) => request<Asset[]>('GET', `/v1/applications/${appId}/assets`),
   createAsset: (appId: string, type: string, location: string, sensitivity: string) =>
     request<Asset>('POST', `/v1/applications/${appId}/assets`, { type, location, sensitivity }),
+
+  // source viewer (ADR-0050): read a source_repo asset's tree/files, path-confined server-side.
+  assetSource: (assetId: string, path: string) =>
+    request<SourceFile>('GET', `/v1/assets/${assetId}/source?path=${encodeURIComponent(path)}`),
+  assetTree: (assetId: string, path = '') =>
+    request<TreeEntry[]>('GET', `/v1/assets/${assetId}/tree${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+  listObservations: (projectId: string) =>
+    request<Observation[]>('GET', `/v1/projects/${projectId}/observations`),
 
   // context
   listContext: (projectId: string) =>
