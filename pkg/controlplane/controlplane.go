@@ -75,9 +75,12 @@ func Start(opts Options) (*Instance, error) {
 		opts.DBPath = p
 	}
 
-	// Transitional two-tier storage (ADR-0049 phase 2a): a combined-mode Manager backs both domains
-	// with one database so call sites can adopt the Manager API before the physical split (phase 2b).
-	mgr, err := store.OpenCombined(opts.DBPath, migrations.Global(), migrations.Project())
+	// Two-tier storage (ADR-0049): an instance-wide global.db plus an on-demand per-project database
+	// under projects/<id>/, all rooted at the data directory beside the configured DB path. This is the
+	// physical split — each engagement's rows live in its own database, so purge/backup/migrate operate
+	// on one self-contained directory.
+	dataDir := filepath.Dir(opts.DBPath)
+	mgr, err := store.OpenManager(dataDir, migrations.Global(), migrations.Project())
 	if err != nil {
 		return nil, err
 	}
