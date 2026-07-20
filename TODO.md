@@ -270,7 +270,7 @@ and can later ship as plugins.
 - [x] **Swallowed persistence errors in orchestration** — `planrunner.go:87-206` discards every
       `UpdatePlanStep`/`UpdatePlanStatus`; `scheduler.go:54` swallows `markRun`. A DB failure mid-plan is
       invisible (wrong resume / schedule re-fire). Surface/handle these.
-- [ ] **Interactive sessions are bare** — `session/docker.go:16` hardcoded image, no assessment toolchain /
+- [x] **Interactive sessions: configurable image + toolchain Dockerfile** (scoped network still under SSH item) — `session/docker.go:16` hardcoded image, no assessment toolchain /
       cloud CLIs baked; `:42` no scoped network.
 - [ ] **Proxy TLS cert capture** — `proxy/proxy.go:69` captures no upstream cert chain/validity, so invalid/
       expired certs can't be flagged on an exchange.

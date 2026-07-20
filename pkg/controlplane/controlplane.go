@@ -130,7 +130,9 @@ func Start(opts Options) (*Instance, error) {
 	// rather than blocking startup.
 	var sessMgr *session.Manager
 	if session.Available() {
-		sessMgr = session.NewManager("")
+		// OSB_SESSION_IMAGE lets an operator point terminals at a toolchain image (e.g. one built from
+		// pkg/session/Dockerfile with git/python/cloud CLIs baked in); empty uses the minimal default.
+		sessMgr = session.NewManager(os.Getenv("OSB_SESSION_IMAGE"))
 	}
 
 	// The intercepting proxy's CA is generated/persisted next to the database; a failure disables
