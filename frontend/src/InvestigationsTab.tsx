@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { api, Investigation, Project } from './api'
+import { useEffect, useMemo, useState } from 'react'
+import { api, Investigation, Observation, Project } from './api'
+import { LocationChip, OpenCode } from './CodeLink'
 
 // Investigations (ADR-0028): follow-ups a disposition opened for observations needing validation (e.g. an
 // unverified TruffleHog secret). "Investigate" starts a vuln-validator agent thread; findings it proposes
@@ -7,12 +8,19 @@ import { api, Investigation, Project } from './api'
 export function InvestigationsTab({
   project,
   online,
+  observations,
+  onOpenCode,
   onError,
 }: {
   project: Project
   online: boolean
+  observations: Observation[]
+  onOpenCode: OpenCode
   onError: (m: string) => void
 }) {
+  // The observation each investigation was opened for carries the source location (ADR-0050), so a secret
+  // under investigation can be clicked straight to its file.
+  const obsById = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
   const [items, setItems] = useState<Investigation[]>([])
   const [busy, setBusy] = useState('')
   const [note, setNote] = useState<string | null>(null)
@@ -77,6 +85,9 @@ export function InvestigationsTab({
               <li key={inv.id} className="row-item">
                 <span className={`badge ${inv.status}`}>{inv.status}</span>
                 <span className="row-title">{inv.title}</span>
+                {obsById.get(inv.observation_id) && (
+                  <LocationChip obs={obsById.get(inv.observation_id)!} onOpenCode={onOpenCode} />
+                )}
                 <span className="grow" />
                 {inv.status === 'open' && (
                   <button className="mini ok" disabled={!online || busy === inv.id} onClick={() => run(inv)}>
