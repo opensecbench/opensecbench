@@ -60,7 +60,7 @@ func TestAnalystDeniesUnauthorizedCapability(t *testing.T) {
 		`{"answer":"I need authorization to run that."}`,
 	}}
 	// engine is nil: it must never be reached because the tool is denied.
-	loop := NewLoop(mock, db, nil, nil, nil)
+	loop := NewLoop(mock, store.NewCombinedManager(db), nil, nil, nil)
 
 	res, err := loop.Run(context.Background(), "scan it")
 	if err != nil {
@@ -100,7 +100,7 @@ func TestAnalystRunsCapabilityWhenAuthorized(t *testing.T) {
 		`{"answer":"Ran the inventory."}`,
 	}}
 	var audited []string
-	loop := NewLoop(mock, db, engine, []string{"run_capability"}, func(action, _ string) { audited = append(audited, action) })
+	loop := NewLoop(mock, store.NewCombinedManager(db), engine, []string{"run_capability"}, func(action, _ string) { audited = append(audited, action) })
 
 	res, err := loop.Run(ctx, "inventory the repo")
 	if err != nil {

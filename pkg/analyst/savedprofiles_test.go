@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 func TestSaveProfileAndResolve(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
 	sp, err := svc.SaveProfile(ctx, "My Agent", "a custom one", "You are a bespoke reviewer.", []string{"search", "get_finding", "read_file"})
 	if err != nil {
@@ -29,7 +30,7 @@ func TestSaveProfileAndResolve(t *testing.T) {
 
 func TestSaveProfileValidates(t *testing.T) {
 	ctx := context.Background()
-	svc := NewService(migratedStore(t), nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(migratedStore(t)), nil, nil, "", &llm.MockProvider{})
 
 	if _, err := svc.SaveProfile(ctx, "n", "", "", []string{"search"}); err == nil {
 		t.Error("empty persona should error")
@@ -45,7 +46,7 @@ func TestSaveProfileValidates(t *testing.T) {
 func TestPlaybookCanReferenceSavedProfile(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
 	sp, err := svc.SaveProfile(ctx, "Custom", "", "persona", []string{"search"})
 	if err != nil {

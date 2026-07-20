@@ -14,7 +14,7 @@ func (svc *Service) resolvePlaybook(ctx context.Context, id string) (Playbook, e
 	if pb, ok := PlaybookByID(id); ok {
 		return pb, nil
 	}
-	sp, err := svc.store.GetSavedPlaybook(ctx, id)
+	sp, err := svc.g().GetSavedPlaybook(ctx, id)
 	if err != nil {
 		return Playbook{}, fmt.Errorf("unknown playbook %q", id)
 	}
@@ -74,15 +74,15 @@ func (svc *Service) SavePlaybook(ctx context.Context, name, description, goal st
 	if err != nil {
 		return model.SavedPlaybook{}, err
 	}
-	return svc.store.CreateSavedPlaybook(ctx, model.SavedPlaybook{
+	return svc.g().CreateSavedPlaybook(ctx, model.SavedPlaybook{
 		Name: name, Description: description, Goal: goal, Steps: b, Source: source,
 	})
 }
 
 // SavePlaybookFromPlan records a plan's structure (its steps) as a reusable playbook — the record-as-you-go
 // path. The run's results/status are dropped; the reusable structure is what's kept.
-func (svc *Service) SavePlaybookFromPlan(ctx context.Context, planID, name, description string) (model.SavedPlaybook, error) {
-	plan, err := svc.store.GetPlan(ctx, planID)
+func (svc *Service) SavePlaybookFromPlan(ctx context.Context, projectID, planID, name, description string) (model.SavedPlaybook, error) {
+	plan, err := svc.p(projectID).GetPlan(ctx, planID)
 	if err != nil {
 		return model.SavedPlaybook{}, err
 	}

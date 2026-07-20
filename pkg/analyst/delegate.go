@@ -131,7 +131,7 @@ func (svc *Service) recordDelegateUsage(ctx context.Context, projectID, agentTyp
 	if provider == "" && tgt.Provider != nil {
 		provider = tgt.Provider.Name()
 	}
-	_ = svc.store.RecordUsage(ctx, model.UsageRecord{
+	_ = svc.p(projectID).RecordUsage(ctx, model.UsageRecord{
 		ProjectID: projectID, AgentType: agentType,
 		Provider: provider, Model: tgt.AttrModel,
 		InputTokens: in, OutputTokens: out,

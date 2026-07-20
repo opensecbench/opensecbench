@@ -7,6 +7,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 func hasTool(p Profile, name string) bool {
@@ -26,7 +27,7 @@ func TestDelegateRunsSpecialist(t *testing.T) {
 		`{"tool":"list_findings","args":{}}`,
 		`{"answer":"There are no findings yet."}`,
 	}}
-	svc := NewService(db, nil, nil, "", mock)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", mock)
 
 	res, err := svc.Delegate(ctx, "", "report-writer", "summarize the findings", profileToolNames(ProfileByID("report-writer")))
 	if err != nil {
@@ -47,7 +48,7 @@ func TestDelegateToolViaExecuteFor(t *testing.T) {
 		`{"tool":"list_findings","args":{}}`,
 		`{"answer":"done"}`,
 	}}
-	svc := NewService(db, nil, nil, "", mock)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", mock)
 
 	out, err := svc.executeFor("", nil)(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": "report-writer", "task": "summarize"}})
 	if err != nil {
@@ -60,7 +61,7 @@ func TestDelegateToolViaExecuteFor(t *testing.T) {
 
 func TestDelegateRefusesNonSpecialistTarget(t *testing.T) {
 	ctx := context.Background()
-	svc := NewService(migratedStore(t), nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(migratedStore(t)), nil, nil, "", &llm.MockProvider{})
 
 	for _, target := range []string{"lead", "generalist"} {
 		if _, err := svc.executeFor("", nil)(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": target, "task": "x"}}); err == nil || !strings.Contains(err.Error(), "specialist") {
@@ -90,7 +91,7 @@ func TestDeeperDelegationBoundedByDepth(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
 	mock := &llm.MockProvider{Responses: []string{`{"answer":"done"}`}}
-	svc := NewService(db, nil, nil, "", mock)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", mock)
 	exec := svc.executeFor("", nil)
 	call := agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": "report-writer", "task": "summarize"}}
 

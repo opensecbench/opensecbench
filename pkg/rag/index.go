@@ -18,13 +18,25 @@ const maxIndexBytes = 1 << 20 // 1 MiB
 // Indexer builds and queries the semantic retrieval index (ADR-0039). It embeds via a (local, by default)
 // Embedder and persists vectors in the store. A nil Embedder disables indexing/search (best-effort).
 type Indexer struct {
-	Store *store.DB
+	Mgr   *store.Manager
 	Blobs *cas.Store
 	Embed llm.Embedder
 }
 
 // Available reports whether an embedder is configured (indexing/search are no-ops otherwise).
 func (ix *Indexer) Available() bool { return ix != nil && ix.Embed != nil }
+
+// p resolves the project's database, falling back to global so a nil handle never panics (ADR-0049).
+func (ix *Indexer) p(projectID string) *store.DB {
+	if ix.Mgr == nil {
+		return nil
+	}
+	db, err := ix.Mgr.Project(projectID)
+	if err != nil || db == nil {
+		return ix.Mgr.Global()
+	}
+	return db
+}
 
 // IndexContextItem re-indexes one corpus document: it loads the item's text from the CAS, chunks, embeds,
 // and stores the vectors (replacing any prior chunks for that item). Non-text or empty content clears the
@@ -33,11 +45,11 @@ func (ix *Indexer) IndexContextItem(ctx context.Context, projectID, itemID strin
 	if !ix.Available() {
 		return nil
 	}
-	ci, err := ix.Store.GetContextItem(ctx, itemID)
+	ci, err := ix.p(projectID).GetContextItem(ctx, itemID)
 	if err != nil {
 		return err
 	}
-	art, err := ix.Store.GetArtifact(ctx, ci.ArtifactID)
+	art, err := ix.p(projectID).GetArtifact(ctx, ci.ArtifactID)
 	if err != nil {
 		return err
 	}
@@ -49,7 +61,7 @@ func (ix *Indexer) IndexContextItem(ctx context.Context, projectID, itemID strin
 	raw, _ := io.ReadAll(io.LimitReader(rc, maxIndexBytes))
 	text := string(raw)
 	if !isProbablyText(text) {
-		return ix.Store.DeleteChunksForSource(ctx, projectID, "context", itemID)
+		return ix.p(projectID).DeleteChunksForSource(ctx, projectID, "context", itemID)
 	}
 	return ix.indexSource(ctx, projectID, "context", itemID, ci.Name, text)
 }
@@ -66,7 +78,7 @@ func (ix *Indexer) IndexKBEntry(ctx context.Context, projectID string, e model.K
 func (ix *Indexer) indexSource(ctx context.Context, projectID, kind, sourceID, name, text string) error {
 	chunks := Chunk(text)
 	if len(chunks) == 0 {
-		return ix.Store.DeleteChunksForSource(ctx, projectID, kind, sourceID)
+		return ix.p(projectID).DeleteChunksForSource(ctx, projectID, kind, sourceID)
 	}
 	vecs, err := ix.Embed.Embed(ctx, chunks)
 	if err != nil {
@@ -76,7 +88,7 @@ func (ix *Indexer) indexSource(ctx context.Context, projectID, kind, sourceID, n
 	for i := range chunks {
 		cvs[i] = store.ChunkVec{Text: chunks[i], Embedding: vecs[i]}
 	}
-	return ix.Store.ReplaceChunks(ctx, projectID, kind, sourceID, name, ix.Embed.EmbedName(), cvs)
+	return ix.p(projectID).ReplaceChunks(ctx, projectID, kind, sourceID, name, ix.Embed.EmbedName(), cvs)
 }
 
 // Reindex rebuilds the whole index for a project — every corpus item and KB entry — and returns the chunk
@@ -85,21 +97,21 @@ func (ix *Indexer) Reindex(ctx context.Context, projectID string) (int, error) {
 	if !ix.Available() {
 		return 0, fmt.Errorf("rag: no embedder configured (run ollama or set OSB_EMBED_*)")
 	}
-	items, err := ix.Store.ListContextItemsByProject(ctx, projectID)
+	items, err := ix.p(projectID).ListContextItemsByProject(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
 	for _, ci := range items {
 		_ = ix.IndexContextItem(ctx, projectID, ci.ID)
 	}
-	entries, err := ix.Store.ListKBByProject(ctx, projectID)
+	entries, err := ix.Mgr.ListKBForProject(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
 	for _, e := range entries {
 		_ = ix.IndexKBEntry(ctx, projectID, e)
 	}
-	return ix.Store.CountChunks(ctx, projectID)
+	return ix.p(projectID).CountChunks(ctx, projectID)
 }
 
 // Search embeds the query and returns the top-k most similar chunks (ADR-0039).
@@ -114,7 +126,7 @@ func (ix *Indexer) Search(ctx context.Context, projectID, query string, k int) (
 	if len(vecs) == 0 {
 		return nil, nil
 	}
-	return ix.Store.SearchChunks(ctx, projectID, vecs[0], k)
+	return ix.p(projectID).SearchChunks(ctx, projectID, vecs[0], k)
 }
 
 // isProbablyText rejects binary blobs (NUL bytes) so we don't embed garbage.

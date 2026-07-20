@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 func TestSchedulerRunDueFiresAndAdvances(t *testing.T) {
@@ -18,7 +20,7 @@ func TestSchedulerRunDueFiresAndAdvances(t *testing.T) {
 	}
 
 	var fired []string
-	sched := NewScheduler(db, func(_ context.Context, proj, pb string) error {
+	sched := NewScheduler(store.NewCombinedManager(db), func(_ context.Context, proj, pb string) error {
 		fired = append(fired, proj+"/"+pb)
 		return nil
 	}, nil)
@@ -54,7 +56,7 @@ func TestSchedulerAdvancesOnTriggerError(t *testing.T) {
 	if _, err := db.CreateSchedule(ctx, projectID, "onboarding", 3600, base); err != nil {
 		t.Fatal(err)
 	}
-	sched := NewScheduler(db, func(context.Context, string, string) error { return errors.New("boom") }, nil)
+	sched := NewScheduler(store.NewCombinedManager(db), func(context.Context, string, string) error { return errors.New("boom") }, nil)
 
 	sched.runDue(ctx, base)
 	got, _ := db.ListSchedulesByProject(ctx, projectID)
@@ -75,7 +77,7 @@ func TestSchedulerSkipsDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	fired := 0
-	sched := NewScheduler(db, func(context.Context, string, string) error { fired++; return nil }, nil)
+	sched := NewScheduler(store.NewCombinedManager(db), func(context.Context, string, string) error { fired++; return nil }, nil)
 
 	sched.runDue(ctx, base.Add(time.Hour))
 	if fired != 0 {

@@ -6,12 +6,13 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 func TestSavePlaybookAndResolve(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
 	steps := []PlaybookStep{
 		{Key: "a", Profile: "code-analysis", Instruction: "look at the code"},
@@ -46,7 +47,7 @@ func TestSavePlaybookAndResolve(t *testing.T) {
 
 func TestSavePlaybookValidates(t *testing.T) {
 	ctx := context.Background()
-	svc := NewService(migratedStore(t), nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(migratedStore(t)), nil, nil, "", &llm.MockProvider{})
 
 	cases := map[string][]PlaybookStep{
 		"unknown profile":     {{Key: "a", Profile: "nope", Instruction: "x"}},
@@ -67,7 +68,7 @@ func TestSavePlaybookValidates(t *testing.T) {
 func TestSavePlaybookFromPlan(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
 	created, err := db.CreatePlan(ctx, model.Plan{ProjectID: projectID, PlaybookID: "onboarding", Goal: "baseline", Steps: []model.PlanStep{
 		{Key: "a", Profile: "code-analysis", Instruction: "look"},
@@ -77,7 +78,7 @@ func TestSavePlaybookFromPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sp, err := svc.SavePlaybookFromPlan(ctx, created.ID, "Recorded run", "from a plan")
+	sp, err := svc.SavePlaybookFromPlan(ctx, "", created.ID, "Recorded run", "from a plan")
 	if err != nil {
 		t.Fatal(err)
 	}

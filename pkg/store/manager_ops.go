@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -285,6 +286,22 @@ func (m *Manager) ListAllPlaybookRuns(ctx context.Context, limit int) ([]model.P
 		rs, err := pdb.ListPlaybookRuns(ctx, limit)
 		if err == nil {
 			out = append(out, rs...)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// ListDueSchedules returns schedules due to run at now, across every project.
+func (m *Manager) ListDueSchedules(ctx context.Context, now time.Time) ([]model.Schedule, error) {
+	if m.combined {
+		return m.global.ListDueSchedules(ctx, now)
+	}
+	var out []model.Schedule
+	err := m.eachProject(ctx, func(pdb *DB) error {
+		ss, err := pdb.ListDueSchedules(ctx, now)
+		if err == nil {
+			out = append(out, ss...)
 		}
 		return nil
 	})

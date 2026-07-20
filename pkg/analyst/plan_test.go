@@ -8,6 +8,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 func TestPlaybookStepsReferenceRealProfiles(t *testing.T) {
@@ -46,12 +47,12 @@ func TestStartPlanValidates(t *testing.T) {
 	db := migratedStore(t)
 
 	// No provider configured.
-	noProv := NewService(db, nil, nil, "", nil)
+	noProv := NewService(store.NewCombinedManager(db), nil, nil, "", nil)
 	if _, err := noProv.StartPlan(ctx, "proj", "onboarding"); err == nil {
 		t.Fatal("StartPlan should require a provider")
 	}
 	// Unknown playbook.
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 	if _, err := svc.StartPlan(ctx, "proj", "nope"); err == nil {
 		t.Fatal("StartPlan should reject an unknown playbook")
 	}
@@ -61,7 +62,7 @@ func TestRunPlanHappyPath(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
 	// Empty mock → every delegated sub-agent answers immediately, no tools.
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
 	pb, _ := PlaybookByID("onboarding")
 	plan := model.Plan{ProjectID: projectID, PlaybookID: pb.ID, Goal: pb.Goal}
@@ -92,7 +93,7 @@ func TestRunPlanHappyPath(t *testing.T) {
 func TestRunPlanGatePausesThenResumes(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
 	plan := model.Plan{ProjectID: projectID, PlaybookID: "custom", Steps: []model.PlanStep{
 		{Key: "recon", Profile: "report-writer", Instruction: "recon"},
@@ -152,7 +153,7 @@ func TestRunPlanGatePausesThenResumes(t *testing.T) {
 func TestRunPlanGateDenySkipsDependents(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
 	plan := model.Plan{ProjectID: projectID, PlaybookID: "custom", Steps: []model.PlanStep{
 		{Key: "gate", Gate: true},
@@ -217,7 +218,7 @@ func TestRunPlanRunsIndependentStepsConcurrently(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
 	prov := &countingProvider{}
-	svc := NewService(db, nil, nil, "", prov)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", prov)
 
 	plan := model.Plan{ProjectID: projectID, PlaybookID: "custom", Steps: []model.PlanStep{
 		{Key: "root", Profile: "report-writer", Instruction: "root"},
@@ -252,7 +253,7 @@ func TestAssessmentScannersRunInParallel(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
 	prov := &countingProvider{}
-	svc := NewService(db, nil, nil, "", prov)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", prov)
 
 	pb, ok := PlaybookByID("assessment")
 	if !ok {
@@ -296,7 +297,7 @@ func stepStatus(p model.Plan, key string) string {
 func TestRunPlanBreaksOnCycle(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
 	// A depends on B, B depends on A — unresolvable.
 	plan := model.Plan{ProjectID: projectID, PlaybookID: "custom", Steps: []model.PlanStep{

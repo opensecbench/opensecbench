@@ -16,12 +16,12 @@ func getDossier(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string
 	if err != nil {
 		return "", err
 	}
-	entries, err := deps.Store.ListKBByProject(ctx, projectID)
+	entries, err := deps.Mgr.ListKBForProject(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
 	subject := "this project"
-	if p, err := deps.Store.GetProject(ctx, projectID); err == nil && p.Name != "" {
+	if p, err := deps.Mgr.GetProject(ctx, projectID); err == nil && p.Name != "" {
 		subject = p.Name
 	}
 	return jsonify(dossier.Assemble(subject, entries, time.Now()), nil)
@@ -31,12 +31,12 @@ func getDossier(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string
 // organization, or — failing that — the given target's organization. Returns "" if neither has one.
 func (deps ExecDeps) projectOrg(ctx context.Context, targetID string) string {
 	if deps.ProjectID != "" {
-		if p, err := deps.Store.GetProject(ctx, deps.ProjectID); err == nil && p.OrganizationID != nil && *p.OrganizationID != "" {
+		if p, err := deps.Mgr.GetProject(ctx, deps.ProjectID); err == nil && p.OrganizationID != nil && *p.OrganizationID != "" {
 			return *p.OrganizationID
 		}
 	}
 	if targetID != "" {
-		if t, err := deps.Store.GetTarget(ctx, targetID); err == nil && t.OrganizationID != nil && *t.OrganizationID != "" {
+		if t, err := deps.g().GetTarget(ctx, targetID); err == nil && t.OrganizationID != nil && *t.OrganizationID != "" {
 			return *t.OrganizationID
 		}
 	}
@@ -50,7 +50,7 @@ func listKB(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, er
 	if err != nil {
 		return "", err
 	}
-	entries, err := deps.Store.ListKBByProject(ctx, projectID)
+	entries, err := deps.Mgr.ListKBForProject(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
@@ -83,10 +83,10 @@ func verifyKBEntry(ctx context.Context, deps ExecDeps, call agent.ToolCall) (str
 	if id == "" {
 		return "", errors.New("verify_kb_entry requires 'id' (from get_dossier or list_kb)")
 	}
-	if err := deps.Store.VerifyKBEntry(ctx, id); err != nil {
+	if err := deps.g().VerifyKBEntry(ctx, id); err != nil {
 		return "", err
 	}
-	e, err := deps.Store.GetKBEntry(ctx, id)
+	e, err := deps.g().GetKBEntry(ctx, id)
 	if err != nil {
 		return "", err
 	}

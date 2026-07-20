@@ -17,7 +17,7 @@ func TestGenerateReport(t *testing.T) {
 	db := migratedStore(t)
 	blobs, _ := cas.Open(t.TempDir())
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "Acme"})
-	exec := Executor(ExecDeps{Store: db, Blobs: blobs, ProjectID: proj.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Blobs: blobs, ProjectID: proj.ID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "generate_report", Args: map[string]any{"template": "technical", "format": "md"}})
 	if err != nil {
@@ -57,7 +57,7 @@ func TestGenerateReportRejectsUnknownTemplate(t *testing.T) {
 	db := migratedStore(t)
 	blobs, _ := cas.Open(t.TempDir())
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "Acme"})
-	exec := Executor(ExecDeps{Store: db, Blobs: blobs, ProjectID: proj.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Blobs: blobs, ProjectID: proj.ID})
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "generate_report", Args: map[string]any{"template": "nope"}}); err == nil {
 		t.Fatal("expected an error for an unknown template")

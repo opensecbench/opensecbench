@@ -6,6 +6,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 // A routed run must attribute usage to the provider that actually ran, not the active provider — and
@@ -14,7 +15,7 @@ func TestTargetForTagAttribution(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
 	active := &llm.MockProvider{}
-	svc := NewService(db, nil, nil, "", active)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", active)
 
 	routed := &llm.MockProvider{}
 	reg, err := db.CreateProvider(ctx, model.Provider{Name: "Local Qwen", Type: "ollama", Model: "qwen2.5:14b"})

@@ -15,7 +15,7 @@ func TestWorkspaceWriteReadList(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
 	root := t.TempDir()
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID, WorkspaceRoot: root})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID, WorkspaceRoot: root})
 
 	// Write into a nested convention dir (parents created automatically).
 	if _, err := exec(ctx, agent.ToolCall{Tool: "workspace_write", Args: map[string]any{"path": "reports/draft.md", "content": "# Findings\nSQLi in login."}}); err != nil {
@@ -46,7 +46,7 @@ func TestWorkspaceWriteReadList(t *testing.T) {
 func TestWorkspacePathTraversalBlocked(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID, WorkspaceRoot: t.TempDir()})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID, WorkspaceRoot: t.TempDir()})
 
 	for _, p := range []string{"../escape.txt", "../../etc/cron", "sub/../../out"} {
 		if _, err := exec(ctx, agent.ToolCall{Tool: "workspace_write", Args: map[string]any{"path": p, "content": "x"}}); err == nil {
@@ -61,8 +61,8 @@ func TestWorkspaceIsolatedPerProject(t *testing.T) {
 	projB, _ := db.CreateProject(ctx, store.NewProject{Name: "B"})
 	root := t.TempDir()
 
-	execA := Executor(ExecDeps{Store: db, ProjectID: projA, WorkspaceRoot: root})
-	execB := Executor(ExecDeps{Store: db, ProjectID: projB.ID, WorkspaceRoot: root})
+	execA := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projA, WorkspaceRoot: root})
+	execB := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projB.ID, WorkspaceRoot: root})
 
 	if _, err := execA(ctx, agent.ToolCall{Tool: "workspace_write", Args: map[string]any{"path": "secret.txt", "content": "A's data"}}); err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestWorkspaceIsolatedPerProject(t *testing.T) {
 func TestWorkspaceNotConfigured(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID}) // no WorkspaceRoot
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID}) // no WorkspaceRoot
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "workspace_write", Args: map[string]any{"path": "a.txt", "content": "x"}}); err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("workspace_write without a configured root should error, got %v", err)
@@ -86,7 +86,7 @@ func TestWorkspaceNotConfigured(t *testing.T) {
 func TestWorkspaceNeedsProject(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
-	exec := Executor(ExecDeps{Store: db, WorkspaceRoot: t.TempDir()}) // no project
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), WorkspaceRoot: t.TempDir()}) // no project
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "workspace_write", Args: map[string]any{"path": "a.txt", "content": "x"}}); err == nil || !strings.Contains(err.Error(), "project") {
 		t.Fatalf("workspace_write without a project should error about the project, got %v", err)

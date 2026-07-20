@@ -6,6 +6,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 func TestPolicyBaseIsConservative(t *testing.T) {
@@ -59,7 +60,7 @@ func TestPolicyCanTightenAReadToApprove(t *testing.T) {
 func TestServicePolicyFromSettingsDrivesTheGate(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
-	svc := NewService(db, nil, nil, "", &llm.MockProvider{})
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
 	// Default: send_request pauses for approval.
 	if !svc.loadPolicy(ctx).NeedsApproval("send_request", "pentester") {

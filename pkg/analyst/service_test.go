@@ -26,14 +26,14 @@ func TestServiceGatedToolPausesThenDenies(t *testing.T) {
 		`{"tool":"run_capability","args":{"capability":"semgrep","asset":"x"}}`, // gated -> pause
 		`{"answer":"Understood, I won't run it."}`,
 	}}
-	svc := NewService(db, nil, nil, "", mock) // engine nil: must not be reached (denied)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", mock) // engine nil: must not be reached (denied)
 
 	th, err := db.CreateThread(ctx, store.NewThread{Title: "t"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	res, err := svc.Send(ctx, th.ID, "scan the payments repo")
+	res, err := svc.Send(ctx, projectOf(th), th.ID, "scan the payments repo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestServiceGatedToolPausesThenDenies(t *testing.T) {
 		t.Fatalf("thread status = %s, want awaiting_approval", res.Thread.Status)
 	}
 
-	res2, err := svc.Decide(ctx, res.Pending.ID, "deny")
+	res2, err := svc.Decide(ctx, "", res.Pending.ID, "deny")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,10 +79,10 @@ func TestServiceApproveRunsCapability(t *testing.T) {
 		fmt.Sprintf(`{"tool":"run_capability","args":{"capability":"source-inventory","asset":%q}}`, asset.ID),
 		`{"answer":"Inventory complete."}`,
 	}}
-	svc := NewService(db, engine, nil, "", mock)
+	svc := NewService(store.NewCombinedManager(db), engine, nil, "", mock)
 
 	th, _ := db.CreateThread(ctx, store.NewThread{})
-	res, err := svc.Send(ctx, th.ID, "inventory it")
+	res, err := svc.Send(ctx, projectOf(th), th.ID, "inventory it")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestServiceApproveRunsCapability(t *testing.T) {
 		t.Fatalf("expected pause, got %+v", res)
 	}
 
-	res2, err := svc.Decide(ctx, res.Pending.ID, "approve")
+	res2, err := svc.Decide(ctx, "", res.Pending.ID, "approve")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestEgressPolicyBlocksPrivateAssetOnExternalProvider(t *testing.T) {
 	priv, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/work/private", Sensitivity: model.SensitivityPrivate})
 	oss, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/oss/pub", Sensitivity: model.SensitivityOpenSource})
 
-	svc := &Service{store: db, egressStrict: true}
+	svc := &Service{mgr: store.NewCombinedManager(db), egressStrict: true}
 	ext := &llm.AnthropicProvider{} // IsLocal → false (external)
 	local := &llm.MockProvider{}    // IsLocal → true
 

@@ -42,7 +42,7 @@ func seedSourceAsset(t *testing.T, sensitivity string) (db *store.DB, projectID,
 func TestReadFile(t *testing.T) {
 	ctx := context.Background()
 	db, projectID, assetID := seedSourceAsset(t, model.SensitivityOpenSource)
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "auth/login.go"}})
 	if err != nil {
@@ -62,7 +62,7 @@ func TestReadFile(t *testing.T) {
 func TestReadFilePathTraversalBlocked(t *testing.T) {
 	ctx := context.Background()
 	db, projectID, assetID := seedSourceAsset(t, model.SensitivityOpenSource)
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 
 	for _, p := range []string{"../../../etc/passwd", "/etc/passwd", "auth/../../escape"} {
 		if _, err := exec(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": p}}); err == nil {
@@ -74,7 +74,7 @@ func TestReadFilePathTraversalBlocked(t *testing.T) {
 func TestGrepCodeAndFindFiles(t *testing.T) {
 	ctx := context.Background()
 	db, projectID, assetID := seedSourceAsset(t, model.SensitivityOpenSource)
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "grep_code", Args: map[string]any{"asset": assetID, "pattern": "insecure"}})
 	if err != nil {
@@ -96,7 +96,7 @@ func TestGrepCodeAndFindFiles(t *testing.T) {
 func TestListDir(t *testing.T) {
 	ctx := context.Background()
 	db, projectID, assetID := seedSourceAsset(t, model.SensitivityOpenSource)
-	exec := Executor(ExecDeps{Store: db, ProjectID: projectID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "list_dir", Args: map[string]any{"asset": assetID}})
 	if err != nil {
@@ -113,7 +113,7 @@ func TestReadFileCrossProjectRefused(t *testing.T) {
 	db, _, assetID := seedSourceAsset(t, model.SensitivityOpenSource)
 	// A different project reading the first project's asset must be refused.
 	other, _ := db.CreateProject(ctx, store.NewProject{Name: "Other"})
-	exec := Executor(ExecDeps{Store: db, ProjectID: other.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: other.ID})
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err == nil || !strings.Contains(err.Error(), "different project") {
 		t.Fatalf("cross-project read should be refused, got %v", err)
@@ -126,7 +126,7 @@ func TestReadFileRejectsNonSourceAsset(t *testing.T) {
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
 	app, _ := db.CreateApplication(ctx, proj.ID, "app")
 	doc, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetDocument, Location: "/x", Sensitivity: model.SensitivityOpenSource})
-	exec := Executor(ExecDeps{Store: db, ProjectID: proj.ID})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: proj.ID})
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": doc.ID, "path": "a"}}); err == nil || !strings.Contains(err.Error(), "source_repo") {
 		t.Fatalf("read_file on a non-source asset should be refused, got %v", err)
@@ -136,7 +136,7 @@ func TestReadFileRejectsNonSourceAsset(t *testing.T) {
 func TestCodeToolsNeedProject(t *testing.T) {
 	ctx := context.Background()
 	db, _, assetID := seedSourceAsset(t, model.SensitivityOpenSource)
-	exec := Executor(ExecDeps{Store: db}) // no project
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db)}) // no project
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err == nil || !strings.Contains(err.Error(), "project") {
 		t.Fatalf("read_file without a project should error about the project, got %v", err)
@@ -147,7 +147,7 @@ func TestDLPBlocksPrivateSourceReadOnExternalProvider(t *testing.T) {
 	ctx := context.Background()
 	db, projectID, assetID := seedSourceAsset(t, model.SensitivityPrivate)
 
-	svc := &Service{store: db, egressStrict: true}
+	svc := &Service{mgr: store.NewCombinedManager(db), egressStrict: true}
 	// Strict egress + external provider: reading a PRIVATE asset's source is blocked.
 	if _, err := svc.executeFor(projectID, &llm.AnthropicProvider{})(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("private source read should be egress-blocked, got %v", err)
