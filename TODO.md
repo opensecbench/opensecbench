@@ -276,7 +276,7 @@ and can later ship as plugins.
       expired certs can't be flagged on an exchange.
 - [ ] **API 400-vs-500 mapping** — user-input errors (e.g. createProject unknown target, `api.go:1577`)
       return 500 instead of 400.
-- [ ] **Cleanup: orphaned template-create flow** — the engagement modal replaced it (+ archetype picker
+- [x] **Cleanup: orphaned template-create flow (frontend)** — the engagement modal replaced it (+ archetype picker
       removed), leaving `listTemplates`/`createProjectFromTemplate`/`createProject` and the `/v1/templates`
       + from-template endpoints unused. Wire templates back into the modal or retire the endpoints. Also dead
       client methods: `getProject`, `getSession`, `getFinding`, `pickFile`.

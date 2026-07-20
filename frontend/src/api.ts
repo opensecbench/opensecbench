@@ -29,14 +29,6 @@ export interface Project {
   updated_at: string
 }
 
-export interface Template {
-  id: string
-  name: string
-  description: string
-  default_application: string
-  suggested_capabilities: string[]
-}
-
 export interface Application {
   id: string
   project_id: string
@@ -735,8 +727,6 @@ export const api = {
 
   // projects & templates
   listProjects: () => request<Project[]>('GET', '/v1/projects'),
-  getProject: (id: string) => request<Project>('GET', '/v1/projects/' + id),
-  createProject: (name: string) => request<Project>('POST', '/v1/projects', { name }),
   // Create a project with its engagement record + scope in one call (ADR-0051).
   createEngagement: (payload: { name: string; target_ids?: string[]; engagement?: Engagement; scope?: ScopeSeed[] }) =>
     request<Project>('POST', '/v1/projects', payload),
@@ -744,13 +734,6 @@ export const api = {
   setEngagement: (projectId: string, engagement: Engagement) =>
     request<Engagement>('PUT', `/v1/projects/${projectId}/engagement`, engagement),
   deleteProject: (id: string) => request<void>('DELETE', '/v1/projects/' + id),
-  listTemplates: () => request<Template[]>('GET', '/v1/templates'),
-  createProjectFromTemplate: (template_id: string, name: string) =>
-    request<{ project: Project; application?: Application; template: Template }>(
-      'POST',
-      '/v1/projects/from-template',
-      { template_id, name },
-    ),
 
   // applications & assets
   listApplications: (projectId: string) =>
@@ -902,7 +885,6 @@ export const api = {
     request<Session[]>('GET', `/v1/projects/${projectId}/sessions`),
   openSession: (projectId: string, actor: string) =>
     request<Session>('POST', `/v1/projects/${projectId}/sessions`, { actor }),
-  getSession: (id: string) => request<Session>('GET', `/v1/sessions/${id}`),
   closeSession: (id: string) => request<Session>('POST', `/v1/sessions/${id}/close`, {}),
   saveSessionEvidence: (id: string, note: string) =>
     request<Observation>('POST', `/v1/sessions/${id}/evidence`, { note }),
@@ -935,7 +917,6 @@ export const api = {
   reviewObservation: (id: string, state: string) =>
     request<void>('POST', `/v1/observations/${id}/review`, { state }),
   listFindings: () => request<Finding[]>('GET', '/v1/findings'),
-  getFinding: (id: string) => request<Finding>('GET', '/v1/findings/' + id),
   setFindingStatus: (id: string, status: string) =>
     request<Finding>('POST', `/v1/findings/${id}/status`, { status }),
   createFinding: (req: { title: string; severity?: string; cwe?: string; observation_ids: string[] }) =>
