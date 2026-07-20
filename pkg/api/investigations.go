@@ -57,9 +57,11 @@ func describeSignals(attrs map[string]string) string {
 }
 
 // listProjectObservations returns a project's observations with their routing attributes (ADR-0037), for
-// triage UIs and tooling. `?unreviewed_only=true` narrows to observations still awaiting triage.
+// triage UIs and tooling. Each observation is enriched with the source_repo `asset_id` its location refers
+// to (ADR-0050), so the UI can offer click-to-file. `?unreviewed_only=true` narrows to observations still
+// awaiting triage.
 func (s *Server) listProjectObservations(w http.ResponseWriter, r *http.Request) {
-	obs, err := s.pdb(r).ListObservationsByProject(r.Context(), r.PathValue("id"))
+	obs, err := s.pdb(r).ListLocatedObservationsByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

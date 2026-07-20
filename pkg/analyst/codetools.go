@@ -15,6 +15,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/srcfile"
 )
 
 // Source-code read tools (ADR-0020). They let an agent actually read and navigate a source_repo asset —
@@ -64,27 +65,10 @@ func resolveSourceAsset(ctx context.Context, deps ExecDeps, tool string, call ag
 	return asset, nil
 }
 
-// confinedPath resolves rel against the asset root and refuses anything that escapes it.
+// confinedPath resolves rel against the asset root and refuses anything that escapes it. The confinement
+// itself lives in pkg/srcfile so the HTTP source-viewer endpoints share the exact same boundary.
 func confinedPath(root, rel string) (string, error) {
-	root = filepath.Clean(root)
-	if strings.TrimSpace(rel) == "" {
-		rel = "."
-	}
-	full := filepath.Clean(filepath.Join(root, rel))
-	if full != root && !strings.HasPrefix(full, root+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q escapes the asset root", rel)
-	}
-	// Defend against symlink escape when the target exists.
-	if resolved, err := filepath.EvalSymlinks(full); err == nil {
-		rroot, _ := filepath.EvalSymlinks(root)
-		if rroot == "" {
-			rroot = root
-		}
-		if resolved != rroot && !strings.HasPrefix(resolved, rroot+string(filepath.Separator)) {
-			return "", fmt.Errorf("path %q resolves outside the asset root", rel)
-		}
-	}
-	return full, nil
+	return srcfile.ConfinedPath(root, rel)
 }
 
 // readFile returns a file's contents (optionally a line range), capped in size.
