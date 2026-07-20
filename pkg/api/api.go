@@ -312,7 +312,9 @@ func withCORS(h http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			// X-Project-Id scopes requests to the active project (ADR-0049); it must be allowed here or
+			// the browser's preflight blocks every project-scoped request.
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Project-Id")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
