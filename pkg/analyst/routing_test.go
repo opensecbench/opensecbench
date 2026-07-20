@@ -56,3 +56,30 @@ func TestProviderModelForTag(t *testing.T) {
 		t.Fatal("an unresolvable provider ref should fall back to active")
 	}
 }
+
+// The interactive chat runs on the generalist profile; it must carry a routing tag so the routing
+// "default" row applies, instead of silently using the active provider's default model.
+func TestGeneralistHonorsRoutingDefault(t *testing.T) {
+	if tag := ProfileByID("generalist").ModelTag; tag == "" {
+		t.Fatal("generalist has no ModelTag — the chat agent would bypass model routing")
+	}
+
+	ctx := context.Background()
+	db := migratedStore(t)
+	active := &llm.MockProvider{}
+	routed := &llm.MockProvider{}
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", active)
+	svc.SetProviderResolver(func(_ context.Context, id string) (llm.Provider, error) {
+		if id == "cli-x" {
+			return routed, nil
+		}
+		return nil, errors.New("unknown provider")
+	})
+	if err := db.SetSetting(ctx, ModelRoutingSetting, `{"default":{"provider_id":"cli-x","model":"claude-haiku-4-5"},"tags":{}}`); err != nil {
+		t.Fatal(err)
+	}
+	// The generalist's tag must resolve to the routing default's (provider, model).
+	if p, m := svc.providerModelForTag(ctx, ProfileByID("generalist").ModelTag); p != routed || m != "claude-haiku-4-5" {
+		t.Fatalf("generalist should resolve the routing default, got %v/%q", p, m)
+	}
+}

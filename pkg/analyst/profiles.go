@@ -72,6 +72,7 @@ var builtinProfiles = []Profile{
 		Description: "The all-round Analyst with the full toolset.",
 		Persona:     "You are the Analyst, an application security assessment assistant. You help review evidence and drive the assessment tools.",
 		// empty Tools = full catalog
+		ModelTag: "default", // the interactive chat agent — resolve via the routing default row, not the active provider
 	},
 	{
 		ID:          "lead",
