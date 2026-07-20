@@ -133,7 +133,11 @@ func mustTemplate(id, title, kind, md, html string) *Template {
 const execMD = `# {{.Project.Name}} — Executive Summary
 
 _Generated {{date .GeneratedAt}}_
+{{if .ExecutiveSummary}}
+{{.ExecutiveSummary}}
 
+_Narrative drafted by the analyst from the engagement's evidence-backed findings; review before delivery._
+{{end}}
 ## Overview
 
 This engagement covered **{{.Summary.Applications}}** application(s) and **{{.Summary.Assets}}** asset(s),
@@ -190,6 +194,10 @@ _Generated {{date .GeneratedAt}}_
 - **CWE:** {{.CWE}}{{end}}
 
 {{if .Description}}{{.Description}}
+{{end}}{{if .Impact}}
+**Impact:** {{.Impact}}
+{{end}}{{if .Remediation}}
+**Remediation:** {{.Remediation}}
 {{end}}
 **Evidence:**
 
@@ -325,6 +333,7 @@ const execHTML = `<!doctype html><html><head><meta charset="utf-8">
 <style>` + reportCSS + `</style></head><body>
 <h1>{{.Project.Name}}<span class="sub">Executive Summary</span></h1>
 <p class="meta">Generated {{date .GeneratedAt}}</p>
+{{if .ExecutiveSummary}}<div class="summary" style="white-space:pre-wrap">{{.ExecutiveSummary}}</div><p class="drafted"><em>Narrative drafted by the analyst from the engagement's evidence-backed findings; review before delivery.</em></p>{{end}}
 <p>This engagement covered <b>{{.Summary.Applications}}</b> application(s) and <b>{{.Summary.Assets}}</b>
 asset(s), running <b>{{.Summary.TasksRun}}</b> analysis task(s). <b>{{.Summary.Total}}</b> finding(s)
 with supporting evidence are reported.</p>
@@ -364,6 +373,8 @@ const techHTML = `<!doctype html><html><head><meta charset="utf-8">
 <h3><span class="sev sev-{{.Severity}}">{{sevfmt .Severity}}</span> {{.Title}}</h3>
 <p class="fmeta">Application: <b>{{.AppName}}</b> · Status: {{.Status}}{{if .CWE}} · CWE: {{.CWE}}{{end}}</p>
 {{if .Description}}<p>{{.Description}}</p>{{end}}
+{{if .Impact}}<p><b>Impact:</b> {{.Impact}}</p>{{end}}
+{{if .Remediation}}<p><b>Remediation:</b> {{.Remediation}}</p>{{end}}
 <p class="evlabel">Evidence</p>
 <ul class="evidence">{{range .Evidence}}<li>{{.Title}}{{if .Location}} — <code>{{.Location}}</code>{{end}} <span class="prov">origin: {{.Origin}}, {{.ReviewState}}</span></li>{{end}}</ul>
 </div>{{end}}{{else}}<p><em>No reportable findings.</em></p>{{end}}

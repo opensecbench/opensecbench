@@ -862,6 +862,7 @@ function ReportsTab({
   const [reports, setReports] = useState<Report[]>([])
   const [template, setTemplate] = useState('technical')
   const [format, setFormat] = useState('html')
+  const [narrate, setNarrate] = useState(true) // author an executive summary + per-finding impact/remediation (ADR-0045)
   const [busy, setBusy] = useState(false)
 
   async function reload() {
@@ -890,7 +891,7 @@ function ReportsTab({
   async function generate() {
     setBusy(true)
     try {
-      const rep = await api.generateReport(project.id, template, format)
+      const rep = await api.generateReport(project.id, template, format, narrate)
       await reload()
       window.open(api.artifactContentURL(rep.artifact_id), '_blank')
     } catch (e) {
@@ -918,8 +919,11 @@ function ReportsTab({
             <option key={f} value={f}>{f.toUpperCase()}</option>
           ))}
         </select>
+        <label className="rpt-narrate" title="The analyst drafts an executive summary + per-finding impact/remediation, grounded in the findings.">
+          <input type="checkbox" checked={narrate} onChange={(e) => setNarrate(e.target.checked)} /> AI narrative
+        </label>
         <button onClick={generate} disabled={!online || busy}>
-          {busy ? 'Generating…' : 'Generate'}
+          {busy ? (narrate ? 'Writing…' : 'Generating…') : 'Generate'}
         </button>
       </div>
       {reports.length === 0 ? (
