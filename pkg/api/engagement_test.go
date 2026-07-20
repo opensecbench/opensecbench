@@ -1,0 +1,70 @@
+package api
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"testing"
+
+	"github.com/opensecbench/opensecbench/migrations"
+	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/store"
+)
+
+func TestCreateProjectWithEngagement(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := store.LoadMigrations(migrations.FS)
+	if _, err := db.Apply(ms); err != nil {
+		t.Fatal(err)
+	}
+	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
+	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+
+	// Create a project with its engagement record + scope (allow + deny) in one call.
+	body := `{
+		"name": "Acme Q3",
+		"engagement": {"kinds":["web","api"], "objective":"pre-launch review", "environment":"staging",
+		               "data_class":"restricted", "authorized":true, "authorizer":"j@acme.com",
+		               "techniques":{"intrusive":true,"dos":false}},
+		"scope": [{"kind":"domain","value":"acme.com","disposition":"allow"},
+		          {"kind":"host","value":"payments.acme.com","disposition":"deny"}]
+	}`
+	var proj model.Project
+	if code := postJSON(t, srv.URL+"/v1/projects", body, &proj); code != http.StatusCreated {
+		t.Fatalf("create = %d", code)
+	}
+
+	// Engagement round-trips.
+	var eng model.Engagement
+	postGet(t, srv.URL+"/v1/projects/"+proj.ID+"/engagement", &eng)
+	if eng.DataClass != model.DataRestricted || !eng.Authorized || len(eng.Kinds) != 2 || !eng.Techniques["intrusive"] {
+		t.Fatalf("engagement not saved: %+v", eng)
+	}
+
+	// Scope has the deny entry.
+	var scope []model.ScopeEntry
+	postGet(t, srv.URL+"/v1/projects/"+proj.ID+"/scope", &scope)
+	var deny int
+	for _, e := range scope {
+		if e.Disposition == model.ScopeDeny {
+			deny++
+		}
+	}
+	if len(scope) != 2 || deny != 1 {
+		t.Fatalf("scope wrong: %+v", scope)
+	}
+
+	// PUT updates the record.
+	var updated model.Engagement
+	if code := putJSON(t, srv.URL+"/v1/projects/"+proj.ID+"/engagement", `{"objective":"revised"}`, &updated); code != http.StatusOK {
+		t.Fatalf("put = %d", code)
+	}
+	if updated.Objective != "revised" {
+		t.Fatalf("update not applied: %+v", updated)
+	}
+}
