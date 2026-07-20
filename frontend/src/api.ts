@@ -611,10 +611,24 @@ export interface SendResult {
 
 // --- request helper ---
 
+// activeProjectId is the project the workbench is currently viewing. It is sent as the X-Project-Id
+// header on every request so the backend routes flat-route entities (findings/{id}, threads/{id}, …) to
+// the right per-project database (ADR-0049); project-nested routes carry the id in the path already.
+let activeProjectId = ''
+
+// setActiveProject updates the project scope applied to subsequent requests. Call it whenever the user
+// selects (or clears) the active project.
+export function setActiveProject(id: string | null | undefined): void {
+  activeProjectId = id ?? ''
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  if (activeProjectId) headers['X-Project-Id'] = activeProjectId
   const res = await fetch(baseURL + path, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) {
@@ -633,7 +647,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   baseURL,
-  artifactContentURL: (id: string) => `${baseURL}/v1/artifacts/${id}/content`,
+  // artifactContentURL is embedded in <img>/<a> where no header can be set, so it carries the active
+  // project as a query param; the backend reads it as a fallback to X-Project-Id (ADR-0049).
+  artifactContentURL: (id: string) =>
+    `${baseURL}/v1/artifacts/${id}/content${activeProjectId ? `?project=${encodeURIComponent(activeProjectId)}` : ''}`,
 
   health: () => request<Record<string, string>>('GET', '/healthz'),
 
@@ -667,7 +684,7 @@ export const api = {
       `${baseURL}/v1/projects/${projectId}/context?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      headers: { 'Content-Type': file.type || 'application/octet-stream', ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
       body: file,
     })
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText)
@@ -814,7 +831,9 @@ export const api = {
   listTaskObservations: (taskId: string) =>
     request<Observation[]>('GET', `/v1/tasks/${taskId}/observations`),
   artifactContent: async (id: string) => {
-    const res = await fetch(baseURL + '/v1/artifacts/' + id + '/content')
+    const res = await fetch(baseURL + '/v1/artifacts/' + id + '/content', {
+      headers: activeProjectId ? { 'X-Project-Id': activeProjectId } : undefined,
+    })
     if (!res.ok) throw new Error(res.statusText)
     return res.text()
   },
