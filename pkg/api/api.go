@@ -379,6 +379,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)
 	s.mux.HandleFunc("POST /v1/analyst/playbooks", s.createSavedPlaybook)
+	s.mux.HandleFunc("GET /v1/analyst/playbooks/{id}", s.getAgentPlaybook)
+	s.mux.HandleFunc("PUT /v1/analyst/playbooks/{id}", s.updateSavedPlaybook)
 	s.mux.HandleFunc("DELETE /v1/analyst/playbooks/{id}", s.deleteSavedPlaybook)
 	s.mux.HandleFunc("POST /v1/projects/{id}/plans", s.startPlan)
 	s.mux.HandleFunc("GET /v1/projects/{id}/plans", s.listPlans)
@@ -667,6 +669,7 @@ type agentPlaybookStep struct {
 	Profile     string   `json:"profile"`
 	Instruction string   `json:"instruction"`
 	DependsOn   []string `json:"depends_on"`
+	Gate        bool     `json:"gate,omitempty"` // a human-approval pause (ADR-0044) — so the editor can round-trip gates
 }
 type agentPlaybookView struct {
 	ID          string              `json:"id"`
@@ -678,16 +681,21 @@ type agentPlaybookView struct {
 	Source      string              `json:"source,omitempty"`
 }
 
+// builtinSteps converts analyst playbook steps to the API view shape.
+func builtinSteps(in []analyst.PlaybookStep) []agentPlaybookStep {
+	steps := make([]agentPlaybookStep, 0, len(in))
+	for _, st := range in {
+		steps = append(steps, agentPlaybookStep{Key: st.Key, Profile: st.Profile, Instruction: st.Instruction, DependsOn: st.DependsOn, Gate: st.Gate})
+	}
+	return steps
+}
+
 // listAgentPlaybooks returns the agent playbooks a human can trigger — built-ins plus user-saved ones
 // (ADR-0019). Distinct from /v1/playbooks, which lists capability playbooks.
 func (s *Server) listAgentPlaybooks(w http.ResponseWriter, r *http.Request) {
 	out := []agentPlaybookView{}
 	for _, p := range analyst.Playbooks() {
-		steps := make([]agentPlaybookStep, 0, len(p.Steps))
-		for _, st := range p.Steps {
-			steps = append(steps, agentPlaybookStep{Key: st.Key, Profile: st.Profile, Instruction: st.Instruction, DependsOn: st.DependsOn})
-		}
-		out = append(out, agentPlaybookView{ID: p.ID, Name: p.Name, Description: p.Description, Goal: p.Goal, Steps: steps, Builtin: true})
+		out = append(out, agentPlaybookView{ID: p.ID, Name: p.Name, Description: p.Description, Goal: p.Goal, Steps: builtinSteps(p.Steps), Builtin: true})
 	}
 	if saved, err := s.global().ListSavedPlaybooks(r.Context()); err == nil {
 		for _, sp := range saved {
@@ -697,6 +705,51 @@ func (s *Server) listAgentPlaybooks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"playbooks": out})
+}
+
+// getAgentPlaybook returns one agent playbook (built-in or saved) with its steps and gates, so the editor can
+// load it for editing.
+func (s *Server) getAgentPlaybook(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if pb, ok := analyst.PlaybookByID(id); ok {
+		writeJSON(w, http.StatusOK, agentPlaybookView{ID: pb.ID, Name: pb.Name, Description: pb.Description, Goal: pb.Goal, Steps: builtinSteps(pb.Steps), Builtin: true})
+		return
+	}
+	sp, err := s.global().GetSavedPlaybook(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "playbook not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var steps []agentPlaybookStep
+	_ = json.Unmarshal(sp.Steps, &steps)
+	writeJSON(w, http.StatusOK, agentPlaybookView{ID: sp.ID, Name: sp.Name, Description: sp.Description, Goal: sp.Goal, Steps: steps, Builtin: false, Source: sp.Source})
+}
+
+// updateSavedPlaybook edits a saved playbook in place (ADR-0019). Built-ins are immutable.
+func (s *Server) updateSavedPlaybook(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string                 `json:"name"`
+		Description string                 `json:"description"`
+		Goal        string                 `json:"goal"`
+		Steps       []analyst.PlaybookStep `json:"steps"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	sp, err := s.analystService().UpdatePlaybook(r.Context(), r.PathValue("id"), req.Name, req.Description, req.Goal, req.Steps)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "saved playbook not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, sp)
 }
 
 // createSavedPlaybook stores a user-authored agent playbook.
