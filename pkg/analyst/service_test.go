@@ -67,7 +67,7 @@ func TestServiceApproveRunsCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := task.NewEngine(db, blobs, capability.BuiltIns(), runner.LocalRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), runner.LocalRunner{})
 
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
 	app, _ := db.CreateApplication(ctx, proj.ID, "a")

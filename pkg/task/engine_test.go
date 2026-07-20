@@ -38,7 +38,7 @@ func newEngine(t *testing.T, r runner.Runner) (*Engine, *cas.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return NewEngine(db, blobs, capability.BuiltIns(), r), blobs
+	return NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), r), blobs
 }
 
 // fakeRunner returns canned output without touching Docker, so the provenance wiring can be
@@ -148,11 +148,11 @@ func TestEngineScopeGuard(t *testing.T) {
 	// A network capability (http-probe) is blocked when its target is not in the project's
 	// allowlist, allowed when it matches, and unrestricted when the project has no allowlist.
 	eng, _ := newEngine(t, fakeRunner{out: []byte("HTTP/2 200\n"), code: 0})
-	proj, err := eng.store.CreateProject(context.Background(), store.NewProject{Name: "engagement"})
+	proj, err := eng.mgr.Global().CreateProject(context.Background(), store.NewProject{Name: "engagement"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := eng.store.AddScopeEntry(context.Background(), proj.ID, "domain", "acme.com"); err != nil {
+	if _, err := eng.mgr.Global().AddScopeEntry(context.Background(), proj.ID, "domain", "acme.com"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -183,7 +183,7 @@ func TestEngineScopeGuard(t *testing.T) {
 	}
 
 	// A project with no scope entries imposes no restriction.
-	empty, err := eng.store.CreateProject(context.Background(), store.NewProject{Name: "unscoped"})
+	empty, err := eng.mgr.Global().CreateProject(context.Background(), store.NewProject{Name: "unscoped"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestEngineCancelStopsRun(t *testing.T) {
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	reg := capability.NewRegistry()
 	reg.Register(sleepCap{})
-	eng := NewEngine(db, blobs, reg, runner.LocalRunner{})
+	eng := NewEngine(store.NewCombinedManager(db), blobs, reg, runner.LocalRunner{})
 
 	ctx := context.Background()
 	done := make(chan Outcome, 1)
@@ -266,7 +266,7 @@ func TestEngineCancelStopsRun(t *testing.T) {
 func pollTask(t *testing.T, eng *Engine, id string) model.Task {
 	t.Helper()
 	for i := 0; i < 200; i++ {
-		task, err := eng.store.GetTask(context.Background(), id)
+		task, err := eng.mgr.Global().GetTask(context.Background(), id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -300,7 +300,7 @@ func TestEngineEnqueueRunsAsync(t *testing.T) {
 	if done.StartedAt == nil {
 		t.Fatal("started_at should be set once a worker claimed the task")
 	}
-	obs, _ := eng.store.ListObservationsByTask(context.Background(), task.ID)
+	obs, _ := eng.mgr.Global().ListObservationsByTask(context.Background(), task.ID)
 	if len(obs) != 2 {
 		t.Fatalf("got %d observations from async run, want 2", len(obs))
 	}
@@ -313,7 +313,7 @@ func TestEngineEnqueueBadRequestFailsFast(t *testing.T) {
 	if _, err := eng.Enqueue(context.Background(), RunRequest{CapabilityID: "nope"}); err == nil {
 		t.Fatal("expected an error for an unknown capability")
 	}
-	if tasks, _ := eng.store.ListTasks(context.Background(), 10); len(tasks) != 0 {
+	if tasks, _ := eng.mgr.Global().ListTasks(context.Background(), 10); len(tasks) != 0 {
 		t.Fatalf("a bad enqueue should create no task, got %d", len(tasks))
 	}
 }
@@ -359,7 +359,7 @@ func TestEngineCancelQueuedTask(t *testing.T) {
 	if err := eng.Cancel(queued.ID); err != nil {
 		t.Fatalf("cancel queued: %v", err)
 	}
-	got, _ := eng.store.GetTask(context.Background(), queued.ID)
+	got, _ := eng.mgr.Global().GetTask(context.Background(), queued.ID)
 	if got.Status != model.TaskFailed || got.Error != "cancelled by user" {
 		t.Fatalf("cancelled queued task = %+v, want failed/cancelled by user", got)
 	}
@@ -432,7 +432,7 @@ func TestEngineInjectsSecretsAndRedactsOutput(t *testing.T) {
 	}
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	t.Cleanup(func() { _ = db.Close() })
-	eng := NewEngine(db, blobs, capability.BuiltIns(), cr)
+	eng := NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), cr)
 	eng.Secrets = func(_ context.Context, name string) (string, error) {
 		if name == "api_token" {
 			return secretVal, nil

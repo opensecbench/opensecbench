@@ -34,7 +34,7 @@ func TestRunnerStartAsync(t *testing.T) {
 		t.Fatal(err)
 	}
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	engine := task.NewEngine(db, blobs, capability.BuiltIns(), fakePBRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakePBRunner{})
 	defer engine.Close()
 
 	ctx := context.Background()
@@ -45,7 +45,7 @@ func TestRunnerStartAsync(t *testing.T) {
 	asset, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: repo})
 
 	// Start returns immediately with a running run; execution happens in the background.
-	run, err := NewRunner(engine, db).Start(ctx, "recon", asset.ID, "human")
+	run, err := NewRunner(engine, store.NewCombinedManager(db)).Start(ctx, proj.ID, "recon", asset.ID, "human")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,10 +75,10 @@ func TestRunnerStartUnknownPlaybook(t *testing.T) {
 	ms, _ := store.LoadMigrations(migrations.FS)
 	_, _ = db.Apply(ms)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	engine := task.NewEngine(db, blobs, capability.BuiltIns(), fakePBRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakePBRunner{})
 	defer engine.Close()
 
-	if _, err := NewRunner(engine, db).Start(context.Background(), "does-not-exist", "", "human"); err == nil {
+	if _, err := NewRunner(engine, store.NewCombinedManager(db)).Start(context.Background(), "", "does-not-exist", "", "human"); err == nil {
 		t.Fatal("expected an error for an unknown playbook")
 	}
 	if runs, _ := db.ListPlaybookRuns(context.Background(), 10); len(runs) != 0 {
@@ -112,7 +112,7 @@ func TestRunnerRunsPlaybook(t *testing.T) {
 		t.Fatal(err)
 	}
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	engine := task.NewEngine(db, blobs, capability.BuiltIns(), runner.LocalRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), runner.LocalRunner{})
 
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
@@ -121,7 +121,7 @@ func TestRunnerRunsPlaybook(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(repo, "x.go"), []byte("y"), 0o600)
 	asset, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: repo})
 
-	res, err := NewRunner(engine, db).Run(ctx, "recon", asset.ID, "human")
+	res, err := NewRunner(engine, store.NewCombinedManager(db)).Run(ctx, proj.ID, "recon", asset.ID, "human")
 	if err != nil {
 		t.Fatal(err)
 	}

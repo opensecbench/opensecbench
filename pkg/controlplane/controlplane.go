@@ -116,7 +116,7 @@ func Start(opts Options) (*Instance, error) {
 		log.Printf("extension skipped (%s): %v", dir, e)
 	}
 
-	engine := task.NewEngine(db, blobs, capReg, runner.LocalRunner{})
+	engine := task.NewEngine(mgr, blobs, capReg, runner.LocalRunner{})
 
 	// The LLM provider is configured via OSB_LLM_* (ollama/deepseek/grok/claude-cli/anthropic);
 	// unset yields a mock. A misconfiguration disables the Analyst but never blocks startup.
