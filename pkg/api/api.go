@@ -1568,6 +1568,14 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	// Validate references up front so a bad target/org id is a clear 400, not a 500 from a downstream
+	// constraint violation.
+	for _, tid := range req.TargetIDs {
+		if _, err := s.global().GetTarget(r.Context(), tid); err != nil {
+			writeErr(w, http.StatusBadRequest, "unknown target: "+tid)
+			return
+		}
+	}
 	project, err := s.mgr.CreateProject(r.Context(), store.NewProject{
 		Name:           req.Name,
 		OrganizationID: req.OrganizationID,
@@ -1575,7 +1583,6 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		TargetIDs:      req.TargetIDs,
 	})
 	if err != nil {
-		// TODO(P1+): distinguish constraint violations (e.g. unknown target) as 400.
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

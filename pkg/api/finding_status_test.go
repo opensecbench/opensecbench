@@ -59,3 +59,22 @@ func TestSetFindingStatus(t *testing.T) {
 		t.Fatalf("unknown finding should be 404, got %d", code)
 	}
 }
+
+// An unknown target on project create is a 400, not a 500 (review #7).
+func TestCreateProjectUnknownTargetIs400(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := store.LoadMigrations(migrations.FS)
+	if _, err := db.Apply(ms); err != nil {
+		t.Fatal(err)
+	}
+	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
+	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+
+	if code := postJSON(t, srv.URL+"/v1/projects", `{"name":"P","target_ids":["does-not-exist"]}`, nil); code != http.StatusBadRequest {
+		t.Fatalf("unknown target should be 400, got %d", code)
+	}
+}
