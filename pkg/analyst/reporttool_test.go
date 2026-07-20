@@ -70,8 +70,8 @@ func TestGenerateReportRejectsUnknownTemplate(t *testing.T) {
 // A stubNarrator lets the tool test assert narration is wired without an LLM.
 type stubNarrator struct{}
 
-func (stubNarrator) Narrate(ctx context.Context, d report.Data) (report.Narrative, error) {
-	return report.Narrative{ExecutiveSummary: "STUB SUMMARY LINE"}, nil
+func (stubNarrator) Narrate(ctx context.Context, d report.Data, audience string) (report.Narrative, error) {
+	return report.Narrative{ExecutiveSummary: "STUB SUMMARY LINE (" + audience + ")"}, nil
 }
 
 // When a Narrator is wired into ExecDeps, generate_report authors narrative and bakes it into the artifact

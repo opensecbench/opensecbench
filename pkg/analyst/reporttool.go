@@ -46,7 +46,7 @@ func generateReport(ctx context.Context, deps ExecDeps, call agent.ToolCall) (st
 	// Author narrative when a Narrator is wired (ADR-0045) — an executive summary + per-finding impact/
 	// remediation grounded in these findings. Best-effort: a failure yields the data-only report.
 	if deps.Narrator != nil {
-		if n, nerr := deps.Narrator.Narrate(ctx, data); nerr == nil {
+		if n, nerr := deps.Narrator.Narrate(ctx, data, report.AudienceFor(tmpl.ID)); nerr == nil {
 			data.ApplyNarrative(n)
 		}
 	}

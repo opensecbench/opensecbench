@@ -22,7 +22,7 @@ import (
 // routes to whatever model that tag maps to (ADR-0021) rather than the (possibly expensive) active model.
 const reportNarratorTag = "cheap"
 
-func (svc *Service) Narrate(ctx context.Context, d report.Data) (report.Narrative, error) {
+func (svc *Service) Narrate(ctx context.Context, d report.Data, audience string) (report.Narrative, error) {
 	if svc.provider == nil {
 		return report.Narrative{}, errors.New("no LLM provider configured")
 	}
@@ -31,7 +31,7 @@ func (svc *Service) Narrate(ctx context.Context, d report.Data) (report.Narrativ
 		Model:     tgt.SessionModel,
 		MaxTokens: 4000,
 		Messages: []llm.Message{
-			{Role: "system", Content: narratorSystem},
+			{Role: "system", Content: narratorSystem + audienceGuidance(audience)},
 			{Role: "user", Content: buildNarratorPrompt(d)},
 		},
 	})
@@ -52,6 +52,19 @@ const narratorSystem = "You are a senior security report writer. You are given a
 	"\"findings\": [{\"id\": \"<finding id>\", \"impact\": \"what an attacker gains / business risk\", " +
 	"\"remediation\": \"specific, actionable fix guidance\"}]}\n" +
 	"Include one findings entry per finding id supplied. Keep impact and remediation to a few sentences each."
+
+// audienceGuidance tailors the narrator's tone to who reads the report (ADR-0045).
+func audienceGuidance(audience string) string {
+	switch audience {
+	case report.AudienceExecutive:
+		return "\n\nAudience: EXECUTIVE / business stakeholders. Lead with business risk and priorities; " +
+			"minimize jargon; frame impact in terms of what's at stake; keep remediation high-level (what to do, " +
+			"not code)."
+	default:
+		return "\n\nAudience: TECHNICAL / engineers. Be precise and concrete; name the mechanism; give specific, " +
+			"actionable remediation (configs, code-level fixes, controls)."
+	}
+}
 
 // buildNarratorPrompt renders the grounded snapshot into a compact prompt. Evidence is trimmed so a large
 // engagement stays within a sane prompt size.

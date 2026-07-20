@@ -87,7 +87,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 	// provider degrades to the data-only report rather than failing generation.
 	if req.Narrate {
 		if svc := s.analystService(); svc != nil && svc.Available() {
-			if n, nerr := svc.Narrate(r.Context(), data); nerr == nil {
+			if n, nerr := svc.Narrate(r.Context(), data, report.AudienceFor(tmpl.ID)); nerr == nil {
 				data.ApplyNarrative(n)
 			} else {
 				log.Printf("report narration failed for %s: %v", projectID, nerr)

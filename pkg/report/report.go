@@ -69,10 +69,28 @@ type FindingNarrative struct {
 	Remediation string `json:"remediation"`
 }
 
-// Narrator authors narrative from a grounded report snapshot. Implemented by the analyst service (which has
-// the LLM provider); kept as an interface here so pkg/report has no dependency on the agent runtime.
+// Narrator authors narrative from a grounded report snapshot for a given audience ("executive" | "technical").
+// Implemented by the analyst service (which has the LLM provider); kept as an interface here so pkg/report has
+// no dependency on the agent runtime.
 type Narrator interface {
-	Narrate(ctx context.Context, d Data) (Narrative, error)
+	Narrate(ctx context.Context, d Data, audience string) (Narrative, error)
+}
+
+// Report audiences — drive the narrator's tone.
+const (
+	AudienceExecutive = "executive"
+	AudienceTechnical = "technical"
+)
+
+// AudienceFor maps a report template id to the narrative audience: executive/branded reports read as business
+// risk; technical/compliance/retest read as precise engineering detail.
+func AudienceFor(templateID string) string {
+	switch templateID {
+	case "executive", "branded":
+		return AudienceExecutive
+	default:
+		return AudienceTechnical
+	}
 }
 
 // ApplyNarrative merges authored prose into the snapshot: the executive summary and each finding's impact/
