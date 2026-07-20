@@ -934,8 +934,26 @@ function ReportsTab({
             <li key={rep.id} className="row-item">
               <span className="badge">{rep.format}</span>
               <span className="row-title">{rep.title}</span>
+              <span className="muted">{rep.template_id}</span>
+              <span className="grow" />
               <span className="muted mono">{new Date(rep.created_at).toLocaleString()}</span>
               <a className="link" href={api.artifactContentURL(rep.artifact_id)} target="_blank" rel="noreferrer">open</a>
+              <button
+                className="del"
+                title="Delete this report"
+                disabled={!online}
+                onClick={async () => {
+                  if (!window.confirm(`Delete report "${rep.title}"?`)) return
+                  try {
+                    await api.deleteReport(rep.id)
+                    await reload()
+                  } catch (e) {
+                    onError((e as Error).message)
+                  }
+                }}
+              >
+                ✕
+              </button>
             </li>
           ))}
         </ul>

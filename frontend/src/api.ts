@@ -969,6 +969,7 @@ export const api = {
   listReports: (projectId: string) => request<Report[]>('GET', `/v1/projects/${projectId}/reports`),
   generateReport: (projectId: string, template: string, format: string, narrate = false) =>
     request<Report>('POST', `/v1/projects/${projectId}/reports`, { template, format, narrate }),
+  deleteReport: (id: string) => request<void>('DELETE', '/v1/reports/' + id),
 
   // notifications
   listNotifications: (limit = 50) =>
