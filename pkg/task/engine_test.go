@@ -482,3 +482,44 @@ func TestEngineSecretRefsWithoutVaultFails(t *testing.T) {
 		t.Fatalf("task should be failed, got %s", out.Task.Status)
 	}
 }
+
+func TestEngineTechniqueGate(t *testing.T) {
+	// nmap is tagged technique="intrusive" (ADR-0051). It is blocked at enqueue when the engagement does
+	// not permit intrusive testing, allowed when it does, and unconstrained when no engagement is set.
+	eng, _ := newEngine(t, fakeRunner{out: []byte("<nmaprun/>"), code: 0})
+	ctx := context.Background()
+	g := eng.mgr.Global()
+	proj, err := g.CreateProject(ctx, store.NewProject{Name: "engagement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No engagement yet → unconstrained (fail-open): the run is not blocked by the technique gate. It still
+	// needs an in-scope target, so give it one.
+	if _, err := g.AddScopeEntry(ctx, proj.ID, "domain", "acme.com", "allow"); err != nil {
+		t.Fatal(err)
+	}
+	run := func() error {
+		_, err := eng.Run(ctx, RunRequest{CapabilityID: "nmap", ProjectID: &proj.ID, Params: map[string]any{"target": "scan.acme.com"}})
+		return err
+	}
+	if err := run(); errors.Is(err, ErrTechniqueNotPermitted) {
+		t.Fatal("no engagement should be unconstrained, but was blocked")
+	}
+
+	// Engagement that disallows intrusive → blocked at enqueue with ErrTechniqueNotPermitted.
+	if _, err := g.SetEngagement(ctx, model.Engagement{ProjectID: proj.ID, Techniques: map[string]bool{"intrusive": false}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); !errors.Is(err, ErrTechniqueNotPermitted) {
+		t.Fatalf("disallowed technique run err = %v, want ErrTechniqueNotPermitted", err)
+	}
+
+	// Engagement that allows intrusive → passes the technique gate.
+	if _, err := g.SetEngagement(ctx, model.Engagement{ProjectID: proj.ID, Techniques: map[string]bool{"intrusive": true}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); errors.Is(err, ErrTechniqueNotPermitted) {
+		t.Fatal("permitted technique should not be blocked")
+	}
+}

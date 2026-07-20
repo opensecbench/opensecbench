@@ -241,13 +241,22 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context
 	if prov != nil {
 		pname = prov.Name()
 	}
+	// Per-engagement tightening (ADR-0051): a project whose engagement data class is "restricted" forces
+	// strict egress for that project, regardless of the global posture — OR-ed with the global flag, so it
+	// is never looser than global, only tighter. Resolved once here, not per tool call.
+	strict := svc.egressStrict
+	if !strict && projectID != "" {
+		if eng, err := svc.p(projectID).GetEngagement(context.Background(), projectID); err == nil && eng.DataClass == model.DataRestricted {
+			strict = true
+		}
+	}
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
 		// delegate spawns a specialist sub-agent — handled at the service level (it needs the provider),
 		// not the pure tool Executor.
 		if call.Tool == "delegate" {
 			return svc.runDelegate(ctx, projectID, call)
 		}
-		if svc.egressStrict && external {
+		if strict && external {
 			// Reading a private asset's contents into an external model is data egress (ADR-0011/0020).
 			if assetEgressTools[call.Tool] {
 				if assetID, _ := call.Args["asset"].(string); assetID != "" {

@@ -137,3 +137,28 @@ func TestEgressPolicyBlocksPrivateAssetOnExternalProvider(t *testing.T) {
 		t.Fatal("local provider must not be egress-blocked")
 	}
 }
+
+// TestRestrictedDataClassForcesStrictEgress verifies a project whose engagement data class is "restricted"
+// gets strict egress even when the GLOBAL policy is open (ADR-0051 phase 2) — never looser, only tighter.
+func TestRestrictedDataClassForcesStrictEgress(t *testing.T) {
+	db := migratedStore(t)
+	ctx := context.Background()
+	restricted, _ := db.CreateProject(ctx, store.NewProject{Name: "restricted"})
+	normal, _ := db.CreateProject(ctx, store.NewProject{Name: "normal"})
+	if _, err := db.SetEngagement(ctx, model.Engagement{ProjectID: restricted.ID, DataClass: model.DataRestricted}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Global egress is OPEN (personal) — egressStrict false.
+	svc := &Service{mgr: store.NewCombinedManager(db), egressStrict: false}
+	ext := &llm.AnthropicProvider{} // external
+
+	// Restricted project: read_context to an external provider is blocked despite the open global policy.
+	if _, err := svc.executeFor(restricted.ID, ext)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": "x"}}); err == nil || !strings.Contains(err.Error(), "egress") {
+		t.Fatalf("restricted project should force egress block, got %v", err)
+	}
+	// Non-restricted project under the same open global policy: not egress-blocked.
+	if _, err := svc.executeFor(normal.ID, ext)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": "x"}}); err != nil && strings.Contains(err.Error(), "egress") {
+		t.Fatal("non-restricted project under open policy must not be egress-blocked")
+	}
+}
