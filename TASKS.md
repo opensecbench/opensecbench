@@ -81,8 +81,11 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] API + osb CLI: playbook list/run, playbook-run list/get
 - [x] Analyst tools: list_playbooks / run_playbook (gated)
 - [x] Playbooks tab in the frontend
-- [ ] Playbook editor (author/edit task graphs) — later
-- [ ] Conditional steps + per-step approval gates — later
+- [ ] Capability-playbook editor (this P5 system is built-in-only; no authoring surface) — later
+- [x] Agent-playbook editor (ADR-0019, the *other* playbook system): edit saved playbooks in place
+      (id-stable UpdateSavedPlaybook + PUT + single GET; gates round-trip on read), author approval-gate
+      steps in the builder, ✎ Edit in Orchestrate. DAG deps + gates + parallel waves were already built.
+- [ ] Conditional/branching steps + per-step params for agent playbooks — later (needs runner change)
 
 ## P6 — Scope guard
 
