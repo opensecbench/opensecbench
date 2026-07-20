@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -57,6 +58,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		BrandName    string `json:"brand_name"`
 		BrandTagline string `json:"brand_tagline"`
 		BrandColor   string `json:"brand_color"`
+		Narrate      bool   `json:"narrate"` // author an executive summary + per-finding impact/remediation (ADR-0045)
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -79,6 +81,19 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.Brand = report.Brand{Name: req.BrandName, Tagline: req.BrandTagline, Color: req.BrandColor}
+
+	// Agent-authored narrative (ADR-0045): when asked, the analyst writes an executive summary + per-finding
+	// impact/remediation grounded in the reportable findings. Best-effort — a narration failure or missing
+	// provider degrades to the data-only report rather than failing generation.
+	if req.Narrate {
+		if svc := s.analystService(); svc != nil && svc.Available() {
+			if n, nerr := svc.Narrate(r.Context(), data); nerr == nil {
+				data.ApplyNarrative(n)
+			} else {
+				log.Printf("report narration failed for %s: %v", projectID, nerr)
+			}
+		}
+	}
 
 	// DOCX is generated directly from Data (no browser); PDF is the HTML render printed headless.
 	if format == report.FormatDOCX {

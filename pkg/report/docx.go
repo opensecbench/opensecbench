@@ -18,6 +18,15 @@ func DOCX(title string, d Data) ([]byte, error) {
 	heading(&body, 1, d.Project.Name+" — "+title)
 	para(&body, "Generated "+d.GeneratedAt.Format("2006-01-02 15:04 MST"))
 
+	if d.ExecutiveSummary != "" {
+		heading(&body, 2, "Executive summary")
+		for _, p := range strings.Split(d.ExecutiveSummary, "\n\n") {
+			if strings.TrimSpace(p) != "" {
+				para(&body, strings.TrimSpace(p))
+			}
+		}
+	}
+
 	heading(&body, 2, "Summary")
 	para(&body, fmt.Sprintf("%d finding(s) with supporting evidence across %d application(s), %d task(s) run.",
 		d.Summary.Total, d.Summary.Applications, d.Summary.TasksRun))
@@ -47,6 +56,12 @@ func DOCX(title string, d Data) ([]byte, error) {
 		para(&body, meta)
 		if f.Description != "" {
 			para(&body, f.Description)
+		}
+		if f.Impact != "" {
+			para(&body, "Impact: "+f.Impact)
+		}
+		if f.Remediation != "" {
+			para(&body, "Remediation: "+f.Remediation)
 		}
 		for _, e := range f.Evidence {
 			line := "• " + e.Title

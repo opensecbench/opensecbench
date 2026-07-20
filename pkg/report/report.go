@@ -47,6 +47,45 @@ type Data struct {
 	SeverityChart htmltemplate.HTML // self-contained inline SVG figure (HTML reports)
 	CoverageChart htmltemplate.HTML // severity × status heatmap (inline SVG)
 	Brand         Brand             // optional client branding (branded template)
+	// ExecutiveSummary is agent-authored narrative (ADR-0045): prose summarizing the engagement's outcome,
+	// grounded in the reportable findings. Empty when narration is off/unavailable — templates degrade to
+	// the data-only overview.
+	ExecutiveSummary string
+	Narrated         bool // true when narrative was authored for this snapshot (drives a "AI-drafted" note)
+}
+
+// Narrative is the agent-authored prose for a report: an executive summary plus per-finding impact and
+// remediation keyed by finding id. It is produced from a Data snapshot by a Narrator and merged back in,
+// so it is always grounded in the exact reportable finding set (ADR-0045).
+type Narrative struct {
+	ExecutiveSummary string                      `json:"executive_summary"`
+	Findings         map[string]FindingNarrative `json:"-"`
+}
+
+// FindingNarrative is the authored prose for one finding.
+type FindingNarrative struct {
+	ID          string `json:"id"`
+	Impact      string `json:"impact"`
+	Remediation string `json:"remediation"`
+}
+
+// Narrator authors narrative from a grounded report snapshot. Implemented by the analyst service (which has
+// the LLM provider); kept as an interface here so pkg/report has no dependency on the agent runtime.
+type Narrator interface {
+	Narrate(ctx context.Context, d Data) (Narrative, error)
+}
+
+// ApplyNarrative merges authored prose into the snapshot: the executive summary and each finding's impact/
+// remediation (matched by id). Unknown finding ids are ignored.
+func (d *Data) ApplyNarrative(n Narrative) {
+	d.ExecutiveSummary = n.ExecutiveSummary
+	d.Narrated = true
+	for i := range d.Findings {
+		if fn, ok := n.Findings[d.Findings[i].ID]; ok {
+			d.Findings[i].Impact = fn.Impact
+			d.Findings[i].Remediation = fn.Remediation
+		}
+	}
 }
 
 // Brand is optional client branding for the branded report template.
@@ -66,11 +105,14 @@ type Summary struct {
 	BySeverity   map[string]int // severity -> count
 }
 
-// Finding is a reportable finding expanded with its evidence and application name.
+// Finding is a reportable finding expanded with its evidence and application name. Impact and Remediation are
+// agent-authored narrative (ADR-0045), empty unless the report was narrated.
 type Finding struct {
 	model.Finding
-	AppName  string
-	Evidence []model.Observation
+	AppName     string
+	Evidence    []model.Observation
+	Impact      string
+	Remediation string
 }
 
 // CWEGroup is a set of findings sharing a CWE, for the compliance/mapping report.

@@ -967,8 +967,8 @@ export const api = {
   // reports
   listReportTemplates: () => request<ReportTemplate[]>('GET', '/v1/report-templates'),
   listReports: (projectId: string) => request<Report[]>('GET', `/v1/projects/${projectId}/reports`),
-  generateReport: (projectId: string, template: string, format: string) =>
-    request<Report>('POST', `/v1/projects/${projectId}/reports`, { template, format }),
+  generateReport: (projectId: string, template: string, format: string, narrate = false) =>
+    request<Report>('POST', `/v1/projects/${projectId}/reports`, { template, format, narrate }),
 
   // notifications
   listNotifications: (limit = 50) =>
