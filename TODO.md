@@ -260,14 +260,14 @@ and can later ship as plugins.
 
 ## Functional gaps (2026-07-20 project review — untracked stubs/gaps)
 
-- [ ] **Finding lifecycle** — `store.SetFindingStatus` exists (open|confirmed|remediated|accepted) but has
+- [x] **Finding lifecycle** — `store.SetFindingStatus` exists (open|confirmed|remediated|accepted) but has
       NO API route and NO UI, so findings are write-once. Add `POST /v1/findings/{id}/status` + a status
       control on finding rows. *(highest value, small)*
-- [ ] **Methodology un-adopt UI** — `unadoptMethodology` (store+API+client) exists but has no button; you can
+- [x] **Methodology un-adopt UI** — `unadoptMethodology` (store+API+client) exists but has no button; you can
       adopt a pack but never remove it.
 - [ ] **Analyst can't read binary context** — `pkg/analyst/corpustools.go:82` returns a note, not content,
       for PDF/docx/binary docs; a doc/email-ingesting assessment tool should extract text.
-- [ ] **Swallowed persistence errors in orchestration** — `planrunner.go:87-206` discards every
+- [x] **Swallowed persistence errors in orchestration** — `planrunner.go:87-206` discards every
       `UpdatePlanStep`/`UpdatePlanStatus`; `scheduler.go:54` swallows `markRun`. A DB failure mid-plan is
       invisible (wrong resume / schedule re-fire). Surface/handle these.
 - [ ] **Interactive sessions are bare** — `session/docker.go:16` hardcoded image, no assessment toolchain /

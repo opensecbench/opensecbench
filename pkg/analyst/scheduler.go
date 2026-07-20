@@ -49,9 +49,12 @@ func (s *Scheduler) runDue(ctx context.Context, now time.Time) {
 		} else {
 			s.log("schedule.fired", sc.PlaybookID)
 		}
-		// Advance regardless of success, so a failing schedule doesn't fire on every tick.
+		// Advance regardless of success, so a failing schedule doesn't fire on every tick. A failure to
+		// persist the advance is surfaced, not swallowed — otherwise the schedule could re-fire next tick.
 		next := now.Add(time.Duration(sc.IntervalSeconds) * time.Second)
-		_ = s.markRun(ctx, sc.ProjectID, sc.ID, now, next)
+		if err := s.markRun(ctx, sc.ProjectID, sc.ID, now, next); err != nil {
+			s.log("schedule.error", sc.PlaybookID+": advancing next-run failed: "+err.Error())
+		}
 	}
 }
 

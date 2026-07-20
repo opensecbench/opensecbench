@@ -4,11 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
+
+// setStep / setPlanStatus persist plan progress, logging on failure instead of silently dropping it — a
+// dropped write here means an inspecting UI (or a resumed run) sees stale state, so failures must be visible.
+func (svc *Service) setStep(ctx context.Context, projectID, stepID, status, result, note string) {
+	if err := svc.p(projectID).UpdatePlanStep(ctx, stepID, status, result, note); err != nil {
+		log.Printf("planrunner: persisting step %s=%s failed: %v", stepID, status, err)
+	}
+}
+func (svc *Service) setPlanStatus(ctx context.Context, projectID, planID, status string) {
+	if err := svc.p(projectID).UpdatePlanStatus(ctx, planID, status); err != nil {
+		log.Printf("planrunner: persisting plan %s=%s failed: %v", planID, status, err)
+	}
+}
 
 // maxParallelSteps bounds how many plan steps run concurrently in one wave (ADR-0046). Steps often run
 // Docker-heavy capabilities, so this is deliberately modest; a plan with a wider ready set just takes more
@@ -84,7 +98,7 @@ func (svc *Service) runPlan(plan model.Plan) {
 				failed[s.Key] = true
 				anyFailed = true
 				progressed = true
-				_ = svc.p(plan.ProjectID).UpdatePlanStep(ctx, s.ID, model.StepSkipped, "", "skipped: a dependency did not complete")
+				svc.setStep(ctx, plan.ProjectID, s.ID, model.StepSkipped, "", "skipped: a dependency did not complete")
 				continue
 			}
 			if isReady {
@@ -100,7 +114,7 @@ func (svc *Service) runPlan(plan model.Plan) {
 				done[s.Key] = true
 				results[s.Key] = s.Result
 				clearedGate = true
-				_ = svc.p(plan.ProjectID).UpdatePlanStep(ctx, s.ID, model.StepDone, s.Result, "")
+				svc.setStep(ctx, plan.ProjectID, s.ID, model.StepDone, s.Result, "")
 			}
 		}
 		if clearedGate {
@@ -112,8 +126,8 @@ func (svc *Service) runPlan(plan model.Plan) {
 		// human might veto.
 		for _, s := range ready {
 			if s.Gate {
-				_ = svc.p(plan.ProjectID).UpdatePlanStep(ctx, s.ID, model.StepWaiting, "", "awaiting human approval")
-				_ = svc.p(plan.ProjectID).UpdatePlanStatus(ctx, plan.ID, model.PlanWaiting)
+				svc.setStep(ctx, plan.ProjectID, s.ID, model.StepWaiting, "", "awaiting human approval")
+				svc.setPlanStatus(ctx, plan.ProjectID, plan.ID, model.PlanWaiting)
 				svc.notifyPlanWaiting(ctx, plan, *s)
 				return
 			}
@@ -138,7 +152,7 @@ func (svc *Service) runPlan(plan model.Plan) {
 				s := &plan.Steps[i]
 				if !done[s.Key] && !failed[s.Key] {
 					anyFailed = true
-					_ = svc.p(plan.ProjectID).UpdatePlanStep(ctx, s.ID, model.StepFailed, "", "unresolved dependency")
+					svc.setStep(ctx, plan.ProjectID, s.ID, model.StepFailed, "", "unresolved dependency")
 				}
 			}
 			break
@@ -149,7 +163,7 @@ func (svc *Service) runPlan(plan model.Plan) {
 	if anyFailed {
 		status = model.PlanFailed
 	}
-	_ = svc.p(plan.ProjectID).UpdatePlanStatus(ctx, plan.ID, status)
+	svc.setPlanStatus(ctx, plan.ProjectID, plan.ID, status)
 }
 
 // stepReady reports whether a step's dependencies are all satisfied (isReady), or whether any dependency
@@ -183,7 +197,7 @@ func (svc *Service) runWave(ctx context.Context, projectID string, wave []*model
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			_ = svc.p(projectID).UpdatePlanStep(ctx, s.ID, model.StepRunning, "", "")
+			svc.setStep(ctx, projectID, s.ID, model.StepRunning, "", "")
 			mu.Lock()
 			task := s.Instruction
 			if c := planContext(s.DependsOn, results); c != "" {
@@ -198,12 +212,12 @@ func (svc *Service) runWave(ctx context.Context, projectID string, wave []*model
 			if err != nil {
 				failed[s.Key] = true
 				*anyFailed = true
-				_ = svc.p(projectID).UpdatePlanStep(ctx, s.ID, model.StepFailed, "", err.Error())
+				svc.setStep(ctx, projectID, s.ID, model.StepFailed, "", err.Error())
 				return
 			}
 			done[s.Key] = true
 			results[s.Key] = res.Answer
-			_ = svc.p(projectID).UpdatePlanStep(ctx, s.ID, model.StepDone, res.Answer, "")
+			svc.setStep(ctx, projectID, s.ID, model.StepDone, res.Answer, "")
 		}()
 	}
 	wg.Wait()
@@ -243,7 +257,7 @@ func (svc *Service) ResolvePlanGate(ctx context.Context, projectID, planID, step
 		return model.Plan{}, err
 	}
 	// Flip back to running and relaunch; the resumed run reconstructs state and continues (or ends).
-	_ = svc.p(projectID).UpdatePlanStatus(ctx, planID, model.PlanRunning)
+	svc.setPlanStatus(ctx, projectID, planID, model.PlanRunning)
 	go svc.runPlan(plan)
 	return svc.p(projectID).GetPlan(ctx, planID)
 }
