@@ -2,9 +2,16 @@
 
 Status: Accepted — planned. Everything a project owns — its structured rows, its evidence blobs, and its
 agent workspace — moves under a single per-project directory, so an engagement can be **purged, backed up,
-or migrated** as one filesystem object. Cross-cutting config stays in a small `global.db`; durable
-cross-engagement knowledge gets its own `targets/` tier. Adopted by **wipe-and-adopt** while data is still
-disposable — no data-split migration is written.
+or migrated** as one filesystem object. Cross-cutting config **and durable cross-engagement knowledge** stay
+in a small `global.db`. Adopted by **wipe-and-adopt** while data is still disposable — no data-split
+migration is written.
+
+> **Topology (settled): two tiers, `global.db` + `projects/<id>/project.db`.** An earlier draft gave durable
+> targets their own `targets/<id>/target.db`. Building the table map showed `kb_entries` anchors to
+> **target / group / org / global** (ADR-0041) — durable knowledge is inherently cross-cutting, so it lives
+> in `global.db` (with its `targets`/`groups`/`organizations` FK parents) and already survives project purge
+> there. A per-target file would then hold almost nothing, so it is dropped. Target identity + KB live in
+> `global.db`; `targets/` remains only a *directory* concept for per-target CAS if ever needed.
 
 ## Context
 
@@ -47,10 +54,6 @@ a single DB, which optimized for a different target.)
 ├── vault.key            instance key material (global)
 ├── proxy-ca/            shared CA (global)
 ├── extensions/          installed packages (global)
-├── targets/             DURABLE, cross-engagement knowledge
-│   └── <targetId>/
-│       ├── target.db    KB, coverage history, corpus_chunks for the durable target
-│       └── cas/         evidence owned by the durable target
 └── projects/
     └── <projectId>/
         ├── project.db   ALL project-scoped rows: tasks, artifacts index, observations,
@@ -60,20 +63,30 @@ a single DB, which optimized for a different target.)
         └── meta.json    id/name/created/schema-version — self-describing for import
 ```
 
-**Three storage domains, explicitly:**
+**Two storage domains, explicitly:**
 
-1. **Global** (`global.db` + `vault.key` + `proxy-ca/` + `extensions/`) — instance-level config and identity,
-   never purged with a project: org/group hierarchy, settings, providers, runners, extensions, the
-   hash-chained **audit trail** (audit events survive project deletion by design), and a denormalized
-   **project index** (id/name/status/counts) so cross-project dashboards read one place instead of fanning
-   out across N databases.
+1. **Global** (`global.db` + `vault.key` + `proxy-ca/` + `extensions/`) — instance-level config, identity, and
+   **durable knowledge**, never purged with a project: org/group hierarchy, **targets** (identity registry),
+   **`kb_entries`** (multi-scope knowledge that survives every engagement), settings, providers, runners,
+   secrets, DLP config, saved playbooks/profiles, the hash-chained **audit trail** (audit events survive
+   project deletion by design), and a denormalized **project index** (id/name/status/counts) so cross-project
+   dashboards read one place instead of fanning out across N databases.
 
 2. **Project** (`projects/<id>/`) — one engagement, fully self-contained: its own `project.db`, its own `cas/`,
    its own `workspace/`. This is the unit of purge/backup/migrate.
 
-3. **Durable target** (`targets/<id>/`) — knowledge that must outlive any single engagement (KB, coverage
-   history, corpus). Kept out of ephemeral projects so purging an engagement can never destroy shared
-   knowledge. A project links to a target; KB reads span the project's own corpus plus the linked target's.
+**Table map (52 tables → 2 domains).** Global (15): `organizations`, `groups`, `targets`, `settings`,
+`providers`, `runners`, `runner_enroll_tokens`, `audit_events`, `secrets`, `canaries`, `dlp_events`,
+`saved_playbooks`, `saved_profiles`, `kb_entries`, + new `project_index`. Project (everything else, 37):
+`projects`, `applications`, `assets`, `tasks`, `artifacts`, `observations`, `findings`,
+`finding_observations`, `external_links`, `context_items`, `corpus_chunks`, `threads`, `messages`,
+`approvals`, `playbook_runs`, `playbook_run_tasks`, `plans`, `plan_steps`, `scope_entries`, `http_exchanges`,
+`proxy_rules`, `sessions`, `reports`, `notifications`, `methodology_coverage`, `project_methodologies`,
+`coverage_observations`, `integration_configs`, `integration_imports`, `disposition_rules`, `reachability`,
+`routes`, `investigations`, `investigation_vulns`, `usage_records`, `project_targets`. `corpus_chunks` and
+`usage_records` both carry `project_id`, so they are project-scoped despite touching KB/telemetry. Only two
+project tables FK a global table and get those FKs **stripped to plain columns** (self-contained project.db):
+`projects` (`organization_id`/`group_id`) and `project_targets` (`target_id`).
 
 **Consequent operations** become filesystem-trivial:
 
@@ -95,8 +108,8 @@ engagements begin.
   (deduped, per-project); proxy bloat is bounded per engagement and vanishes on purge. (Body-in-CAS +
   retention is folded into Phase 2.)
 - **CAS stops being a singleton** — the biggest code change. Today one `*cas.Store` is injected everywhere
-  (~10 `Put` sites); it becomes a `StoreFor(projectID)`/`StoreForTarget(targetID)` resolver with `projectID`
-  threaded to those call sites.
+  (~10 `Put` sites); it becomes a `StoreFor(projectID)` resolver with `projectID` threaded to those call
+  sites.
 - **The store layer becomes a router** — a `global.db` handle plus an on-demand per-project handle pool
   (open lazily, LRU-close); migrations run per-project-db on first open. Global-scoped methods hit
   `global.db`; project-scoped methods hit the project handle.
@@ -110,14 +123,16 @@ engagements begin.
 ### Rollout phases
 
 0. **Layout + wipe** — adopt the directory structure; delete existing data (no splitter). This ADR.
-1. **DB router** — `global.db` + per-project handle pool; per-project migration-on-open; move project-scoped
-   tables out of the global schema.
-2. **Per-project CAS** — `StoreFor(projectID)` resolver; thread `projectID` to `Put`/`Open` sites; route
+1. **DB router** — split the schema into a `global` set + a `project` set (consolidated end-state SQL, since
+   we wipe); a `store.Manager` owning the `global.db` handle + an on-demand per-project handle pool with
+   migrate-on-open + a `project_index` registration. *(This commit: schemas + Manager + tests. Foundation is
+   additive — the legacy single-DB path is untouched until the rewire.)*
+2. **Rewire** — route the ~200 `store` call sites to `mgr.Global()` vs `mgr.Project(ctx, id)`; retire the
+   single-DB open in `controlplane`.
+3. **Per-project CAS** — `StoreFor(projectID)` resolver; thread `projectID` to `Put`/`Open` sites; route
    `http_exchanges` bodies into the project CAS; add proxy-exchange retention.
-3. **Lifecycle commands** — `osb project purge|export --raw|import-dir`; workspace cleanup falls out for free
+4. **Lifecycle commands** — `osb project purge|export --raw|import-dir`; workspace cleanup falls out for free
    (it's inside the project dir).
-4. **Durable `targets/` tier** — `target.db` + `cas/` per target; KB/corpus read path spans project + linked
-   targets.
 
 ## Out of scope — later
 
@@ -126,3 +141,5 @@ engagements begin.
 - A data-split migration from the legacy single-DB layout (intentionally skipped — wipe-and-adopt).
 - Cross-instance sync / replication of `global.db`.
 - Encrypting per-project directories at rest (today only `bundle` exports are sealed).
+- A per-target CAS/`targets/<id>/` directory — deferred until a target accumulates enough of its own
+  evidence to justify it; KB (the durable knowledge) already lives in `global.db`.
