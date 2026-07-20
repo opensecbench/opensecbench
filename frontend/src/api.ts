@@ -1024,7 +1024,7 @@ export const api = {
     request<ProviderView>('POST', '/v1/analyst/providers', body),
   activateProvider: (id: string) => request<ActiveProvider>('POST', `/v1/analyst/providers/${id}/activate`, {}),
   testProvider: (id: string) =>
-    request<{ ok: boolean; latency_ms?: number; sample?: string; error?: string }>('POST', `/v1/analyst/providers/${id}/test`, {}),
+    request<{ ok: boolean; latency_ms?: number; sample?: string; error?: string; requested_model?: string; served_model?: string }>('POST', `/v1/analyst/providers/${id}/test`, {}),
   deleteProvider: (id: string) => request<void>('DELETE', `/v1/analyst/providers/${id}`),
   getProjectUsage: (projectId: string) => request<UsageByModel[]>('GET', `/v1/projects/${projectId}/usage`),
 

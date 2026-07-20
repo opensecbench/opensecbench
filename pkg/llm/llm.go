@@ -42,6 +42,7 @@ type CompletionResponse struct {
 	ToolCalls    []ToolCall
 	InputTokens  int
 	OutputTokens int
+	Model        string // model the backend reports actually served the request ("" if unreported)
 }
 
 // Provider produces completions from some LLM backend.

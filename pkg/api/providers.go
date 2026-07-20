@@ -228,7 +228,13 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	if len(sample) > 200 {
 		sample = sample[:200]
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "latency_ms": time.Since(start).Milliseconds(), "sample": sample})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":              true,
+		"latency_ms":      time.Since(start).Milliseconds(),
+		"sample":          sample,
+		"requested_model": p.Model, // the connection's default model (blank = backend's own default)
+		"served_model":    resp.Model,
+	})
 }
 
 // projectUsage returns a project's Analyst token usage grouped by provider/model, for comparison.

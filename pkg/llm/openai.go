@@ -103,6 +103,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	}
 
 	var out struct {
+		Model   string `json:"model"`
 		Choices []struct {
 			Message struct {
 				Content   string           `json:"content"`
@@ -129,5 +130,6 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		ToolCalls:    calls,
 		InputTokens:  out.Usage.PromptTokens,
 		OutputTokens: out.Usage.CompletionTokens,
+		Model:        out.Model,
 	}, nil
 }
