@@ -124,6 +124,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 
 ## P8 — Reporting + visualizations + coverage
 
+- [x] Agent-authored report narrative (ADR-0045): exec summary + per-finding impact/remediation, grounded in
+      reportable findings, baked into the snapshot; "AI narrative" toggle. Agent-tool path is a fast-follow.
 - [x] ADR-0008 (reporting & visualization)
 - [x] Report engine (pkg/report): gathered Data snapshot, confirmed-evidence-only rule in one Builder
 - [x] Built-in templates: executive + technical → Markdown + HTML (self-contained, escaped)

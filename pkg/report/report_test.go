@@ -308,3 +308,44 @@ func TestRegistryAddExtensionTemplate(t *testing.T) {
 		t.Fatal("expected parse error for malformed template")
 	}
 }
+
+// Narrative fields (ADR-0045) render into the exec + technical templates when present, and are absent when
+// not (so a non-narrated report is unchanged).
+func TestNarrativeRendersIntoTemplates(t *testing.T) {
+	d := Data{
+		Project:          model.Project{Name: "Acme"},
+		ExecutiveSummary: "The storefront has a critical authorization flaw.",
+		Summary:          Summary{Total: 1, BySeverity: map[string]int{"high": 1}},
+		Findings: []Finding{{
+			Finding:     model.Finding{ID: "f1", Title: "IDOR in orders", Severity: "high", Status: "confirmed"},
+			AppName:     "storefront",
+			Evidence:    []model.Observation{{Title: "obs", Location: "orders.go:20"}},
+			Impact:      "An attacker reads any user's orders.",
+			Remediation: "Enforce per-object authorization.",
+		}},
+	}
+	reg := BuiltIns()
+	exec, _ := reg.Get("executive")
+	execOut, err := exec.Render(d, FormatMarkdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytesContains(execOut, "critical authorization flaw") {
+		t.Fatalf("executive summary not rendered:\n%s", execOut)
+	}
+	tech, _ := reg.Get("technical")
+	techOut, _ := tech.Render(d, FormatHTML)
+	if !bytesContains(techOut, "reads any user") || !bytesContains(techOut, "per-object authorization") {
+		t.Fatalf("impact/remediation not rendered:\n%s", techOut)
+	}
+
+	// Without narrative, those strings are absent.
+	d.ExecutiveSummary = ""
+	d.Findings[0].Impact = ""
+	bare, _ := tech.Render(d, FormatHTML)
+	if bytesContains(bare, "Impact:</b>") {
+		t.Fatal("impact block should be absent when not narrated")
+	}
+}
+
+func bytesContains(b []byte, s string) bool { return strings.Contains(string(b), s) }
