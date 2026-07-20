@@ -116,7 +116,7 @@ func TestRemoteRunnerEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	engine := task.NewEngine(db, blobs, capability.BuiltIns(), fakeTaskRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeTaskRunner{})
 	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs})
 	main := httptest.NewServer(srvObj.Handler())
 	runnerSrv := httptest.NewServer(srvObj.RunnerHandler())
@@ -276,7 +276,7 @@ func TestReplayEgressViaRunner(t *testing.T) {
 		t.Fatal(err)
 	}
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	engine := task.NewEngine(db, blobs, capability.BuiltIns(), fakeTaskRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeTaskRunner{})
 	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs})
 	main := httptest.NewServer(srvObj.Handler())
 	runnerSrv := httptest.NewServer(srvObj.RunnerHandler())
@@ -317,7 +317,7 @@ func TestRunnerAuthRejectsBadSignature(t *testing.T) {
 	ms, _ := store.LoadMigrations(migrations.FS)
 	_, _ = db.Apply(ms)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	engine := task.NewEngine(db, blobs, capability.BuiltIns(), fakeTaskRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeTaskRunner{})
 	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs})
 	runnerSrv := httptest.NewServer(srvObj.RunnerHandler())
 	t.Cleanup(func() { runnerSrv.Close(); engine.Close(); _ = db.Close() })

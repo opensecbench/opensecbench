@@ -163,9 +163,9 @@ func (svc *Service) providerModelForTag(ctx context.Context, tag string) (llm.Pr
 
 func (svc *Service) session(projectID string, profile Profile, policy Policy, prov llm.Provider, modelID string) *agent.Session {
 	return &agent.Session{
-		Provider:    prov,
-		Model:       modelID,
-		Tools:       profile.ToolSet(),
+		Provider: prov,
+		Model:    modelID,
+		Tools:    profile.ToolSet(),
 		Gate: func(c agent.ToolCall) bool {
 			// web_fetch to a preapproved research source needs no approval; any other URL pauses (ADR-0038).
 			if c.Tool == "web_fetch" && isPreapprovedSource(stringArg(c, "url")) {

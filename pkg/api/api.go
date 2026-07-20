@@ -2158,7 +2158,7 @@ func (s *Server) runPlaybook(w http.ResponseWriter, r *http.Request) {
 	playbookID := r.PathValue("id")
 	// Enqueue the playbook and return immediately (ADR-0022); steps run in the background on the task
 	// engine and the client polls GET /v1/playbook-runs/{id}. A bad playbook fails fast with no run.
-	run, err := playbook.NewRunner(s.engine, s.global()).Start(r.Context(), playbookID, req.AssetID, actor)
+	run, err := playbook.NewRunner(s.engine, s.mgr).Start(r.Context(), projectFromReq(r), playbookID, req.AssetID, actor)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

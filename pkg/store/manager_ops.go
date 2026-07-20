@@ -141,6 +141,30 @@ func (m *Manager) ClaimNextPendingTask(ctx context.Context) (model.Task, bool, e
 	return model.Task{}, false, nil
 }
 
+// CancelPendingTask marks a still-pending task failed so no worker claims it. Combined operates on the
+// one database; split scans projects for the task's owner and cancels it there.
+func (m *Manager) CancelPendingTask(ctx context.Context, taskID string) (bool, error) {
+	if m.combined {
+		return m.global.CancelPendingTask(ctx, taskID)
+	}
+	ids, err := m.activeProjectIDs(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, id := range ids {
+		pdb, err := m.Project(id)
+		if err != nil {
+			continue
+		}
+		if ok, err := pdb.CancelPendingTask(ctx, taskID); err != nil {
+			return false, err
+		} else if ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // RequeueInterruptedTasks resets tasks left "running" by a crash back to pending, across all projects.
 func (m *Manager) RequeueInterruptedTasks(ctx context.Context) (int, error) {
 	if m.combined {

@@ -311,7 +311,7 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		case "run_capability":
 			return runCapability(ctx, engine, call)
 		case "run_playbook":
-			return runPlaybook(ctx, st, engine, call)
+			return runPlaybook(ctx, st, deps.ProjectID, engine, call)
 		default:
 			return "", fmt.Errorf("unknown tool %q", call.Tool)
 		}
@@ -647,7 +647,7 @@ func runCapability(ctx context.Context, engine *task.Engine, call agent.ToolCall
 	}, nil)
 }
 
-func runPlaybook(ctx context.Context, st *store.DB, engine *task.Engine, call agent.ToolCall) (string, error) {
+func runPlaybook(ctx context.Context, st *store.DB, projectID string, engine *task.Engine, call agent.ToolCall) (string, error) {
 	if engine == nil {
 		return "", errors.New("capability engine unavailable")
 	}
@@ -656,7 +656,9 @@ func runPlaybook(ctx context.Context, st *store.DB, engine *task.Engine, call ag
 	if pbID == "" || assetID == "" {
 		return "", errors.New("run_playbook requires 'playbook' and 'asset'")
 	}
-	res, err := playbook.NewRunner(engine, st).Run(ctx, pbID, assetID, "thread:analyst")
+	// The analyst still holds a single (combined) handle; wrap it so it satisfies the Manager-based
+	// runner. Full per-project routing arrives with the analyst's Manager conversion (ADR-0049).
+	res, err := playbook.NewRunner(engine, store.NewCombinedManager(st)).Run(ctx, projectID, pbID, assetID, "thread:analyst")
 	if err != nil {
 		return "", err
 	}

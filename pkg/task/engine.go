@@ -36,7 +36,7 @@ var ErrTaskNotRunning = errors.New("task: not running")
 // pool atomically claims pending rows, so pending work survives a control-plane restart and interrupted
 // runs resume — callers never block on a container.
 type Engine struct {
-	store    *store.DB
+	mgr      *store.Manager
 	blobs    *cas.Store
 	registry *capability.Registry
 	runner   runner.Runner
@@ -61,6 +61,34 @@ type Engine struct {
 type runState struct {
 	cancel    context.CancelFunc
 	container string
+}
+
+// g is the instance-wide database (audit). p is the per-project database for a task's project; it falls
+// back to global if the project can't be resolved so a nil handle never panics (ADR-0049). pidOf/pidPtr
+// unwrap the optional project id that tasks and requests carry.
+func (e *Engine) g() *store.DB { return e.mgr.Global() }
+func (e *Engine) p(projectID string) *store.DB {
+	if e.mgr == nil {
+		return nil
+	}
+	db, err := e.mgr.Project(projectID)
+	if err != nil || db == nil {
+		return e.mgr.Global()
+	}
+	return db
+}
+
+func pidOf(t model.Task) string {
+	if t.ProjectID != nil {
+		return *t.ProjectID
+	}
+	return ""
+}
+func pidPtr(p *string) string {
+	if p != nil {
+		return *p
+	}
+	return ""
 }
 
 // pollInterval is the worker backstop poll — the belt to notify's braces (catches restart-resumed work
@@ -93,18 +121,18 @@ func workerCount() int {
 
 // NewEngine wires the engine's dependencies and starts the async worker pool. Tasks left running by a
 // prior process (a crash mid-run) are requeued to pending so the pool resumes them (ADR-0023).
-func NewEngine(st *store.DB, blobs *cas.Store, reg *capability.Registry, r runner.Runner) *Engine {
+func NewEngine(mgr *store.Manager, blobs *cas.Store, reg *capability.Registry, r runner.Runner) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 	workers := workerCount()
 	e := &Engine{
-		store: st, blobs: blobs, registry: reg, runner: r,
+		mgr: mgr, blobs: blobs, registry: reg, runner: r,
 		notify:     make(chan struct{}, workers),
 		baseCtx:    ctx,
 		baseCancel: cancel,
 		running:    make(map[string]runState),
 	}
-	if st != nil {
-		if n, err := st.RequeueInterruptedTasks(ctx); err == nil && n > 0 {
+	if mgr != nil {
+		if n, err := mgr.RequeueInterruptedTasks(ctx); err == nil && n > 0 {
 			log.Printf("task: requeued %d interrupted task(s) on startup", n)
 		}
 	}
@@ -137,7 +165,7 @@ func (e *Engine) worker() {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
-		task, ok, err := e.store.ClaimNextPendingTask(e.baseCtx)
+		task, ok, err := e.mgr.ClaimNextPendingTask(e.baseCtx)
 		if err != nil {
 			if e.baseCtx.Err() != nil {
 				return
@@ -161,13 +189,13 @@ func (e *Engine) worker() {
 // A task that has been claimed too many times (a crash loop after interruptions) is failed instead.
 func (e *Engine) runClaimed(task model.Task) {
 	if task.Attempts > maxAttempts() {
-		_ = e.store.FinishTask(e.baseCtx, task.ID, model.TaskFailed, nil, "exceeded retry limit after interruption")
+		_ = e.p(pidOf(task)).FinishTask(e.baseCtx, task.ID, model.TaskFailed, nil, "exceeded retry limit after interruption")
 		return
 	}
 	req := requestFromTask(task)
 	prep, err := e.prepare(e.baseCtx, req)
 	if err != nil {
-		_ = e.store.FinishTask(e.baseCtx, task.ID, model.TaskFailed, nil, "reconstruct: "+err.Error())
+		_ = e.p(pidOf(task)).FinishTask(e.baseCtx, task.ID, model.TaskFailed, nil, "reconstruct: "+err.Error())
 		return
 	}
 	_, _ = e.execute(e.baseCtx, task, req, prep)
@@ -205,7 +233,7 @@ func (e *Engine) Cancel(taskID string) error {
 		return nil
 	}
 	// Not executing — cancel it if it is still queued.
-	cancelled, err := e.store.CancelPendingTask(context.Background(), taskID)
+	cancelled, err := e.mgr.CancelPendingTask(context.Background(), taskID)
 	if err != nil || !cancelled {
 		return ErrTaskNotRunning
 	}
@@ -260,7 +288,7 @@ func (e *Engine) prepare(ctx context.Context, req RunRequest) (prepared, error) 
 	targetDir := req.TargetDir
 	applicationID := req.ApplicationID
 	if targetDir == "" && req.AssetID != nil {
-		asset, err := e.store.GetAsset(ctx, *req.AssetID)
+		asset, err := e.p(pidPtr(req.ProjectID)).GetAsset(ctx, *req.AssetID)
 		if err != nil {
 			return prepared{}, fmt.Errorf("resolve asset: %w", err)
 		}
@@ -287,7 +315,7 @@ func (e *Engine) createTask(ctx context.Context, req RunRequest, p prepared, que
 		actor = "human"
 	}
 	paramsJSON, _ := json.Marshal(req.Params)
-	return e.store.CreateTask(ctx, store.NewTask{
+	return e.p(pidPtr(req.ProjectID)).CreateTask(ctx, store.NewTask{
 		CapabilityID:      p.man.ID,
 		CapabilityVersion: p.man.Version,
 		ApplicationID:     p.applicationID,
@@ -352,8 +380,8 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	// captures the blocked attempt for the audit trail.
 	if man.TargetParam != "" {
 		if scopeErr := e.checkScope(ctx, req, p.applicationID, man.TargetParam); scopeErr != nil {
-			_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, scopeErr.Error())
-			return e.outcome(ctx, task.ID), scopeErr
+			_ = e.p(pidOf(task)).FinishTask(ctx, task.ID, model.TaskFailed, nil, scopeErr.Error())
+			return e.outcome(ctx, pidOf(task), task.ID), scopeErr
 		}
 	}
 
@@ -363,14 +391,14 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	if req.RunnerID != "" {
 		if e.resolveRunner == nil {
 			err := fmt.Errorf("task targets runner %q but no remote runners are configured", req.RunnerID)
-			_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, err.Error())
-			return e.outcome(ctx, task.ID), err
+			_ = e.p(pidOf(task)).FinishTask(ctx, task.ID, model.TaskFailed, nil, err.Error())
+			return e.outcome(ctx, pidOf(task), task.ID), err
 		}
 		r, err := e.resolveRunner(req.RunnerID)
 		if err != nil {
 			err = fmt.Errorf("runner unavailable: %w", err)
-			_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, err.Error())
-			return e.outcome(ctx, task.ID), err
+			_ = e.p(pidOf(task)).FinishTask(ctx, task.ID, model.TaskFailed, nil, err.Error())
+			return e.outcome(ctx, pidOf(task), task.ID), err
 		}
 		run = r
 	}
@@ -379,8 +407,8 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	// returned redactor scrubs their values from captured output (ADR-0011).
 	redact, injErr := e.injectSecrets(ctx, req, &spec)
 	if injErr != nil {
-		_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, injErr.Error())
-		return e.outcome(ctx, task.ID), injErr
+		_ = e.p(pidOf(task)).FinishTask(ctx, task.ID, model.TaskFailed, nil, injErr.Error())
+		return e.outcome(ctx, pidOf(task), task.ID), injErr
 	}
 
 	// Name the container and register the run so Cancel can stop it. For a remote run the container is on
@@ -413,17 +441,17 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 			msg = "cancelled by user"
 		}
 		// FinishTask uses the original ctx (still live); runCtx may be cancelled.
-		_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, msg)
-		return e.outcome(ctx, task.ID), runErr
+		_ = e.p(pidOf(task)).FinishTask(ctx, task.ID, model.TaskFailed, nil, msg)
+		return e.outcome(ctx, pidOf(task), task.ID), runErr
 	}
 
 	// Capture stdout as the primary output artifact (immutable, content-addressed).
 	digest, err := e.blobs.Put(bytes.NewReader(res.Stdout))
 	if err != nil {
-		_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, "store artifact: "+err.Error())
-		return e.outcome(ctx, task.ID), err
+		_ = e.p(pidOf(task)).FinishTask(ctx, task.ID, model.TaskFailed, nil, "store artifact: "+err.Error())
+		return e.outcome(ctx, pidOf(task), task.ID), err
 	}
-	art, err := e.store.CreateArtifact(ctx, model.Artifact{
+	art, err := e.p(pidOf(task)).CreateArtifact(ctx, model.Artifact{
 		TaskID:    &task.ID,
 		SHA256:    digest,
 		Size:      int64(len(res.Stdout)),
@@ -432,8 +460,8 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		MediaType: man.OutputMediaType,
 	})
 	if err != nil {
-		_ = e.store.FinishTask(ctx, task.ID, model.TaskFailed, nil, "record artifact: "+err.Error())
-		return e.outcome(ctx, task.ID), err
+		_ = e.p(pidOf(task)).FinishTask(ctx, task.ID, model.TaskFailed, nil, "record artifact: "+err.Error())
+		return e.outcome(ctx, pidOf(task), task.ID), err
 	}
 
 	// Deterministically interpret recognized output formats into unreviewed observations
@@ -457,9 +485,9 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		if routes, rerr := interpret.Routes(res.Stdout); rerr == nil {
 			for _, r := range routes {
 				r.ProjectID = projectID
-				_ = e.store.UpsertRoute(ctx, r)
+				_ = e.p(pidOf(task)).UpsertRoute(ctx, r)
 			}
-			_ = e.store.ReconcileObservedRoutes(ctx, projectID)
+			_ = e.p(pidOf(task)).ReconcileObservedRoutes(ctx, projectID)
 		}
 	}
 	// Derive the exposed-service signal once per run (ADR-0030): reachability-gated routing escalates only
@@ -467,7 +495,7 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	// Only when there are observations to enrich — a capability with no interpreter does no extra DB work.
 	exposedAttr := ""
 	if projectID != "" && len(interpreted) > 0 {
-		if exp, err := e.store.ProjectExposure(ctx, projectID); err == nil {
+		if exp, err := e.p(pidOf(task)).ProjectExposure(ctx, projectID); err == nil {
 			exposedAttr = strconv.FormatBool(exp.Exposed)
 		}
 	}
@@ -492,12 +520,12 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 			// Dedup (ADR-0029): a finding we've already recorded is not re-created or re-dispositioned. But
 			// refresh its interpreter-derived fields (ADR-0037) so a corrected severity or changed signal
 			// lands, without re-firing dispositions or disturbing human triage.
-			if existingID, dup := e.store.ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
-				_ = e.store.RefreshObservation(ctx, existingID, o.Severity, o.Detail, o.Attributes)
+			if existingID, dup := e.p(pidOf(task)).ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
+				_ = e.p(pidOf(task)).RefreshObservation(ctx, existingID, o.Severity, o.Detail, o.Attributes)
 				continue
 			}
 		}
-		if saved, err := e.store.CreateObservation(ctx, o); err == nil {
+		if saved, err := e.p(pidOf(task)).CreateObservation(ctx, o); err == nil {
 			created = append(created, saved)
 		}
 	}
@@ -513,10 +541,10 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		errMsg = fmt.Sprintf("exit %d: %s", res.ExitCode, tail(res.Stderr, 500))
 	}
 	code := res.ExitCode
-	if err := e.store.FinishTask(ctx, task.ID, status, &code, errMsg); err != nil {
-		return e.outcome(ctx, task.ID), err
+	if err := e.p(pidOf(task)).FinishTask(ctx, task.ID, status, &code, errMsg); err != nil {
+		return e.outcome(ctx, pidOf(task), task.ID), err
 	}
-	return e.outcome(ctx, task.ID), nil
+	return e.outcome(ctx, pidOf(task), task.ID), nil
 }
 
 // applyDispositions routes each new observation to a post-run action per the capability's declared
@@ -530,10 +558,10 @@ func (e *Engine) applyDispositions(ctx context.Context, projectID string, man ca
 	for _, o := range observations {
 		switch disposition.Evaluate(o, rules) {
 		case disposition.ActionFinding:
-			if err := e.store.ReviewObservation(ctx, o.ID, model.ReviewConfirmed); err != nil {
+			if err := e.p(projectID).ReviewObservation(ctx, o.ID, model.ReviewConfirmed); err != nil {
 				continue
 			}
-			f, err := e.store.CreateFinding(ctx, store.NewFinding{
+			f, err := e.p(projectID).CreateFinding(ctx, store.NewFinding{
 				ApplicationID: appID, Title: o.Title, Severity: o.Severity,
 				Description: o.Detail, ObservationIDs: []string{o.ID},
 			})
@@ -548,14 +576,14 @@ func (e *Engine) applyDispositions(ctx context.Context, projectID string, man ca
 			// investigation — e.g. govulncheck opened it and grype now reports the same CVE under its GHSA —
 			// don't open a second one.
 			ids := vulnIDs(&o)
-			if _, dup := e.store.InvestigationForVuln(ctx, projectID, ids); dup {
+			if _, dup := e.p(projectID).InvestigationForVuln(ctx, projectID, ids); dup {
 				continue
 			}
-			inv, err := e.store.CreateInvestigation(ctx, model.Investigation{
+			inv, err := e.p(projectID).CreateInvestigation(ctx, model.Investigation{
 				ProjectID: projectID, ApplicationID: appID, ObservationID: o.ID, Title: o.Title,
 			})
 			if err == nil {
-				_ = e.store.RecordInvestigationVulns(ctx, projectID, inv.ID, ids)
+				_ = e.p(projectID).RecordInvestigationVulns(ctx, projectID, inv.ID, ids)
 				e.auditDisposition(ctx, "disposition.investigate", inv.ID, o)
 			}
 		}
@@ -567,7 +595,7 @@ func (e *Engine) applyDispositions(ctx context.Context, projectID string, man ca
 func (e *Engine) dispositionRules(ctx context.Context, projectID string, man capability.Manifest) []disposition.Disposition {
 	var rules []disposition.Disposition
 	if projectID != "" {
-		overrides, _ := e.store.ListDispositionRules(ctx, projectID)
+		overrides, _ := e.p(projectID).ListDispositionRules(ctx, projectID)
 		for _, pr := range overrides {
 			if pr.CapabilityID == "" || pr.CapabilityID == man.ID {
 				rules = append(rules, disposition.Disposition{When: pr.When, MinSeverity: pr.MinSeverity, Action: pr.Action})
@@ -582,7 +610,7 @@ func (e *Engine) projectOfTask(ctx context.Context, task model.Task, appID *stri
 		return *task.ProjectID
 	}
 	if appID != nil {
-		if app, err := e.store.GetApplication(ctx, *appID); err == nil {
+		if app, err := e.p(pidOf(task)).GetApplication(ctx, *appID); err == nil {
 			return app.ProjectID
 		}
 	}
@@ -627,12 +655,12 @@ func (e *Engine) correlateReachability(ctx context.Context, projectID string, o 
 	}
 	if own := o.Attributes["reachable"]; own != "" {
 		for _, id := range ids {
-			_ = e.store.SetReachability(ctx, projectID, id, o.Attributes["package"], own == "true", o.Attributes["tool"])
+			_ = e.p(projectID).SetReachability(ctx, projectID, id, o.Attributes["package"], own == "true", o.Attributes["tool"])
 		}
 		return
 	}
 	for _, id := range ids {
-		if reachable, known := e.store.ReachabilityForCVE(ctx, projectID, id); known {
+		if reachable, known := e.p(projectID).ReachabilityForCVE(ctx, projectID, id); known {
 			if o.Attributes == nil {
 				o.Attributes = map[string]string{}
 			}
@@ -652,7 +680,7 @@ func (e *Engine) correlateExposedRoute(ctx context.Context, projectID, exposedAt
 	if file == "" {
 		return
 	}
-	routes, err := e.store.RoutesForHandlerFile(ctx, projectID, file)
+	routes, err := e.p(projectID).RoutesForHandlerFile(ctx, projectID, file)
 	if err != nil || len(routes) == 0 {
 		return
 	}
@@ -703,7 +731,7 @@ func splitLocation(loc string) (file string, line int) {
 
 func (e *Engine) auditDisposition(ctx context.Context, action, target string, o model.Observation) {
 	data, _ := json.Marshal(map[string]string{"observation": o.ID, "rule": o.RuleID})
-	_, _ = e.store.AppendAudit(ctx, "disposition", action, target, data)
+	_, _ = e.g().AppendAudit(ctx, "disposition", action, target, data)
 }
 
 // injectSecrets resolves req.SecretRefs through the vault into spec.SecretEnv and returns a redactor
@@ -748,14 +776,14 @@ func (e *Engine) checkScope(ctx context.Context, req RunRequest, applicationID *
 	case req.ProjectID != nil:
 		projectID = *req.ProjectID
 	case applicationID != nil:
-		if app, err := e.store.GetApplication(ctx, *applicationID); err == nil {
+		if app, err := e.p(pidPtr(req.ProjectID)).GetApplication(ctx, *applicationID); err == nil {
 			projectID = app.ProjectID
 		}
 	}
 	if projectID == "" {
 		return nil
 	}
-	entries, err := e.store.ListScopeEntries(ctx, projectID)
+	entries, err := e.p(pidPtr(req.ProjectID)).ListScopeEntries(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("load scope: %w", err)
 	}
@@ -773,10 +801,10 @@ func (e *Engine) checkScope(ctx context.Context, req RunRequest, applicationID *
 	return nil
 }
 
-func (e *Engine) outcome(ctx context.Context, taskID string) Outcome {
-	t, _ := e.store.GetTask(ctx, taskID)
-	a, _ := e.store.ListArtifactsByTask(ctx, taskID)
-	o, _ := e.store.ListObservationsByTask(ctx, taskID)
+func (e *Engine) outcome(ctx context.Context, projectID, taskID string) Outcome {
+	t, _ := e.p(projectID).GetTask(ctx, taskID)
+	a, _ := e.p(projectID).ListArtifactsByTask(ctx, taskID)
+	o, _ := e.p(projectID).ListObservationsByTask(ctx, taskID)
 	return Outcome{Task: t, Artifacts: a, Observations: o}
 }
 

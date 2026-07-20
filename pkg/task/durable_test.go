@@ -52,7 +52,7 @@ func TestDurableResumesPendingTask(t *testing.T) {
 		t.Fatalf("seed status = %s, want pending", task.Status)
 	}
 
-	eng := NewEngine(db, blobs, capability.BuiltIns(), fakeRunner{out: []byte("cmd/main.go\n"), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeRunner{out: []byte("cmd/main.go\n"), code: 0})
 	defer eng.Close()
 
 	if done := pollTask(t, eng, task.ID); done.Status != model.TaskSucceeded {
@@ -74,7 +74,7 @@ func TestDurableRequeuesInterruptedRunningTask(t *testing.T) {
 		t.Fatalf("seed status = %s, want running", task.Status)
 	}
 
-	eng := NewEngine(db, blobs, capability.BuiltIns(), fakeRunner{out: []byte("x\n"), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeRunner{out: []byte("x\n"), code: 0})
 	defer eng.Close()
 
 	if done := pollTask(t, eng, task.ID); done.Status != model.TaskSucceeded {
@@ -99,7 +99,7 @@ func TestDurableRetryCapFailsCrashLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	eng := NewEngine(db, blobs, capability.BuiltIns(), fakeRunner{out: []byte("x"), code: 0})
+	eng := NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeRunner{out: []byte("x"), code: 0})
 	defer eng.Close()
 
 	done := pollTask(t, eng, task.ID)
@@ -118,7 +118,7 @@ func TestDurableReconstructsSecretRefs(t *testing.T) {
 	ctx := context.Background()
 	const secretVal = "TOKEN-abc-123"
 	cr := &capturingRunner{out: []byte("Authorization: Bearer " + secretVal + "\nok\n")}
-	eng := NewEngine(db, blobs, capability.BuiltIns(), cr)
+	eng := NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), cr)
 	eng.Secrets = func(_ context.Context, name string) (string, error) {
 		if name == "api_token" {
 			return secretVal, nil
