@@ -123,10 +123,15 @@ and can later ship as plugins.
       `maxDelegationDepth` (default 3, `OSB_AGENT_MAX_DEPTH`) tracked on the context so the tree stays finite.
       `delegate` stays sensitive/approval-gated and only on coordinator roles. The delegated sub-agent's
       tool-turn budget is raised 8→16 and configurable (`OSB_AGENT_MAX_STEPS`). Depth-cap + increment tested.
+- [x] **Assessment scanner fan-out** (ADR-0048) — the `assessment` playbook's single `scan` step is split into
+      four parallel per-scanner steps (`scan-sast`/`scan-sca-grype`/`scan-sca-govulncheck`/`scan-secrets`),
+      each depending only on `recon`; `triage` depends on all four. The plan runner (ADR-0046) runs them as one
+      concurrent wave — scan phase takes the slowest scanner's time, not the sum; a failed/skipped scanner
+      skips only itself. Test drives the real playbook and asserts the wave runs concurrently then gates.
 - [ ] **Analyst autonomy — remaining** (ADR-0035): a **pipelined** scheduler (start a step the moment its own
       deps finish, dropping the per-wave barrier); a configurable/per-playbook concurrency cap; cancel
-      in-flight steps on a sibling failure; a delegation **trace** in the UI; fan the built-in playbooks out
-      to exploit the parallel scheduler + deeper delegation.
+      in-flight steps on a sibling failure; a delegation **trace** in the UI; per-asset scanner fan-out for
+      multi-repo projects; conditional steps (skip a scanner step when the KB shows no relevant assets).
 
 ## Analyst provider / model management
 

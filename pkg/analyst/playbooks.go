@@ -137,13 +137,39 @@ var builtinPlaybooks = []Playbook{
 					"route-map over each source_repo (it inventories HTTP routes). Check the knowledge base and " +
 					"prior context first so you don't repeat work. Note the exposed surface to analysis/recon.md.",
 			},
+			// The scanners are independent, so they fan out into parallel steps — the plan runner executes
+			// this whole wave concurrently (ADR-0046), so the scan phase takes the slowest scanner's time,
+			// not the sum. The platform routes and enriches each tool's results automatically.
 			{
-				Key:     "scan",
+				Key:     "scan-sast",
 				Profile: "code-analysis",
-				Instruction: "Run the source security scanners via run_capability against the in-scope assets — " +
-					"opengrep (SAST, with dataflow reachability), grype and govulncheck (SCA/reachability), and " +
-					"trufflehog (secrets). Skip anything the knowledge base shows was run recently. The platform " +
-					"routes and enriches the results automatically; summarize what was run to analysis/scan.md.",
+				Instruction: "Run the SAST scanner via run_capability against the in-scope source assets: " +
+					"opengrep (with dataflow reachability). Skip anything the knowledge base shows was run " +
+					"recently. Note what you ran to analysis/scan-sast.md.",
+				DependsOn: []string{"recon"},
+			},
+			{
+				Key:     "scan-sca-grype",
+				Profile: "code-analysis",
+				Instruction: "Run the dependency/SCA scanner via run_capability against the in-scope assets: " +
+					"grype. Skip it if the knowledge base shows it was run recently. Note what you ran to " +
+					"analysis/scan-sca-grype.md.",
+				DependsOn: []string{"recon"},
+			},
+			{
+				Key:     "scan-sca-govulncheck",
+				Profile: "code-analysis",
+				Instruction: "Run the Go reachability scanner via run_capability against the in-scope Go assets: " +
+					"govulncheck (call-graph reachability). Skip it if there are no Go assets or the knowledge " +
+					"base shows it was run recently. Note what you ran to analysis/scan-sca-govulncheck.md.",
+				DependsOn: []string{"recon"},
+			},
+			{
+				Key:     "scan-secrets",
+				Profile: "code-analysis",
+				Instruction: "Run the secrets scanner via run_capability against the in-scope assets: " +
+					"trufflehog. Skip it if the knowledge base shows it was run recently. Note what you ran to " +
+					"analysis/scan-secrets.md.",
 				DependsOn: []string{"recon"},
 			},
 			{
@@ -153,7 +179,7 @@ var builtinPlaybooks = []Playbook{
 					"Prioritize by the routing attributes: put items that are reachable AND on an exposed service " +
 					"or route (reachable=true with exposed=true or exposed_route set) at the top, then by " +
 					"severity; note likely false positives. Write a ranked triage to analysis/triage.md.",
-				DependsOn: []string{"scan"},
+				DependsOn: []string{"scan-sast", "scan-sca-grype", "scan-sca-govulncheck", "scan-secrets"},
 			},
 			{
 				// Human-approval gate: pause after triage so a person reviews the ranked plan of attack
