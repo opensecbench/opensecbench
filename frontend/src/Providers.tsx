@@ -14,11 +14,11 @@ function priceLabel(m: ModelCatalogEntry): string {
 // the operator (API keys recommended, claude-cli uses the local subscription, ollama is local).
 export const PROVIDER_TYPES = [
   { value: 'anthropic', label: 'Anthropic API', needsKey: true, needsBase: false, modelHint: 'claude-sonnet-5' },
-  { value: 'openai', label: 'OpenAI-compatible', needsKey: true, needsBase: true, modelHint: 'gpt-4o' },
+  { value: 'openai', label: 'OpenAI-compatible', needsKey: true, needsBase: true, modelHint: 'gpt-5' },
   { value: 'ollama', label: 'Ollama (local)', needsKey: false, needsBase: true, modelHint: 'llama3' },
   { value: 'claude-cli', label: 'Claude CLI (subscription)', needsKey: false, needsBase: false, modelHint: '' },
-  { value: 'deepseek', label: 'DeepSeek', needsKey: true, needsBase: false, modelHint: 'deepseek-chat' },
-  { value: 'grok', label: 'xAI Grok', needsKey: true, needsBase: false, modelHint: 'grok-2-latest' },
+  { value: 'deepseek', label: 'DeepSeek', needsKey: true, needsBase: false, modelHint: 'deepseek-v4-flash' },
+  { value: 'grok', label: 'xAI Grok', needsKey: true, needsBase: false, modelHint: 'grok-4-fast' },
 ]
 
 type TestState = { ok?: boolean; latency_ms?: number; sample?: string; error?: string; testing?: boolean }

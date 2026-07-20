@@ -61,9 +61,9 @@ func New(cfg Config) (Provider, error) {
 	case "ollama":
 		return openAICompat("ollama", orDefault(cfg.BaseURL, "http://127.0.0.1:11434/v1"), cfg.APIKey, cfg.Model, cfg.NativeTools), nil
 	case "deepseek":
-		return openAICompat("deepseek", orDefault(cfg.BaseURL, "https://api.deepseek.com/v1"), cfg.APIKey, orDefault(cfg.Model, "deepseek-chat"), cfg.NativeTools), nil
+		return openAICompat("deepseek", orDefault(cfg.BaseURL, "https://api.deepseek.com/v1"), cfg.APIKey, orDefault(cfg.Model, "deepseek-v4-flash"), cfg.NativeTools), nil
 	case "grok", "xai":
-		return openAICompat("grok", orDefault(cfg.BaseURL, "https://api.x.ai/v1"), cfg.APIKey, orDefault(cfg.Model, "grok-2-latest"), cfg.NativeTools), nil
+		return openAICompat("grok", orDefault(cfg.BaseURL, "https://api.x.ai/v1"), cfg.APIKey, orDefault(cfg.Model, "grok-4-fast"), cfg.NativeTools), nil
 	case "openai", "azure", "openai-compat":
 		if cfg.BaseURL == "" {
 			return nil, fmt.Errorf("llm: %s requires a base URL", cfg.Type)
