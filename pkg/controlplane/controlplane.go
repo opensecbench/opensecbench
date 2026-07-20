@@ -130,9 +130,14 @@ func Start(opts Options) (*Instance, error) {
 	// rather than blocking startup.
 	var sessMgr *session.Manager
 	if session.Available() {
-		// OSB_SESSION_IMAGE lets an operator point terminals at a toolchain image (e.g. one built from
-		// pkg/session/Dockerfile with git/python/cloud CLIs baked in); empty uses the minimal default.
-		sessMgr = session.NewManager(os.Getenv("OSB_SESSION_IMAGE"))
+		// Terminals open into a toolchain image (e.g. one built from pkg/session/Dockerfile with git/python/
+		// cloud CLIs baked in); empty uses the minimal default. The runtime.session_image setting takes
+		// precedence over OSB_SESSION_IMAGE.
+		img := os.Getenv("OSB_SESSION_IMAGE")
+		if v, err := mgr.Global().GetSetting(context.Background(), "runtime.session_image"); err == nil && v != "" {
+			img = v
+		}
+		sessMgr = session.NewManager(img)
 	}
 
 	// The intercepting proxy's CA is generated/persisted next to the database; a failure disables
