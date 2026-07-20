@@ -39,13 +39,89 @@ type Project struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
-// ScopeEntry is one in-scope allowlist rule for a project.
+// Scope dispositions (ADR-0051): a scope entry is either an in-scope allow rule or an out-of-scope exclusion.
+const (
+	ScopeAllow = "allow"
+	ScopeDeny  = "deny"
+)
+
+// ScopeEntry is one scope rule for a project — an in-scope allow rule or an out-of-scope (deny) exclusion.
 type ScopeEntry struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	Kind      string    `json:"kind"` // host | domain | cidr
-	Value     string    `json:"value"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	Kind        string    `json:"kind"`        // host | domain | cidr
+	Value       string    `json:"value"`
+	Disposition string    `json:"disposition"` // allow | deny (default allow)
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// Engagement environments, data-sensitivity classes, and contact roles (ADR-0051).
+const (
+	EnvProduction = "production"
+	EnvStaging    = "staging"
+	EnvDev        = "dev"
+	EnvMixed      = "mixed"
+
+	DataOpen       = "open"
+	DataPrivate    = "private"
+	DataRestricted = "restricted"
+
+	ContactTechnical  = "technical"
+	ContactAuthorizer = "authorizer"
+	ContactBreakGlass = "breakglass"
+)
+
+// Engagement is the frame of an assessment (ADR-0051): identity, scope posture, rules of engagement, timeline,
+// contacts, and reporting captured at setup. One per project; every field is optional, so a project with no
+// engagement row behaves exactly as before. Kinds is the assessment type(s) (web, api, code, cloud, …).
+// Techniques is a map of allow-flags (intrusive, automated_exploit, brute_force, dos, social, destructive)
+// that gates which capabilities may run. DataClass tightens external-provider egress for this engagement.
+type Engagement struct {
+	ProjectID     string                  `json:"project_id"`
+	Kinds         []string                `json:"kinds,omitempty"`
+	Objective     string                  `json:"objective,omitempty"`
+	Reference     string                  `json:"reference,omitempty"`
+	Environment   string                  `json:"environment,omitempty"`
+	DataClass     string                  `json:"data_class,omitempty"`
+	Standard      string                  `json:"standard,omitempty"`
+	Compliance    string                  `json:"compliance,omitempty"`
+	SeverityScale string                  `json:"severity_scale,omitempty"`
+	Authorized    bool                    `json:"authorized"`
+	Authorizer    string                  `json:"authorizer,omitempty"`
+	AuthRef       string                  `json:"auth_ref,omitempty"`
+	AuthFrom      string                  `json:"auth_from,omitempty"` // ISO date (YYYY-MM-DD)
+	AuthTo        string                  `json:"auth_to,omitempty"`
+	WindowStart   string                  `json:"window_start,omitempty"`
+	WindowEnd     string                  `json:"window_end,omitempty"`
+	ReportDue     string                  `json:"report_due,omitempty"`
+	Techniques    map[string]bool         `json:"techniques,omitempty"`
+	Notes         string                  `json:"notes,omitempty"`
+	Contacts      []EngagementContact     `json:"contacts,omitempty"`
+	TestAccounts  []EngagementTestAccount `json:"test_accounts,omitempty"`
+	CreatedAt     time.Time               `json:"created_at"`
+	UpdatedAt     time.Time               `json:"updated_at"`
+}
+
+// EngagementContact is a point of contact for an engagement (technical POC, authorizer, or break-glass).
+type EngagementContact struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+	Role      string `json:"role"`
+	Name      string `json:"name"`
+	Email     string `json:"email,omitempty"`
+	Phone     string `json:"phone,omitempty"`
+	Note      string `json:"note,omitempty"`
+}
+
+// EngagementTestAccount is a test credential for the engagement. The password is never stored here — only a
+// SecretRef into the vault (ADR-0011); Username/Role are for authorization/IDOR testing across roles.
+type EngagementTestAccount struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+	Role      string `json:"role"`
+	Username  string `json:"username,omitempty"`
+	SecretRef string `json:"secret_ref,omitempty"`
+	Note      string `json:"note,omitempty"`
 }
 
 // Proxy match/replace rule targets (ADR-0016 Step 4).

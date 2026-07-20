@@ -152,7 +152,7 @@ func TestEngineScopeGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := eng.mgr.Global().AddScopeEntry(context.Background(), proj.ID, "domain", "acme.com"); err != nil {
+	if _, err := eng.mgr.Global().AddScopeEntry(context.Background(), proj.ID, "domain", "acme.com", "allow"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -40,7 +40,7 @@ func seedProject(t *testing.T, db *store.DB, blobs *cas.Store) string {
 	target, _ := db.CreateTarget(ctx, "Acme Platform", "durable", nil)
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "Acme 2026", TargetIDs: []string{target.ID}})
 	app, _ := db.CreateApplication(ctx, proj.ID, "Storefront")
-	_, _ = db.AddScopeEntry(ctx, proj.ID, "domain", "acme.com")
+	_, _ = db.AddScopeEntry(ctx, proj.ID, "domain", "acme.com", "allow")
 
 	digest, _ := blobs.Put(bytes.NewReader([]byte("EVIDENCE: response headers here")))
 	art, _ := db.CreateArtifact(ctx, model.Artifact{SHA256: digest, Size: 31, Kind: model.ArtifactInput, Name: "resp", MediaType: "text/plain"})
