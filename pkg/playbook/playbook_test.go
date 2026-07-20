@@ -34,7 +34,7 @@ func TestRunnerStartAsync(t *testing.T) {
 		t.Fatal(err)
 	}
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakePBRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakePBRunner{})
 	defer engine.Close()
 
 	ctx := context.Background()
@@ -75,7 +75,7 @@ func TestRunnerStartUnknownPlaybook(t *testing.T) {
 	ms, _ := store.LoadMigrations(migrations.FS)
 	_, _ = db.Apply(ms)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakePBRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakePBRunner{})
 	defer engine.Close()
 
 	if _, err := NewRunner(engine, store.NewCombinedManager(db)).Start(context.Background(), "", "does-not-exist", "", "human"); err == nil {
@@ -112,7 +112,7 @@ func TestRunnerRunsPlaybook(t *testing.T) {
 		t.Fatal(err)
 	}
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), runner.LocalRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), runner.LocalRunner{})
 
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})

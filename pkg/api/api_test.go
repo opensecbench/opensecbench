@@ -59,7 +59,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), runner.LocalRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), runner.LocalRunner{})
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs}).Handler())
 	t.Cleanup(func() {
 		srv.Close()

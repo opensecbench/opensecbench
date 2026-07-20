@@ -203,7 +203,7 @@ func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, 
 	if err != nil {
 		return g, nil // no SBOM yet → empty graph
 	}
-	rc, err := s.cas.Open(sha)
+	rc, err := s.casFor(projectID).Open(sha)
 	if err != nil {
 		return g, nil
 	}

@@ -21,7 +21,7 @@ func (s *Server) exportProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	data, err := bundle.Export(r.Context(), s.global(), s.cas, id, pass)
+	data, err := bundle.Export(r.Context(), s.mgr, s.casFor(id), id, pass)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
@@ -50,7 +50,7 @@ func (s *Server) importBundle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "read body: "+err.Error())
 		return
 	}
-	newID, err := bundle.Import(r.Context(), s.global(), s.cas, data, pass)
+	newID, err := bundle.Import(r.Context(), s.mgr, s.casr, data, pass)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

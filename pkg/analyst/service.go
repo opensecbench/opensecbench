@@ -29,7 +29,7 @@ type Service struct {
 	provider      llm.Provider
 	resolver      func(context.Context, string) (llm.Provider, error)
 	replay        *replay.Client
-	blobs         *cas.Store
+	casr          cas.Resolver
 	workspaceRoot string
 	egressStrict  bool
 	providerLocal bool
@@ -51,7 +51,7 @@ func (svc *Service) SetEgressSender(fn func(context.Context, string, replay.Requ
 
 // NewService wires the Analyst service. Egress policy and budget are read from OSB_EGRESS_POLICY
 // (default strict) and OSB_AGENT_MAX_TOKENS.
-func NewService(mgr *store.Manager, engine *task.Engine, blobs *cas.Store, workspaceRoot string, provider llm.Provider) *Service {
+func NewService(mgr *store.Manager, engine *task.Engine, casr cas.Resolver, workspaceRoot string, provider llm.Provider) *Service {
 	budget := defaultTokenBudget
 	if v := os.Getenv("OSB_AGENT_MAX_TOKENS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -63,13 +63,13 @@ func NewService(mgr *store.Manager, engine *task.Engine, blobs *cas.Store, works
 		engine:        engine,
 		provider:      provider,
 		replay:        replay.New(0),
-		blobs:         blobs,
+		casr:          casr,
 		workspaceRoot: workspaceRoot,
 		egressStrict:  os.Getenv("OSB_EGRESS_POLICY") != "open", // default: strict
 		providerLocal: provider != nil && llm.IsLocal(provider),
 		tokenBudget:   budget,
 		// Semantic corpus index (ADR-0039): a local embedder by default, so corpus text is embedded on-host.
-		indexer: &rag.Indexer{Mgr: mgr, Blobs: blobs, Embed: llm.EmbedderFromEnv()},
+		indexer: &rag.Indexer{Mgr: mgr, Casr: casr, Embed: llm.EmbedderFromEnv()},
 	}
 }
 
@@ -87,6 +87,19 @@ func (svc *Service) g() *store.DB {
 	}
 	return svc.mgr.Global()
 }
+
+// casFor returns the content store owning a project's blobs (ADR-0049), nil if unresolved.
+func (svc *Service) casFor(projectID string) *cas.Store {
+	if svc.casr == nil {
+		return nil
+	}
+	st, err := svc.casr.For(projectID)
+	if err != nil {
+		return nil
+	}
+	return st
+}
+
 func (svc *Service) p(projectID string) *store.DB {
 	if svc.mgr == nil {
 		return nil
@@ -220,7 +233,7 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 // under a strict policy with an external LLM provider, running a capability on a private asset is
 // blocked, because its output would be summarized by the external model.
 func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context.Context, agent.ToolCall) (string, error) {
-	exec := Executor(ExecDeps{Mgr: svc.mgr, Engine: svc.engine, Replay: svc.replay, Blobs: svc.blobs, Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer})
+	exec := Executor(ExecDeps{Mgr: svc.mgr, Engine: svc.engine, Replay: svc.replay, Blobs: svc.casFor(projectID), Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer})
 	// The egress guard keys on the provider that will actually receive the tool output (which, with tag
 	// routing, may differ per task); a local model is never an egress risk.
 	external := prov != nil && !llm.IsLocal(prov)

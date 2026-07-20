@@ -43,7 +43,7 @@ func newAsyncTaskServer(t *testing.T) (*httptest.Server, *store.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := task.NewEngine(store.NewCombinedManager(db), blobs, capability.BuiltIns(), fakeTaskRunner{})
+	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakeTaskRunner{})
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs}).Handler())
 	t.Cleanup(func() { srv.Close(); engine.Close(); _ = db.Close() })
 	return srv, db

@@ -206,7 +206,7 @@ func (s *Server) finalizeSession(id string) {
 		ctx := context.Background()
 
 		var artifactID *string
-		if digest, err := s.cas.Put(bytes.NewReader(transcript)); err == nil {
+		if digest, err := s.casFor(ls.projectID).Put(bytes.NewReader(transcript)); err == nil {
 			if art, aerr := s.pdbID(ls.projectID).CreateArtifact(ctx, model.Artifact{
 				SHA256:    digest,
 				Size:      int64(len(transcript)),

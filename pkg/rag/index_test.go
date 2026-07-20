@@ -31,7 +31,7 @@ func newIndexer(t *testing.T) (*Indexer, *store.DB, *cas.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Indexer{Mgr: store.NewCombinedManager(db), Blobs: blobs, Embed: llm.NewMockEmbedder()}, db, blobs
+	return &Indexer{Mgr: store.NewCombinedManager(db), Casr: cas.Fixed(blobs), Embed: llm.NewMockEmbedder()}, db, blobs
 }
 
 // Index a corpus doc + a KB entry, then a semantic query returns the relevant one ranked first (ADR-0039).
@@ -73,7 +73,7 @@ func TestIndexAndSearch(t *testing.T) {
 
 // With no embedder, search/reindex return a clear unavailable error rather than misbehaving.
 func TestIndexerUnavailable(t *testing.T) {
-	ix := &Indexer{Mgr: nil, Blobs: nil, Embed: nil}
+	ix := &Indexer{Mgr: nil, Casr: nil, Embed: nil}
 	if ix.Available() {
 		t.Fatal("nil embedder should be unavailable")
 	}

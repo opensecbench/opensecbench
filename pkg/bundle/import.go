@@ -10,9 +10,10 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
-// Import decrypts a bundle and recreates its graph in db/blobs, remapping IDs (re-import safe) while
-// preserving evidence content hashes. It returns the new project id.
-func Import(ctx context.Context, db *store.DB, blobs *cas.Store, data []byte, passphrase string) (string, error) {
+// Import decrypts a bundle and recreates its graph, remapping IDs (re-import safe) while preserving
+// evidence content hashes. Durable targets/KB go to the global database; the project's own rows and blobs
+// go to a freshly provisioned projects/<id>/ (ADR-0049). It returns the new project id.
+func Import(ctx context.Context, mgr *store.Manager, casr cas.Resolver, data []byte, passphrase string) (string, error) {
 	d, err := open(data, passphrase)
 	if err != nil {
 		return "", err
@@ -21,11 +22,11 @@ func Import(ctx context.Context, db *store.DB, blobs *cas.Store, data []byte, pa
 		return "", fmt.Errorf("bundle: version %d is newer than supported (%d)", d.Version, FormatVersion)
 	}
 
-	// Targets → new ids, then the project referencing them.
+	// Targets → new ids in the global database, then the project referencing them.
 	targetMap := map[string]string{}
 	var newTargetIDs []string
 	for _, t := range d.Targets {
-		nt, err := db.CreateTarget(ctx, t.Name, t.Description, nil)
+		nt, err := mgr.Global().CreateTarget(ctx, t.Name, t.Description, nil)
 		if err != nil {
 			return "", err
 		}
@@ -33,7 +34,15 @@ func Import(ctx context.Context, db *store.DB, blobs *cas.Store, data []byte, pa
 		newTargetIDs = append(newTargetIDs, nt.ID)
 	}
 
-	proj, err := db.CreateProject(ctx, store.NewProject{Name: d.Project.Name, TargetIDs: newTargetIDs})
+	proj, err := mgr.CreateProject(ctx, store.NewProject{Name: d.Project.Name, TargetIDs: newTargetIDs})
+	if err != nil {
+		return "", err
+	}
+	db, err := mgr.Project(proj.ID)
+	if err != nil {
+		return "", err
+	}
+	blobs, err := casr.For(proj.ID)
 	if err != nil {
 		return "", err
 	}
@@ -123,7 +132,7 @@ func Import(ctx context.Context, db *store.DB, blobs *cas.Store, data []byte, pa
 		if !ok {
 			continue
 		}
-		if _, err := db.CreateKBEntry(ctx, model.KBEntry{
+		if _, err := mgr.Global().CreateKBEntry(ctx, model.KBEntry{
 			TargetID: tid, Kind: k.Kind, Scope: k.Scope, Title: k.Title, Body: k.Body, Tags: k.Tags,
 			Sensitivity: k.Sensitivity, Origin: k.Origin, ReviewState: k.ReviewState, SourceRef: k.SourceRef,
 		}); err != nil {

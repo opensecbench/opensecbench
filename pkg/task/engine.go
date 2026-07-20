@@ -37,7 +37,7 @@ var ErrTaskNotRunning = errors.New("task: not running")
 // runs resume — callers never block on a container.
 type Engine struct {
 	mgr      *store.Manager
-	blobs    *cas.Store
+	casr     cas.Resolver
 	registry *capability.Registry
 	runner   runner.Runner
 
@@ -67,6 +67,19 @@ type runState struct {
 // back to global if the project can't be resolved so a nil handle never panics (ADR-0049). pidOf/pidPtr
 // unwrap the optional project id that tasks and requests carry.
 func (e *Engine) g() *store.DB { return e.mgr.Global() }
+
+// casFor returns the content store owning a task's project blobs (ADR-0049), nil if unresolved.
+func (e *Engine) casFor(projectID string) *cas.Store {
+	if e.casr == nil {
+		return nil
+	}
+	st, err := e.casr.For(projectID)
+	if err != nil {
+		return nil
+	}
+	return st
+}
+
 func (e *Engine) p(projectID string) *store.DB {
 	if e.mgr == nil {
 		return nil
@@ -121,11 +134,11 @@ func workerCount() int {
 
 // NewEngine wires the engine's dependencies and starts the async worker pool. Tasks left running by a
 // prior process (a crash mid-run) are requeued to pending so the pool resumes them (ADR-0023).
-func NewEngine(mgr *store.Manager, blobs *cas.Store, reg *capability.Registry, r runner.Runner) *Engine {
+func NewEngine(mgr *store.Manager, casr cas.Resolver, reg *capability.Registry, r runner.Runner) *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 	workers := workerCount()
 	e := &Engine{
-		mgr: mgr, blobs: blobs, registry: reg, runner: r,
+		mgr: mgr, casr: casr, registry: reg, runner: r,
 		notify:     make(chan struct{}, workers),
 		baseCtx:    ctx,
 		baseCancel: cancel,
@@ -446,7 +459,7 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	}
 
 	// Capture stdout as the primary output artifact (immutable, content-addressed).
-	digest, err := e.blobs.Put(bytes.NewReader(res.Stdout))
+	digest, err := e.casFor(pidOf(task)).Put(bytes.NewReader(res.Stdout))
 	if err != nil {
 		_ = e.p(pidOf(task)).FinishTask(ctx, task.ID, model.TaskFailed, nil, "store artifact: "+err.Error())
 		return e.outcome(ctx, pidOf(task), task.ID), err

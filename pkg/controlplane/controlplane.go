@@ -86,11 +86,9 @@ func Start(opts Options) (*Instance, error) {
 	}
 	db := mgr.Global()
 
-	blobs, err := cas.Open(filepath.Join(filepath.Dir(opts.DBPath), "cas"))
-	if err != nil {
-		_ = mgr.Close()
-		return nil, err
-	}
+	// Per-project content store (ADR-0049): each project's blobs live under projects/<id>/cas, beside its
+	// database, so evidence moves with the project on purge/backup/migrate.
+	casr := cas.NewPerProject(dataDir)
 	// Build the capability + methodology registries from built-ins, then load installed extension
 	// packages into them (ADR-0013). Extensions live under <data>/extensions; unsigned packages load
 	// only when OSB_ALLOW_UNSIGNED_EXTENSIONS is set.
@@ -119,7 +117,7 @@ func Start(opts Options) (*Instance, error) {
 		log.Printf("extension skipped (%s): %v", dir, e)
 	}
 
-	engine := task.NewEngine(mgr, blobs, capReg, runner.LocalRunner{})
+	engine := task.NewEngine(mgr, casr, capReg, runner.LocalRunner{})
 
 	// The LLM provider is configured via OSB_LLM_* (ollama/deepseek/grok/claude-cli/anthropic);
 	// unset yields a mock. A misconfiguration disables the Analyst but never blocks startup.
@@ -166,7 +164,7 @@ func Start(opts Options) (*Instance, error) {
 		return nil, err
 	}
 	apiSrv := api.New(api.Deps{
-		Store: mgr, Engine: engine, CAS: blobs, Provider: provider,
+		Store: mgr, Engine: engine, CASResolver: casr, Provider: provider,
 		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault,
 		Methods: methReg, Reports: reportReg, Extensions: loadedExt, TrustStore: trust, ExtDir: extDir,
 		WorkspaceDir: filepath.Join(filepath.Dir(opts.DBPath), "workspace"),
