@@ -422,6 +422,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/projects/{id}/context", s.ingestContext)
 	s.mux.HandleFunc("GET /v1/projects/{id}/scope", s.listScope)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scope", s.addScope)
+	s.mux.HandleFunc("GET /v1/projects/{id}/engagement", s.getEngagement)
+	s.mux.HandleFunc("PUT /v1/projects/{id}/engagement", s.setEngagement)
 	s.mux.HandleFunc("DELETE /v1/scope/{id}", s.deleteScope)
 	s.mux.HandleFunc("GET /v1/projects/{id}/events", s.projectEvents)
 	s.mux.HandleFunc("GET /v1/projects/{id}/intercept", s.getIntercept)
@@ -1489,10 +1491,19 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name           string   `json:"name"`
-		OrganizationID *string  `json:"organization_id"`
-		GroupID        *string  `json:"group_id"`
+		Name           string  `json:"name"`
+		OrganizationID *string `json:"organization_id"`
+		GroupID        *string `json:"group_id"`
 		TargetIDs      []string `json:"target_ids"`
+		// Optional engagement record + scope, so the setup modal creates a project with its properties in
+		// one call (ADR-0051). Applied to the new project's database after creation; best-effort so a
+		// property error never orphans the project — the modal can reconcile via PUT .../engagement.
+		Engagement *model.Engagement `json:"engagement"`
+		Scope      []struct {
+			Kind        string `json:"kind"`
+			Value       string `json:"value"`
+			Disposition string `json:"disposition"`
+		} `json:"scope"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -1512,7 +1523,54 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	pdb := s.pdbID(project.ID)
+	if req.Engagement != nil {
+		req.Engagement.ProjectID = project.ID
+		if _, err := pdb.SetEngagement(r.Context(), *req.Engagement); err != nil {
+			log.Printf("createProject: engagement for %s not saved: %v", project.ID, err)
+		}
+	}
+	for _, sc := range req.Scope {
+		if sc.Value == "" {
+			continue
+		}
+		if _, err := pdb.AddScopeEntry(r.Context(), project.ID, sc.Kind, sc.Value, sc.Disposition); err != nil {
+			log.Printf("createProject: scope %q for %s not saved: %v", sc.Value, project.ID, err)
+		}
+	}
 	writeJSON(w, http.StatusCreated, project)
+}
+
+// getEngagement returns a project's engagement record, or an empty one (with just the project id) when none
+// has been configured, so the setup/settings editor always has something to bind to.
+func (s *Server) getEngagement(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	eng, err := s.pdb(r).GetEngagement(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusOK, model.Engagement{ProjectID: id})
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, eng)
+}
+
+// setEngagement upserts a project's engagement record (the whole form).
+func (s *Server) setEngagement(w http.ResponseWriter, r *http.Request) {
+	var eng model.Engagement
+	if !decodeJSON(w, r, &eng) {
+		return
+	}
+	eng.ProjectID = r.PathValue("id")
+	saved, err := s.pdb(r).SetEngagement(r.Context(), eng)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "engagement.set", eng.ProjectID, map[string]string{"project": eng.ProjectID})
+	writeJSON(w, http.StatusOK, saved)
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
