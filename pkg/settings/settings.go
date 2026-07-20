@@ -88,7 +88,23 @@ func Namespace(extID string, secs []Section) []Section {
 // CoreSections returns the built-in declarative sections. Custom core sections (Providers, Approvals,
 // Custom Agents) are declared client-side and composed by the settings shell; they are not listed here.
 func CoreSections() []Section {
-	return []Section{appearance}
+	return []Section{appearance, engagements}
+}
+
+var engagements = Section{
+	ID:    "engagements",
+	Title: "Engagements",
+	Icon:  "🎯",
+	Order: 20,
+	Fields: []Field{
+		{
+			Key:         "engagement.require_authorization",
+			Label:       "Require written authorization",
+			Type:        TypeBool,
+			Default:     "true",
+			Description: "Warn (a banner, and a confirm before scans) when an engagement has no recorded authorization or it has expired. Turn off if you don't track authorization.",
+		},
+	},
 }
 
 var appearance = Section{

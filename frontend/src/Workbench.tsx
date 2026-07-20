@@ -562,6 +562,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const [observations, setObservations] = useState<Observation[]>([])
   const [engagement, setEngagement] = useState<Engagement | null>(null) // the engagement record (ADR-0051)
   const engTechniques = engagement?.techniques ?? null
+  const [requireAuth, setRequireAuth] = useState(true) // global setting: warn when authorization isn't on file
   // Deep-link target: a surface + row id to scroll to and flash, with a nonce so repeats re-fire.
   const [focus, setFocus] = useState<{ surface: Tab; id: string; n: number } | null>(null)
   const [coverage, setCoverage] = useState<CoverageView | null>(null)
@@ -596,6 +597,12 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
     if (online) void loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, project.id])
+
+  // The authorization soft-gate is opt-out via a global setting (default on).
+  useEffect(() => {
+    if (!online) return
+    api.getSettings().then((s) => setRequireAuth(s.values['engagement.require_authorization'] !== 'false')).catch(() => {})
+  }, [online])
 
   // Deep-link: a cockpit click can request a specific surface (e.g. tasks) on open.
   useEffect(() => {
@@ -708,7 +715,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'scope':
         return <ScopeTab project={project} online={online} onError={setError} />
       case 'scan':
-        return <ScanTab assets={allAssets} capabilities={capabilities} techniques={engTechniques} authWarn={authWarning(engagement)} online={online} afterFinding={loadAll} onError={setError} />
+        return <ScanTab assets={allAssets} capabilities={capabilities} techniques={engTechniques} authWarn={authWarn} online={online} afterFinding={loadAll} onError={setError} />
       case 'replay':
         return <ReplayTab project={project} online={online} onError={setError} boundItem={doc.bind} seed={doc.seed} onEvidenceLinked={afterEvidenceLinked} />
       case 'proxy':
@@ -768,6 +775,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const surfaceDocs = showDocTabs ? openDocs.filter((d) => d.surface === activeSurface) : []
   // When a source file is active, the Explorer browses that file's repo.
   const codeAssetId = openDocs.find((d) => d.key === activeKey)?.code?.assetId ?? null
+  // Authorization soft-gate message, suppressed when the global setting turns the requirement off (ADR-0051).
+  const authWarn = requireAuth ? authWarning(engagement) : null
 
   return (
     <div className="wb">
@@ -831,9 +840,9 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
               )}
             </div>
           )}
-          {authWarning(engagement) && (
+          {authWarn && (
             <div className="banner warn wb-banner">
-              ⚠ {authWarning(engagement)} <button className="link" onClick={() => activateSurface('settings')}>Record authorization →</button>
+              ⚠ {authWarn} <button className="link" onClick={() => activateSurface('settings')}>Record authorization →</button>
             </div>
           )}
           {error && <div className="banner error wb-banner">⚠ {error}</div>}
