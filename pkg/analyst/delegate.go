@@ -17,19 +17,46 @@ import (
 var agentSem = newAgentSem()
 
 func newAgentSem() chan struct{} {
-	n := 4
-	if v := os.Getenv("OSB_AGENT_MAX_CONCURRENT"); v != "" {
+	return make(chan struct{}, envInt("OSB_AGENT_MAX_CONCURRENT", 4))
+}
+
+// subAgentMaxSteps is the tool-turn budget for a delegated sub-agent (ADR-0047). A sub-agent runs a whole
+// sub-task to completion, so it needs more room than an interactive turn — a real recon/scan step easily
+// exceeds a handful of tool calls. OSB_AGENT_MAX_STEPS overrides it.
+func subAgentMaxSteps() int { return envInt("OSB_AGENT_MAX_STEPS", 16) }
+
+// maxDelegationDepth bounds how deep delegation may nest (ADR-0047): the Lead delegates to a specialist,
+// which may itself delegate, and so on, up to this many levels. Bounded depth × the concurrency cap keeps
+// the delegation tree finite — no runaway. OSB_AGENT_MAX_DEPTH overrides it.
+func maxDelegationDepth() int { return envInt("OSB_AGENT_MAX_DEPTH", 3) }
+
+func envInt(name string, def int) int {
+	if v := os.Getenv(name); v != "" {
 		if p, err := strconv.Atoi(v); err == nil && p > 0 {
-			n = p
+			return p
 		}
 	}
-	return make(chan struct{}, n)
+	return def
+}
+
+// delegationDepthKey carries the current delegation nesting depth through the context so a sub-agent's
+// `delegate` calls can be bounded (ADR-0047).
+type delegationDepthKey struct{}
+
+func delegationDepth(ctx context.Context) int {
+	d, _ := ctx.Value(delegationDepthKey{}).(int)
+	return d
+}
+
+func withDelegationDepth(ctx context.Context, d int) context.Context {
+	return context.WithValue(ctx, delegationDepthKey{}, d)
 }
 
 // Delegation (ADR-0019 §4). The Lead agent doesn't act directly — it hands each part of the work to the
 // right specialist via the `delegate` tool, which runs that specialist as a sub-agent to completion and
-// returns its result. Delegation is the primitive playbooks (the plan DAG) will build on. Only the Lead
-// has `delegate`; specialists don't, so delegation nests one level deep — no runaway trees.
+// returns its result. Delegation is the primitive playbooks (the plan DAG) build on. A specialist that
+// itself holds `delegate` (e.g. the pentester) can decompose further; nesting is bounded by
+// maxDelegationDepth so the delegation tree stays finite — no runaway (ADR-0047).
 
 // DelegationResult is what a sub-agent reports back to whoever delegated to it.
 type DelegationResult struct {
@@ -70,9 +97,10 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 		Approve:      Approver(authorize),
 		Execute:      svc.executeFor(projectID, tgt.Provider),
 		Audit:        svc.Audit,
-		MaxSteps:     8,
+		MaxSteps:     subAgentMaxSteps(),
 	}
-	res, err := loop.Run(ctx, task)
+	// Run the sub-agent one level deeper, so any `delegate` it issues is bounded by maxDelegationDepth.
+	res, err := loop.Run(withDelegationDepth(ctx, delegationDepth(ctx)+1), task)
 	if err != nil {
 		return DelegationResult{}, err
 	}
@@ -130,6 +158,10 @@ func (svc *Service) runDelegate(ctx context.Context, projectID string, call agen
 	}
 	if target == "lead" || target == "generalist" {
 		return "", fmt.Errorf("cannot delegate to %q; choose a specialist", target)
+	}
+	// Bound nesting: a sub-agent already this deep must finish the work itself, not delegate again (ADR-0047).
+	if d := delegationDepth(ctx); d >= maxDelegationDepth() {
+		return "", fmt.Errorf("maximum delegation depth (%d) reached — complete this sub-task directly rather than delegating further", maxDelegationDepth())
 	}
 	res, err := svc.Delegate(ctx, projectID, target, task, profileToolNames(svc.resolveProfile(ctx, target)))
 	if err != nil {

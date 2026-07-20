@@ -118,10 +118,15 @@ and can later ship as plugins.
       scanners, per-repo recon) overlap — wall-clock = slowest branch, not the sum. Shared state folded under
       a mutex (race-clean via `go test -race`); ADR-0044 gate pause/resume + failure-skip preserved. Fan-out
       test proves real concurrency. Live-validated (root→{a,b,c}→join completed through the daemon).
+- [x] **Deeper delegation + configurable sub-agent budget** (ADR-0047) — delegation can **nest more than one
+      level**: the `pentester` coordinator can itself delegate a separable sub-task, bounded by
+      `maxDelegationDepth` (default 3, `OSB_AGENT_MAX_DEPTH`) tracked on the context so the tree stays finite.
+      `delegate` stays sensitive/approval-gated and only on coordinator roles. The delegated sub-agent's
+      tool-turn budget is raised 8→16 and configurable (`OSB_AGENT_MAX_STEPS`). Depth-cap + increment tested.
 - [ ] **Analyst autonomy — remaining** (ADR-0035): a **pipelined** scheduler (start a step the moment its own
       deps finish, dropping the per-wave barrier); a configurable/per-playbook concurrency cap; cancel
-      in-flight steps on a sibling failure; **deeper delegation** (a sub-agent delegating further) + raise the
-      8-step sub-agent cap.
+      in-flight steps on a sibling failure; a delegation **trace** in the UI; fan the built-in playbooks out
+      to exploit the parallel scheduler + deeper delegation.
 
 ## Analyst provider / model management
 
