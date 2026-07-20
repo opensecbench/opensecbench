@@ -24,7 +24,6 @@ import {
   TreeEntry,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
-import { CodeView } from './CodeView'
 import { LocationChip, OpenCode, parseLoc } from './CodeLink'
 import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
@@ -40,6 +39,8 @@ import { hasNativePickers, pickDirectory } from './native'
 
 // The terminal pulls in xterm.js; load it only when the tab is opened.
 const TerminalTab = lazy(() => import('./TerminalTab').then((m) => ({ default: m.TerminalTab })))
+// CodeView pulls in highlight.js + its language grammars; load it only when a source file is opened.
+const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })))
 
 type Tab =
   | 'assets'
@@ -416,7 +417,7 @@ const HIT_SURFACE: Record<string, Tab> = {
 // The titlebar omni-search: a real input over the already-shipped /v1/search
 // (project-scoped). Results drop down live as you type; selecting one navigates
 // to the surface that owns it. ⌘K / Ctrl+K focuses it from anywhere.
-function OmniSearch({ online, onNavigate }: { online: boolean; onNavigate: (surface: Tab) => void }) {
+function OmniSearch({ online, onNavigate }: { online: boolean; onNavigate: (surface: Tab, id?: string) => void }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -472,7 +473,7 @@ function OmniSearch({ online, onNavigate }: { online: boolean; onNavigate: (surf
   }, [])
 
   function choose(r: SearchResult) {
-    onNavigate(HIT_SURFACE[r.kind] ?? 'assets')
+    onNavigate(HIT_SURFACE[r.kind] ?? 'assets', r.id)
     setOpen(false)
     setQuery('')
     setResults(null)
@@ -544,6 +545,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const [context, setContext] = useState<ContextItem[]>([])
   const [findings, setFindings] = useState<Finding[]>([])
   const [observations, setObservations] = useState<Observation[]>([])
+  // Deep-link target: a surface + row id to scroll to and flash, with a nonce so repeats re-fire.
+  const [focus, setFocus] = useState<{ surface: Tab; id: string; n: number } | null>(null)
   const [coverage, setCoverage] = useState<CoverageView | null>(null)
   const [methodReload, setMethodReload] = useState(0) // bump to make Methodology docs re-fetch
   const [approvals, setApprovals] = useState(0)
@@ -635,6 +638,12 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
     const current = existing.find((d) => d.key === activeKey) ?? existing[existing.length - 1]
     setActiveKey(current.key)
   }
+  // Navigate to a surface and ask it to scroll/highlight a specific row (deep-link from omni-search). The
+  // nonce makes re-selecting the same id re-fire the scroll even when the id is unchanged.
+  function navigateTo(surface: Tab, id?: string) {
+    activateSurface(surface)
+    if (id) setFocus((f) => ({ surface, id, n: (f?.n ?? 0) + 1 }))
+  }
   // Open (or focus) a Replay bound to a methodology test item — the C payoff: evidence saved
   // here auto-attaches to that item.
   function openBoundReplay(itemId: string, itemTitle: string) {
@@ -701,7 +710,15 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'tasks':
         return <TasksTab online={online} onError={setError} />
       case 'findings':
-        return <FindingsTab findings={findings} observations={observations} onOpenCode={openCodeFile} />
+        return (
+          <FindingsTab
+            findings={findings}
+            observations={observations}
+            onOpenCode={openCodeFile}
+            focusId={focus?.surface === 'findings' ? focus.id : undefined}
+            focusNonce={focus?.n ?? 0}
+          />
+        )
       case 'investigations':
         return <InvestigationsTab project={project} online={online} observations={observations} onOpenCode={openCodeFile} onError={setError} />
       case 'reports':
@@ -714,7 +731,9 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         return <AuditTab online={online} onError={setError} />
       case 'code':
         return doc.code ? (
-          <CodeView assetId={doc.code.assetId} path={doc.code.path} line={doc.code.line} online={online} />
+          <Suspense fallback={<div className="empty">Loading viewer…</div>}>
+            <CodeView assetId={doc.code.assetId} path={doc.code.path} line={doc.code.line} online={online} />
+          </Suspense>
         ) : null
     }
   }
@@ -734,7 +753,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         <button className={`wb-proj ${online ? 'online' : ''}`} onClick={onHome} title="Back to Home">
           <span className="dot" /> {project.name} <span className="car">▾</span>
         </button>
-        <OmniSearch online={online} onNavigate={activateSurface} />
+        <OmniSearch online={online} onNavigate={navigateTo} />
         <NotificationBell online={online} />
         <code className="apiurl">{api.baseURL}</code>
       </div>
@@ -1660,14 +1679,30 @@ function FindingsTab({
   findings,
   observations,
   onOpenCode,
+  focusId,
+  focusNonce,
 }: {
   findings: Finding[]
   observations: Observation[]
   onOpenCode: OpenCode
+  focusId?: string
+  focusNonce?: number
 }) {
   // Index observations by id so each finding can show its supporting locations (findings carry no location
   // of their own — it lives on the observations they were promoted from, ADR-0050).
   const byId = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
+  // Deep-link: when asked to focus a finding (e.g. from omni-search), scroll it into view and flash it.
+  const rowRefs = useRef(new Map<string, HTMLLIElement>())
+  const [flash, setFlash] = useState<string | null>(null)
+  useEffect(() => {
+    if (!focusId) return
+    const row = rowRefs.current.get(focusId)
+    if (!row) return
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    setFlash(focusId)
+    const t = setTimeout(() => setFlash(null), 1600)
+    return () => clearTimeout(t)
+  }, [focusId, focusNonce])
   return (
     <section className="panel">
       <div className="panel-head">Findings ({findings.length})</div>
@@ -1679,7 +1714,14 @@ function FindingsTab({
             const obs = f.observation_ids.map((id) => byId.get(id)).filter((o): o is Observation => !!o)
             const located = obs.filter((o) => o.location)
             return (
-              <li key={f.id} className="row-item col">
+              <li
+                key={f.id}
+                ref={(el) => {
+                  if (el) rowRefs.current.set(f.id, el)
+                  else rowRefs.current.delete(f.id)
+                }}
+                className={`row-item col${flash === f.id ? ' flash' : ''}`}
+              >
                 <div className="row-main">
                   <span className={`sev sev-${f.severity}`}>{f.severity}</span>
                   <span className={`badge ${f.status}`}>{f.status}</span>

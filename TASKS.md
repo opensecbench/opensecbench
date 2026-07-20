@@ -220,5 +220,8 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
 - [x] Taint "jump to source": source+sink chips on a finding (attributes.dataflow_source, ADR-0032)
 - [x] Investigations click-to-file chip (observation_id → source location)
 - [x] Shared CodeLink module (parseLoc + LocationChip) used by Findings, Explorer, Investigations
-- [ ] Deep-link into surfaces (scroll/select a specific finding row); syntax-highlight for more languages
+- [x] Deep-link scroll-to-row: omni-search → Findings scrolls to & flashes the finding (nonce re-fires)
+- [x] Syntax highlighting for ~25 more languages (infra/config/JVM/functional) on top of hljs common;
+      CodeView lazy-loaded so hljs + grammars are an on-demand chunk, not in the initial bundle
+- [ ] Deep-link scroll-to-row for other surfaces (observations→Investigations keys on observation_id)
 - [ ] Persisted multi-step dataflow trace for a step-through taint viewer (needs interpreter change, ADR-0032)
