@@ -6,6 +6,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/wailsapp/wails/v2 v2.13.0
 	golang.org/x/crypto v0.51.0
 	modernc.org/sqlite v1.54.0

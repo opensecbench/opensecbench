@@ -79,11 +79,22 @@ func readContext(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 	if truncated {
 		data = data[:maxContextBytes]
 	}
-	// Binary documents (PDF, docx, …) can't be inlined usefully yet — return metadata, not bytes.
+	// Binary documents (PDF, docx, pptx): extract their text on-host so the agent can read them (review #2).
 	if !isProbablyText(data) {
+		if text, ok := extractText(data); ok {
+			extractTruncated := false
+			if len(text) > maxContextBytes {
+				text = text[:maxContextBytes]
+				extractTruncated = true
+			}
+			return jsonify(map[string]any{
+				"name": ci.Name, "type": ci.Type, "media_type": art.MediaType,
+				"content": text, "extracted": true, "truncated": truncated || extractTruncated,
+			}, nil)
+		}
 		return jsonify(map[string]any{
 			"name": ci.Name, "type": ci.Type, "media_type": art.MediaType, "bytes": art.Size,
-			"note": "binary document; text extraction not yet supported — read a text export instead",
+			"note": "binary document; no text extractor for this format — attach a text export instead",
 		}, nil)
 	}
 	return jsonify(map[string]any{
