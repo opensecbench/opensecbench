@@ -274,7 +274,7 @@ and can later ship as plugins.
       cloud CLIs baked; `:42` no scoped network.
 - [ ] **Proxy TLS cert capture** — `proxy/proxy.go:69` captures no upstream cert chain/validity, so invalid/
       expired certs can't be flagged on an exchange.
-- [ ] **API 400-vs-500 mapping** — user-input errors (e.g. createProject unknown target, `api.go:1577`)
+- [x] **API 400-vs-500 mapping** — user-input errors (e.g. createProject unknown target, `api.go:1577`)
       return 500 instead of 400.
 - [x] **Cleanup: orphaned template-create flow (frontend)** — the engagement modal replaced it (+ archetype picker
       removed), leaving `listTemplates`/`createProjectFromTemplate`/`createProject` and the `/v1/templates`
