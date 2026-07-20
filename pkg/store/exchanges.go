@@ -27,9 +27,9 @@ func (db *DB) CreateExchange(ctx context.Context, e model.HTTPExchange) (model.H
 	}
 	ts := nowString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO http_exchanges (id, project_id, name, origin, method, url, request_headers, request_body, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.ProjectID, e.Name, e.Origin, e.Method, e.URL, e.RequestHeaders, e.RequestBody, ts); err != nil {
+		`INSERT INTO http_exchanges (id, project_id, name, origin, method, url, request_headers, request_body, tls, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.ProjectID, e.Name, e.Origin, e.Method, e.URL, e.RequestHeaders, e.RequestBody, e.TLS, ts); err != nil {
 		return model.HTTPExchange{}, err
 	}
 	e.CreatedAt = parseTime(ts)
@@ -55,7 +55,7 @@ func (db *DB) RecordResponse(ctx context.Context, id string, status int, headers
 }
 
 const exchangeCols = `id, project_id, name, origin, method, url, request_headers, request_body,
-	status, response_headers, response_body, duration_ms, egress, created_at, sent_at`
+	status, response_headers, response_body, duration_ms, egress, tls, created_at, sent_at`
 
 func scanExchange(s interface {
 	Scan(dest ...any) error
@@ -66,7 +66,7 @@ func scanExchange(s interface {
 	var sent sql.NullString
 	if err := s.Scan(&e.ID, &e.ProjectID, &e.Name, &e.Origin, &e.Method, &e.URL,
 		&e.RequestHeaders, &e.RequestBody, &status, &e.ResponseHeaders, &e.ResponseBody,
-		&duration, &e.Egress, &created, &sent); err != nil {
+		&duration, &e.Egress, &e.TLS, &created, &sent); err != nil {
 		return model.HTTPExchange{}, err
 	}
 	if status.Valid {

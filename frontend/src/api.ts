@@ -370,9 +370,23 @@ export interface HTTPExchange {
   response_body: string
   duration_ms?: number
   egress?: string // "" = control-plane host; else the runner id that performed the send (ADR-0025)
+  tls?: string // JSON CertSummary of the upstream cert for a proxied HTTPS exchange (review #6)
   created_at: string
   sent_at?: string
   in_scope?: boolean // computed by the server against the project scope allowlist
+}
+
+// Parsed form of HTTPExchange.tls.
+export interface CertSummary {
+  subject: string
+  issuer: string
+  not_before: string
+  not_after: string
+  expired?: boolean
+  hostname_mismatch?: boolean
+  self_signed?: boolean
+  untrusted?: boolean
+  valid: boolean
 }
 
 export interface RunnerView {

@@ -2336,3 +2336,6 @@ select.em-in { cursor: pointer; }
 .mpack-head { display: flex; align-items: center; gap: 8px; }
 .mpack-remove { border: 1px solid var(--line2); background: transparent; color: var(--tx3); border-radius: 6px; font-size: 11px; padding: 2px 9px; cursor: pointer; }
 .mpack-remove:hover { color: var(--red); border-color: var(--red); }
+.tls-badge { margin-right: 5px; font-size: 11px; }
+.tls-badge.tls-ok { filter: grayscale(0.2); opacity: 0.75; }
+.tls-badge.tls-bad { color: var(--red); }
