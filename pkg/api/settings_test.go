@@ -109,7 +109,7 @@ func newSettingsExtServer(t *testing.T) *httptest.Server {
 			},
 		}},
 	}}
-	srv := httptest.NewServer(New(Deps{Store: db, Extensions: []extension.Loaded{ext}}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), Extensions: []extension.Loaded{ext}}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 	return srv
 }

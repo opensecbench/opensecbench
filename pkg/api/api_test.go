@@ -60,7 +60,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 	engine := task.NewEngine(db, blobs, capability.BuiltIns(), runner.LocalRunner{})
-	srv := httptest.NewServer(New(Deps{Store: db, Engine: engine, CAS: blobs}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs}).Handler())
 	t.Cleanup(func() {
 		srv.Close()
 		_ = db.Close()
@@ -177,7 +177,7 @@ func TestAnalystAsk(t *testing.T) {
 		`{"tool":"list_projects","args":{}}`,
 		`{"answer":"There is 1 project named Acme."}`,
 	}}
-	srv := httptest.NewServer(New(Deps{Store: db, Provider: mock}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), Provider: mock}).Handler())
 	defer func() { srv.Close(); _ = db.Close() }()
 
 	resp, err := http.Post(srv.URL+"/v1/analyst/ask", "application/json", bytes.NewBufferString(`{"message":"how many projects?"}`))

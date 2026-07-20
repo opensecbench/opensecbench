@@ -13,7 +13,7 @@ import (
 // notify records an in-app notification (best-effort) and, if a "notify_webhook" secret is set,
 // mirrors it to a Slack/Teams incoming webhook (P11 mediated sharing).
 func (s *Server) notify(ctx context.Context, kind, title, body string, projectID *string, link string) {
-	if _, err := s.store.CreateNotification(ctx, model.Notification{
+	if _, err := s.global().CreateNotification(ctx, model.Notification{
 		Kind: kind, Title: title, Body: body, ProjectID: projectID, Link: link,
 	}); err != nil {
 		log.Printf("notify failed (%s): %v", kind, err)
@@ -27,7 +27,7 @@ func (s *Server) pushWebhook(title, body string) {
 	if s.vault == nil {
 		return
 	}
-	sealed, err := s.store.GetSealed(context.Background(), "notify_webhook")
+	sealed, err := s.global().GetSealed(context.Background(), "notify_webhook")
 	if err != nil {
 		return // no webhook configured
 	}
@@ -50,17 +50,17 @@ func (s *Server) listNotifications(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	items, err := s.store.ListNotifications(r.Context(), unreadOnly, limit)
+	items, err := s.global().ListNotifications(r.Context(), unreadOnly, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	unread, _ := s.store.UnreadCount(r.Context())
+	unread, _ := s.global().UnreadCount(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"unread": unread, "notifications": items})
 }
 
 func (s *Server) markNotificationRead(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.MarkNotificationRead(r.Context(), r.PathValue("id")); err != nil {
+	if err := s.global().MarkNotificationRead(r.Context(), r.PathValue("id")); err != nil {
 		writeErr(w, http.StatusNotFound, "notification not found")
 		return
 	}
@@ -68,7 +68,7 @@ func (s *Server) markNotificationRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) markAllNotificationsRead(w http.ResponseWriter, r *http.Request) {
-	n, err := s.store.MarkAllNotificationsRead(r.Context())
+	n, err := s.global().MarkAllNotificationsRead(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

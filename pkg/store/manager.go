@@ -20,8 +20,43 @@ type Manager struct {
 	projMigs   []Migration
 	globalMigs []Migration
 
+	// combined backs both domains with a single database that holds every table (ADR-0049 phase 2a).
+	// It lets call sites migrate to the two-tier Manager API while behavior stays identical to the
+	// legacy single-DB layout; phase 2b replaces it with the real per-project backing.
+	combined bool
+
 	mu       sync.Mutex
 	projects map[string]*DB // lazily opened per-project handles, keyed by project id
+}
+
+// NewCombinedManager wraps a single full-schema database as a Manager whose Global() and Project() both
+// return it (ADR-0049 phase 2a). Used by tests and the transitional control-plane wiring so the two-tier
+// API can be adopted before the physical split lands.
+func NewCombinedManager(db *DB) *Manager {
+	return &Manager{global: db, combined: true, projects: map[string]*DB{}}
+}
+
+// OpenCombined opens a single database at path, applies both schema sets to it (their tables are
+// disjoint), and returns a combined-mode Manager. Transitional (ADR-0049 phase 2a).
+func OpenCombined(path string, globalFS, projectFS fs.FS) (*Manager, error) {
+	db, err := Open(path)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range []fs.FS{globalFS, projectFS} {
+		migs, err := LoadMigrations(f)
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		for _, m := range migs {
+			if _, err := db.Exec(m.SQL); err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("store: combined schema %s: %w", m.Name, err)
+			}
+		}
+	}
+	return NewCombinedManager(db), nil
 }
 
 // OpenManager opens (creating if needed) the storage tree rooted at dir. It opens and migrates global.db
@@ -65,12 +100,17 @@ func (m *Manager) ProjectDir(id string) string { return filepath.Join(m.root, "p
 
 // ProjectCASDir and ProjectWorkspaceDir name the sibling stores inside a project's directory. The Manager
 // owns the layout; callers (e.g. the CAS opener) build on these instead of hard-coding paths.
-func (m *Manager) ProjectCASDir(id string) string       { return filepath.Join(m.ProjectDir(id), "cas") }
-func (m *Manager) ProjectWorkspaceDir(id string) string { return filepath.Join(m.ProjectDir(id), "workspace") }
+func (m *Manager) ProjectCASDir(id string) string { return filepath.Join(m.ProjectDir(id), "cas") }
+func (m *Manager) ProjectWorkspaceDir(id string) string {
+	return filepath.Join(m.ProjectDir(id), "workspace")
+}
 
 // Project returns the opened, migrated handle for a project's project.db, opening it on first use. Handles
 // are cached for the life of the Manager.
 func (m *Manager) Project(id string) (*DB, error) {
+	if m.combined {
+		return m.global, nil
+	}
 	if id == "" {
 		return nil, fmt.Errorf("store: empty project id")
 	}

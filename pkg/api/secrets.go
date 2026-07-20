@@ -9,7 +9,7 @@ import (
 
 // listSecrets returns secret metadata (names only) — never values (ADR-0011).
 func (s *Server) listSecrets(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListSecrets(r.Context())
+	items, err := s.global().ListSecrets(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -39,7 +39,7 @@ func (s *Server) setSecret(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "seal: "+err.Error())
 		return
 	}
-	meta, err := s.store.SetSecret(r.Context(), req.Name, sealed)
+	meta, err := s.global().SetSecret(r.Context(), req.Name, sealed)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -51,7 +51,7 @@ func (s *Server) setSecret(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteSecret(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if err := s.store.DeleteSecret(r.Context(), name); err != nil {
+	if err := s.global().DeleteSecret(r.Context(), name); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "secret not found")
 			return

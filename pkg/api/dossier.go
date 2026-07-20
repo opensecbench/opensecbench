@@ -11,13 +11,13 @@ import (
 // `?format=markdown` returns the rendered brief; otherwise JSON.
 func (s *Server) targetDossier(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	entries, err := s.store.ListKBByTarget(r.Context(), id)
+	entries, err := s.global().ListKBByTarget(r.Context(), id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	subject := id
-	if t, err := s.store.GetTarget(r.Context(), id); err == nil && t.Name != "" {
+	if t, err := s.global().GetTarget(r.Context(), id); err == nil && t.Name != "" {
 		subject = t.Name
 	}
 	s.writeDossier(w, r, dossier.Assemble(subject, entries, time.Now()))
@@ -26,13 +26,13 @@ func (s *Server) targetDossier(w http.ResponseWriter, r *http.Request) {
 // projectDossier assembles a project's inherited knowledge (its target(s) + group + org + global).
 func (s *Server) projectDossier(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	entries, err := s.store.ListKBByProject(r.Context(), id)
+	entries, err := s.global().ListKBByProject(r.Context(), id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	subject := id
-	if p, err := s.store.GetProject(r.Context(), id); err == nil && p.Name != "" {
+	if p, err := s.global().GetProject(r.Context(), id); err == nil && p.Name != "" {
 		subject = p.Name
 	}
 	s.writeDossier(w, r, dossier.Assemble(subject, entries, time.Now()))

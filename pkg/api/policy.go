@@ -28,7 +28,7 @@ func (s *Server) setActivePolicy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown policy profile "+req.Profile)
 		return
 	}
-	if err := s.store.SetSetting(r.Context(), "active_policy_profile", p.Name); err != nil {
+	if err := s.global().SetSetting(r.Context(), "active_policy_profile", p.Name); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

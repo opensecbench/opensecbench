@@ -27,7 +27,7 @@ func TestRunInvestigation(t *testing.T) {
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	// A provider that just answers (no tool calls) so the seeded investigation advance completes.
 	mock := &llm.MockProvider{Responses: []string{`{"answer":"Looks like a placeholder value — likely a false positive."}`}}
-	srv := httptest.NewServer(New(Deps{Store: db, CAS: blobs, Provider: mock}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs, Provider: mock}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 
 	ctx := context.Background()
@@ -72,7 +72,7 @@ func TestRunInvestigationNoProvider(t *testing.T) {
 	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
 	ms, _ := store.LoadMigrations(migrations.FS)
 	_, _ = db.Apply(ms)
-	srv := httptest.NewServer(New(Deps{Store: db}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db)}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 
 	ctx := context.Background()

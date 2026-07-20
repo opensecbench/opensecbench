@@ -10,7 +10,7 @@ import (
 
 // listProjectKB returns the KB a project inherits from the targets it references (ADR-0010).
 func (s *Server) listProjectKB(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.store.ListKBByProject(r.Context(), r.PathValue("id"))
+	entries, err := s.global().ListKBByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -19,7 +19,7 @@ func (s *Server) listProjectKB(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTargetKB(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.store.ListKBByTarget(r.Context(), r.PathValue("id"))
+	entries, err := s.global().ListKBByTarget(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -38,7 +38,7 @@ func (s *Server) createKBEntry(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	entry, err := s.store.CreateKBEntry(r.Context(), model.KBEntry{
+	entry, err := s.global().CreateKBEntry(r.Context(), model.KBEntry{
 		TargetID:    r.PathValue("id"),
 		Kind:        req.Kind,
 		Title:       req.Title,
@@ -56,7 +56,7 @@ func (s *Server) createKBEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getKBEntry(w http.ResponseWriter, r *http.Request) {
-	entry, err := s.store.GetKBEntry(r.Context(), r.PathValue("id"))
+	entry, err := s.global().GetKBEntry(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "kb entry not found")
 		return
@@ -78,7 +78,7 @@ func (s *Server) updateKBEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.store.UpdateKBEntry(r.Context(), id, req.Title, req.Body, req.Tags); err != nil {
+	if err := s.global().UpdateKBEntry(r.Context(), id, req.Title, req.Body, req.Tags); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "kb entry not found")
 			return
@@ -86,7 +86,7 @@ func (s *Server) updateKBEntry(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	entry, _ := s.store.GetKBEntry(r.Context(), id)
+	entry, _ := s.global().GetKBEntry(r.Context(), id)
 	s.record(r.Context(), actorOf(r), "kb.update", id, nil)
 	writeJSON(w, http.StatusOK, entry)
 }
@@ -99,7 +99,7 @@ func (s *Server) reviewKBEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.store.ReviewKBEntry(r.Context(), id, req.State); err != nil {
+	if err := s.global().ReviewKBEntry(r.Context(), id, req.State); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "kb entry not found")
 			return
@@ -108,14 +108,14 @@ func (s *Server) reviewKBEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.record(r.Context(), actorOf(r), "kb.review", id, map[string]string{"state": req.State})
-	entry, _ := s.store.GetKBEntry(r.Context(), id)
+	entry, _ := s.global().GetKBEntry(r.Context(), id)
 	writeJSON(w, http.StatusOK, entry)
 }
 
 // verifyKBEntry bumps a fact's freshness — "still true as of now" — without changing its review state (ADR-0043).
 func (s *Server) verifyKBEntry(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.store.VerifyKBEntry(r.Context(), id); err != nil {
+	if err := s.global().VerifyKBEntry(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "kb entry not found")
 			return
@@ -124,6 +124,6 @@ func (s *Server) verifyKBEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.record(r.Context(), actorOf(r), "kb.verify", id, nil)
-	entry, _ := s.store.GetKBEntry(r.Context(), id)
+	entry, _ := s.global().GetKBEntry(r.Context(), id)
 	writeJSON(w, http.StatusOK, entry)
 }

@@ -30,7 +30,7 @@ import (
 
 // listRunners returns enrolled runners with live online status from the hub.
 func (s *Server) listRunners(w http.ResponseWriter, r *http.Request) {
-	rs, err := s.store.ListRunners(r.Context())
+	rs, err := s.global().ListRunners(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -68,7 +68,7 @@ func (s *Server) mintEnrollToken(w http.ResponseWriter, r *http.Request) {
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	expires := time.Now().Add(time.Duration(ttl) * time.Minute)
-	if err := s.store.MintEnrollToken(r.Context(), runnerhub.TokenHash(token), req.Label, expires); err != nil {
+	if err := s.global().MintEnrollToken(r.Context(), runnerhub.TokenHash(token), req.Label, expires); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -79,7 +79,7 @@ func (s *Server) mintEnrollToken(w http.ResponseWriter, r *http.Request) {
 // deleteRunner revokes an enrolled runner.
 func (s *Server) deleteRunner(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.store.DeleteRunner(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.global().DeleteRunner(r.Context(), id); errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "runner not found")
 		return
 	} else if err != nil {
@@ -119,7 +119,7 @@ func (s *Server) enrollRunner(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "token, name and pubkey are required")
 		return
 	}
-	ok, err := s.store.ConsumeEnrollToken(r.Context(), runnerhub.TokenHash(req.Token))
+	ok, err := s.global().ConsumeEnrollToken(r.Context(), runnerhub.TokenHash(req.Token))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -128,7 +128,7 @@ func (s *Server) enrollRunner(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "invalid or expired enrollment token")
 		return
 	}
-	rn, err := s.store.CreateRunner(r.Context(), req.Name, req.PubKey)
+	rn, err := s.global().CreateRunner(r.Context(), req.Name, req.PubKey)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -159,7 +159,7 @@ func (s *Server) runnerAuth(next http.HandlerFunc) http.HandlerFunc {
 		_ = r.Body.Close()
 		r.Body = io.NopCloser(bytes.NewReader(body))
 
-		rn, err := s.store.GetRunner(r.Context(), id)
+		rn, err := s.global().GetRunner(r.Context(), id)
 		if err != nil || rn.Status != model.RunnerActive {
 			writeErr(w, http.StatusUnauthorized, "unknown or revoked runner")
 			return
@@ -168,7 +168,7 @@ func (s *Server) runnerAuth(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, http.StatusUnauthorized, "signature verification failed")
 			return
 		}
-		_ = s.store.TouchRunner(r.Context(), id)
+		_ = s.global().TouchRunner(r.Context(), id)
 		next(w, r.WithContext(context.WithValue(r.Context(), runnerCtxKey{}, id)))
 	}
 }
@@ -201,7 +201,7 @@ func (s *Server) runnerStream(w http.ResponseWriter, r *http.Request) {
 		case <-sub.Done: // evicted by a newer connection from the same runner
 			return
 		case <-ping.C:
-			_ = s.store.TouchRunner(r.Context(), runnerIDFrom(r))
+			_ = s.global().TouchRunner(r.Context(), runnerIDFrom(r))
 			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
 		case d := <-sub.Ch:
@@ -228,7 +228,7 @@ func (s *Server) runnerResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A runner may only return results for tasks assigned to it.
-	t, err := s.store.GetTask(r.Context(), req.TaskID)
+	t, err := s.global().GetTask(r.Context(), req.TaskID)
 	if err != nil || t.RunnerTarget != runnerIDFrom(r) {
 		writeErr(w, http.StatusForbidden, "task not assigned to this runner")
 		return
@@ -272,7 +272,7 @@ func (s *Server) runnerTunnel(w http.ResponseWriter, r *http.Request) {
 	sess := runnertunnel.New(conn, true)
 	s.runners.RegisterTunnel(id, sess)
 	defer s.runners.RemoveTunnel(id, sess)
-	_ = s.store.TouchRunner(r.Context(), id)
+	_ = s.global().TouchRunner(r.Context(), id)
 	<-sess.Done() // hold the connection open until the tunnel dies
 }
 

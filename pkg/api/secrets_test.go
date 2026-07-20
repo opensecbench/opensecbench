@@ -28,7 +28,7 @@ func TestSecretsNeverLeakPlaintext(t *testing.T) {
 	key := make([]byte, secret.KeySize)
 	_, _ = rand.Read(key)
 	vault, _ := secret.NewVault(key)
-	srv := httptest.NewServer(New(Deps{Store: db, CAS: blobs, Vault: vault}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs, Vault: vault}).Handler())
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 
 	const value = "SUPERSECRETVALUE12345"

@@ -26,7 +26,7 @@ func (s *Server) listReportTemplates(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) listReports(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListReportsByProject(r.Context(), r.PathValue("id"))
+	items, err := s.global().ListReportsByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -73,7 +73,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		format = report.FormatHTML
 	}
 
-	data, err := report.NewBuilder(s.store).Build(r.Context(), projectID, time.Now())
+	data, err := report.NewBuilder(s.global()).Build(r.Context(), projectID, time.Now())
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "build report: "+err.Error())
 		return
@@ -123,7 +123,7 @@ func (s *Server) storeReport(w http.ResponseWriter, r *http.Request, projectID s
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	art, err := s.store.CreateArtifact(r.Context(), model.Artifact{
+	art, err := s.global().CreateArtifact(r.Context(), model.Artifact{
 		SHA256:    digest,
 		Size:      int64(len(rendered)),
 		Kind:      model.ArtifactOutput,
@@ -134,7 +134,7 @@ func (s *Server) storeReport(w http.ResponseWriter, r *http.Request, projectID s
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	rep, err := s.store.CreateReport(r.Context(), model.Report{
+	rep, err := s.global().CreateReport(r.Context(), model.Report{
 		ProjectID:  projectID,
 		TemplateID: tmpl.ID,
 		Format:     string(format),

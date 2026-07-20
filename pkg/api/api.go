@@ -48,7 +48,7 @@ import (
 
 // Deps are the control-plane services the API exposes.
 type Deps struct {
-	Store        *store.DB
+	Store        *store.Manager
 	Engine       *task.Engine
 	CAS          *cas.Store
 	Provider     llm.Provider
@@ -66,7 +66,7 @@ type Deps struct {
 // Server routes control-plane HTTP requests against the control-plane services.
 type Server struct {
 	mux            *http.ServeMux
-	store          *store.DB
+	mgr            *store.Manager
 	engine         *task.Engine
 	cas            *cas.Store
 	providerMu     sync.RWMutex
@@ -101,11 +101,42 @@ type Server struct {
 	matchReplace map[string]*ruleEngine // per-project match/replace engines (ADR-0016 Step 4)
 }
 
+// errNoStore is returned when a handler needs the database but the server was built without one.
+var errNoStore = errors.New("api: no store configured")
+
+// global returns the instance-wide database handle (ADR-0049): org tree, targets, KB, settings,
+// providers, runners, secrets, audit, and the project index. Nil-safe so partially-built test servers
+// don't panic.
+func (s *Server) global() *store.DB {
+	if s.mgr == nil {
+		return nil
+	}
+	return s.mgr.Global()
+}
+
+// projectFromReq resolves the active project for a request: the {id} path value on project-nested routes
+// takes precedence, otherwise the X-Project-Id header the frontend sets from the active project.
+func projectFromReq(r *http.Request) string {
+	if id := r.PathValue("id"); id != "" {
+		return id
+	}
+	return r.Header.Get("X-Project-Id")
+}
+
+// projectDB returns the per-project database handle for a request's active project. In the transitional
+// combined backing (phase 2a) this is the same handle as global(); phase 2b routes it to projects/<id>/.
+func (s *Server) projectDB(r *http.Request) (*store.DB, error) {
+	if s.mgr == nil {
+		return nil, errNoStore
+	}
+	return s.mgr.Project(projectFromReq(r))
+}
+
 // New builds the API server with its routes registered.
 func New(deps Deps) *Server {
 	s := &Server{
 		mux:          http.NewServeMux(),
-		store:        deps.Store,
+		mgr:          deps.Store,
 		engine:       deps.Engine,
 		cas:          deps.CAS,
 		provider:     deps.Provider,
@@ -138,16 +169,16 @@ func New(deps Deps) *Server {
 	s.loadActiveProvider() // a persisted active provider overrides the env default
 	// Reconcile playbook runs left running by a prior process (their in-flight tasks are reconciled by
 	// the engine); the runs themselves would otherwise linger as ghosts (ADR-0022).
-	if s.store != nil {
-		if n, err := s.store.FailUnfinishedPlaybookRuns(context.Background()); err == nil && n > 0 {
+	if s.mgr != nil {
+		if n, err := s.global().FailUnfinishedPlaybookRuns(context.Background()); err == nil && n > 0 {
 			log.Printf("api: reconciled %d unfinished playbook run(s) to failed on startup", n)
 		}
 	}
 	// Remote-runner selection (ADR-0024): resolve a task's runner_target to a hub-connected runner. A
 	// revoked or offline runner errors, so the engine fails the task cleanly rather than running local.
-	if s.engine != nil && s.store != nil {
+	if s.engine != nil && s.mgr != nil {
 		s.engine.SetRunnerResolver(func(id string) (runner.Runner, error) {
-			r, err := s.store.GetRunner(context.Background(), id)
+			r, err := s.global().GetRunner(context.Background(), id)
 			if err != nil {
 				return nil, err
 			}
@@ -167,10 +198,10 @@ func New(deps Deps) *Server {
 // startScheduler runs the playbook scheduler in the background (ADR-0019 step 4). A due schedule fires
 // StartPlan; it is stopped on Close.
 func (s *Server) startScheduler() {
-	if s.store == nil {
+	if s.mgr == nil {
 		return
 	}
-	s.sched = analyst.NewScheduler(s.store, func(ctx context.Context, projectID, playbookID string) error {
+	s.sched = analyst.NewScheduler(s.global(), func(ctx context.Context, projectID, playbookID string) error {
 		_, err := s.analystService().StartPlan(ctx, projectID, playbookID)
 		return err
 	}, func(action, detail string) {
@@ -387,7 +418,7 @@ func (s *Server) routes() {
 }
 
 func (s *Server) analystService() *analyst.Service {
-	svc := analyst.NewService(s.store, s.engine, s.cas, s.workspaceDir, s.guardedProvider())
+	svc := analyst.NewService(s.global(), s.engine, s.cas, s.workspaceDir, s.guardedProvider())
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}
@@ -395,7 +426,7 @@ func (s *Server) analystService() *analyst.Service {
 	svc.SetEgressStrict(!s.activePolicy().AllowExternalForPrivate)
 	// Cross-provider model routing (ADR-0021): build a configured provider by registry id, DLP-guarded.
 	svc.SetProviderResolver(func(ctx context.Context, id string) (llm.Provider, error) {
-		p, err := s.store.GetProvider(ctx, id)
+		p, err := s.global().GetProvider(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -413,7 +444,7 @@ func (s *Server) analystService() *analyst.Service {
 // activePolicy returns the currently selected governance profile (default: conservative).
 func (s *Server) activePolicy() policy.Profile {
 	name := policy.Default
-	if v, err := s.store.GetSetting(context.Background(), "active_policy_profile"); err == nil && v != "" {
+	if v, err := s.global().GetSetting(context.Background(), "active_policy_profile"); err == nil && v != "" {
 		name = v
 	}
 	return policy.Get(name)
@@ -436,13 +467,13 @@ func (s *Server) guardProvider(p llm.Provider) llm.Provider {
 	load := func(ctx context.Context) (map[string]string, map[string]string) {
 		var secrets map[string]string
 		if s.vault != nil {
-			secrets, _ = s.store.SecretValueMap(ctx, s.vault.Open)
+			secrets, _ = s.global().SecretValueMap(ctx, s.vault.Open)
 		}
-		canaries, _ := s.store.CanaryMap(ctx)
+		canaries, _ := s.global().CanaryMap(ctx)
 		return secrets, canaries
 	}
 	onHit := func(ctx context.Context, h dlp.Hit, blocked bool) {
-		_ = s.store.RecordDLPEvent(ctx, model.DLPEvent{
+		_ = s.global().RecordDLPEvent(ctx, model.DLPEvent{
 			Kind: h.Kind, Label: h.Label, Action: h.Action, Blocked: blocked, Location: "llm:" + p.Name(),
 		})
 		s.record(ctx, "system", "dlp."+h.Kind, h.Label, map[string]any{"blocked": blocked, "action": h.Action})
@@ -477,7 +508,7 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "message is required")
 		return
 	}
-	th, err := s.store.CreateThread(r.Context(), store.NewThread{Title: "ask", Provider: s.providerName()})
+	th, err := s.global().CreateThread(r.Context(), store.NewThread{Title: "ask", Provider: s.providerName()})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -493,7 +524,7 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listThreads(w http.ResponseWriter, r *http.Request) {
-	ts, err := s.store.ListThreads(r.Context())
+	ts, err := s.global().ListThreads(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -510,7 +541,7 @@ func (s *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	th, err := s.store.CreateThread(r.Context(), store.NewThread{ProjectID: req.ProjectID, Title: req.Title, AgentType: req.AgentType, Provider: s.providerName()})
+	th, err := s.global().CreateThread(r.Context(), store.NewThread{ProjectID: req.ProjectID, Title: req.Title, AgentType: req.AgentType, Provider: s.providerName()})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -546,7 +577,7 @@ func (s *Server) listAgentPlaybooks(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, agentPlaybookView{ID: p.ID, Name: p.Name, Description: p.Description, Goal: p.Goal, Steps: steps, Builtin: true})
 	}
-	if saved, err := s.store.ListSavedPlaybooks(r.Context()); err == nil {
+	if saved, err := s.global().ListSavedPlaybooks(r.Context()); err == nil {
 		for _, sp := range saved {
 			var steps []agentPlaybookStep
 			_ = json.Unmarshal(sp.Steps, &steps)
@@ -577,7 +608,7 @@ func (s *Server) createSavedPlaybook(w http.ResponseWriter, r *http.Request) {
 
 // deleteSavedPlaybook removes a user-saved playbook (built-ins are not deletable).
 func (s *Server) deleteSavedPlaybook(w http.ResponseWriter, r *http.Request) {
-	err := s.store.DeleteSavedPlaybook(r.Context(), r.PathValue("id"))
+	err := s.global().DeleteSavedPlaybook(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "saved playbook not found (built-ins can't be deleted)")
 		return
@@ -619,7 +650,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "interval_seconds must be positive")
 		return
 	}
-	sc, err := s.store.CreateSchedule(r.Context(), r.PathValue("id"), req.PlaybookID, req.IntervalSeconds, time.Now().UTC())
+	sc, err := s.global().CreateSchedule(r.Context(), r.PathValue("id"), req.PlaybookID, req.IntervalSeconds, time.Now().UTC())
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -629,7 +660,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 
 // listSchedules returns a project's schedules.
 func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request) {
-	sched, err := s.store.ListSchedulesByProject(r.Context(), r.PathValue("id"))
+	sched, err := s.global().ListSchedulesByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -645,7 +676,7 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	err := s.store.SetScheduleEnabled(r.Context(), r.PathValue("id"), req.Enabled)
+	err := s.global().SetScheduleEnabled(r.Context(), r.PathValue("id"), req.Enabled)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "schedule not found")
 		return
@@ -659,7 +690,7 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 
 // deleteSchedule removes a schedule.
 func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
-	err := s.store.DeleteSchedule(r.Context(), r.PathValue("id"))
+	err := s.global().DeleteSchedule(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "schedule not found")
 		return
@@ -689,7 +720,7 @@ func (s *Server) startPlan(w http.ResponseWriter, r *http.Request) {
 
 // getPlan returns a plan with its steps (poll this to watch a run's progress).
 func (s *Server) getPlan(w http.ResponseWriter, r *http.Request) {
-	plan, err := s.store.GetPlan(r.Context(), r.PathValue("id"))
+	plan, err := s.global().GetPlan(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "plan not found")
 		return
@@ -729,7 +760,7 @@ func (s *Server) resolvePlanGate(w http.ResponseWriter, r *http.Request) {
 
 // listPlans returns a project's plans (without steps), newest first.
 func (s *Server) listPlans(w http.ResponseWriter, r *http.Request) {
-	plans, err := s.store.ListPlansByProject(r.Context(), r.PathValue("id"))
+	plans, err := s.global().ListPlansByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -740,7 +771,7 @@ func (s *Server) listPlans(w http.ResponseWriter, r *http.Request) {
 // getApprovalPolicy returns the sensitive tools (approve-by-default) and the current override rules
 // (ADR-0019 §5). The rules promote or demote a tool [+profile] between auto and approve.
 func (s *Server) getApprovalPolicy(w http.ResponseWriter, r *http.Request) {
-	raw, _ := s.store.GetSetting(r.Context(), analyst.ApprovalPolicySetting)
+	raw, _ := s.global().GetSetting(r.Context(), analyst.ApprovalPolicySetting)
 	rules := []analyst.Rule{}
 	if raw != "" {
 		_ = json.Unmarshal([]byte(raw), &rules)
@@ -771,7 +802,7 @@ func (s *Server) setApprovalPolicy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.store.SetSetting(r.Context(), analyst.ApprovalPolicySetting, string(b)); err != nil {
+	if err := s.global().SetSetting(r.Context(), analyst.ApprovalPolicySetting, string(b)); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -793,7 +824,7 @@ func (s *Server) listAgentProfiles(w http.ResponseWriter, r *http.Request) {
 	for _, p := range analyst.Profiles() {
 		out = append(out, prof{ID: p.ID, Name: p.Name, Description: p.Description, Persona: p.Persona, Tools: p.Tools, Builtin: true})
 	}
-	if saved, err := s.store.ListSavedProfiles(r.Context()); err == nil {
+	if saved, err := s.global().ListSavedProfiles(r.Context()); err == nil {
 		for _, sp := range saved {
 			var tools []string
 			_ = json.Unmarshal(sp.Tools, &tools)
@@ -822,7 +853,7 @@ func (s *Server) getModelCatalog(w http.ResponseWriter, _ *http.Request) {
 
 // getModelRouting returns the fixed routing tag vocabulary + the current tag → (provider, model) map.
 func (s *Server) getModelRouting(w http.ResponseWriter, r *http.Request) {
-	raw, _ := s.store.GetSetting(r.Context(), analyst.ModelRoutingSetting)
+	raw, _ := s.global().GetSetting(r.Context(), analyst.ModelRoutingSetting)
 	routing := json.RawMessage("{}")
 	if raw != "" && json.Valid([]byte(raw)) {
 		routing = json.RawMessage(raw)
@@ -842,7 +873,7 @@ func (s *Server) setModelRouting(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "routing must be a JSON object")
 		return
 	}
-	if err := s.store.SetSetting(r.Context(), analyst.ModelRoutingSetting, string(req.Routing)); err != nil {
+	if err := s.global().SetSetting(r.Context(), analyst.ModelRoutingSetting, string(req.Routing)); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -855,7 +886,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	values := map[string]string{}
 	for _, sec := range sections {
 		for _, f := range sec.Fields {
-			v, err := s.store.GetSetting(r.Context(), f.Key)
+			v, err := s.global().GetSetting(r.Context(), f.Key)
 			if err != nil || v == "" {
 				v = f.Default
 			}
@@ -879,7 +910,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "unknown setting "+key)
 			return
 		}
-		if err := s.store.SetSetting(r.Context(), key, val); err != nil {
+		if err := s.global().SetSetting(r.Context(), key, val); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -921,7 +952,7 @@ func (s *Server) createSavedProfile(w http.ResponseWriter, r *http.Request) {
 
 // deleteSavedProfile removes a user-defined profile (built-ins can't be deleted).
 func (s *Server) deleteSavedProfile(w http.ResponseWriter, r *http.Request) {
-	err := s.store.DeleteSavedProfile(r.Context(), r.PathValue("id"))
+	err := s.global().DeleteSavedProfile(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "saved profile not found (built-ins can't be deleted)")
 		return
@@ -934,7 +965,7 @@ func (s *Server) deleteSavedProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {
-	th, err := s.store.GetThread(r.Context(), r.PathValue("id"))
+	th, err := s.global().GetThread(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "thread not found")
 		return
@@ -943,7 +974,7 @@ func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	msgs, err := s.store.ListMessages(r.Context(), th.ID)
+	msgs, err := s.global().ListMessages(r.Context(), th.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -997,7 +1028,7 @@ func (s *Server) recordUsage(ctx context.Context, res analyst.SendResult) {
 	if res.Thread.ProjectID != nil {
 		projectID = *res.Thread.ProjectID
 	}
-	_ = s.store.RecordUsage(ctx, model.UsageRecord{
+	_ = s.global().RecordUsage(ctx, model.UsageRecord{
 		ProjectID: projectID, ThreadID: res.Thread.ID, AgentType: res.AgentType,
 		Provider: provider, Model: modelName,
 		InputTokens: res.InputTokens, OutputTokens: res.OutputTokens,
@@ -1024,7 +1055,7 @@ func (s *Server) forkThread(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	child, err := s.store.ForkThread(r.Context(), r.PathValue("id"), req.Seq)
+	child, err := s.global().ForkThread(r.Context(), r.PathValue("id"), req.Seq)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "thread not found")
 		return
@@ -1041,7 +1072,7 @@ func (s *Server) forkThread(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	projects, _ := s.store.ListProjects(ctx)
+	projects, _ := s.global().ListProjects(ctx)
 	name := map[string]string{}
 	for _, p := range projects {
 		name[p.ID] = p.Name
@@ -1057,9 +1088,9 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		CreatedAt time.Time `json:"created_at"`
 	}
 	approvals := []apView{}
-	for _, a := range must(s.store.ListPendingApprovals(ctx)) {
+	for _, a := range must(s.global().ListPendingApprovals(ctx)) {
 		v := apView{ID: a.ID, Tool: a.Tool, ThreadID: a.ThreadID, CreatedAt: a.CreatedAt}
-		if th, err := s.store.GetThread(ctx, a.ThreadID); err == nil && th.ProjectID != nil {
+		if th, err := s.global().GetThread(ctx, a.ThreadID); err == nil && th.ProjectID != nil {
 			v.ProjectID = *th.ProjectID
 			v.Project = name[*th.ProjectID]
 		}
@@ -1075,13 +1106,13 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		Project    string `json:"project,omitempty"`
 	}
 	runningTasks := []taskView{}
-	for _, t := range must(s.store.ListTasks(ctx, 200)) {
+	for _, t := range must(s.global().ListTasks(ctx, 200)) {
 		if t.Status != model.TaskRunning && t.Status != model.TaskPending {
 			continue
 		}
 		tv := taskView{ID: t.ID, Capability: t.CapabilityID, Status: t.Status}
 		if t.ApplicationID != nil {
-			if app, err := s.store.GetApplication(ctx, *t.ApplicationID); err == nil {
+			if app, err := s.global().GetApplication(ctx, *t.ApplicationID); err == nil {
 				tv.ProjectID = app.ProjectID
 				tv.Project = name[app.ProjectID]
 			}
@@ -1097,7 +1128,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		Project   string `json:"project,omitempty"`
 	}
 	threads := []thView{}
-	for _, th := range must(s.store.ListThreads(ctx)) {
+	for _, th := range must(s.global().ListThreads(ctx)) {
 		if th.Status != model.ThreadActive && th.Status != model.ThreadAwaitingApproval {
 			continue
 		}
@@ -1110,7 +1141,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Projects at a glance.
-	fcounts, _ := s.store.FindingCountsByProject(ctx)
+	fcounts, _ := s.global().FindingCountsByProject(ctx)
 	type projView struct {
 		ID         string `json:"id"`
 		Name       string `json:"name"`
@@ -1125,7 +1156,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	for _, p := range projects {
 		fc := fcounts[p.ID]
 		toTriage := 0
-		if obs, err := s.store.ListObservationsByProject(ctx, p.ID); err == nil {
+		if obs, err := s.global().ListObservationsByProject(ctx, p.ID); err == nil {
 			for _, o := range obs {
 				if o.ReviewState == model.ReviewUnreviewed {
 					toTriage++
@@ -1143,7 +1174,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	// Spend: workbench-wide token usage this month + all-time (informational, no cap).
 	now := time.Now().UTC()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	usage, _ := s.store.UsageSummary(ctx, monthStart, 6)
+	usage, _ := s.global().UsageSummary(ctx, monthStart, 6)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"approvals": approvals,
@@ -1157,11 +1188,11 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 // projectCoverage rolls up a project's methodology coverage for the cockpit ring. ok is false when
 // the project has adopted no packs (nothing to show a ring for).
 func (s *Server) projectCoverage(ctx context.Context, projectID string) (methodology.Summary, bool) {
-	adopted, err := s.store.ListAdoptedMethodologies(ctx, projectID)
+	adopted, err := s.global().ListAdoptedMethodologies(ctx, projectID)
 	if err != nil || len(adopted) == 0 {
 		return methodology.Summary{}, false
 	}
-	entries, err := s.store.ListCoverage(ctx, projectID)
+	entries, err := s.global().ListCoverage(ctx, projectID)
 	if err != nil {
 		return methodology.Summary{}, false
 	}
@@ -1189,11 +1220,11 @@ func (s *Server) scheduleViews(ctx context.Context, projects []model.Project, na
 	}
 	out := []schedView{}
 	for _, p := range projects {
-		for _, sc := range must(s.store.ListSchedulesByProject(ctx, p.ID)) {
+		for _, sc := range must(s.global().ListSchedulesByProject(ctx, p.ID)) {
 			pbName := sc.PlaybookID
 			if pb, ok := analyst.PlaybookByID(sc.PlaybookID); ok {
 				pbName = pb.Name
-			} else if sp, err := s.store.GetSavedPlaybook(ctx, sc.PlaybookID); err == nil {
+			} else if sp, err := s.global().GetSavedPlaybook(ctx, sc.PlaybookID); err == nil {
 				pbName = sp.Name
 			}
 			out = append(out, schedView{
@@ -1220,7 +1251,7 @@ func (s *Server) scheduleViews(ctx context.Context, projects []model.Project, na
 func must[T any](v []T, _ error) []T { return v }
 
 func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
-	aps, err := s.store.ListPendingApprovals(r.Context())
+	aps, err := s.global().ListPendingApprovals(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1268,7 +1299,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
-	if s.store == nil || s.store.PingContext(r.Context()) != nil {
+	if s.mgr == nil || s.global().PingContext(r.Context()) != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
 		return
 	}
@@ -1278,7 +1309,7 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 // --- organizations ---
 
 func (s *Server) listOrganizations(w http.ResponseWriter, r *http.Request) {
-	orgs, err := s.store.ListOrganizations(r.Context())
+	orgs, err := s.global().ListOrganizations(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1297,7 +1328,7 @@ func (s *Server) createOrganization(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	org, err := s.store.CreateOrganization(r.Context(), req.Name)
+	org, err := s.global().CreateOrganization(r.Context(), req.Name)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1308,7 +1339,7 @@ func (s *Server) createOrganization(w http.ResponseWriter, r *http.Request) {
 // --- targets ---
 
 func (s *Server) listTargets(w http.ResponseWriter, r *http.Request) {
-	targets, err := s.store.ListTargets(r.Context())
+	targets, err := s.global().ListTargets(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1329,7 +1360,7 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	target, err := s.store.CreateTarget(r.Context(), req.Name, req.Description, req.OrganizationID)
+	target, err := s.global().CreateTarget(r.Context(), req.Name, req.Description, req.OrganizationID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1340,7 +1371,7 @@ func (s *Server) createTarget(w http.ResponseWriter, r *http.Request) {
 // --- projects ---
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := s.store.ListProjects(r.Context())
+	projects, err := s.global().ListProjects(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1362,7 +1393,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	project, err := s.store.CreateProject(r.Context(), store.NewProject{
+	project, err := s.global().CreateProject(r.Context(), store.NewProject{
 		Name:           req.Name,
 		OrganizationID: req.OrganizationID,
 		GroupID:        req.GroupID,
@@ -1377,7 +1408,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
-	project, err := s.store.GetProject(r.Context(), r.PathValue("id"))
+	project, err := s.global().GetProject(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
@@ -1390,7 +1421,7 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
-	err := s.store.DeleteProject(r.Context(), r.PathValue("id"))
+	err := s.global().DeleteProject(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
@@ -1405,7 +1436,7 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 // --- search ---
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
-	results, err := s.store.Search(r.Context(), r.URL.Query().Get("q"), 25)
+	results, err := s.global().Search(r.Context(), r.URL.Query().Get("q"), 25)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1437,7 +1468,7 @@ func (s *Server) createProjectFromTemplate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	proj, err := s.store.CreateProject(r.Context(), store.NewProject{Name: req.Name})
+	proj, err := s.global().CreateProject(r.Context(), store.NewProject{Name: req.Name})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1445,7 +1476,7 @@ func (s *Server) createProjectFromTemplate(w http.ResponseWriter, r *http.Reques
 
 	resp := map[string]any{"project": proj, "template": tmpl}
 	if tmpl.DefaultApplication != "" {
-		app, err := s.store.CreateApplication(r.Context(), proj.ID, tmpl.DefaultApplication)
+		app, err := s.global().CreateApplication(r.Context(), proj.ID, tmpl.DefaultApplication)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1458,7 +1489,7 @@ func (s *Server) createProjectFromTemplate(w http.ResponseWriter, r *http.Reques
 // --- applications & assets ---
 
 func (s *Server) listApplications(w http.ResponseWriter, r *http.Request) {
-	apps, err := s.store.ListApplicationsByProject(r.Context(), r.PathValue("id"))
+	apps, err := s.global().ListApplicationsByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1477,7 +1508,7 @@ func (s *Server) createApplication(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	app, err := s.store.CreateApplication(r.Context(), r.PathValue("id"), req.Name)
+	app, err := s.global().CreateApplication(r.Context(), r.PathValue("id"), req.Name)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -1486,7 +1517,7 @@ func (s *Server) createApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getApplication(w http.ResponseWriter, r *http.Request) {
-	app, err := s.store.GetApplication(r.Context(), r.PathValue("id"))
+	app, err := s.global().GetApplication(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "application not found")
 		return
@@ -1499,7 +1530,7 @@ func (s *Server) getApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
-	assets, err := s.store.ListAssetsByApplication(r.Context(), r.PathValue("id"))
+	assets, err := s.global().ListAssetsByApplication(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1516,7 +1547,7 @@ func (s *Server) createAsset(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	asset, err := s.store.CreateAsset(r.Context(), store.NewAsset{
+	asset, err := s.global().CreateAsset(r.Context(), store.NewAsset{
 		ApplicationID: r.PathValue("id"),
 		Type:          req.Type,
 		Location:      req.Location,
@@ -1530,7 +1561,7 @@ func (s *Server) createAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
-	asset, err := s.store.GetAsset(r.Context(), r.PathValue("id"))
+	asset, err := s.global().GetAsset(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "asset not found")
 		return
@@ -1545,7 +1576,7 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 // --- context items ---
 
 func (s *Server) listContext(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListContextItemsByProject(r.Context(), r.PathValue("id"))
+	items, err := s.global().ListContextItemsByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1582,7 +1613,7 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 	if mediaType == "" {
 		mediaType = "application/octet-stream"
 	}
-	art, err := s.store.CreateArtifact(r.Context(), model.Artifact{
+	art, err := s.global().CreateArtifact(r.Context(), model.Artifact{
 		SHA256:    digest,
 		Size:      int64(len(data)),
 		Kind:      model.ArtifactInput,
@@ -1593,7 +1624,7 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	ci, err := s.store.CreateContextItem(r.Context(), model.ContextItem{
+	ci, err := s.global().CreateContextItem(r.Context(), model.ContextItem{
 		ProjectID:  r.PathValue("id"),
 		Type:       ctype,
 		Name:       name,
@@ -1613,7 +1644,7 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 // --- scope allowlist (P6) ---
 
 func (s *Server) listScope(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.store.ListScopeEntries(r.Context(), r.PathValue("id"))
+	entries, err := s.global().ListScopeEntries(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1629,7 +1660,7 @@ func (s *Server) addScope(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	entry, err := s.store.AddScopeEntry(r.Context(), r.PathValue("id"), req.Kind, req.Value)
+	entry, err := s.global().AddScopeEntry(r.Context(), r.PathValue("id"), req.Kind, req.Value)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -1642,7 +1673,7 @@ func (s *Server) addScope(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteScope(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := s.store.DeleteScopeEntry(r.Context(), id)
+	err := s.global().DeleteScopeEntry(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "scope entry not found")
 		return
@@ -1663,7 +1694,7 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	events, err := s.store.ListAudit(r.Context(), limit)
+	events, err := s.global().ListAudit(r.Context(), limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1673,7 +1704,7 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 
 // verifyAudit recomputes the audit hash chain and reports whether it is intact (tamper detection).
 func (s *Server) verifyAudit(w http.ResponseWriter, r *http.Request) {
-	ok, broken, count, err := s.store.VerifyAuditChain(r.Context())
+	ok, broken, count, err := s.global().VerifyAuditChain(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1700,7 +1731,7 @@ func (s *Server) listExchanges(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("limit"); v != "" {
 		f.Limit, _ = strconv.Atoi(v)
 	}
-	items, err := s.store.ListExchangesFiltered(r.Context(), r.PathValue("id"), f)
+	items, err := s.global().ListExchangesFiltered(r.Context(), r.PathValue("id"), f)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1717,7 +1748,7 @@ type exchangeView struct {
 // annotateScope marks each exchange in- or out-of-scope against the project's current allowlist
 // (empty allowlist ⇒ everything is in scope). Uses pkg/scope so the UI never re-implements matching.
 func (s *Server) annotateScope(ctx context.Context, projectID string, items []model.HTTPExchange) []exchangeView {
-	entries, _ := s.store.ListScopeEntries(ctx, projectID)
+	entries, _ := s.global().ListScopeEntries(ctx, projectID)
 	rules := make([]scope.Entry, 0, len(entries))
 	for _, e := range entries {
 		rules = append(rules, scope.Entry{Kind: e.Kind, Value: e.Value})
@@ -1744,7 +1775,7 @@ func (s *Server) createExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "url is required")
 		return
 	}
-	ex, err := s.store.CreateExchange(r.Context(), model.HTTPExchange{
+	ex, err := s.global().CreateExchange(r.Context(), model.HTTPExchange{
 		ProjectID:      r.PathValue("id"),
 		Name:           req.Name,
 		Method:         req.Method,
@@ -1760,7 +1791,7 @@ func (s *Server) createExchange(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getExchange(w http.ResponseWriter, r *http.Request) {
-	ex, err := s.store.GetExchange(r.Context(), r.PathValue("id"))
+	ex, err := s.global().GetExchange(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "exchange not found")
 		return
@@ -1782,7 +1813,7 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	ex, err := s.store.GetExchange(r.Context(), r.PathValue("id"))
+	ex, err := s.global().GetExchange(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "exchange not found")
 		return
@@ -1794,7 +1825,7 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 
 	// Scope guard: an out-of-scope target is refused before anything is sent. The draft row persists
 	// as the durable record of the blocked attempt.
-	entries, err := s.store.ListScopeEntries(r.Context(), ex.ProjectID)
+	entries, err := s.global().ListScopeEntries(r.Context(), ex.ProjectID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1818,14 +1849,14 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "send failed: "+err.Error())
 		return
 	}
-	if err := s.store.RecordResponse(r.Context(), ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, req.RunnerID); err != nil {
+	if err := s.global().RecordResponse(r.Context(), ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, req.RunnerID); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.record(r.Context(), actorOf(r), "replay.send", ex.ID, map[string]any{
 		"method": ex.Method, "url": ex.URL, "status": resp.Status, "egress": egressLabel(req.RunnerID),
 	})
-	updated, _ := s.store.GetExchange(r.Context(), ex.ID)
+	updated, _ := s.global().GetExchange(r.Context(), ex.ID)
 	s.events.Publish(events.Event{Type: "exchange", ProjectID: ex.ProjectID, Payload: updated})
 	writeJSON(w, http.StatusOK, updated)
 }
@@ -1838,7 +1869,7 @@ func (s *Server) egressSend(ctx context.Context, runnerID string, req replay.Req
 	if runnerID == "" {
 		return s.replay.Send(ctx, req)
 	}
-	rn, err := s.store.GetRunner(ctx, runnerID)
+	rn, err := s.global().GetRunner(ctx, runnerID)
 	if err != nil {
 		return replay.Response{}, fmt.Errorf("runner %s: %w", runnerID, err)
 	}
@@ -1875,7 +1906,7 @@ func egressLabel(runnerID string) string {
 // exchangeEvidence promotes a sent exchange's response into the CAS as an artifact and records a
 // human-origin observation (ADR-0005), so it enters the same triage → finding path as tool output.
 func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
-	ex, err := s.store.GetExchange(r.Context(), r.PathValue("id"))
+	ex, err := s.global().GetExchange(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "exchange not found")
 		return
@@ -1900,7 +1931,7 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	art, err := s.store.CreateArtifact(r.Context(), model.Artifact{
+	art, err := s.global().CreateArtifact(r.Context(), model.Artifact{
 		SHA256:    digest,
 		Size:      int64(len(blob)),
 		Kind:      model.ArtifactInput,
@@ -1915,7 +1946,7 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 	if ex.Status != nil {
 		title = title + " → " + http.StatusText(*ex.Status)
 	}
-	obs, err := s.store.CreateObservation(r.Context(), model.Observation{
+	obs, err := s.global().CreateObservation(r.Context(), model.Observation{
 		ArtifactID:  &art.ID,
 		Origin:      model.OriginHuman,
 		ReviewState: model.ReviewUnreviewed,
@@ -1929,7 +1960,7 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.ItemID != "" {
-		if err := s.store.LinkCoverageObservation(r.Context(), ex.ProjectID, req.ItemID, obs.ID); err != nil {
+		if err := s.global().LinkCoverageObservation(r.Context(), ex.ProjectID, req.ItemID, obs.ID); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -1997,7 +2028,7 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := s.store.ListTasks(r.Context(), 50)
+	tasks, err := s.global().ListTasks(r.Context(), 50)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2006,7 +2037,7 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
-	t, err := s.store.GetTask(r.Context(), r.PathValue("id"))
+	t, err := s.global().GetTask(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
@@ -2036,7 +2067,7 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getTaskArtifacts(w http.ResponseWriter, r *http.Request) {
-	arts, err := s.store.ListArtifactsByTask(r.Context(), r.PathValue("id"))
+	arts, err := s.global().ListArtifactsByTask(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2045,7 +2076,7 @@ func (s *Server) getTaskArtifacts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
-	art, err := s.store.GetArtifact(r.Context(), r.PathValue("id"))
+	art, err := s.global().GetArtifact(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "artifact not found")
 		return
@@ -2093,7 +2124,7 @@ func (s *Server) runPlaybook(w http.ResponseWriter, r *http.Request) {
 	playbookID := r.PathValue("id")
 	// Enqueue the playbook and return immediately (ADR-0022); steps run in the background on the task
 	// engine and the client polls GET /v1/playbook-runs/{id}. A bad playbook fails fast with no run.
-	run, err := playbook.NewRunner(s.engine, s.store).Start(r.Context(), playbookID, req.AssetID, actor)
+	run, err := playbook.NewRunner(s.engine, s.global()).Start(r.Context(), playbookID, req.AssetID, actor)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -2105,7 +2136,7 @@ func (s *Server) runPlaybook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listPlaybookRuns(w http.ResponseWriter, r *http.Request) {
-	runs, err := s.store.ListPlaybookRuns(r.Context(), 50)
+	runs, err := s.global().ListPlaybookRuns(r.Context(), 50)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2114,7 +2145,7 @@ func (s *Server) listPlaybookRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getPlaybookRun(w http.ResponseWriter, r *http.Request) {
-	pr, err := s.store.GetPlaybookRun(r.Context(), r.PathValue("id"))
+	pr, err := s.global().GetPlaybookRun(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "playbook run not found")
 		return
@@ -2129,7 +2160,7 @@ func (s *Server) getPlaybookRun(w http.ResponseWriter, r *http.Request) {
 // --- observations & findings ---
 
 func (s *Server) getTaskObservations(w http.ResponseWriter, r *http.Request) {
-	obs, err := s.store.ListObservationsByTask(r.Context(), r.PathValue("id"))
+	obs, err := s.global().ListObservationsByTask(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2144,7 +2175,7 @@ func (s *Server) reviewObservation(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	err := s.store.ReviewObservation(r.Context(), r.PathValue("id"), req.State)
+	err := s.global().ReviewObservation(r.Context(), r.PathValue("id"), req.State)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "observation not found")
 		return
@@ -2157,7 +2188,7 @@ func (s *Server) reviewObservation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
-	findings, err := s.store.ListFindings(r.Context())
+	findings, err := s.global().ListFindings(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2181,7 +2212,7 @@ func (s *Server) createFinding(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "title is required")
 		return
 	}
-	f, err := s.store.CreateFinding(r.Context(), store.NewFinding{
+	f, err := s.global().CreateFinding(r.Context(), store.NewFinding{
 		ApplicationID:  req.ApplicationID,
 		Title:          req.Title,
 		Severity:       req.Severity,
@@ -2198,7 +2229,7 @@ func (s *Server) createFinding(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
-	f, err := s.store.GetFinding(r.Context(), r.PathValue("id"))
+	f, err := s.global().GetFinding(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "finding not found")
 		return
@@ -2229,7 +2260,7 @@ func (s *Server) record(ctx context.Context, actor, action, target string, data 
 	if data != nil {
 		raw, _ = json.Marshal(data)
 	}
-	if _, err := s.store.AppendAudit(ctx, actor, action, target, raw); err != nil {
+	if _, err := s.global().AppendAudit(ctx, actor, action, target, raw); err != nil {
 		log.Printf("audit append failed (%s %s): %v", action, target, err)
 	}
 }

@@ -34,7 +34,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListSessionsByProject(r.Context(), r.PathValue("id"))
+	items, err := s.global().ListSessionsByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -43,7 +43,7 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
-	sess, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	sess, err := s.global().GetSession(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "session not found")
 		return
@@ -62,7 +62,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := r.PathValue("id")
-	if _, err := s.store.GetProject(r.Context(), projectID); err != nil {
+	if _, err := s.global().GetProject(r.Context(), projectID); err != nil {
 		writeErr(w, http.StatusBadRequest, "unknown project")
 		return
 	}
@@ -78,7 +78,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "open session: "+err.Error())
 		return
 	}
-	sess, err := s.store.CreateSession(r.Context(), model.Session{
+	sess, err := s.global().CreateSession(r.Context(), model.Session{
 		ID:        id,
 		ProjectID: projectID,
 		Container: container,
@@ -178,7 +178,7 @@ bridge:
 func (s *Server) closeSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	s.finalizeSession(id)
-	sess, err := s.store.GetSession(r.Context(), id)
+	sess, err := s.global().GetSession(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "session not found")
 		return
@@ -207,7 +207,7 @@ func (s *Server) finalizeSession(id string) {
 
 		var artifactID *string
 		if digest, err := s.cas.Put(bytes.NewReader(transcript)); err == nil {
-			if art, aerr := s.store.CreateArtifact(ctx, model.Artifact{
+			if art, aerr := s.global().CreateArtifact(ctx, model.Artifact{
 				SHA256:    digest,
 				Size:      int64(len(transcript)),
 				Kind:      model.ArtifactInput,
@@ -217,7 +217,7 @@ func (s *Server) finalizeSession(id string) {
 				artifactID = &art.ID
 			}
 		}
-		_ = s.store.CloseSession(ctx, id, model.SessionClosed, artifactID, "")
+		_ = s.global().CloseSession(ctx, id, model.SessionClosed, artifactID, "")
 		s.record(ctx, "human", "session.close", id, map[string]any{
 			"transcript_artifact": artifactID, "transcript_bytes": len(transcript),
 		})
@@ -226,7 +226,7 @@ func (s *Server) finalizeSession(id string) {
 
 // sessionEvidence promotes a closed session's transcript into a human-origin observation.
 func (s *Server) sessionEvidence(w http.ResponseWriter, r *http.Request) {
-	sess, err := s.store.GetSession(r.Context(), r.PathValue("id"))
+	sess, err := s.global().GetSession(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "session not found")
 		return
@@ -244,7 +244,7 @@ func (s *Server) sessionEvidence(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = decodeJSONOptional(r, &req)
 
-	obs, err := s.store.CreateObservation(r.Context(), model.Observation{
+	obs, err := s.global().CreateObservation(r.Context(), model.Observation{
 		ArtifactID:  sess.TranscriptArtifactID,
 		Origin:      model.OriginHuman,
 		ReviewState: model.ReviewUnreviewed,
