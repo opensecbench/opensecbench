@@ -225,3 +225,15 @@ lives in [TODO.md](TODO.md). See the approved plan for the full P0–P12 roadmap
       CodeView lazy-loaded so hljs + grammars are an on-demand chunk, not in the initial bundle
 - [ ] Deep-link scroll-to-row for other surfaces (observations→Investigations keys on observation_id)
 - [ ] Persisted multi-step dataflow trace for a step-through taint viewer (needs interpreter change, ADR-0032)
+
+## Engagement record & setup modal (ADR-0051)
+
+- [x] Phase 1 — record + modal + scope-deny enforcement:
+  - [x] model.Engagement (+contacts, test accounts); migrations both tracks (0047 / project 0002)
+  - [x] out-of-scope first-class: scope_entries.disposition + scope.Check deny precedence
+  - [x] store Get/SetEngagement (atomic); createProject accepts engagement+scope; GET/PUT engagement
+  - [x] full setup modal (essentials · scope/auth · kickstart · advanced) replacing name+template create
+- [ ] Phase 2 — egress by data class: restricted engagement behaves as `strict` egress regardless of global
+- [ ] Phase 3 — technique → capability gating: manifest `technique` tag + enqueue/Scan-UI gate
+- [ ] Edit-after-create: a Project Settings surface bound to GET/PUT /engagement (modal is create-only today)
+- [ ] Authorization soft-gate (banner + pre-run warning when unauthorized/expired)
