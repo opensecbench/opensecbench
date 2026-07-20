@@ -29,6 +29,27 @@ func (db *DB) CreateSavedPlaybook(ctx context.Context, p model.SavedPlaybook) (m
 	return p, nil
 }
 
+// UpdateSavedPlaybook replaces a saved playbook's editable fields in place, keeping its id (so schedules and
+// other references stay valid) and created_at. Returns ErrNotFound if no such saved playbook exists.
+func (db *DB) UpdateSavedPlaybook(ctx context.Context, p model.SavedPlaybook) (model.SavedPlaybook, error) {
+	if p.ID == "" {
+		return model.SavedPlaybook{}, errors.New("store: update needs a playbook id")
+	}
+	if p.Name == "" || len(p.Steps) == 0 {
+		return model.SavedPlaybook{}, errors.New("store: saved playbook needs a name and steps")
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE saved_playbooks SET name = ?, description = ?, goal = ?, steps = ? WHERE id = ?`,
+		p.Name, p.Description, p.Goal, string(p.Steps), p.ID)
+	if err != nil {
+		return model.SavedPlaybook{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return model.SavedPlaybook{}, ErrNotFound
+	}
+	return db.GetSavedPlaybook(ctx, p.ID)
+}
+
 // GetSavedPlaybook returns one saved playbook by id.
 func (db *DB) GetSavedPlaybook(ctx context.Context, id string) (model.SavedPlaybook, error) {
 	var p model.SavedPlaybook

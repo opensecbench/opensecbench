@@ -79,6 +79,27 @@ func (svc *Service) SavePlaybook(ctx context.Context, name, description, goal st
 	})
 }
 
+// UpdatePlaybook edits a user-saved playbook in place, keeping its id so schedules and other references stay
+// valid (ADR-0019 "composable & editable"). Built-in playbooks are immutable — editing one is rejected.
+func (svc *Service) UpdatePlaybook(ctx context.Context, id, name, description, goal string, steps []PlaybookStep) (model.SavedPlaybook, error) {
+	if name == "" {
+		return model.SavedPlaybook{}, errors.New("a playbook needs a name")
+	}
+	if _, ok := PlaybookByID(id); ok {
+		return model.SavedPlaybook{}, errors.New("built-in playbooks can't be edited; save a copy instead")
+	}
+	if err := svc.validatePlaybookSteps(ctx, steps); err != nil {
+		return model.SavedPlaybook{}, err
+	}
+	b, err := json.Marshal(steps)
+	if err != nil {
+		return model.SavedPlaybook{}, err
+	}
+	return svc.g().UpdateSavedPlaybook(ctx, model.SavedPlaybook{
+		ID: id, Name: name, Description: description, Goal: goal, Steps: b,
+	})
+}
+
 // SavePlaybookFromPlan records a plan's structure (its steps) as a reusable playbook — the record-as-you-go
 // path. The run's results/status are dropped; the reusable structure is what's kept.
 func (svc *Service) SavePlaybookFromPlan(ctx context.Context, projectID, planID, name, description string) (model.SavedPlaybook, error) {
