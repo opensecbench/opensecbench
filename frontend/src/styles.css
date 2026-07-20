@@ -1151,6 +1151,7 @@ select option {
   font-size: 10px;
 }
 .wb-omni {
+  position: relative;
   flex: 1;
   max-width: 560px;
   margin: 0 auto;
@@ -1164,6 +1165,27 @@ select option {
   color: var(--tx3);
   cursor: text;
 }
+.wb-omni:focus-within {
+  border-color: var(--accent, var(--line));
+}
+.wb-omni > span {
+  color: var(--tx3);
+}
+.wb-omni input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  color: var(--tx);
+  font-size: 13px;
+  outline: none;
+}
+.wb-omni input::placeholder {
+  color: var(--tx3);
+}
+.wb-omni input:disabled {
+  cursor: not-allowed;
+}
 .wb-omni kbd {
   margin-left: auto;
   font-family: var(--mono);
@@ -1173,6 +1195,55 @@ select option {
   border-radius: 4px;
   padding: 1px 5px;
   color: var(--tx2);
+}
+.wb-omni-drop {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: var(--bg2);
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.wb-omni-drop ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+.wb-omni-drop li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--tx);
+  font-size: 13px;
+}
+.wb-omni-drop li.on {
+  background: var(--bg4);
+}
+.wb-omni-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-omni-drop li .muted {
+  margin-left: auto;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.wb-omni-empty {
+  padding: 12px;
+  color: var(--tx3);
+  font-size: 12px;
+  text-align: center;
 }
 
 /* body */
@@ -1442,6 +1513,19 @@ select option {
 }
 .wb-doctab .x:hover {
   background: var(--bg4);
+  color: var(--tx);
+}
+.wb-doctab-new {
+  border: 0;
+  background: transparent;
+  color: var(--tx3);
+  cursor: pointer;
+  padding: 0 12px;
+  font-size: 15px;
+  line-height: 1;
+}
+.wb-doctab-new:hover {
+  background: var(--bg3);
   color: var(--tx);
 }
 

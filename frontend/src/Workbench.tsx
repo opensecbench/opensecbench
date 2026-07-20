@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ChangeEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   api,
   Application,
@@ -18,6 +18,7 @@ import {
   Project,
   RunnerView,
   ScopeEntry,
+  SearchResult,
   Task,
   TaskOutcome,
 } from './api'
@@ -88,6 +89,11 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
   { key: 'integrations', icon: '🔌', label: 'Integr', meta: true },
   { key: 'audit', icon: '📜', label: 'Audit', meta: true },
 ]
+
+// Surfaces that can hold more than one open document at a time — only these get a
+// document-tab row. Every other surface is a singleton reached solely via the
+// activity bar, so it needs no tabs (ADR-0015: one way to switch, not two or three).
+const MULTI_DOC_SURFACES: Tab[] = ['replay']
 
 function surfaceTitle(t: Tab): string {
   if (t === 'assets') return 'Applications & Assets'
@@ -246,6 +252,136 @@ function replayLabel(ex: HTTPExchange): string {
   }
 }
 
+// Which surface a search hit lives on, so selecting it navigates there. Kinds
+// come from the backend omni-search (store.Search); anything unmapped falls back
+// to Assets so a click is never a dead end.
+const HIT_SURFACE: Record<string, Tab> = {
+  application: 'assets',
+  asset: 'assets',
+  finding: 'findings',
+  observation: 'investigations',
+  context: 'context',
+  kb: 'knowledge',
+}
+
+// The titlebar omni-search: a real input over the already-shipped /v1/search
+// (project-scoped). Results drop down live as you type; selecting one navigates
+// to the surface that owns it. ⌘K / Ctrl+K focuses it from anywhere.
+function OmniSearch({ online, onNavigate }: { online: boolean; onNavigate: (surface: Tab) => void }) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SearchResult[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  // Debounce so we hit the endpoint once the user pauses, not on every keystroke.
+  useEffect(() => {
+    const q = query.trim()
+    if (!q) {
+      setResults(null)
+      setBusy(false)
+      return
+    }
+    if (!online) return
+    setBusy(true)
+    const timer = setTimeout(async () => {
+      try {
+        const hits = (await api.search(q)) ?? []
+        setResults(hits)
+        setActive(0)
+      } catch {
+        setResults([])
+      } finally {
+        setBusy(false)
+      }
+    }, 220)
+    return () => clearTimeout(timer)
+  }, [query, online])
+
+  // ⌘K / Ctrl+K focuses the search from anywhere in the Workbench.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        inputRef.current?.focus()
+        setOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Close the dropdown when focus leaves the whole widget.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    return () => window.removeEventListener('mousedown', onDown)
+  }, [])
+
+  function choose(r: SearchResult) {
+    onNavigate(HIT_SURFACE[r.kind] ?? 'assets')
+    setOpen(false)
+    setQuery('')
+    setResults(null)
+    inputRef.current?.blur()
+  }
+
+  function onInputKey(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (!results || results.length === 0) {
+      if (e.key === 'Escape') { setQuery(''); inputRef.current?.blur() }
+      return
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => (i + 1) % results.length) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => (i - 1 + results.length) % results.length) }
+    else if (e.key === 'Enter') { e.preventDefault(); choose(results[active]) }
+    else if (e.key === 'Escape') { setOpen(false); setQuery('') }
+  }
+
+  const showDrop = open && query.trim().length > 0
+  return (
+    <div className="wb-omni" ref={boxRef}>
+      <span>⌕</span>
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onInputKey}
+        placeholder={online ? 'Search findings · assets · context · knowledge…' : 'Search unavailable — offline'}
+        disabled={!online}
+        spellCheck={false}
+      />
+      <kbd>⌘K</kbd>
+      {showDrop && (
+        <div className="wb-omni-drop">
+          {busy && results === null && <div className="wb-omni-empty">Searching…</div>}
+          {results !== null && results.length === 0 && !busy && <div className="wb-omni-empty">No matches.</div>}
+          {results !== null && results.length > 0 && (
+            <ul>
+              {results.map((r, i) => (
+                <li
+                  key={r.kind + r.id}
+                  className={i === active ? 'on' : ''}
+                  onMouseEnter={() => setActive(i)}
+                  onMouseDown={(e) => { e.preventDefault(); choose(r) }}
+                >
+                  <span className={`kind kind-${r.kind}`}>{r.kind}</span>
+                  <span className="wb-omni-title">{r.title}</span>
+                  {r.detail && <span className="muted">{r.detail}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Workbench({ project, conn, initial, onHome }: { project: Project; conn: Conn; initial?: { surface?: string; thread?: string }; onHome: () => void }) {
   const online = conn === 'online'
   // Open documents are kept mounted so their state survives navigation (ADR-0015
@@ -335,6 +471,19 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   function openSurface(surface: Tab) {
     focusOrAdd({ key: surface, surface, title: surfaceTitle(surface) })
   }
+  // The activity bar is the single navigator: activating a surface focuses its open
+  // document, or opens one if none exists. Multi-document surfaces (Replay) focus
+  // their most recent document rather than spawning a blank one — a blank one is
+  // reached with the “+” in that surface's tab row.
+  function activateSurface(surface: Tab) {
+    const existing = openDocs.filter((d) => d.surface === surface)
+    if (existing.length === 0) {
+      openSurface(surface)
+      return
+    }
+    const current = existing.find((d) => d.key === activeKey) ?? existing[existing.length - 1]
+    setActiveKey(current.key)
+  }
   // Open (or focus) a Replay bound to a methodology test item — the C payoff: evidence saved
   // here auto-attaches to that item.
   function openBoundReplay(itemId: string, itemTitle: string) {
@@ -402,6 +551,11 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   }
 
   const activeSurface = openDocs.find((d) => d.key === activeKey)?.surface ?? null
+  // Tabs only for surfaces that can hold several documents (Replay); everything
+  // else is navigated from the activity bar alone. The row shows just the active
+  // surface's documents, never a mix across surfaces.
+  const showDocTabs = activeSurface !== null && MULTI_DOC_SURFACES.includes(activeSurface)
+  const surfaceDocs = showDocTabs ? openDocs.filter((d) => d.surface === activeSurface) : []
 
   return (
     <div className="wb">
@@ -409,10 +563,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         <button className={`wb-proj ${online ? 'online' : ''}`} onClick={onHome} title="Back to Home">
           <span className="dot" /> {project.name} <span className="car">▾</span>
         </button>
-        <div className="wb-omni" title="Omni-search — coming soon">
-          <span>⌕</span> Search code · traffic · findings · knowledge…
-          <kbd>⌘K</kbd>
-        </div>
+        <OmniSearch online={online} onNavigate={activateSurface} />
         <NotificationBell online={online} />
         <code className="apiurl">{api.baseURL}</code>
       </div>
@@ -420,7 +571,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       <div className="wb-body">
         <nav className="wb-activity">
           {SURFACES.filter((s) => !s.meta).map((s) => (
-            <button key={s.key} className={`wb-ic ${activeSurface === s.key ? 'on' : ''} ${openDocs.some((d) => d.surface === s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => openSurface(s.key)}>
+            <button key={s.key} className={`wb-ic ${activeSurface === s.key ? 'on' : ''} ${openDocs.some((d) => d.surface === s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => activateSurface(s.key)}>
               <span>{s.icon}</span>
               {s.key === 'findings' && findings.length > 0 && <span className="n red">{findings.length}</span>}
               {s.key === 'context' && context.length > 0 && <span className="n">{context.length}</span>}
@@ -430,7 +581,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
           <div className="wb-actsp" />
           <div className="wb-actdiv" />
           {SURFACES.filter((s) => s.meta).map((s) => (
-            <button key={s.key} className={`wb-ic ${activeSurface === s.key ? 'on' : ''} ${openDocs.some((d) => d.surface === s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => openSurface(s.key)}>
+            <button key={s.key} className={`wb-ic ${activeSurface === s.key ? 'on' : ''} ${openDocs.some((d) => d.surface === s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => activateSurface(s.key)}>
               <span>{s.icon}</span>
               <small>{s.label}</small>
             </button>
@@ -438,19 +589,22 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         </nav>
 
         <SurfaceBoundary>
-          <WorkbenchExplorer tab={activeSurface} project={project} apps={apps} findings={findings} coverage={coverage} onJump={openSurface} />
+          <WorkbenchExplorer tab={activeSurface} project={project} apps={apps} findings={findings} coverage={coverage} onJump={activateSurface} />
         </SurfaceBoundary>
 
         <div className="wb-center">
-          <div className="wb-doctabs">
-            {openDocs.map((d) => (
-              <div key={d.key} className={`wb-doctab ${activeKey === d.key ? 'on' : ''}`} onClick={() => setActiveKey(d.key)} title={d.title}>
-                <span className="em">{SURFACES.find((s) => s.key === d.surface)?.icon}</span>
-                <span className="lbl">{d.title}</span>
-                <span className="x" title="Close" onClick={(e) => closeDoc(d.key, e)}>✕</span>
-              </div>
-            ))}
-          </div>
+          {showDocTabs && (
+            <div className="wb-doctabs">
+              {surfaceDocs.map((d) => (
+                <div key={d.key} className={`wb-doctab ${activeKey === d.key ? 'on' : ''}`} onClick={() => setActiveKey(d.key)} title={d.title}>
+                  <span className="em">{SURFACES.find((s) => s.key === d.surface)?.icon}</span>
+                  <span className="lbl">{d.title}</span>
+                  <span className="x" title="Close" onClick={(e) => closeDoc(d.key, e)}>✕</span>
+                </div>
+              ))}
+              <button className="wb-doctab-new" title="New Replay" onClick={() => openSurface('replay')}>＋</button>
+            </div>
+          )}
           {error && <div className="banner error wb-banner">⚠ {error}</div>}
           <div className="wb-docarea">
             {openDocs.length === 0 && (
