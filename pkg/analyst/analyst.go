@@ -18,6 +18,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/rag"
 	"github.com/opensecbench/opensecbench/pkg/replay"
+	"github.com/opensecbench/opensecbench/pkg/report"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/store"
@@ -89,7 +90,7 @@ func Tools() []agent.Tool {
 		{Name: "verify_kb_entry", Description: "Mark a known fact as still true (bump its freshness) so the dossier stops flagging it stale. Use when you re-observe something already in the knowledge base (from get_dossier/list_kb) instead of drafting a duplicate. Does not confirm drafts — humans do that.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "kb entry id (from get_dossier or list_kb)"},
 		}},
-		{Name: "generate_report", Description: "Compile the project's confirmed findings into a durable report deliverable (stored, downloadable). Built from evidence-backed findings only — you can't add content, so confirm findings first. Returns the report id + finding count.", Params: []agent.Param{
+		{Name: "generate_report", Description: "Compile the project's confirmed findings into a durable report deliverable (stored, downloadable). Built from evidence-backed findings only — you can't add findings, so confirm them first, but the report is auto-narrated: an executive summary + per-finding impact/remediation are written for you, grounded in those findings. Returns the report id + finding count.", Params: []agent.Param{
 			{Name: "template", Type: agent.TypeEnum, Description: "report template (default technical)", Enum: []string{"technical", "executive", "compliance", "retest"}},
 			{Name: "format", Type: agent.TypeEnum, Description: "md (default) | html", Enum: []string{"md", "html"}},
 		}},
@@ -222,6 +223,10 @@ type ExecDeps struct {
 	// EgressSender, if set, issues a send from a chosen enrolled runner's vantage (runnerID != "") or the
 	// local host (ADR-0025). When nil, sends always go out locally via Replay.
 	EgressSender func(ctx context.Context, runnerID string, req replay.Request) (replay.Response, error)
+
+	// Narrator, if set, lets generate_report author an executive summary + per-finding impact/remediation
+	// (ADR-0045). Nil in contexts without an LLM provider — the tool then produces a data-only report.
+	Narrator report.Narrator
 }
 
 // g is the instance-wide database (targets, KB, settings); p is the current thread's project database

@@ -3,10 +3,13 @@ package analyst
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/cas"
+	"github.com/opensecbench/opensecbench/pkg/report"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
@@ -61,5 +64,47 @@ func TestGenerateReportRejectsUnknownTemplate(t *testing.T) {
 
 	if _, err := exec(ctx, agent.ToolCall{Tool: "generate_report", Args: map[string]any{"template": "nope"}}); err == nil {
 		t.Fatal("expected an error for an unknown template")
+	}
+}
+
+// A stubNarrator lets the tool test assert narration is wired without an LLM.
+type stubNarrator struct{}
+
+func (stubNarrator) Narrate(ctx context.Context, d report.Data) (report.Narrative, error) {
+	return report.Narrative{ExecutiveSummary: "STUB SUMMARY LINE"}, nil
+}
+
+// When a Narrator is wired into ExecDeps, generate_report authors narrative and bakes it into the artifact
+// (ADR-0045 agent-tool path).
+func TestGenerateReportNarrates(t *testing.T) {
+	ctx := context.Background()
+	db := migratedStore(t)
+	blobs, _ := cas.Open(t.TempDir())
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "Acme"})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Blobs: blobs, ProjectID: proj.ID, Narrator: stubNarrator{}})
+
+	out, err := exec(ctx, agent.ToolCall{Tool: "generate_report", Args: map[string]any{"template": "executive", "format": "md"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res struct {
+		ArtifactID string `json:"artifact_id"`
+		Narrated   bool   `json:"narrated"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatal(err)
+	}
+	if !res.Narrated {
+		t.Fatalf("expected narrated=true: %s", out)
+	}
+	art, _ := db.GetArtifact(ctx, res.ArtifactID)
+	rc, err := blobs.Open(art.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := io.ReadAll(rc)
+	_ = rc.Close()
+	if !strings.Contains(string(data), "STUB SUMMARY LINE") {
+		t.Fatalf("narrative not baked into report:\n%s", data)
 	}
 }

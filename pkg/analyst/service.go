@@ -233,7 +233,7 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 // under a strict policy with an external LLM provider, running a capability on a private asset is
 // blocked, because its output would be summarized by the external model.
 func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context.Context, agent.ToolCall) (string, error) {
-	exec := Executor(ExecDeps{Mgr: svc.mgr, Engine: svc.engine, Replay: svc.replay, Blobs: svc.casFor(projectID), Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer})
+	exec := Executor(ExecDeps{Mgr: svc.mgr, Engine: svc.engine, Replay: svc.replay, Blobs: svc.casFor(projectID), Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer, Narrator: svc})
 	// The egress guard keys on the provider that will actually receive the tool output (which, with tag
 	// routing, may differ per task); a local model is never an egress risk.
 	external := prov != nil && !llm.IsLocal(prov)

@@ -43,6 +43,13 @@ func generateReport(ctx context.Context, deps ExecDeps, call agent.ToolCall) (st
 	if err != nil {
 		return "", errors.New("generate_report: build: " + err.Error())
 	}
+	// Author narrative when a Narrator is wired (ADR-0045) — an executive summary + per-finding impact/
+	// remediation grounded in these findings. Best-effort: a failure yields the data-only report.
+	if deps.Narrator != nil {
+		if n, nerr := deps.Narrator.Narrate(ctx, data); nerr == nil {
+			data.ApplyNarrative(n)
+		}
+	}
 	rendered, err := tmpl.Render(data, format)
 	if err != nil {
 		return "", errors.New("generate_report: render: " + err.Error())
@@ -83,5 +90,6 @@ func generateReport(ctx context.Context, deps ExecDeps, call agent.ToolCall) (st
 		"title":       tmpl.Title,
 		"format":      string(format),
 		"findings":    data.Summary.Total,
+		"narrated":    data.Narrated,
 	}, nil)
 }
