@@ -29,6 +29,7 @@ type Exchange struct {
 	ResponseHeaders string
 	ResponseBody    string
 	DurationMS      int
+	TLS             string // JSON summary of the upstream cert for an HTTPS exchange; "" otherwise (review #6)
 }
 
 // Proxy is an intercepting HTTP(S) proxy. Traffic routed through it is forwarded and captured via
@@ -139,12 +140,12 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			var dropped bool
 			if status, respHeader, outBody, dropped = p.holdResponse(ctx, method, url, status, respHeader, outBody); dropped {
 				http.Error(w, "response dropped by operator", http.StatusForbidden)
-				p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start)
+				p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start, "")
 				return
 			}
 		}
 		writeBufferedResponse(w, status, respHeader, outBody)
-		p.capture(method, url, header, body, status, respHeader, outBody, start)
+		p.capture(method, url, header, body, status, respHeader, outBody, start, "")
 		return
 	}
 
@@ -153,7 +154,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 	cw := &capWriter{max: MaxCaptureBytes}
 	_, _ = io.Copy(w, io.TeeReader(resp.Body, cw))
-	p.capture(method, url, header, body, resp.StatusCode, resp.Header, cw.buf, start)
+	p.capture(method, url, header, body, resp.StatusCode, resp.Header, cw.buf, start, "")
 }
 
 // writeBufferedResponse writes an edited, fully-buffered response, fixing framing headers.
@@ -246,6 +247,9 @@ func (p *Proxy) forwardTLS(ctx context.Context, clientConn net.Conn, req *http.R
 		_, _ = fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
 		return false
 	}
+	// Capture the upstream server cert + its validity so an invalid origin cert is surfaced, not silently
+	// accepted (review #6). resp.TLS carries the presented chain even though verification is skipped.
+	tlsSummary := summarizeTLS(resp.TLS, host)
 
 	if respOn || p.process.NeedsResponseBody() {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -255,7 +259,7 @@ func (p *Proxy) forwardTLS(ctx context.Context, clientConn net.Conn, req *http.R
 			var dropped bool
 			if status, respHeader, outBody, dropped = p.holdResponse(ctx, method, url, status, respHeader, outBody); dropped {
 				_, _ = fmt.Fprintf(clientConn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
-				p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start)
+				p.capture(method, url, header, body, resp.StatusCode, resp.Header, respBody, start, tlsSummary)
 				return keepOpen
 			}
 		}
@@ -267,7 +271,7 @@ func (p *Proxy) forwardTLS(ctx context.Context, clientConn net.Conn, req *http.R
 			ContentLength: int64(len(outBody)), Request: outReq,
 		}
 		writeErr := outResp.Write(clientConn)
-		p.capture(method, url, header, body, status, respHeader, outBody, start)
+		p.capture(method, url, header, body, status, respHeader, outBody, start, tlsSummary)
 		return writeErr == nil && keepOpen
 	}
 
@@ -275,7 +279,7 @@ func (p *Proxy) forwardTLS(ctx context.Context, clientConn net.Conn, req *http.R
 	resp.Body = readCloser{io.TeeReader(resp.Body, cw), resp.Body}
 	writeErr := resp.Write(clientConn)
 	_ = resp.Body.Close()
-	p.capture(method, url, header, body, resp.StatusCode, resp.Header, cw.buf, start)
+	p.capture(method, url, header, body, resp.StatusCode, resp.Header, cw.buf, start, tlsSummary)
 	return writeErr == nil && keepOpen
 }
 

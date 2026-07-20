@@ -155,6 +155,7 @@ func (s *Server) proxyCapture(projectID, runnerID string) func(proxy.Exchange) {
 			URL:            e.URL,
 			RequestHeaders: e.RequestHeaders,
 			RequestBody:    e.RequestBody,
+			TLS:            e.TLS,
 		})
 		if err != nil {
 			log.Printf("proxy capture: %v", err)

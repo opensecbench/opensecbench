@@ -85,12 +85,13 @@ func (p *Proxy) holdResponse(ctx context.Context, method, url string, status int
 
 // capture records the exchange actually delivered (post-edit request + delivered response), so
 // history and provenance reflect what really went over the wire.
-func (p *Proxy) capture(method, url string, reqHeader http.Header, reqBody []byte, status int, respHeader http.Header, respBody []byte, start time.Time) {
+func (p *Proxy) capture(method, url string, reqHeader http.Header, reqBody []byte, status int, respHeader http.Header, respBody []byte, start time.Time, tlsSummary string) {
 	p.onExchange(Exchange{
 		Method: method, URL: url,
 		RequestHeaders: formatHeaders(reqHeader), RequestBody: capString(reqBody),
 		Status: status, ResponseHeaders: formatHeaders(respHeader), ResponseBody: capString(respBody),
 		DurationMS: int(time.Since(start).Milliseconds()),
+		TLS:        tlsSummary,
 	})
 }
 

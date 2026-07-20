@@ -272,11 +272,4 @@ and can later ship as plugins.
       invisible (wrong resume / schedule re-fire). Surface/handle these.
 - [x] **Interactive sessions: configurable image + toolchain Dockerfile** (scoped network still under SSH item) — `session/docker.go:16` hardcoded image, no assessment toolchain /
       cloud CLIs baked; `:42` no scoped network.
-- [ ] **Proxy TLS cert capture** — `proxy/proxy.go:69` captures no upstream cert chain/validity, so invalid/
-      expired certs can't be flagged on an exchange.
-- [x] **API 400-vs-500 mapping** — user-input errors (e.g. createProject unknown target, `api.go:1577`)
-      return 500 instead of 400.
-- [x] **Cleanup: orphaned template-create flow (frontend)** — the engagement modal replaced it (+ archetype picker
-      removed), leaving `listTemplates`/`createProjectFromTemplate`/`createProject` and the `/v1/templates`
-      + from-template endpoints unused. Wire templates back into the modal or retire the endpoints. Also dead
-      client methods: `getProject`, `getSession`, `getFinding`, `pickFile`.
+- [x] **Proxy TLS cert capture** — upstream cert summary (subject/issuer/validity + expired/self-signed/untrusted/hostname flags) captured onto proxied HTTPS exchanges; badge in Proxy tab

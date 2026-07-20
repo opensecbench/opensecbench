@@ -422,8 +422,12 @@ type HTTPExchange struct {
 	ResponseBody    string     `json:"response_body"`
 	DurationMS      *int       `json:"duration_ms,omitempty"`
 	Egress          string     `json:"egress,omitempty"` // "" = control-plane host; else the runner id (ADR-0025)
-	CreatedAt       time.Time  `json:"created_at"`
-	SentAt          *time.Time `json:"sent_at,omitempty"`
+	// TLS is a JSON summary of the upstream server certificate captured for a proxied HTTPS exchange
+	// (subject/issuer/validity + flags: expired, hostname mismatch, self-signed, untrusted). Empty for
+	// plain HTTP or when no cert was presented.
+	TLS       string     `json:"tls,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	SentAt    *time.Time `json:"sent_at,omitempty"`
 }
 
 // Playbook run statuses.

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, HTTPExchange, ProxyRule, ProxyStatus, Project, RunnerView } from './api'
+import { api, CertSummary, HTTPExchange, ProxyRule, ProxyStatus, Project, RunnerView } from './api'
 import { actionsFor, type ActionContext } from './exchangeActions'
 import { hasNativeBrowserLaunch, openProxyBrowser } from './native'
 
@@ -11,6 +11,25 @@ const RULE_TARGETS: { value: string; label: string }[] = [
   { value: 'response_header', label: 'Response header' },
   { value: 'response_body', label: 'Response body' },
 ]
+
+// tlsBadge summarizes a captured upstream cert (review #6): a green lock when valid, a red warning listing
+// the problems (expired / self-signed / untrusted CA / hostname mismatch) otherwise. Null for plain HTTP.
+function tlsBadge(tls?: string): { icon: string; cls: string; title: string } | null {
+  if (!tls) return null
+  let c: CertSummary
+  try {
+    c = JSON.parse(tls)
+  } catch {
+    return null
+  }
+  if (c.valid) return { icon: '🔒', cls: 'tls-ok', title: `TLS OK — ${c.subject} (issuer ${c.issuer}) · expires ${c.not_after}` }
+  const issues: string[] = []
+  if (c.expired) issues.push('expired')
+  if (c.self_signed) issues.push('self-signed')
+  else if (c.untrusted) issues.push('untrusted CA')
+  if (c.hostname_mismatch) issues.push('hostname mismatch')
+  return { icon: '⚠', cls: 'tls-bad', title: `TLS: ${issues.join(', ') || 'invalid'} — ${c.subject} (issuer ${c.issuer})` }
+}
 
 function statusClass(status?: number): string {
   if (status == null) return ''
@@ -275,7 +294,7 @@ export function ProxyTab({
                   <tr key={e.id} className={`${selectedId === e.id ? 'sel' : ''} ${e.in_scope === false ? 'oos' : ''}`} onClick={() => setSelectedId(e.id)}>
                     <td><span className={`badge ${statusClass(e.status)}`}>{e.status ?? '—'}</span></td>
                     <td className="kind">{e.method}</td>
-                    <td className="mono url">{e.in_scope === false && <span className="oos-tag" title="out of scope">out</span>}{e.url}</td>
+                    <td className="mono url">{e.in_scope === false && <span className="oos-tag" title="out of scope">out</span>}{(() => { const b = tlsBadge(e.tls); return b ? <span className={`tls-badge ${b.cls}`} title={b.title}>{b.icon}</span> : null })()}{e.url}</td>
                     <td className="muted">{e.duration_ms ?? ''}</td>
                   </tr>
                 ))}
