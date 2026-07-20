@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
+import { api, ConnectionModel, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
 
 // Map a provider add-form type to its catalog provider key (Azure shares OpenAI's models; claude-cli
 // picks its own model, so it has no picker).
@@ -37,6 +37,32 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
   const [error, setError] = useState<string | null>(null)
   const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([])
   const [customModel, setCustomModel] = useState(false)
+  // Discovered models per connection (ADR-0052): lazily fetched, expandable, refreshable.
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [connModels, setConnModels] = useState<Record<string, ConnectionModel[]>>({})
+  const [refreshedAt, setRefreshedAt] = useState<Record<string, string>>({})
+  const [modelsBusy, setModelsBusy] = useState<Record<string, boolean>>({})
+
+  async function loadConnModels(id: string, force: boolean) {
+    setModelsBusy((b) => ({ ...b, [id]: true }))
+    try {
+      const r = force ? await api.refreshConnectionModels(id) : await api.getConnectionModels(id)
+      setConnModels((m) => ({ ...m, [id]: r.models ?? [] }))
+      setRefreshedAt((m) => ({ ...m, [id]: r.refreshed_at }))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setModelsBusy((b) => ({ ...b, [id]: false }))
+    }
+  }
+  function toggleModels(id: string) {
+    if (expanded === id) {
+      setExpanded(null)
+      return
+    }
+    setExpanded(id)
+    if (!(id in connModels)) void loadConnModels(id, false)
+  }
 
   useEffect(() => {
     if (online) void api.getModelCatalog().then(setModelCatalog).catch(() => {})
@@ -117,6 +143,32 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
                   ) : (
                     <div className="prov-test err">✕ {t.error}</div>
                   )
+                )}
+                <button className="ghost-btn prov-models-toggle" onClick={() => toggleModels(p.id)} disabled={!online}>
+                  {expanded === p.id ? '▾' : '▸'} models{connModels[p.id] ? ` (${connModels[p.id].length})` : ''}
+                </button>
+                {expanded === p.id && (
+                  <div className="prov-models">
+                    <div className="prov-models-head">
+                      <span>
+                        {(connModels[p.id]?.length ?? 0)} models
+                        {refreshedAt[p.id] ? ` · ${new Date(refreshedAt[p.id]).toLocaleString()}` : ''}
+                      </span>
+                      <button className="ghost-btn" onClick={() => loadConnModels(p.id, true)} disabled={modelsBusy[p.id]}>
+                        {modelsBusy[p.id] ? '…' : '↻ refresh'}
+                      </button>
+                    </div>
+                    {(connModels[p.id] ?? []).map((m) => (
+                      <div key={m.model_id} className="prov-model-row">
+                        <span className="mono">{m.model_id}</span>
+                        <span className="prov-model-meta">
+                          {m.source}
+                          {m.context_window ? ` · ${Math.round(m.context_window / 1000)}k` : ''}
+                          {m.input_per_mtok || m.output_per_mtok ? ` · $${m.input_per_mtok}/$${m.output_per_mtok}` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
               <div className="prov-actions">

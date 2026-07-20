@@ -562,6 +562,24 @@ export interface ModelCatalogEntry {
   default_tags: string[]
 }
 
+// A model a connection can serve, discovered live from the backend and enriched by the overlay (ADR-0052).
+export interface ConnectionModel {
+  connection_id: string
+  model_id: string
+  display_name: string
+  family: string
+  context_window: number
+  input_per_mtok: number
+  output_per_mtok: number
+  tags: string[]
+  source: 'live' | 'overlay' | 'custom'
+  last_seen: string
+}
+export interface ConnectionModels {
+  models: ConnectionModel[]
+  refreshed_at: string
+}
+
 export interface HomeData {
   approvals: { id: string; tool: string; thread_id: string; project_id?: string; project?: string; created_at: string }[]
   active: {
@@ -1014,6 +1032,10 @@ export const api = {
     request<{ models: ModelCatalogEntry[] }>('GET', '/v1/models/catalog').then((r) => r.models ?? []),
   getModelRouting: () => request<{ tags: string[]; routing: ModelRouting }>('GET', '/v1/models/routing'),
   setModelRouting: (routing: ModelRouting) => request<void>('PUT', '/v1/models/routing', { routing }),
+  // Models a connection serves, discovered live + enriched by the overlay (ADR-0052). GET discovers lazily.
+  getConnectionModels: (id: string) => request<ConnectionModels>('GET', `/v1/connections/${id}/models`),
+  refreshConnectionModels: (id: string) =>
+    request<ConnectionModels>('POST', `/v1/connections/${id}/models/refresh`, {}),
 
   getSettings: () =>
     request<{ sections: SettingSection[]; values: Record<string, string> }>('GET', '/v1/settings'),
