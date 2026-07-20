@@ -69,7 +69,57 @@ export interface ScopeEntry {
   project_id: string
   kind: string
   value: string
+  disposition: string // 'allow' | 'deny' (ADR-0051)
   created_at: string
+}
+
+// The engagement record — the frame of an assessment (ADR-0051). Every field optional.
+export interface EngagementContact {
+  id?: string
+  project_id?: string
+  role: string // technical | authorizer | breakglass
+  name: string
+  email?: string
+  phone?: string
+  note?: string
+}
+export interface EngagementTestAccount {
+  id?: string
+  project_id?: string
+  role: string
+  username?: string
+  secret_ref?: string
+  note?: string
+}
+export interface Engagement {
+  project_id: string
+  kinds?: string[]
+  objective?: string
+  reference?: string
+  environment?: string // production | staging | dev | mixed
+  data_class?: string // open | private | restricted
+  standard?: string
+  compliance?: string
+  severity_scale?: string
+  authorized?: boolean
+  authorizer?: string
+  auth_ref?: string
+  auth_from?: string
+  auth_to?: string
+  window_start?: string
+  window_end?: string
+  report_due?: string
+  techniques?: Record<string, boolean>
+  notes?: string
+  contacts?: EngagementContact[]
+  test_accounts?: EngagementTestAccount[]
+}
+
+// A scope rule the setup modal seeds at creation.
+export interface ScopeSeed {
+  kind: string
+  value: string
+  disposition: string
 }
 
 export interface CapabilityManifest {
@@ -678,6 +728,12 @@ export const api = {
   listProjects: () => request<Project[]>('GET', '/v1/projects'),
   getProject: (id: string) => request<Project>('GET', '/v1/projects/' + id),
   createProject: (name: string) => request<Project>('POST', '/v1/projects', { name }),
+  // Create a project with its engagement record + scope in one call (ADR-0051).
+  createEngagement: (payload: { name: string; target_ids?: string[]; engagement?: Engagement; scope?: ScopeSeed[] }) =>
+    request<Project>('POST', '/v1/projects', payload),
+  getEngagement: (projectId: string) => request<Engagement>('GET', `/v1/projects/${projectId}/engagement`),
+  setEngagement: (projectId: string, engagement: Engagement) =>
+    request<Engagement>('PUT', `/v1/projects/${projectId}/engagement`, engagement),
   deleteProject: (id: string) => request<void>('DELETE', '/v1/projects/' + id),
   listTemplates: () => request<Template[]>('GET', '/v1/templates'),
   createProjectFromTemplate: (template_id: string, name: string) =>
@@ -722,8 +778,8 @@ export const api = {
   // scope
   listScope: (projectId: string) =>
     request<ScopeEntry[]>('GET', `/v1/projects/${projectId}/scope`),
-  addScope: (projectId: string, kind: string, value: string) =>
-    request<ScopeEntry>('POST', `/v1/projects/${projectId}/scope`, { kind, value }),
+  addScope: (projectId: string, kind: string, value: string, disposition = 'allow') =>
+    request<ScopeEntry>('POST', `/v1/projects/${projectId}/scope`, { kind, value, disposition }),
   deleteScope: (id: string) => request<void>('DELETE', `/v1/scope/${id}`),
 
   // replay (HTTP exchanges)
