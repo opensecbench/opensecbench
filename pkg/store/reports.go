@@ -46,6 +46,19 @@ func (db *DB) GetReport(ctx context.Context, id string) (model.Report, error) {
 	return r, nil
 }
 
+// DeleteReport removes a generated report record. The rendered artifact row + CAS blob are left in place
+// (content-addressed, swept separately) — this just retires the report from the project's list.
+func (db *DB) DeleteReport(ctx context.Context, id string) error {
+	res, err := db.ExecContext(ctx, `DELETE FROM reports WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListReportsByProject returns a project's generated reports, newest first.
 func (db *DB) ListReportsByProject(ctx context.Context, projectID string) ([]model.Report, error) {
 	rows, err := db.QueryContext(ctx,

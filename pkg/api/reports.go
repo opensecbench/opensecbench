@@ -9,6 +9,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/report"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 // templateInfo is the JSON view of a report template.
@@ -33,6 +34,22 @@ func (s *Server) listReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+// deleteReport retires a generated report from the project's list.
+func (s *Server) deleteReport(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := s.pdb(r).DeleteReport(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "report not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "report.delete", id, nil)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func reportMediaType(format report.Format) string {

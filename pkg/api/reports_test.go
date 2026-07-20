@@ -113,3 +113,43 @@ func TestReportEmitsNotification(t *testing.T) {
 		t.Fatalf("unread after read = %d, want 0", feed.Unread)
 	}
 }
+
+func TestDeleteReport(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := store.LoadMigrations(migrations.FS)
+	if _, err := db.Apply(ms); err != nil {
+		t.Fatal(err)
+	}
+	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
+	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	ctx := context.Background()
+
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	art, _ := db.CreateArtifact(ctx, model.Artifact{SHA256: "abc", Size: 1, Kind: model.ArtifactOutput, Name: "r.md"})
+	rep, err := db.CreateReport(ctx, model.Report{ProjectID: proj.ID, TemplateID: "technical", Format: "md", Title: "T", ArtifactID: art.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/v1/reports/"+rep.ID, nil)
+	resp, _ := http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete = %d, want 204", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	if left, _ := db.ListReportsByProject(ctx, proj.ID); len(left) != 0 {
+		t.Fatalf("report not deleted: %d remain", len(left))
+	}
+
+	// Unknown id → 404.
+	req, _ = http.NewRequest(http.MethodDelete, srv.URL+"/v1/reports/nope", nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown report delete = %d, want 404", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+}

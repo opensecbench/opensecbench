@@ -408,6 +408,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/report-templates", s.listReportTemplates)
 	s.mux.HandleFunc("GET /v1/projects/{id}/reports", s.listReports)
 	s.mux.HandleFunc("POST /v1/projects/{id}/reports", s.generateReport)
+	s.mux.HandleFunc("DELETE /v1/reports/{id}", s.deleteReport)
 
 	s.mux.HandleFunc("GET /v1/templates", s.listTemplates)
 	s.mux.HandleFunc("POST /v1/projects/from-template", s.createProjectFromTemplate)
