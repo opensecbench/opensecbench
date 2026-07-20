@@ -145,11 +145,17 @@ type NewProject struct {
 
 // CreateProject inserts a project and its target links atomically.
 func (db *DB) CreateProject(ctx context.Context, np NewProject) (model.Project, error) {
+	return db.CreateProjectWithID(ctx, uuid.NewString(), np)
+}
+
+// CreateProjectWithID is CreateProject with a caller-supplied id, so the two-tier Manager can name the
+// project's directory before creating its database (ADR-0049).
+func (db *DB) CreateProjectWithID(ctx context.Context, id string, np NewProject) (model.Project, error) {
 	if np.Name == "" {
 		return model.Project{}, errors.New("store: project name required")
 	}
 	p := model.Project{
-		ID:             uuid.NewString(),
+		ID:             id,
 		OrganizationID: np.OrganizationID,
 		GroupID:        np.GroupID,
 		Name:           np.Name,

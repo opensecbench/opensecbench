@@ -10,7 +10,7 @@ import (
 
 // listProjectKB returns the KB a project inherits from the targets it references (ADR-0010).
 func (s *Server) listProjectKB(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.global().ListKBByProject(r.Context(), r.PathValue("id"))
+	entries, err := s.mgr.ListKBForProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

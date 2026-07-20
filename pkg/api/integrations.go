@@ -69,7 +69,7 @@ func (s *Server) pushFinding(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg = integration.Config{BaseURL: req.BaseURL, ProjectKey: req.ProjectKey, Credential: cred}
 	} else {
-		projectID := s.projectOfFinding(r.Context(), finding)
+		projectID := s.projectOfFinding(r, finding)
 		if projectID == "" {
 			writeErr(w, http.StatusBadRequest, "no base_url and the finding has no project to resolve a stored integration config")
 			return
@@ -137,11 +137,12 @@ func (s *Server) integrationConfig(ctx context.Context, projectID, name string) 
 }
 
 // projectOfFinding resolves a finding's project via its application (findings scope through applications).
-func (s *Server) projectOfFinding(ctx context.Context, f model.Finding) string {
+// The finding was loaded from the request's active project, so its application lives in that project's db.
+func (s *Server) projectOfFinding(r *http.Request, f model.Finding) string {
 	if f.ApplicationID == nil {
 		return ""
 	}
-	app, err := s.global().GetApplication(ctx, *f.ApplicationID)
+	app, err := s.pdb(r).GetApplication(r.Context(), *f.ApplicationID)
 	if err != nil {
 		return ""
 	}

@@ -150,6 +150,53 @@ func (db *DB) ListKBByProject(ctx context.Context, projectID string) ([]model.KB
 	return scanKBRows(rows)
 }
 
+// ListKBByAnchors returns the KB entries visible for the given anchors, resolved most-specific first:
+// target entries whose target is in targetIDs, the group entry for groupID, org entries whose org is in
+// orgIDs, and all global entries. This is the split-mode form of ListKBByProject — the caller reads the
+// anchors from the project's own database and queries the global KB here (ADR-0049).
+func (db *DB) ListKBByAnchors(ctx context.Context, targetIDs []string, groupID string, orgIDs []string) ([]model.KBEntry, error) {
+	q := `SELECT ` + kbCols + ` FROM kb_entries WHERE scope = 'global'`
+	var args []any
+	if len(targetIDs) > 0 {
+		q += ` OR (scope = 'target' AND target_id IN (` + placeholders(len(targetIDs)) + `))`
+		for _, t := range targetIDs {
+			args = append(args, t)
+		}
+	}
+	if groupID != "" {
+		q += ` OR (scope = 'group' AND group_id = ?)`
+		args = append(args, groupID)
+	}
+	if len(orgIDs) > 0 {
+		q += ` OR (scope = 'org' AND organization_id IN (` + placeholders(len(orgIDs)) + `))`
+		for _, o := range orgIDs {
+			args = append(args, o)
+		}
+	}
+	q += ` ORDER BY ` + scopeOrder + `, updated_at DESC`
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	return scanKBRows(rows)
+}
+
+// placeholders returns "?, ?, ..." with n placeholders for an IN clause.
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	b := make([]byte, 0, n*3)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b = append(b, ',', ' ')
+		}
+		b = append(b, '?')
+	}
+	return string(b)
+}
+
 func scanKBRows(rows *sql.Rows) ([]model.KBEntry, error) {
 	var out []model.KBEntry
 	for rows.Next() {
