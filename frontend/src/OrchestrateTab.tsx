@@ -21,6 +21,7 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [busy, setBusy] = useState('')
   const [building, setBuilding] = useState(false)
+  const [editing, setEditing] = useState<AgentPlaybook | null>(null)
 
   const loadPlaybooks = useCallback(async () => {
     try {
@@ -149,14 +150,17 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
         <div className="orch-section-h orch-ph">
           <span>Playbooks</span>
           <span className="grow" />
-          <button className="orch-new" disabled={!online} onClick={() => setBuilding((v) => !v)}>{building ? 'Close' : '＋ New'}</button>
+          <button className="orch-new" disabled={!online} onClick={() => { setEditing(null); setBuilding((v) => !v) }}>{building && !editing ? 'Close' : '＋ New'}</button>
         </div>
-        {building && (
+        {(building || editing) && (
           <PlaybookBuilder
+            key={editing?.id ?? 'new'}
             online={online}
-            onCancel={() => setBuilding(false)}
+            edit={editing ?? undefined}
+            onCancel={() => { setBuilding(false); setEditing(null) }}
             onSaved={() => {
               setBuilding(false)
+              setEditing(null)
               void loadPlaybooks()
             }}
           />
@@ -168,9 +172,12 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
               {!pb.builtin && <span className="orch-saved">saved</span>}
               <span className="grow" />
               {!pb.builtin && (
-                <button className="orch-del" title="Delete this saved playbook" disabled={!online} onClick={() => deletePlaybook(pb.id)}>
-                  ×
-                </button>
+                <>
+                  <button className="orch-edit" title="Edit this saved playbook" disabled={!online} onClick={() => { setEditing(pb); setBuilding(true) }}>✎ Edit</button>
+                  <button className="orch-del" title="Delete this saved playbook" disabled={!online} onClick={() => deletePlaybook(pb.id)}>
+                    ×
+                  </button>
+                </>
               )}
               <button disabled={!online || !!busy} onClick={() => run(pb)}>{busy === pb.id ? '…' : '▷ Run'}</button>
             </div>
@@ -179,7 +186,7 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
               {pb.steps.map((s, i) => (
                 <span key={s.key} className="orch-pb-step">
                   {i > 0 && <span className="orch-arrow">→</span>}
-                  <span className="orch-chip">{s.profile}</span>
+                  <span className={`orch-chip ${s.gate ? 'gate' : ''}`}>{s.gate ? '⏸ gate' : s.profile}</span>
                 </span>
               ))}
             </div>

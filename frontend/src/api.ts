@@ -619,12 +619,19 @@ export interface ApprovalRule {
   decision: 'auto' | 'approve'
 }
 
+export interface AgentPlaybookStep {
+  key: string
+  profile: string
+  instruction: string
+  depends_on: string[]
+  gate?: boolean // a human-approval pause (ADR-0044)
+}
 export interface AgentPlaybook {
   id: string
   name: string
   description: string
   goal: string
-  steps: { key: string; profile: string; depends_on: string[] }[]
+  steps: AgentPlaybookStep[]
   builtin?: boolean
   source?: string
 }
@@ -1027,8 +1034,11 @@ export const api = {
     name: string
     description: string
     goal: string
-    steps: { key: string; profile: string; instruction: string; depends_on: string[] }[]
+    steps: AgentPlaybookStep[]
   }) => request<{ id: string }>('POST', '/v1/analyst/playbooks', pb),
+  getAgentPlaybook: (id: string) => request<AgentPlaybook>('GET', '/v1/analyst/playbooks/' + id),
+  updateAgentPlaybook: (id: string, pb: { name: string; description: string; goal: string; steps: AgentPlaybookStep[] }) =>
+    request<AgentPlaybook>('PUT', '/v1/analyst/playbooks/' + id, pb),
   deleteAgentPlaybook: (id: string) => request<void>('DELETE', '/v1/analyst/playbooks/' + id),
   savePlanAsPlaybook: (planId: string, name: string, description: string) =>
     request<{ id: string }>('POST', `/v1/plans/${planId}/save-as-playbook`, { name, description }),
