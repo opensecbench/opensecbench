@@ -10,11 +10,10 @@ import (
 	"github.com/creack/pty"
 )
 
-// DefaultImage is the sandbox image a terminal opens into. It ships a POSIX shell; richer
-// toolchain images (with the aws/az CLIs, per the plan) become configurable later.
-//
-// TODO(P7+): configurable per-project session image; bake the assessment toolchain + aws/az CLIs
-// into an OSB base image pinned by digest (mirrors the runner base-image plan).
+// DefaultImage is the minimal sandbox image a terminal opens into when no image is configured — it ships
+// only a POSIX shell. For a real assessment toolchain (git, python, curl/jq, cloud CLIs), build the image
+// in pkg/session/Dockerfile and set OSB_SESSION_IMAGE to it (see the controlplane wiring). Kept minimal by
+// default so a terminal works out of the box without pulling a large image.
 const DefaultImage = "alpine:3"
 
 // Manager opens terminal sessions as shells inside sandboxed containers.
