@@ -246,6 +246,53 @@ func TestRunPlanRunsIndependentStepsConcurrently(t *testing.T) {
 	}
 }
 
+// The assessment playbook's scanners fan out: driving the real playbook, the parallel scheduler runs the
+// SAST/SCA/secrets steps as one concurrent wave, then pauses at the approval gate before validation.
+func TestAssessmentScannersRunInParallel(t *testing.T) {
+	ctx := context.Background()
+	db, projectID := seedProject(t)
+	prov := &countingProvider{}
+	svc := NewService(db, nil, nil, "", prov)
+
+	pb, ok := PlaybookByID("assessment")
+	if !ok {
+		t.Fatal("assessment playbook not found")
+	}
+	plan := model.Plan{ProjectID: projectID, PlaybookID: pb.ID, Goal: pb.Goal}
+	for _, s := range pb.Steps {
+		plan.Steps = append(plan.Steps, model.PlanStep{Key: s.Key, Profile: s.Profile, Instruction: s.Instruction, DependsOn: s.DependsOn, Gate: s.Gate})
+	}
+	created, err := db.CreatePlan(ctx, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.runPlan(created)
+
+	got, _ := db.GetPlan(ctx, created.ID)
+	// Recon + all four scanners + triage have run; the plan is parked at the approval gate.
+	if got.Status != model.PlanWaiting {
+		t.Fatalf("plan should pause at the approval gate, status = %q", got.Status)
+	}
+	for _, key := range []string{"recon", "scan-sast", "scan-sca-grype", "scan-sca-govulncheck", "scan-secrets", "triage"} {
+		if st := stepStatus(got, key); st != model.StepDone {
+			t.Fatalf("step %q status = %q, want done", key, st)
+		}
+	}
+	// The four scanners are independent and depend only on recon, so they ran concurrently.
+	if prov.peak < 2 {
+		t.Fatalf("scanners did not run in parallel (peak in-flight = %d)", prov.peak)
+	}
+}
+
+func stepStatus(p model.Plan, key string) string {
+	for _, s := range p.Steps {
+		if s.Key == key {
+			return s.Status
+		}
+	}
+	return ""
+}
+
 func TestRunPlanBreaksOnCycle(t *testing.T) {
 	ctx := context.Background()
 	db, projectID := seedProject(t)
