@@ -72,7 +72,7 @@ func (s *Server) structureGraph(r *http.Request, projectID string) (graphResp, e
 	g := graphResp{Kind: "structure"}
 	g.Nodes = append(g.Nodes, graphNode{ID: "p:" + proj.ID, Label: proj.Name, Kind: "project"})
 
-	apps, err := s.global().ListApplicationsByProject(ctx, projectID)
+	apps, err := s.pdb(r).ListApplicationsByProject(ctx, projectID)
 	if err != nil {
 		return graphResp{}, err
 	}
@@ -83,7 +83,7 @@ func (s *Server) structureGraph(r *http.Request, projectID string) (graphResp, e
 		g.Nodes = append(g.Nodes, graphNode{ID: id, Label: a.Name, Kind: "application"})
 		g.Edges = append(g.Edges, graphEdge{From: "p:" + proj.ID, To: id})
 
-		assets, err := s.global().ListAssetsByApplication(ctx, a.ID)
+		assets, err := s.pdb(r).ListAssetsByApplication(ctx, a.ID)
 		if err != nil {
 			return graphResp{}, err
 		}
@@ -114,7 +114,7 @@ func (s *Server) structureGraph(r *http.Request, projectID string) (graphResp, e
 }
 
 func (s *Server) trafficGraph(r *http.Request, projectID string) (graphResp, error) {
-	exchanges, err := s.global().ListExchangesByProject(r.Context(), projectID)
+	exchanges, err := s.pdb(r).ListExchangesByProject(r.Context(), projectID)
 	if err != nil {
 		return graphResp{}, err
 	}
@@ -157,7 +157,7 @@ func (s *Server) trafficGraph(r *http.Request, projectID string) (graphResp, err
 
 // topologyGraph builds host → open-port nodes from nmap observations (location "host:port/proto").
 func (s *Server) topologyGraph(r *http.Request, projectID string) (graphResp, error) {
-	obs, err := s.global().ListObservationsByProject(r.Context(), projectID)
+	obs, err := s.pdb(r).ListObservationsByProject(r.Context(), projectID)
 	if err != nil {
 		return graphResp{}, err
 	}
@@ -199,7 +199,7 @@ type cycloneDX struct {
 // dependencyGraph parses the project's latest syft SBOM into a component/dependency graph.
 func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, error) {
 	g := graphResp{Kind: "dependency"}
-	sha, err := s.global().LatestArtifactSHA(r.Context(), projectID, "syft")
+	sha, err := s.pdb(r).LatestArtifactSHA(r.Context(), projectID, "syft")
 	if err != nil {
 		return g, nil // no SBOM yet → empty graph
 	}

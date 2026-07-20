@@ -59,7 +59,7 @@ func describeSignals(attrs map[string]string) string {
 // listProjectObservations returns a project's observations with their routing attributes (ADR-0037), for
 // triage UIs and tooling. `?unreviewed_only=true` narrows to observations still awaiting triage.
 func (s *Server) listProjectObservations(w http.ResponseWriter, r *http.Request) {
-	obs, err := s.global().ListObservationsByProject(r.Context(), r.PathValue("id"))
+	obs, err := s.pdb(r).ListObservationsByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -78,7 +78,7 @@ func (s *Server) listProjectObservations(w http.ResponseWriter, r *http.Request)
 
 // listInvestigations returns a project's investigations (ADR-0028).
 func (s *Server) listInvestigations(w http.ResponseWriter, r *http.Request) {
-	inv, err := s.global().ListInvestigationsByProject(r.Context(), r.PathValue("id"))
+	inv, err := s.pdb(r).ListInvestigationsByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -100,7 +100,7 @@ func (s *Server) setInvestigationStatus(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "status must be open, resolved or dismissed")
 		return
 	}
-	if err := s.global().SetInvestigationStatus(r.Context(), r.PathValue("id"), req.Status); errors.Is(err, store.ErrNotFound) {
+	if err := s.pdb(r).SetInvestigationStatus(r.Context(), r.PathValue("id"), req.Status); errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "investigation not found")
 		return
 	} else if err != nil {
@@ -118,7 +118,7 @@ func (s *Server) runInvestigation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured")
 		return
 	}
-	inv, err := s.global().GetInvestigation(r.Context(), r.PathValue("id"))
+	inv, err := s.pdb(r).GetInvestigation(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "investigation not found")
 		return
@@ -127,13 +127,13 @@ func (s *Server) runInvestigation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	obs, err := s.global().GetObservation(r.Context(), inv.ObservationID)
+	obs, err := s.pdb(r).GetObservation(r.Context(), inv.ObservationID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	th, err := s.global().CreateThread(r.Context(), store.NewThread{
+	th, err := s.pdb(r).CreateThread(r.Context(), store.NewThread{
 		ProjectID: &inv.ProjectID, Title: "Investigate: " + inv.Title,
 		AgentType: "vuln-validator", Provider: s.providerName(),
 	})
@@ -154,7 +154,7 @@ func (s *Server) runInvestigation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "start investigation: "+err.Error())
 		return
 	}
-	if err := s.global().SetInvestigationThread(r.Context(), inv.ID, th.ID); err != nil {
+	if err := s.pdb(r).SetInvestigationThread(r.Context(), inv.ID, th.ID); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -167,7 +167,7 @@ func (s *Server) runInvestigation(w http.ResponseWriter, r *http.Request) {
 // listDispositions returns a project's disposition overrides plus each capability's manifest-declared
 // defaults (ADR-0028), so the operator sees what routing is in effect.
 func (s *Server) listDispositions(w http.ResponseWriter, r *http.Request) {
-	rules, err := s.global().ListDispositionRules(r.Context(), r.PathValue("id"))
+	rules, err := s.pdb(r).ListDispositionRules(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -205,7 +205,7 @@ func (s *Server) setDispositionRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "action must be finding, investigate or review")
 		return
 	}
-	rule, err := s.global().SetDispositionRule(r.Context(), model.DispositionRule{
+	rule, err := s.pdb(r).SetDispositionRule(r.Context(), model.DispositionRule{
 		ProjectID: r.PathValue("id"), CapabilityID: req.CapabilityID,
 		When: req.When, MinSeverity: req.MinSeverity, Action: req.Action, Priority: req.Priority,
 	})
@@ -218,7 +218,7 @@ func (s *Server) setDispositionRule(w http.ResponseWriter, r *http.Request) {
 
 // deleteDispositionRule removes a project disposition override.
 func (s *Server) deleteDispositionRule(w http.ResponseWriter, r *http.Request) {
-	if err := s.global().DeleteDispositionRule(r.Context(), r.PathValue("rule")); errors.Is(err, store.ErrNotFound) {
+	if err := s.pdb(r).DeleteDispositionRule(r.Context(), r.PathValue("rule")); errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "rule not found")
 		return
 	} else if err != nil {

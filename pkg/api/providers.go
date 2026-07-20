@@ -233,7 +233,7 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 
 // projectUsage returns a project's Analyst token usage grouped by provider/model, for comparison.
 func (s *Server) projectUsage(w http.ResponseWriter, r *http.Request) {
-	u, err := s.global().UsageByModel(r.Context(), r.PathValue("id"))
+	u, err := s.pdb(r).UsageByModel(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
