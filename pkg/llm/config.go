@@ -35,6 +35,7 @@ func New(cfg Config) (Provider, error) {
 		return &MockProvider{}, nil
 	case "claude-cli", "cli", "claude":
 		p := NewCLIProvider(cfg.Bin)
+		p.Model = cfg.Model // a subscription connection can run a specific Anthropic model (ADR-0052)
 		if cfg.CLISandbox {
 			image := cfg.CLIImage
 			if image == "" {
