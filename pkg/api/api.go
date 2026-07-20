@@ -132,6 +132,40 @@ func (s *Server) projectDB(r *http.Request) (*store.DB, error) {
 	return s.mgr.Project(projectFromReq(r))
 }
 
+// pdb resolves the request's active-project database, falling back to the global handle if the project
+// can't be resolved (missing id / open error) so a handler never nil-panics. Under the combined backing
+// this is always the same handle as global(); after the split a missing project id surfaces as a
+// no-such-table query error, which handlers return as a 4xx/5xx.
+func (s *Server) pdb(r *http.Request) *store.DB {
+	db, err := s.projectDB(r)
+	if err != nil || db == nil {
+		return s.global()
+	}
+	return db
+}
+
+// pdbID resolves a project database by id, for non-HTTP contexts (goroutines, helpers) that already
+// hold the project id. Same fallback semantics as pdb.
+func (s *Server) pdbID(projectID string) *store.DB {
+	if s.mgr == nil {
+		return nil
+	}
+	db, err := s.mgr.Project(projectID)
+	if err != nil || db == nil {
+		return s.global()
+	}
+	return db
+}
+
+// pdbPtr resolves a project database for an optional project id (nil → global fallback), for
+// best-effort writes like notifications that may not be project-scoped.
+func (s *Server) pdbPtr(projectID *string) *store.DB {
+	if projectID == nil || *projectID == "" {
+		return s.global()
+	}
+	return s.pdbID(*projectID)
+}
+
 // New builds the API server with its routes registered.
 func New(deps Deps) *Server {
 	s := &Server{
@@ -508,7 +542,7 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "message is required")
 		return
 	}
-	th, err := s.global().CreateThread(r.Context(), store.NewThread{Title: "ask", Provider: s.providerName()})
+	th, err := s.pdb(r).CreateThread(r.Context(), store.NewThread{Title: "ask", Provider: s.providerName()})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -541,7 +575,7 @@ func (s *Server) createThread(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	th, err := s.global().CreateThread(r.Context(), store.NewThread{ProjectID: req.ProjectID, Title: req.Title, AgentType: req.AgentType, Provider: s.providerName()})
+	th, err := s.pdb(r).CreateThread(r.Context(), store.NewThread{ProjectID: req.ProjectID, Title: req.Title, AgentType: req.AgentType, Provider: s.providerName()})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -650,7 +684,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "interval_seconds must be positive")
 		return
 	}
-	sc, err := s.global().CreateSchedule(r.Context(), r.PathValue("id"), req.PlaybookID, req.IntervalSeconds, time.Now().UTC())
+	sc, err := s.pdb(r).CreateSchedule(r.Context(), r.PathValue("id"), req.PlaybookID, req.IntervalSeconds, time.Now().UTC())
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -660,7 +694,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 
 // listSchedules returns a project's schedules.
 func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request) {
-	sched, err := s.global().ListSchedulesByProject(r.Context(), r.PathValue("id"))
+	sched, err := s.pdb(r).ListSchedulesByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -676,7 +710,7 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	err := s.global().SetScheduleEnabled(r.Context(), r.PathValue("id"), req.Enabled)
+	err := s.pdb(r).SetScheduleEnabled(r.Context(), r.PathValue("id"), req.Enabled)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "schedule not found")
 		return
@@ -690,7 +724,7 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 
 // deleteSchedule removes a schedule.
 func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
-	err := s.global().DeleteSchedule(r.Context(), r.PathValue("id"))
+	err := s.pdb(r).DeleteSchedule(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "schedule not found")
 		return
@@ -720,7 +754,7 @@ func (s *Server) startPlan(w http.ResponseWriter, r *http.Request) {
 
 // getPlan returns a plan with its steps (poll this to watch a run's progress).
 func (s *Server) getPlan(w http.ResponseWriter, r *http.Request) {
-	plan, err := s.global().GetPlan(r.Context(), r.PathValue("id"))
+	plan, err := s.pdb(r).GetPlan(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "plan not found")
 		return
@@ -760,7 +794,7 @@ func (s *Server) resolvePlanGate(w http.ResponseWriter, r *http.Request) {
 
 // listPlans returns a project's plans (without steps), newest first.
 func (s *Server) listPlans(w http.ResponseWriter, r *http.Request) {
-	plans, err := s.global().ListPlansByProject(r.Context(), r.PathValue("id"))
+	plans, err := s.pdb(r).ListPlansByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -965,7 +999,7 @@ func (s *Server) deleteSavedProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {
-	th, err := s.global().GetThread(r.Context(), r.PathValue("id"))
+	th, err := s.pdb(r).GetThread(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "thread not found")
 		return
@@ -974,7 +1008,7 @@ func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	msgs, err := s.global().ListMessages(r.Context(), th.ID)
+	msgs, err := s.pdb(r).ListMessages(r.Context(), th.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1028,7 +1062,7 @@ func (s *Server) recordUsage(ctx context.Context, res analyst.SendResult) {
 	if res.Thread.ProjectID != nil {
 		projectID = *res.Thread.ProjectID
 	}
-	_ = s.global().RecordUsage(ctx, model.UsageRecord{
+	_ = s.pdbID(projectID).RecordUsage(ctx, model.UsageRecord{
 		ProjectID: projectID, ThreadID: res.Thread.ID, AgentType: res.AgentType,
 		Provider: provider, Model: modelName,
 		InputTokens: res.InputTokens, OutputTokens: res.OutputTokens,
@@ -1055,7 +1089,7 @@ func (s *Server) forkThread(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	child, err := s.global().ForkThread(r.Context(), r.PathValue("id"), req.Seq)
+	child, err := s.pdb(r).ForkThread(r.Context(), r.PathValue("id"), req.Seq)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "thread not found")
 		return
@@ -1090,7 +1124,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	approvals := []apView{}
 	for _, a := range must(s.global().ListPendingApprovals(ctx)) {
 		v := apView{ID: a.ID, Tool: a.Tool, ThreadID: a.ThreadID, CreatedAt: a.CreatedAt}
-		if th, err := s.global().GetThread(ctx, a.ThreadID); err == nil && th.ProjectID != nil {
+		if th, err := s.pdb(r).GetThread(ctx, a.ThreadID); err == nil && th.ProjectID != nil {
 			v.ProjectID = *th.ProjectID
 			v.Project = name[*th.ProjectID]
 		}
@@ -1112,7 +1146,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		}
 		tv := taskView{ID: t.ID, Capability: t.CapabilityID, Status: t.Status}
 		if t.ApplicationID != nil {
-			if app, err := s.global().GetApplication(ctx, *t.ApplicationID); err == nil {
+			if app, err := s.pdb(r).GetApplication(ctx, *t.ApplicationID); err == nil {
 				tv.ProjectID = app.ProjectID
 				tv.Project = name[app.ProjectID]
 			}
@@ -1141,7 +1175,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Projects at a glance.
-	fcounts, _ := s.global().FindingCountsByProject(ctx)
+	fcounts, _ := s.pdb(r).FindingCountsByProject(ctx)
 	type projView struct {
 		ID         string `json:"id"`
 		Name       string `json:"name"`
@@ -1156,7 +1190,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	for _, p := range projects {
 		fc := fcounts[p.ID]
 		toTriage := 0
-		if obs, err := s.global().ListObservationsByProject(ctx, p.ID); err == nil {
+		if obs, err := s.pdb(r).ListObservationsByProject(ctx, p.ID); err == nil {
 			for _, o := range obs {
 				if o.ReviewState == model.ReviewUnreviewed {
 					toTriage++
@@ -1174,7 +1208,7 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	// Spend: workbench-wide token usage this month + all-time (informational, no cap).
 	now := time.Now().UTC()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	usage, _ := s.global().UsageSummary(ctx, monthStart, 6)
+	usage, _ := s.pdb(r).UsageSummary(ctx, monthStart, 6)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"approvals": approvals,
@@ -1188,11 +1222,11 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 // projectCoverage rolls up a project's methodology coverage for the cockpit ring. ok is false when
 // the project has adopted no packs (nothing to show a ring for).
 func (s *Server) projectCoverage(ctx context.Context, projectID string) (methodology.Summary, bool) {
-	adopted, err := s.global().ListAdoptedMethodologies(ctx, projectID)
+	adopted, err := s.pdbID(projectID).ListAdoptedMethodologies(ctx, projectID)
 	if err != nil || len(adopted) == 0 {
 		return methodology.Summary{}, false
 	}
-	entries, err := s.global().ListCoverage(ctx, projectID)
+	entries, err := s.pdbID(projectID).ListCoverage(ctx, projectID)
 	if err != nil {
 		return methodology.Summary{}, false
 	}
@@ -1220,7 +1254,7 @@ func (s *Server) scheduleViews(ctx context.Context, projects []model.Project, na
 	}
 	out := []schedView{}
 	for _, p := range projects {
-		for _, sc := range must(s.global().ListSchedulesByProject(ctx, p.ID)) {
+		for _, sc := range must(s.pdbID(p.ID).ListSchedulesByProject(ctx, p.ID)) {
 			pbName := sc.PlaybookID
 			if pb, ok := analyst.PlaybookByID(sc.PlaybookID); ok {
 				pbName = pb.Name
@@ -1436,7 +1470,7 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 // --- search ---
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
-	results, err := s.global().Search(r.Context(), r.URL.Query().Get("q"), 25)
+	results, err := s.pdb(r).Search(r.Context(), r.URL.Query().Get("q"), 25)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1476,7 +1510,7 @@ func (s *Server) createProjectFromTemplate(w http.ResponseWriter, r *http.Reques
 
 	resp := map[string]any{"project": proj, "template": tmpl}
 	if tmpl.DefaultApplication != "" {
-		app, err := s.global().CreateApplication(r.Context(), proj.ID, tmpl.DefaultApplication)
+		app, err := s.pdb(r).CreateApplication(r.Context(), proj.ID, tmpl.DefaultApplication)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1489,7 +1523,7 @@ func (s *Server) createProjectFromTemplate(w http.ResponseWriter, r *http.Reques
 // --- applications & assets ---
 
 func (s *Server) listApplications(w http.ResponseWriter, r *http.Request) {
-	apps, err := s.global().ListApplicationsByProject(r.Context(), r.PathValue("id"))
+	apps, err := s.pdb(r).ListApplicationsByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1508,7 +1542,7 @@ func (s *Server) createApplication(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	app, err := s.global().CreateApplication(r.Context(), r.PathValue("id"), req.Name)
+	app, err := s.pdb(r).CreateApplication(r.Context(), r.PathValue("id"), req.Name)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -1517,7 +1551,7 @@ func (s *Server) createApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getApplication(w http.ResponseWriter, r *http.Request) {
-	app, err := s.global().GetApplication(r.Context(), r.PathValue("id"))
+	app, err := s.pdb(r).GetApplication(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "application not found")
 		return
@@ -1530,7 +1564,7 @@ func (s *Server) getApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listAssets(w http.ResponseWriter, r *http.Request) {
-	assets, err := s.global().ListAssetsByApplication(r.Context(), r.PathValue("id"))
+	assets, err := s.pdb(r).ListAssetsByApplication(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1547,7 +1581,7 @@ func (s *Server) createAsset(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	asset, err := s.global().CreateAsset(r.Context(), store.NewAsset{
+	asset, err := s.pdb(r).CreateAsset(r.Context(), store.NewAsset{
 		ApplicationID: r.PathValue("id"),
 		Type:          req.Type,
 		Location:      req.Location,
@@ -1561,7 +1595,7 @@ func (s *Server) createAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
-	asset, err := s.global().GetAsset(r.Context(), r.PathValue("id"))
+	asset, err := s.pdb(r).GetAsset(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "asset not found")
 		return
@@ -1576,7 +1610,7 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 // --- context items ---
 
 func (s *Server) listContext(w http.ResponseWriter, r *http.Request) {
-	items, err := s.global().ListContextItemsByProject(r.Context(), r.PathValue("id"))
+	items, err := s.pdb(r).ListContextItemsByProject(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1613,7 +1647,7 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 	if mediaType == "" {
 		mediaType = "application/octet-stream"
 	}
-	art, err := s.global().CreateArtifact(r.Context(), model.Artifact{
+	art, err := s.pdb(r).CreateArtifact(r.Context(), model.Artifact{
 		SHA256:    digest,
 		Size:      int64(len(data)),
 		Kind:      model.ArtifactInput,
@@ -1624,7 +1658,7 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	ci, err := s.global().CreateContextItem(r.Context(), model.ContextItem{
+	ci, err := s.pdb(r).CreateContextItem(r.Context(), model.ContextItem{
 		ProjectID:  r.PathValue("id"),
 		Type:       ctype,
 		Name:       name,
@@ -1644,7 +1678,7 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 // --- scope allowlist (P6) ---
 
 func (s *Server) listScope(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.global().ListScopeEntries(r.Context(), r.PathValue("id"))
+	entries, err := s.pdb(r).ListScopeEntries(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1660,7 +1694,7 @@ func (s *Server) addScope(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	entry, err := s.global().AddScopeEntry(r.Context(), r.PathValue("id"), req.Kind, req.Value)
+	entry, err := s.pdb(r).AddScopeEntry(r.Context(), r.PathValue("id"), req.Kind, req.Value)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -1673,7 +1707,7 @@ func (s *Server) addScope(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteScope(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := s.global().DeleteScopeEntry(r.Context(), id)
+	err := s.pdb(r).DeleteScopeEntry(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "scope entry not found")
 		return
@@ -1731,7 +1765,7 @@ func (s *Server) listExchanges(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("limit"); v != "" {
 		f.Limit, _ = strconv.Atoi(v)
 	}
-	items, err := s.global().ListExchangesFiltered(r.Context(), r.PathValue("id"), f)
+	items, err := s.pdb(r).ListExchangesFiltered(r.Context(), r.PathValue("id"), f)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1748,7 +1782,7 @@ type exchangeView struct {
 // annotateScope marks each exchange in- or out-of-scope against the project's current allowlist
 // (empty allowlist ⇒ everything is in scope). Uses pkg/scope so the UI never re-implements matching.
 func (s *Server) annotateScope(ctx context.Context, projectID string, items []model.HTTPExchange) []exchangeView {
-	entries, _ := s.global().ListScopeEntries(ctx, projectID)
+	entries, _ := s.pdbID(projectID).ListScopeEntries(ctx, projectID)
 	rules := make([]scope.Entry, 0, len(entries))
 	for _, e := range entries {
 		rules = append(rules, scope.Entry{Kind: e.Kind, Value: e.Value})
@@ -1775,7 +1809,7 @@ func (s *Server) createExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "url is required")
 		return
 	}
-	ex, err := s.global().CreateExchange(r.Context(), model.HTTPExchange{
+	ex, err := s.pdb(r).CreateExchange(r.Context(), model.HTTPExchange{
 		ProjectID:      r.PathValue("id"),
 		Name:           req.Name,
 		Method:         req.Method,
@@ -1791,7 +1825,7 @@ func (s *Server) createExchange(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getExchange(w http.ResponseWriter, r *http.Request) {
-	ex, err := s.global().GetExchange(r.Context(), r.PathValue("id"))
+	ex, err := s.pdb(r).GetExchange(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "exchange not found")
 		return
@@ -1813,7 +1847,7 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	ex, err := s.global().GetExchange(r.Context(), r.PathValue("id"))
+	ex, err := s.pdb(r).GetExchange(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "exchange not found")
 		return
@@ -1825,7 +1859,7 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 
 	// Scope guard: an out-of-scope target is refused before anything is sent. The draft row persists
 	// as the durable record of the blocked attempt.
-	entries, err := s.global().ListScopeEntries(r.Context(), ex.ProjectID)
+	entries, err := s.pdb(r).ListScopeEntries(r.Context(), ex.ProjectID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1849,14 +1883,14 @@ func (s *Server) sendExchange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "send failed: "+err.Error())
 		return
 	}
-	if err := s.global().RecordResponse(r.Context(), ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, req.RunnerID); err != nil {
+	if err := s.pdb(r).RecordResponse(r.Context(), ex.ID, resp.Status, resp.Headers, resp.Body, resp.DurationMS, req.RunnerID); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.record(r.Context(), actorOf(r), "replay.send", ex.ID, map[string]any{
 		"method": ex.Method, "url": ex.URL, "status": resp.Status, "egress": egressLabel(req.RunnerID),
 	})
-	updated, _ := s.global().GetExchange(r.Context(), ex.ID)
+	updated, _ := s.pdb(r).GetExchange(r.Context(), ex.ID)
 	s.events.Publish(events.Event{Type: "exchange", ProjectID: ex.ProjectID, Payload: updated})
 	writeJSON(w, http.StatusOK, updated)
 }
@@ -1906,7 +1940,7 @@ func egressLabel(runnerID string) string {
 // exchangeEvidence promotes a sent exchange's response into the CAS as an artifact and records a
 // human-origin observation (ADR-0005), so it enters the same triage → finding path as tool output.
 func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
-	ex, err := s.global().GetExchange(r.Context(), r.PathValue("id"))
+	ex, err := s.pdb(r).GetExchange(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "exchange not found")
 		return
@@ -1931,7 +1965,7 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	art, err := s.global().CreateArtifact(r.Context(), model.Artifact{
+	art, err := s.pdb(r).CreateArtifact(r.Context(), model.Artifact{
 		SHA256:    digest,
 		Size:      int64(len(blob)),
 		Kind:      model.ArtifactInput,
@@ -1946,7 +1980,7 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 	if ex.Status != nil {
 		title = title + " → " + http.StatusText(*ex.Status)
 	}
-	obs, err := s.global().CreateObservation(r.Context(), model.Observation{
+	obs, err := s.pdb(r).CreateObservation(r.Context(), model.Observation{
 		ArtifactID:  &art.ID,
 		Origin:      model.OriginHuman,
 		ReviewState: model.ReviewUnreviewed,
@@ -1960,7 +1994,7 @@ func (s *Server) exchangeEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.ItemID != "" {
-		if err := s.global().LinkCoverageObservation(r.Context(), ex.ProjectID, req.ItemID, obs.ID); err != nil {
+		if err := s.pdb(r).LinkCoverageObservation(r.Context(), ex.ProjectID, req.ItemID, obs.ID); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2037,7 +2071,7 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
-	t, err := s.global().GetTask(r.Context(), r.PathValue("id"))
+	t, err := s.pdb(r).GetTask(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
@@ -2067,7 +2101,7 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getTaskArtifacts(w http.ResponseWriter, r *http.Request) {
-	arts, err := s.global().ListArtifactsByTask(r.Context(), r.PathValue("id"))
+	arts, err := s.pdb(r).ListArtifactsByTask(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2076,7 +2110,7 @@ func (s *Server) getTaskArtifacts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
-	art, err := s.global().GetArtifact(r.Context(), r.PathValue("id"))
+	art, err := s.pdb(r).GetArtifact(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "artifact not found")
 		return
@@ -2145,7 +2179,7 @@ func (s *Server) listPlaybookRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getPlaybookRun(w http.ResponseWriter, r *http.Request) {
-	pr, err := s.global().GetPlaybookRun(r.Context(), r.PathValue("id"))
+	pr, err := s.pdb(r).GetPlaybookRun(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "playbook run not found")
 		return
@@ -2160,7 +2194,7 @@ func (s *Server) getPlaybookRun(w http.ResponseWriter, r *http.Request) {
 // --- observations & findings ---
 
 func (s *Server) getTaskObservations(w http.ResponseWriter, r *http.Request) {
-	obs, err := s.global().ListObservationsByTask(r.Context(), r.PathValue("id"))
+	obs, err := s.pdb(r).ListObservationsByTask(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2175,7 +2209,7 @@ func (s *Server) reviewObservation(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	err := s.global().ReviewObservation(r.Context(), r.PathValue("id"), req.State)
+	err := s.pdb(r).ReviewObservation(r.Context(), r.PathValue("id"), req.State)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "observation not found")
 		return
@@ -2212,7 +2246,7 @@ func (s *Server) createFinding(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "title is required")
 		return
 	}
-	f, err := s.global().CreateFinding(r.Context(), store.NewFinding{
+	f, err := s.pdb(r).CreateFinding(r.Context(), store.NewFinding{
 		ApplicationID:  req.ApplicationID,
 		Title:          req.Title,
 		Severity:       req.Severity,
@@ -2229,7 +2263,7 @@ func (s *Server) createFinding(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getFinding(w http.ResponseWriter, r *http.Request) {
-	f, err := s.global().GetFinding(r.Context(), r.PathValue("id"))
+	f, err := s.pdb(r).GetFinding(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "finding not found")
 		return

@@ -228,7 +228,7 @@ func (s *Server) runnerResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A runner may only return results for tasks assigned to it.
-	t, err := s.global().GetTask(r.Context(), req.TaskID)
+	t, err := s.pdb(r).GetTask(r.Context(), req.TaskID)
 	if err != nil || t.RunnerTarget != runnerIDFrom(r) {
 		writeErr(w, http.StatusForbidden, "task not assigned to this runner")
 		return

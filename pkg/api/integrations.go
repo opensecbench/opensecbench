@@ -15,7 +15,7 @@ func (s *Server) listIntegrations(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) listFindingLinks(w http.ResponseWriter, r *http.Request) {
-	links, err := s.global().ListExternalLinks(r.Context(), r.PathValue("id"))
+	links, err := s.pdb(r).ListExternalLinks(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -43,12 +43,12 @@ func (s *Server) pushFinding(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Idempotency: if already linked, return the existing link.
-	if existing, err := s.global().GetExternalLink(r.Context(), findingID, req.Integration); err == nil {
+	if existing, err := s.pdb(r).GetExternalLink(r.Context(), findingID, req.Integration); err == nil {
 		writeJSON(w, http.StatusOK, existing)
 		return
 	}
 
-	finding, err := s.global().GetFinding(r.Context(), findingID)
+	finding, err := s.pdb(r).GetFinding(r.Context(), findingID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "finding not found")
 		return
@@ -91,7 +91,7 @@ func (s *Server) pushFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	link, err := s.global().CreateExternalLink(r.Context(), model.ExternalLink{
+	link, err := s.pdb(r).CreateExternalLink(r.Context(), model.ExternalLink{
 		FindingID: findingID, Integration: req.Integration, ExternalID: ref.ID, ExternalURL: ref.URL,
 	})
 	if err != nil {
@@ -125,7 +125,7 @@ func (s *Server) resolveCredential(ctx context.Context, name string) (string, er
 
 // integrationConfig loads a project's stored integration config and resolves its credential (ADR-0027).
 func (s *Server) integrationConfig(ctx context.Context, projectID, name string) (integration.Config, error) {
-	c, err := s.global().GetIntegrationConfig(ctx, projectID, name)
+	c, err := s.pdbID(projectID).GetIntegrationConfig(ctx, projectID, name)
 	if err != nil {
 		return integration.Config{}, err
 	}
@@ -151,7 +151,7 @@ func (s *Server) projectOfFinding(ctx context.Context, f model.Finding) string {
 // listProjectIntegrations returns a project's configured integrations plus the available connectors and
 // whether each supports inbound pull.
 func (s *Server) listProjectIntegrations(w http.ResponseWriter, r *http.Request) {
-	configs, err := s.global().ListIntegrationConfigs(r.Context(), r.PathValue("id"))
+	configs, err := s.pdb(r).ListIntegrationConfigs(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -184,7 +184,7 @@ func (s *Server) setIntegrationConfig(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	cfg, err := s.global().SetIntegrationConfig(r.Context(), model.IntegrationConfig{
+	cfg, err := s.pdb(r).SetIntegrationConfig(r.Context(), model.IntegrationConfig{
 		ProjectID: r.PathValue("id"), Integration: name,
 		BaseURL: req.BaseURL, ProjectKey: req.ProjectKey, Credential: req.Credential,
 	})
@@ -198,7 +198,7 @@ func (s *Server) setIntegrationConfig(w http.ResponseWriter, r *http.Request) {
 
 // deleteIntegrationConfig removes a project's config for an integration.
 func (s *Server) deleteIntegrationConfig(w http.ResponseWriter, r *http.Request) {
-	if err := s.global().DeleteIntegrationConfig(r.Context(), r.PathValue("id"), r.PathValue("integration")); errors.Is(err, store.ErrNotFound) {
+	if err := s.pdb(r).DeleteIntegrationConfig(r.Context(), r.PathValue("id"), r.PathValue("integration")); errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "no such integration config")
 		return
 	} else if err != nil {
@@ -243,7 +243,7 @@ func (s *Server) pullIntegration(w http.ResponseWriter, r *http.Request) {
 		if ef.ExternalID == "" {
 			continue
 		}
-		if has, _ := s.global().HasImport(r.Context(), projectID, name, ef.ExternalID); has {
+		if has, _ := s.pdb(r).HasImport(r.Context(), projectID, name, ef.ExternalID); has {
 			skipped++
 			continue
 		}
@@ -252,7 +252,7 @@ func (s *Server) pullIntegration(w http.ResponseWriter, r *http.Request) {
 			review = model.ReviewConfirmed
 		}
 		pid := projectID
-		obs, err := s.global().CreateObservation(r.Context(), model.Observation{
+		obs, err := s.pdb(r).CreateObservation(r.Context(), model.Observation{
 			ProjectID: &pid, Origin: model.OriginTool, ReviewState: review,
 			Title: ef.Title, Detail: ef.Detail, Severity: normalizeSeverity(ef.Severity),
 			RuleID: name + ":" + ef.ExternalID, Location: ef.URL,
@@ -260,7 +260,7 @@ func (s *Server) pullIntegration(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		_ = s.global().RecordImport(r.Context(), projectID, name, ef.ExternalID, obs.ID)
+		_ = s.pdb(r).RecordImport(r.Context(), projectID, name, ef.ExternalID, obs.ID)
 		imported++
 	}
 	s.record(r.Context(), actorOf(r), "integration.pull", projectID, map[string]any{
