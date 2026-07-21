@@ -460,7 +460,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/applications/{id}/assets", s.listAssets)
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
-	s.mux.HandleFunc("PATCH /v1/assets/{id}", s.updateAsset)
+	s.mux.HandleFunc("PUT /v1/assets/{id}", s.updateAsset)
 	// Source viewer (ADR-0050): read a source_repo asset's tree/files for the in-app code viewer and
 	// click-to-file from findings. Reads are path-confined to the asset root (pkg/srcfile).
 	s.mux.HandleFunc("GET /v1/assets/{id}/source", s.getAssetSource)
