@@ -79,7 +79,14 @@ export function App() {
         <header className="topbar">
           <div className="crumb">{view === 'settings' ? 'Settings' : view === 'library' ? 'Library' : view === 'ext' ? 'Extensions' : 'Home'}</div>
           <div className="spacer" />
-          <ActivityMenu online={conn === 'online'} />
+          <ActivityMenu
+            online={conn === 'online'}
+            onOpen={async (kind, projectId) => {
+              if (!projectId) return
+              const p = (await api.listProjects().catch(() => []))?.find((x) => x.id === projectId)
+              if (p) openProject(p, { surface: kind === 'plan' ? 'orchestrate' : 'tasks' })
+            }}
+          />
           <NotificationBell online={conn === 'online'} />
           <span className={`conn conn-${conn}`}>
             <i /> {conn === 'online' ? 'control plane online' : conn === 'offline' ? 'control plane offline' : 'connecting…'}

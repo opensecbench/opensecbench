@@ -4,7 +4,7 @@ import { api, Plan, Task } from './api'
 // ActivityMenu is the top-bar "what's running" indicator: a live count of in-flight capability tasks and
 // agent plans across the workbench, expandable to a list. Polls while online so it reflects a scan you
 // just kicked off.
-export function ActivityMenu({ online }: { online: boolean }) {
+export function ActivityMenu({ online, onOpen }: { online: boolean; onOpen?: (kind: 'task' | 'plan', projectId?: string) => void }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
   const [open, setOpen] = useState(false)
@@ -56,7 +56,7 @@ export function ActivityMenu({ online }: { online: boolean }) {
                   <div className="activity-group">Scans &amp; tools ({tasks.length})</div>
                   <ul>
                     {tasks.map((t) => (
-                      <li key={t.id}>
+                      <li key={t.id} className={onOpen ? 'clickable' : ''} onClick={() => { onOpen?.('task'); setOpen(false) }}>
                         <span className={`act-dot s-${t.status}`} />
                         <span className="act-name mono">{t.capability_id}</span>
                         <span className="act-status">{t.status}</span>
@@ -70,7 +70,7 @@ export function ActivityMenu({ online }: { online: boolean }) {
                   <div className="activity-group">Agents ({plans.length})</div>
                   <ul>
                     {plans.map((p) => (
-                      <li key={p.id}>
+                      <li key={p.id} className={onOpen ? 'clickable' : ''} onClick={() => { onOpen?.('plan', p.project_id); setOpen(false) }}>
                         <span className={`act-dot s-${p.status}`} />
                         <span className="act-name mono">{p.playbook_id}</span>
                         <span className="act-status">{p.status}</span>
