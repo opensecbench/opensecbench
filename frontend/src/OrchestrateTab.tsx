@@ -150,7 +150,7 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
             </div>
             <div className="orch-pb-d">{pb.description}</div>
             <div className="orch-pb-steps">
-              {pb.steps.map((s, i) => (
+              {(pb.steps ?? []).map((s, i) => (
                 <span key={s.key} className="orch-pb-step">
                   {i > 0 && <span className="orch-arrow">→</span>}
                   <span className={`orch-chip ${s.gate ? 'gate' : ''}`}>{s.gate ? '⏸ gate' : s.profile}</span>
@@ -213,7 +213,7 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
                   <span className={`orch-dot s-${s.status}`} />
                   <b>{s.key}</b>
                   <span className="ps-profile">{s.profile}</span>
-                  {s.depends_on.length > 0 && <span className="ps-dep">after {s.depends_on.join(', ')}</span>}
+                  {(s.depends_on ?? []).length > 0 && <span className="ps-dep">after {(s.depends_on ?? []).join(', ')}</span>}
                   <span className="grow" />
                   <span className={`ps-status s-${s.status}`}>{s.status}</span>
                 </div>

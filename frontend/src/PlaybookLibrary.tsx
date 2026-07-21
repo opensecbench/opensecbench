@@ -71,7 +71,7 @@ export function PlaybookLibrary({ online }: { online: boolean }) {
           </div>
           <div className="orch-pb-d">{pb.description}</div>
           <div className="orch-pb-steps">
-            {pb.steps.map((s, i) => (
+            {(pb.steps ?? []).map((s, i) => (
               <span key={s.key} className="orch-pb-step">
                 {i > 0 && <span className="orch-arrow">→</span>}
                 <span className={`orch-chip ${s.gate ? 'gate' : ''}`}>{s.gate ? '⏸ gate' : s.profile}</span>
