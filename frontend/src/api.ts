@@ -613,10 +613,9 @@ export interface ModelRef {
   model: string
 }
 
-export interface ModelRouting {
-  default?: ModelRef
-  tags?: Record<string, ModelRef>
-}
+// A tag maps to an ordered priority list of (connection, model) — index 0 is used first, the rest are
+// fall-through candidates (ADR-0052).
+export type ModelRouting = Record<string, ModelRef[]>
 
 export interface SettingField {
   key: string
