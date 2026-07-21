@@ -114,7 +114,10 @@ type Step struct {
 
 // Result is the outcome of a run.
 type Result struct {
-	Answer       string        `json:"answer"`
+	Answer string `json:"answer"`
+	// Stopped is true when the loop hit the step cap without the model giving a final answer — the Answer
+	// is then a placeholder, not real work product. Callers should treat the run as incomplete, not done.
+	Stopped      bool          `json:"stopped"`
 	Steps        []Step        `json:"steps"`
 	Transcript   []llm.Message `json:"transcript"`
 	InputTokens  int           `json:"input_tokens"`
@@ -210,6 +213,7 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 
 	res.Transcript = msgs
 	res.Answer = "(stopped: reached the step limit without a final answer)"
+	res.Stopped = true
 	return res, nil
 }
 
