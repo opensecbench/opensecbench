@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react'
 import { api, SettingSection } from './api'
 import { applyTheme } from './theme'
 import { Providers } from './Providers'
-import { ModelRouting } from './ModelRouting'
+import { Tags } from './Tags'
 import { ApprovalPolicy } from './ApprovalPolicy'
 import { CustomAgents } from './CustomAgents'
 
 // Custom (bespoke-component) sections, composed alongside declarative ones from the API (ADR-0021).
 const CUSTOM: { id: string; title: string; icon: string; order: number }[] = [
   { id: 'providers', title: 'Models & Providers', icon: '🧠', order: 20 },
-  { id: 'routing', title: 'Model Routing', icon: '🎯', order: 25 },
   { id: 'approvals', title: 'Approvals', icon: '🛡', order: 30 },
   { id: 'agents', title: 'Custom Agents', icon: '🤖', order: 40 },
 ]
@@ -59,8 +58,12 @@ export function Settings({ online }: { online: boolean }) {
         ))}
       </nav>
       <div className="settings-body">
-        {active === 'providers' && <Providers online={online} />}
-        {active === 'routing' && <ModelRouting online={online} />}
+        {active === 'providers' && (
+          <>
+            <Providers online={online} />
+            <Tags online={online} />
+          </>
+        )}
         {active === 'approvals' && <ApprovalPolicy online={online} />}
         {active === 'agents' && <CustomAgents online={online} />}
         {activeSection && (
