@@ -2004,6 +2004,10 @@ select option {
 .orch-dot.s-done { background: var(--green); }
 .orch-dot.s-failed { background: var(--red); }
 .orch-dot.s-skipped { background: var(--tx3); opacity: 0.5; }
+.orch-dot.s-cancelled { background: var(--tx3); opacity: 0.5; }
+.orch-stop { font-size: 11.5px; color: var(--red); background: transparent; border: 1px solid color-mix(in srgb, var(--red) 45%, var(--line)); border-radius: 6px; padding: 3px 11px; cursor: pointer; }
+.orch-stop:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
+.orch-stop:disabled { opacity: 0.5; cursor: default; }
 @keyframes orch-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .orch-dot.s-running { animation: none; } }
 

@@ -11,6 +11,67 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
+// planCancels tracks in-flight plan runs so a human can stop them. Plans run in background goroutines that
+// outlive any single request, and the analyst Service is created per-request, so this registry is
+// process-level (one per process). Cancelling a plan's context aborts its in-flight LLM call (HTTP request
+// or `claude` subprocess) and stops the runner from starting further steps.
+var planCancels = struct {
+	mu sync.Mutex
+	m  map[string]context.CancelFunc
+}{m: map[string]context.CancelFunc{}}
+
+func registerPlan(id string, cancel context.CancelFunc) {
+	planCancels.mu.Lock()
+	planCancels.m[id] = cancel
+	planCancels.mu.Unlock()
+}
+
+func unregisterPlan(id string) {
+	planCancels.mu.Lock()
+	delete(planCancels.m, id)
+	planCancels.mu.Unlock()
+}
+
+// cancelPlanRun aborts a running plan's context, returning whether one was in flight.
+func cancelPlanRun(id string) bool {
+	planCancels.mu.Lock()
+	defer planCancels.mu.Unlock()
+	if cancel, ok := planCancels.m[id]; ok {
+		cancel()
+		delete(planCancels.m, id)
+		return true
+	}
+	return false
+}
+
+// launchPlan starts (or relaunches) a plan run under a cancellable context registered for stopping.
+func (svc *Service) launchPlan(plan model.Plan) {
+	ctx, cancel := context.WithCancel(context.Background())
+	registerPlan(plan.ID, cancel)
+	go svc.runPlan(ctx, plan)
+}
+
+// CancelPlan stops a running (or approval-waiting) plan: it aborts the in-flight LLM call, marks the plan
+// cancelled, and skips any steps that hadn't finished — so nothing keeps burning tokens.
+func (svc *Service) CancelPlan(ctx context.Context, projectID, planID string) error {
+	plan, err := svc.p(projectID).GetPlan(ctx, planID)
+	if err != nil {
+		return err
+	}
+	if plan.Status != model.PlanRunning && plan.Status != model.PlanWaiting {
+		return fmt.Errorf("plan is %s, not running", plan.Status)
+	}
+	cancelPlanRun(planID) // abort in-flight work
+	for _, s := range plan.Steps {
+		switch s.Status {
+		case model.StepPending, model.StepRunning, model.StepWaiting:
+			svc.setStep(ctx, projectID, s.ID, model.StepSkipped, "", "cancelled")
+		}
+	}
+	svc.setPlanStatus(ctx, projectID, planID, model.PlanCancelled)
+	return nil
+}
+
 // setStep / setPlanStatus persist plan progress, logging on failure instead of silently dropping it — a
 // dropped write here means an inspecting UI (or a resumed run) sees stale state, so failures must be visible.
 func (svc *Service) setStep(ctx context.Context, projectID, stepID, status, result, note string) {
@@ -48,7 +109,7 @@ func (svc *Service) StartPlan(ctx context.Context, projectID, playbookID string)
 	if err != nil {
 		return model.Plan{}, err
 	}
-	go svc.runPlan(created)
+	svc.launchPlan(created)
 	return created, nil
 }
 
@@ -61,8 +122,8 @@ func (svc *Service) StartPlan(ctx context.Context, projectID, playbookID string)
 // can be relaunched after a mid-run approval pause and pick up exactly where it left off. When a
 // not-yet-approved gate step's dependencies are complete, it parks the plan in 'waiting' and returns; a
 // human's ResolvePlanGate clears (or denies) the gate and relaunches the run.
-func (svc *Service) runPlan(plan model.Plan) {
-	ctx := context.Background()
+func (svc *Service) runPlan(ctx context.Context, plan model.Plan) {
+	defer unregisterPlan(plan.ID)
 	// Reload so a resumed run sees the persisted step ids/statuses/results (and any just-resolved gate).
 	if reloaded, err := svc.p(plan.ProjectID).GetPlan(ctx, plan.ID); err == nil {
 		plan = reloaded
@@ -84,6 +145,11 @@ func (svc *Service) runPlan(plan model.Plan) {
 	}
 
 	for {
+		// Stopped by a human: abort before starting any more work. CancelPlan has persisted the terminal
+		// state (plan cancelled, unfinished steps skipped), so just bow out.
+		if ctx.Err() != nil {
+			return
+		}
 		progressed := false
 
 		// Collect the ready set (dependencies satisfied), skipping steps whose dependency failed.
@@ -258,7 +324,7 @@ func (svc *Service) ResolvePlanGate(ctx context.Context, projectID, planID, step
 	}
 	// Flip back to running and relaunch; the resumed run reconstructs state and continues (or ends).
 	svc.setPlanStatus(ctx, projectID, planID, model.PlanRunning)
-	go svc.runPlan(plan)
+	svc.launchPlan(plan)
 	return svc.p(projectID).GetPlan(ctx, planID)
 }
 

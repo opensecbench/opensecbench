@@ -73,7 +73,7 @@ func TestRunPlanHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.runPlan(created) // synchronous
+	svc.runPlan(context.Background(), created) // synchronous
 
 	got, err := db.GetPlan(ctx, created.ID)
 	if err != nil {
@@ -104,7 +104,7 @@ func TestRunPlanGatePausesThenResumes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.runPlan(created) // synchronous — runs recon, then parks at the gate
+	svc.runPlan(context.Background(), created) // synchronous — runs recon, then parks at the gate
 
 	got, _ := db.GetPlan(ctx, created.ID)
 	if got.Status != model.PlanWaiting {
@@ -136,7 +136,7 @@ func TestRunPlanGatePausesThenResumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.UpdatePlanStatus(ctx, created.ID, model.PlanRunning)
-	svc.runPlan(created)
+	svc.runPlan(context.Background(), created)
 
 	got, _ = db.GetPlan(ctx, created.ID)
 	if got.Status != model.PlanDone {
@@ -160,7 +160,7 @@ func TestRunPlanGateDenySkipsDependents(t *testing.T) {
 		{Key: "act", Profile: "report-writer", Instruction: "act", DependsOn: []string{"gate"}},
 	}}
 	created, _ := db.CreatePlan(ctx, plan)
-	svc.runPlan(created) // parks at the gate immediately
+	svc.runPlan(context.Background(), created) // parks at the gate immediately
 
 	got, _ := db.GetPlan(ctx, created.ID)
 	var gateID string
@@ -173,7 +173,7 @@ func TestRunPlanGateDenySkipsDependents(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.UpdatePlanStatus(ctx, created.ID, model.PlanRunning)
-	svc.runPlan(created)
+	svc.runPlan(context.Background(), created)
 
 	got, _ = db.GetPlan(ctx, created.ID)
 	if got.Status != model.PlanFailed {
@@ -231,7 +231,7 @@ func TestRunPlanRunsIndependentStepsConcurrently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.runPlan(created)
+	svc.runPlan(context.Background(), created)
 
 	got, _ := db.GetPlan(ctx, created.ID)
 	if got.Status != model.PlanDone {
@@ -267,7 +267,7 @@ func TestAssessmentScannersRunInParallel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.runPlan(created)
+	svc.runPlan(context.Background(), created)
 
 	got, _ := db.GetPlan(ctx, created.ID)
 	// Recon + all four scanners + triage have run; the plan is parked at the approval gate.
@@ -308,7 +308,7 @@ func TestRunPlanBreaksOnCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.runPlan(created)
+	svc.runPlan(context.Background(), created)
 
 	got, _ := db.GetPlan(ctx, created.ID)
 	if got.Status != model.PlanFailed {
@@ -328,5 +328,39 @@ func TestPlansListedByProject(t *testing.T) {
 	}
 	if len(plans) != 1 || plans[0].PlaybookID != "onboarding" {
 		t.Fatalf("plans = %+v", plans)
+	}
+}
+
+func TestCancelPlan(t *testing.T) {
+	ctx := context.Background()
+	db, projectID := seedProject(t)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
+
+	plan, err := db.CreatePlan(ctx, model.Plan{
+		ProjectID: projectID, PlaybookID: "x", Status: model.PlanRunning,
+		Steps: []model.PlanStep{
+			{Key: "a", Profile: "code-analysis", Status: model.StepRunning},
+			{Key: "b", Profile: "pentester", Status: model.StepPending, DependsOn: []string{"a"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.CancelPlan(ctx, projectID, plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := db.GetPlan(ctx, plan.ID)
+	if got.Status != model.PlanCancelled {
+		t.Fatalf("plan status = %s, want cancelled", got.Status)
+	}
+	for _, s := range got.Steps {
+		if s.Status != model.StepSkipped {
+			t.Fatalf("step %s = %s, want skipped", s.Key, s.Status)
+		}
+	}
+	// Cancelling an already-terminal plan is rejected.
+	if err := svc.CancelPlan(ctx, projectID, plan.ID); err == nil {
+		t.Fatal("cancel of a cancelled plan should error")
 	}
 }
