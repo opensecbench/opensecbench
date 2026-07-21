@@ -433,7 +433,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/applications/{id}", s.getApplication)
 	s.mux.HandleFunc("GET /v1/projects/{id}/context", s.listContext)
 	s.mux.HandleFunc("POST /v1/projects/{id}/context", s.ingestContext)
-	s.mux.HandleFunc("PATCH /v1/context/{id}", s.updateContext)
+	// PUT (not PATCH): PATCH is absent from the CORS allow-methods list, so the browser preflight would
+	// reject it — the same reason the asset-update endpoint uses PUT.
+	s.mux.HandleFunc("PUT /v1/context/{id}", s.updateContext)
 	s.mux.HandleFunc("DELETE /v1/context/{id}", s.deleteContext)
 	s.mux.HandleFunc("GET /v1/projects/{id}/scope", s.listScope)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scope", s.addScope)
