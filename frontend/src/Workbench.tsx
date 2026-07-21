@@ -78,26 +78,40 @@ interface AppAssets {
 // right-hand dock, always present, never a surface you navigate to.
 const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
   { key: 'assets', icon: '🗂', label: 'Assets' },
-  { key: 'methodology', icon: '✓', label: 'Method' },
-  { key: 'knowledge', icon: '📚', label: 'Know' },
   { key: 'context', icon: '🔬', label: 'Context' },
-  { key: 'findings', icon: '⚑', label: 'Find' },
-  { key: 'investigations', icon: '🔎', label: 'Investg' },
+  { key: 'knowledge', icon: '📚', label: 'Know' },
   { key: 'replay', icon: '↔', label: 'Replay' },
   { key: 'proxy', icon: '📡', label: 'Proxy' },
   { key: 'intercept', icon: '✋', label: 'Intcpt' },
   { key: 'terminal', icon: '▤', label: 'Term' },
   { key: 'scan', icon: '▷', label: 'Scan' },
-  { key: 'playbooks', icon: '🧩', label: 'Play' },
-  { key: 'orchestrate', icon: '🤖', label: 'Agents' },
-  { key: 'tasks', icon: '☰', label: 'Tasks' },
+  { key: 'findings', icon: '⚑', label: 'Find' },
+  { key: 'investigations', icon: '🔎', label: 'Invest' },
   { key: 'graph', icon: '📊', label: 'Graph' },
+  { key: 'methodology', icon: '✓', label: 'Method' },
   { key: 'scope', icon: '🛡', label: 'Scope' },
-  { key: 'reports', icon: '📄', label: 'Report', meta: true },
+  { key: 'orchestrate', icon: '🤖', label: 'Agents' },
+  { key: 'playbooks', icon: '🧩', label: 'Play' },
+  { key: 'tasks', icon: '☰', label: 'Tasks' },
+  { key: 'reports', icon: '📄', label: 'Report' },
   { key: 'integrations', icon: '🔌', label: 'Integr', meta: true },
   { key: 'settings', icon: '⚙', label: 'Settings', meta: true },
   { key: 'audit', icon: '📜', label: 'Audit', meta: true },
 ]
+
+// The activity bar's primary surfaces, grouped by what they're for (ADR-0015 declutter) — so the rail
+// scans as a workflow (evidence → testing → analysis → coverage → run → deliver) instead of a wall of
+// icons. Meta surfaces (Settings/Integrations/Audit) still sit below a divider; global config/library
+// moves out of the project entirely in a later step.
+const SURFACE_GROUPS: { label: string; keys: Tab[] }[] = [
+  { label: 'Evidence', keys: ['assets', 'context', 'knowledge'] },
+  { label: 'Testing', keys: ['replay', 'proxy', 'intercept', 'terminal', 'scan'] },
+  { label: 'Analysis', keys: ['findings', 'investigations', 'graph'] },
+  { label: 'Coverage', keys: ['methodology', 'scope'] },
+  { label: 'Run', keys: ['orchestrate', 'playbooks', 'tasks'] },
+  { label: 'Deliver', keys: ['reports'] },
+]
+const surfaceByKey = (k: Tab) => SURFACES.find((s) => s.key === k)!
 
 // Surfaces that can hold more than one open document at a time — only these get a
 // document-tab row. Every other surface is a singleton reached solely via the
@@ -791,13 +805,18 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
 
       <div className="wb-body">
         <nav className="wb-activity">
-          {SURFACES.filter((s) => !s.meta).map((s) => (
-            <button key={s.key} className={`wb-ic ${activeSurface === s.key ? 'on' : ''} ${openDocs.some((d) => d.surface === s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => activateSurface(s.key)}>
-              <span>{s.icon}</span>
-              {s.key === 'findings' && findings.length > 0 && <span className="n red">{findings.length}</span>}
-              {s.key === 'context' && context.length > 0 && <span className="n">{context.length}</span>}
-              <small>{s.label}</small>
-            </button>
+          {SURFACE_GROUPS.map((g) => (
+            <div key={g.label} className="wb-actgrp">
+              <div className="wb-actgrp-h">{g.label}</div>
+              {g.keys.map((k) => surfaceByKey(k)).map((s) => (
+                <button key={s.key} className={`wb-ic ${activeSurface === s.key ? 'on' : ''} ${openDocs.some((d) => d.surface === s.key) ? 'opened' : ''}`} title={surfaceTitle(s.key)} onClick={() => activateSurface(s.key)}>
+                  <span>{s.icon}</span>
+                  {s.key === 'findings' && findings.length > 0 && <span className="n red">{findings.length}</span>}
+                  {s.key === 'context' && context.length > 0 && <span className="n">{context.length}</span>}
+                  <small>{s.label}</small>
+                </button>
+              ))}
+            </div>
           ))}
           <div className="wb-actsp" />
           <div className="wb-actdiv" />
