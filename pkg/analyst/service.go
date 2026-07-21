@@ -279,6 +279,17 @@ func (svc *Service) Routing(ctx context.Context) map[string][]RoutingEntry {
 	return out
 }
 
+// DefaultRoutingRef returns the top (connection, model) of the "default" tag — what the interactive chat
+// resolves to (ADR-0052) — for the UI's model indicator. ok is false when the default tag is unset.
+func (svc *Service) DefaultRoutingRef(ctx context.Context) (RoutingEntry, bool) {
+	for _, ref := range svc.loadRouting(ctx).Tags["default"] {
+		if ref.ProviderID != "" {
+			return RoutingEntry{ProviderID: ref.ProviderID, Model: ref.Model}, true
+		}
+	}
+	return RoutingEntry{}, false
+}
+
 // providerModelForTag resolves the provider + session model for a tag (ADR-0021). Retained for callers
 // that don't attribute usage; new attribution-aware callers use targetForTag.
 func (svc *Service) providerModelForTag(ctx context.Context, tag string) (llm.Provider, string) {

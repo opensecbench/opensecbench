@@ -107,7 +107,20 @@ func (s *Server) loadActiveProvider() {
 
 // --- handlers ---
 
-func (s *Server) getActiveProvider(w http.ResponseWriter, _ *http.Request) {
+// getActiveProvider reports the model the interactive chat runs on: the "default" tag's top entry
+// (ADR-0052), falling back to the bootstrap active provider when no default routing is set.
+func (s *Server) getActiveProvider(w http.ResponseWriter, r *http.Request) {
+	if ref, ok := s.analystService().DefaultRoutingRef(r.Context()); ok {
+		if p, err := s.global().GetProvider(r.Context(), ref.ProviderID); err == nil {
+			built, _ := s.buildProvider(p)
+			info := infoFor(p.ID, p, built)
+			if ref.Model != "" {
+				info.Model = ref.Model
+			}
+			writeJSON(w, http.StatusOK, info)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, s.activeInfo())
 }
 
