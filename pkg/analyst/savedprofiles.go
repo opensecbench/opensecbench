@@ -18,7 +18,7 @@ func (svc *Service) resolveProfile(ctx context.Context, id string) Profile {
 	if sp, err := svc.g().GetSavedProfile(ctx, id); err == nil {
 		var tools []string
 		_ = json.Unmarshal(sp.Tools, &tools)
-		return Profile{ID: sp.ID, Name: sp.Name, Description: sp.Description, Persona: sp.Persona, Tools: tools}
+		return Profile{ID: sp.ID, Name: sp.Name, Description: sp.Description, Persona: sp.Persona, Tools: tools, ModelTag: sp.ModelTag}
 	}
 	return ProfileByID(id) // generalist fallback
 }
@@ -32,8 +32,9 @@ func (svc *Service) profileExists(ctx context.Context, id string) bool {
 	return err == nil
 }
 
-// SaveProfile stores a user-defined profile after validating its persona and tool allow-list.
-func (svc *Service) SaveProfile(ctx context.Context, name, description, persona string, tools []string) (model.SavedProfile, error) {
+// SaveProfile stores a user-defined profile after validating its persona and tool allow-list. modelTag
+// is the routing tag the agent runs on (ADR-0052); empty inherits the default list.
+func (svc *Service) SaveProfile(ctx context.Context, name, description, persona string, tools []string, modelTag string) (model.SavedProfile, error) {
 	if name == "" || persona == "" {
 		return model.SavedProfile{}, errors.New("a custom agent needs a name and a persona")
 	}
@@ -53,5 +54,5 @@ func (svc *Service) SaveProfile(ctx context.Context, name, description, persona 
 	if err != nil {
 		return model.SavedProfile{}, err
 	}
-	return svc.g().CreateSavedProfile(ctx, model.SavedProfile{Name: name, Description: description, Persona: persona, Tools: b})
+	return svc.g().CreateSavedProfile(ctx, model.SavedProfile{Name: name, Description: description, Persona: persona, Tools: b, ModelTag: modelTag})
 }

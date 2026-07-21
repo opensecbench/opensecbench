@@ -11,6 +11,7 @@ export function CustomAgents({ online }: { online: boolean }) {
   const [description, setDescription] = useState('')
   const [persona, setPersona] = useState('')
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [modelTag, setModelTag] = useState('') // routing tag; '' inherits the default list (ADR-0052)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -43,11 +44,12 @@ export function CustomAgents({ online }: { online: boolean }) {
     setError(null)
     setSaving(true)
     try {
-      await api.createAgentProfile({ name: name.trim(), description: description.trim(), persona: persona.trim(), tools: [...picked] })
+      await api.createAgentProfile({ name: name.trim(), description: description.trim(), persona: persona.trim(), tools: [...picked], model_tag: modelTag })
       setName('')
       setDescription('')
       setPersona('')
       setPicked(new Set())
+      setModelTag('')
       setBuilding(false)
       await load()
     } catch (e) {
@@ -101,6 +103,14 @@ export function CustomAgents({ online }: { online: boolean }) {
               </label>
             ))}
           </div>
+          <div className="agents-tools-label">Model — which tag's models this agent runs on</div>
+          <select className="pbuild-in" value={modelTag} onChange={(e) => setModelTag(e.target.value)}>
+            <option value="">default routing (inherit)</option>
+            <option value="cheap">cheap</option>
+            <option value="fast">fast</option>
+            <option value="reasoning">reasoning</option>
+            <option value="long-context">long-context</option>
+          </select>
           <div className="pbuild-actions">
             <span className="grow" />
             <button className="pbuild-save" disabled={!online || saving || !name.trim() || !persona.trim() || picked.size === 0} onClick={save}>

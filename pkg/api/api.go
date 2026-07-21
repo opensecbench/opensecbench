@@ -1107,11 +1107,12 @@ func (s *Server) createSavedProfile(w http.ResponseWriter, r *http.Request) {
 		Description string   `json:"description"`
 		Persona     string   `json:"persona"`
 		Tools       []string `json:"tools"`
+		ModelTag    string   `json:"model_tag"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	sp, err := s.analystService().SaveProfile(r.Context(), req.Name, req.Description, req.Persona, req.Tools)
+	sp, err := s.analystService().SaveProfile(r.Context(), req.Name, req.Description, req.Persona, req.Tools, req.ModelTag)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
