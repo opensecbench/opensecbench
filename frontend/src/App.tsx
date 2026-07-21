@@ -3,6 +3,7 @@ import { api, Project, setActiveProject } from './api'
 import { Home } from './Home'
 import { Workbench } from './Workbench'
 import { NotificationBell } from './NotificationBell'
+import { ActivityMenu } from './ActivityMenu'
 import { ExtensionsView } from './ExtensionsView'
 import { Settings } from './Settings'
 import { Library } from './Library'
@@ -78,6 +79,7 @@ export function App() {
         <header className="topbar">
           <div className="crumb">{view === 'settings' ? 'Settings' : view === 'library' ? 'Library' : view === 'ext' ? 'Extensions' : 'Home'}</div>
           <div className="spacer" />
+          <ActivityMenu online={conn === 'online'} />
           <NotificationBell online={conn === 'online'} />
           <span className={`conn conn-${conn}`}>
             <i /> {conn === 'online' ? 'control plane online' : conn === 'offline' ? 'control plane offline' : 'connecting…'}

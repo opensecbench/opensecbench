@@ -1043,6 +1043,24 @@ select option {
 }
 
 /* Notification bell */
+/* top-bar activity menu (what's running) */
+.activity{position:relative;margin-right:14px}
+.activity-btn{display:inline-flex;align-items:center;gap:5px;background:var(--bg3);border:1px solid var(--line2);border-radius:14px;cursor:pointer;font-size:11.5px;color:var(--tx3);padding:3px 10px;line-height:1}
+.activity-btn.busy{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 40%,var(--line))}
+.activity-spin{display:inline-block;font-size:12px}
+.activity-spin.on{animation:activity-rot 1.6s linear infinite;color:var(--amber)}
+@keyframes activity-rot{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.activity-spin.on{animation:none}}
+.activity-panel{position:absolute;top:34px;right:0;width:300px;max-height:420px;overflow:auto;background:var(--bg3);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.5);z-index:50}
+.activity-head{padding:10px 12px;border-bottom:1px solid var(--line);font-weight:600;font-size:13px}
+.activity-group{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);font-weight:700;padding:8px 12px 4px}
+.activity-panel ul{list-style:none;margin:0;padding:0}
+.activity-panel li{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12.5px}
+.activity-panel .act-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--line2)}
+.activity-panel .act-dot.s-running{background:var(--amber);animation:orch-pulse 1.2s ease-in-out infinite}
+.activity-panel .act-dot.s-waiting{background:var(--amber)}
+.activity-panel .act-name{color:var(--tx2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-panel .act-status{font-size:10.5px;color:var(--tx3);text-transform:uppercase;letter-spacing:.04em}
 .bell{position:relative;margin-right:14px}
 .bell-btn{background:none;border:none;cursor:pointer;font-size:16px;position:relative;padding:4px;line-height:1}
 .bell-badge{position:absolute;top:-2px;right:-4px;background:var(--red);color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;min-width:14px;text-align:center}
