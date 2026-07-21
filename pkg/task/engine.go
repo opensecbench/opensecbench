@@ -158,6 +158,15 @@ func NewEngine(mgr *store.Manager, casr cas.Resolver, reg *capability.Registry, 
 		if n, err := mgr.RequeueInterruptedTasks(ctx); err == nil && n > 0 {
 			log.Printf("task: requeued %d interrupted task(s) on startup", n)
 		}
+		// Plans/playbook runs aren't durably re-drivable like tasks — their coordinating goroutine dies with
+		// the process — so a run left "running" by a restart is a ghost. Fail them so they don't show as
+		// running forever (a "waiting" plan is left alone; it's parked on a gate and resumes on approval).
+		if n, err := mgr.FailUnfinishedPlans(ctx); err == nil && n > 0 {
+			log.Printf("plan: failed %d interrupted plan(s) on startup", n)
+		}
+		if n, err := mgr.FailUnfinishedPlaybookRuns(ctx); err == nil && n > 0 {
+			log.Printf("playbook: failed %d interrupted run(s) on startup", n)
+		}
 	}
 	for i := 0; i < workers; i++ {
 		e.wg.Add(1)

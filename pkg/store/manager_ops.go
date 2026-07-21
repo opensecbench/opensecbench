@@ -188,6 +188,28 @@ func (m *Manager) RequeueInterruptedTasks(ctx context.Context) (int, error) {
 	return total, nil
 }
 
+// FailUnfinishedPlans fails agent plans left "running" by a crash/restart, across all projects.
+func (m *Manager) FailUnfinishedPlans(ctx context.Context) (int, error) {
+	if m.combined {
+		return m.global.FailUnfinishedPlans(ctx)
+	}
+	ids, err := m.activeProjectIDs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	total := 0
+	for _, id := range ids {
+		pdb, err := m.Project(id)
+		if err != nil {
+			continue
+		}
+		if n, err := pdb.FailUnfinishedPlans(ctx); err == nil {
+			total += n
+		}
+	}
+	return total, nil
+}
+
 // FailUnfinishedPlaybookRuns fails runs left "running" by a crash, across all projects.
 func (m *Manager) FailUnfinishedPlaybookRuns(ctx context.Context) (int, error) {
 	if m.combined {
