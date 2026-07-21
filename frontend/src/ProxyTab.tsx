@@ -41,6 +41,14 @@ function statusClass(status?: number): string {
 // The Proxy: capture + a first-class, filterable history with a detail view. Actions on an
 // exchange (Send to Replay, Save as evidence, Copy as curl) come from the shared action registry
 // (ADR-0016), so this surface never hard-codes what you can do with a request.
+const MAX_BODY_CHARS = 200_000
+// clipBody caps the displayed body so a multi-MB response doesn't render a giant DOM text node — that
+// (plus recomputing the selection on every traffic flush) is what made clicking a request slow. The full
+// body is still captured; this only bounds what's shown.
+function clipBody(s: string): string {
+  return s.length > MAX_BODY_CHARS ? s.slice(0, MAX_BODY_CHARS) + `\n\n…(${s.length - MAX_BODY_CHARS} more bytes — truncated for display)` : s
+}
+
 export function ProxyTab({
   project,
   online,
@@ -60,7 +68,7 @@ export function ProxyTab({
   const [method, setMethod] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [q, setQ] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selected, setSelected] = useState<HTTPExchange | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [rules, setRules] = useState<ProxyRule[]>([])
   const [showRules, setShowRules] = useState(false)
@@ -216,7 +224,31 @@ export function ProxyTab({
     }
   }
 
-  const selected = useMemo(() => captured.find((e) => e.id === selectedId) ?? null, [captured, selectedId])
+  // Sort state for the capture table. Default: newest received first (the capture list already arrives that
+  // way, so 'received' desc is a no-op pass-through).
+  const [sortKey, setSortKey] = useState<'received' | 'status' | 'method' | 'url' | 'ms'>('received')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  function toggleSort(key: typeof sortKey) {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(key); setSortDir(key === 'url' || key === 'method' ? 'asc' : 'desc') }
+  }
+  // `captured` is newest-first as received; index encodes arrival order for the 'received' sort.
+  const sorted = useMemo(() => {
+    const rows = captured.map((e, i) => ({ e, ord: captured.length - i })) // ord: higher = more recent
+    const dir = sortDir === 'asc' ? 1 : -1
+    rows.sort((a, b) => {
+      let c = 0
+      switch (sortKey) {
+        case 'received': c = a.ord - b.ord; break
+        case 'status': c = (a.e.status ?? 0) - (b.e.status ?? 0); break
+        case 'method': c = a.e.method.localeCompare(b.e.method); break
+        case 'url': c = a.e.url.localeCompare(b.e.url); break
+        case 'ms': c = (a.e.duration_ms ?? 0) - (b.e.duration_ms ?? 0); break
+      }
+      return c !== 0 ? c * dir : (a.ord - b.ord) * -1 // stable tiebreak: most recent first
+    })
+    return rows
+  }, [captured, sortKey, sortDir])
 
   const ctx: ActionContext = {
     openReplay: (ex) => onSendToReplay(ex),
@@ -318,11 +350,24 @@ export function ProxyTab({
           ) : (
             <table className="proxy-table">
               <thead>
-                <tr><th>status</th><th>method</th><th>URL</th><th>ms</th></tr>
+                <tr className="sortable">
+                  {([
+                    ['received', '#'],
+                    ['status', 'status'],
+                    ['method', 'method'],
+                    ['url', 'URL'],
+                    ['ms', 'ms'],
+                  ] as const).map(([key, label]) => (
+                    <th key={key} onClick={() => toggleSort(key)} className={sortKey === key ? 'on' : ''}>
+                      {label}{sortKey === key && <span className="sort-arrow">{sortDir === 'asc' ? ' ▲' : ' ▼'}</span>}
+                    </th>
+                  ))}
+                </tr>
               </thead>
               <tbody>
-                {captured.map((e) => (
-                  <tr key={e.id} className={`${selectedId === e.id ? 'sel' : ''} ${e.in_scope === false ? 'oos' : ''}`} onClick={() => setSelectedId(e.id)}>
+                {sorted.map(({ e, ord }) => (
+                  <tr key={e.id} className={`${selected?.id === e.id ? 'sel' : ''} ${e.in_scope === false ? 'oos' : ''}`} onClick={() => setSelected(e)}>
+                    <td className="muted num">{ord}</td>
                     <td><span className={`badge ${statusClass(e.status)}`}>{e.status ?? '—'}</span></td>
                     <td className="kind">{e.method}</td>
                     <td className="mono url">{e.in_scope === false && <span className="oos-tag" title="out of scope">out</span>}{(() => { const b = tlsBadge(e.tls); return b ? <span className={`tls-badge ${b.cls}`} title={b.title}>{b.icon}</span> : null })()}{e.url}</td>
@@ -350,7 +395,7 @@ export function ProxyTab({
                 <div className="proxy-lbl">Request</div>
                 <pre className="mono">{selected.method} {selected.url}
 {selected.request_headers}
-{selected.request_body ? '\n' + selected.request_body : ''}</pre>
+{selected.request_body ? '\n' + clipBody(selected.request_body) : ''}</pre>
               </div>
               <div className="proxy-pane">
                 <div className="proxy-lbl">
@@ -358,7 +403,7 @@ export function ProxyTab({
                   {selected.duration_ms != null && <span className="muted"> · {selected.duration_ms} ms</span>}
                 </div>
                 <pre className="mono">{selected.response_headers}
-{selected.response_body ? '\n' + selected.response_body : ''}</pre>
+{selected.response_body ? '\n' + clipBody(selected.response_body) : ''}</pre>
               </div>
             </>
           )}
