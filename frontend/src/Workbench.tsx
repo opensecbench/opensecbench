@@ -28,6 +28,7 @@ import { AnalystPanel } from './AnalystPanel'
 import { LocationChip, OpenCode, parseLoc } from './CodeLink'
 import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
+import { ActivityMenu } from './ActivityMenu'
 import { GraphTab } from './GraphTab'
 import { RoutesTab } from './RoutesTab'
 import { FindingReachability } from './FindingReachability'
@@ -849,6 +850,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
           <span className="dot" /> {project.name} <span className="car">▾</span>
         </button>
         <OmniSearch online={online} onNavigate={navigateTo} />
+        <ActivityMenu online={online} />
         <NotificationBell online={online} />
         <code className="apiurl">{api.baseURL}</code>
       </div>
