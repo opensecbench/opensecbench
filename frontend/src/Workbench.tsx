@@ -866,7 +866,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
           <span className="dot" /> {project.name} <span className="car">▾</span>
         </button>
         <OmniSearch online={online} projectId={project.id} onNavigate={navigateTo} onOpenCode={openCodeFile} />
-        <ActivityMenu online={online} />
+        <ActivityMenu online={online} onOpen={(kind) => activateSurface(kind === 'plan' ? 'orchestrate' : 'tasks')} />
         <NotificationBell online={online} />
         <code className="apiurl">{api.baseURL}</code>
       </div>

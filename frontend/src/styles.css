@@ -1060,6 +1060,8 @@ select option {
 .activity-group{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);font-weight:700;padding:8px 12px 4px}
 .activity-panel ul{list-style:none;margin:0;padding:0}
 .activity-panel li{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12.5px}
+.activity-panel li.clickable{cursor:pointer}
+.activity-panel li.clickable:hover{background:var(--bg4)}
 .activity-panel .act-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--line2)}
 .activity-panel .act-dot.s-running{background:var(--amber);animation:orch-pulse 1.2s ease-in-out infinite}
 .activity-panel .act-dot.s-waiting{background:var(--amber)}
