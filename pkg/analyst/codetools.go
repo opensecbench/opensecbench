@@ -81,7 +81,9 @@ func readFile(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, 
 	if rel == "" {
 		return "", errors.New("read_file requires 'path'")
 	}
-	full, err := confinedPath(asset.Location, rel)
+	// Resolve tolerates a scanner mount prefix ("/src/app/x.go" from a finding's location) by re-anchoring
+	// it to the on-disk asset root, matching the HTTP source viewer's behaviour.
+	full, err := srcfile.Resolve(asset.Location, rel)
 	if err != nil {
 		return "", err
 	}
@@ -91,6 +93,9 @@ func readFile(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, 
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("%q is a directory; use list_dir", rel)
+	}
+	if disp, err := filepath.Rel(filepath.Clean(asset.Location), full); err == nil {
+		rel = filepath.ToSlash(disp)
 	}
 	data, err := os.ReadFile(full)
 	if err != nil {

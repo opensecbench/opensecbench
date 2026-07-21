@@ -1,6 +1,8 @@
 package srcfile
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -84,6 +86,50 @@ func TestReadFileTruncatesAndCounts(t *testing.T) {
 	}
 	if !small.Truncated || small.Content != "a\n" {
 		t.Errorf("expected truncation, got truncated=%v content=%q", small.Truncated, small.Content)
+	}
+}
+
+// Resolve must re-anchor a finding location that carries a scanner's container-mount prefix. TruffleHog
+// (`filesystem /src`) and govulncheck emit absolute "/src/app/x.go" paths; the on-disk asset root is the
+// repo, so the file lives at "app/x.go". A `file://` URI must resolve the same way.
+func TestResolveReAnchorsMountPrefix(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "app", "x.go"), []byte("package app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "app", "x.go")
+	for _, rel := range []string{"app/x.go", "/src/app/x.go", "src/app/x.go", "file:///src/app/x.go"} {
+		got, err := Resolve(root, rel)
+		if err != nil {
+			t.Errorf("Resolve(%q) errored: %v", rel, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("Resolve(%q) = %q, want %q", rel, got, want)
+		}
+		// ReadFile reports the clean, re-anchored path regardless of the prefix it was handed.
+		f, err := ReadFile(root, rel, 0)
+		if err != nil {
+			t.Errorf("ReadFile(%q) errored: %v", rel, err)
+		} else if f.Path != "app/x.go" {
+			t.Errorf("ReadFile(%q).Path = %q, want app/x.go", rel, f.Path)
+		}
+	}
+}
+
+// A genuinely missing file resolves to a wrapped fs.ErrNotExist that errors.Is detects (so the HTTP layer
+// maps it to 404), while a real traversal escape stays a distinct error (mapped to 4xx, not 404).
+func TestResolveMissingVsEscape(t *testing.T) {
+	root := t.TempDir()
+	_, err := Resolve(root, "app/missing.go")
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("missing file: errors.Is(fs.ErrNotExist) = false, err = %v", err)
+	}
+	if _, err := Resolve(root, "../../etc/passwd"); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("traversal should be a non-not-exist error, got %v", err)
 	}
 }
 

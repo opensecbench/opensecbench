@@ -9,9 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -475,6 +475,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
 	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)
 	s.mux.HandleFunc("GET /v1/activity", s.activity)
+	s.mux.HandleFunc("GET /v1/activity/feed", s.getActivity)
 	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scan", s.scanProject)
 	s.mux.HandleFunc("POST /v1/projects/{id}/reevaluate", s.reevaluateProject)
@@ -1993,7 +1994,7 @@ func (s *Server) getAssetSource(w http.ResponseWriter, r *http.Request) {
 	}
 	file, err := srcfile.ReadFile(asset.Location, path, maxSourceViewBytes)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			writeErr(w, http.StatusNotFound, "file not found")
 			return
 		}
@@ -2011,7 +2012,7 @@ func (s *Server) getAssetTree(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := srcfile.ListDir(asset.Location, r.URL.Query().Get("path"))
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			writeErr(w, http.StatusNotFound, "directory not found")
 			return
 		}
@@ -2044,6 +2045,15 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 	if ctype == "" {
 		ctype = model.ContextDocument
 	}
+	// Analyst labels (ADR-0015): free-form tags + a pin flag, both optional. A body-only "note" is just this
+	// endpoint with type=note and the text as the request body — no separate route needed.
+	var tags []string
+	for _, t := range strings.Split(r.URL.Query().Get("tags"), ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tags = append(tags, t)
+		}
+	}
+	pinned := r.URL.Query().Get("pinned") == "true"
 
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<20) // 64 MiB cap
 	data, err := io.ReadAll(r.Body)
@@ -2077,6 +2087,8 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 		Type:       ctype,
 		Name:       name,
 		ArtifactID: art.ID,
+		Tags:       tags,
+		Pinned:     pinned,
 	})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -2530,6 +2542,114 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, tasks)
+}
+
+// activityItem is one row in the unified Activity feed: a scanner task, an agent thread, an agent plan,
+// or a playbook run — all reduced to a common shape so the UI can interleave them newest-first. Kind
+// tells the client which detail endpoint to open (task/thread/plan/playbook).
+type activityItem struct {
+	Kind      string    `json:"kind"` // task | thread | plan | playbook
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Subtitle  string    `json:"subtitle,omitempty"`
+	Status    string    `json:"status"`
+	Actor     string    `json:"actor,omitempty"`
+	ProjectID string    `json:"project_id,omitempty"`
+	Project   string    `json:"project,omitempty"`
+	Timestamp time.Time `json:"timestamp"` // most-recent activity time, used for the newest-first sort
+}
+
+// getActivity merges every kind of run — scanner tasks, agent threads, agent plans, and playbook runs —
+// into one newest-first timeline across all projects. This is the durable "what ran" surface: an agent
+// conversation persisted as a thread stays here after a restart, so nothing an agent did is lost from view.
+func (s *Server) getActivity(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	limit := 100
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	projects, _ := s.mgr.ListProjects(ctx)
+	name := map[string]string{}
+	for _, p := range projects {
+		name[p.ID] = p.Name
+	}
+	// Resolve a task's owning project via its explicit ProjectID or its application (matches getHome).
+	taskProject := func(t model.Task) string {
+		if t.ProjectID != nil {
+			return *t.ProjectID
+		}
+		if t.ApplicationID != nil {
+			if app, err := s.pdb(r).GetApplication(ctx, *t.ApplicationID); err == nil {
+				return app.ProjectID
+			}
+		}
+		return ""
+	}
+	// latest picks the most recent meaningful time for sorting: a terminal time if present, else the start.
+	latest := func(times ...*time.Time) time.Time {
+		var best time.Time
+		for _, t := range times {
+			if t != nil && t.After(best) {
+				best = *t
+			}
+		}
+		return best
+	}
+
+	var items []activityItem
+	withProject := func(it *activityItem, pid string) {
+		if pid != "" {
+			it.ProjectID = pid
+			it.Project = name[pid]
+		}
+	}
+
+	for _, t := range must(s.mgr.ListAllTasks(ctx, limit)) {
+		it := activityItem{
+			Kind: "task", ID: t.ID, Title: t.CapabilityID, Subtitle: t.Runner,
+			Status: t.Status, Actor: t.Actor, Timestamp: latest(&t.CreatedAt, t.StartedAt, t.FinishedAt),
+		}
+		withProject(&it, taskProject(t))
+		items = append(items, it)
+	}
+	for _, th := range must(s.mgr.ListAllThreads(ctx)) {
+		it := activityItem{
+			Kind: "thread", ID: th.ID, Title: th.Title, Subtitle: th.AgentType,
+			Status: th.Status, Timestamp: latest(&th.CreatedAt, &th.UpdatedAt),
+		}
+		if th.ProjectID != nil {
+			withProject(&it, *th.ProjectID)
+		}
+		items = append(items, it)
+	}
+	for _, p := range must(s.mgr.ListAllPlans(ctx, limit)) {
+		title := p.Goal
+		if title == "" {
+			title = p.PlaybookID
+		}
+		it := activityItem{
+			Kind: "plan", ID: p.ID, Title: title, Subtitle: "plan",
+			Status: p.Status, Timestamp: latest(&p.CreatedAt, &p.UpdatedAt),
+		}
+		withProject(&it, p.ProjectID)
+		items = append(items, it)
+	}
+	for _, pr := range must(s.mgr.ListAllPlaybookRuns(ctx, limit)) {
+		it := activityItem{
+			Kind: "playbook", ID: pr.ID, Title: pr.PlaybookID, Subtitle: "playbook",
+			Status: pr.Status, Actor: pr.Actor, Timestamp: latest(&pr.CreatedAt, pr.FinishedAt),
+		}
+		items = append(items, it)
+	}
+
+	sort.Slice(items, func(i, j int) bool { return items[i].Timestamp.After(items[j].Timestamp) })
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
