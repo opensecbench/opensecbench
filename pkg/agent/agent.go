@@ -133,9 +133,12 @@ type Loop struct {
 	Approve      func(ctx context.Context, call ToolCall) (bool, error)
 	Execute      func(ctx context.Context, call ToolCall) (string, error)
 	Audit        func(action, detail string)
-	MaxSteps     int
-	Model        string
-	MaxTokens    int
+	// OnActivity, if set, is called with each completed tool turn as it happens — used to stream a live
+	// activity trail (tool, args, result/error) while the loop runs. Fired in-loop, so keep it non-blocking.
+	OnActivity func(Step)
+	MaxSteps   int
+	Model      string
+	MaxTokens  int
 }
 
 // Run drives the loop from a user message until the model answers or the step cap is reached.
@@ -154,6 +157,13 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 		{Role: llm.RoleUser, Content: userMessage},
 	}
 	var res Result
+	// push records a completed tool turn and streams it to any live activity listener.
+	push := func(st Step) {
+		res.Steps = append(res.Steps, st)
+		if l.OnActivity != nil {
+			l.OnActivity(st)
+		}
+	}
 
 	for step := 0; step < maxSteps; step++ {
 		resp, err := provider.Complete(ctx, llm.CompletionRequest{Messages: msgs, Model: l.Model, MaxTokens: l.MaxTokens, Tools: l.Tools})
@@ -177,7 +187,7 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 		if verr := validateCall(l.Tools, call); verr != nil {
 			l.audit("agent.tool.invalid", call.Tool)
 			st.Error = verr.Error()
-			res.Steps = append(res.Steps, st)
+			push(st)
 			msgs = append(msgs, toolResult(call, fmt.Sprintf("Tool %q arguments were invalid: %s. Fix the arguments and call it again, or give your final answer.", call.Tool, verr.Error()), true))
 			continue
 		}
@@ -193,7 +203,7 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 		if !approved {
 			l.audit("agent.tool.denied", call.Tool)
 			st.Result = "(denied)"
-			res.Steps = append(res.Steps, st)
+			push(st)
 			msgs = append(msgs, toolResult(call, fmt.Sprintf("Tool %q was denied by the human. Do not retry it; continue or give your final answer.", call.Tool), true))
 			continue
 		}
@@ -208,7 +218,7 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 			l.audit("agent.tool.executed", call.Tool)
 			msgs = append(msgs, toolResult(call, out, false))
 		}
-		res.Steps = append(res.Steps, st)
+		push(st)
 	}
 
 	res.Transcript = msgs

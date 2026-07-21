@@ -2,14 +2,35 @@ package analyst
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
 
+	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
+
+// formatActivity renders one of a sub-agent's tool turns into a compact line for the step's live activity
+// trail: the tool, a short args summary, and a result/error preview. One line per turn (newline-terminated).
+func formatActivity(st agent.Step) string {
+	args := ""
+	if len(st.Call.Args) > 0 {
+		if b, err := json.Marshal(st.Call.Args); err == nil {
+			args = oneLine(string(b), 140)
+		}
+	}
+	switch {
+	case st.Error != "":
+		return fmt.Sprintf("✗ %s %s — %s\n", st.Call.Tool, args, oneLine(st.Error, 200))
+	case st.Result == "(denied)":
+		return fmt.Sprintf("⏸ %s %s — denied\n", st.Call.Tool, args)
+	default:
+		return fmt.Sprintf("→ %s %s — %s\n", st.Call.Tool, args, oneLine(st.Result, 160))
+	}
+}
 
 // planCancels tracks in-flight plan runs so a human can stop them. Plans run in background goroutines that
 // outlive any single request, and the analyst Service is created per-request, so this registry is
@@ -271,7 +292,11 @@ func (svc *Service) runWave(ctx context.Context, projectID string, wave []*model
 			}
 			mu.Unlock()
 
-			res, err := svc.Delegate(ctx, projectID, s.Profile, task, profileToolNames(svc.resolveProfile(ctx, s.Profile)))
+			// Stream each of the sub-agent's tool turns into the step's live activity trail (best-effort).
+			stepCtx := withProgressSink(ctx, func(st agent.Step) {
+				_ = svc.p(projectID).AppendPlanStepProgress(context.Background(), s.ID, formatActivity(st))
+			})
+			res, err := svc.Delegate(stepCtx, projectID, s.Profile, task, profileToolNames(svc.resolveProfile(ctx, s.Profile)))
 
 			mu.Lock()
 			defer mu.Unlock()

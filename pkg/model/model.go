@@ -592,6 +592,9 @@ type PlanStep struct {
 	Status       string   `json:"status"`
 	Result       string   `json:"result,omitempty"`
 	Error        string   `json:"error,omitempty"`
+	// Progress is a live activity trail appended as the step's sub-agent runs — one line per tool turn
+	// (name, args summary, result/error). Streams to the UI and survives to explain a failed step.
+	Progress string `json:"progress,omitempty"`
 }
 
 // Approval statuses.

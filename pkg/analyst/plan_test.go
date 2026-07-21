@@ -54,6 +54,14 @@ func TestRunPlanStoppedSubAgentFailsStep(t *testing.T) {
 	if got.Status != model.PlanFailed {
 		t.Fatalf("plan status = %q, want failed", got.Status)
 	}
+	// The live activity trail should have captured the sub-agent's tool turns (one line per turn), so a
+	// failed step is diagnosable rather than opaque.
+	if !strings.Contains(solo.Progress, "noop") {
+		t.Fatalf("step progress did not capture tool turns: %q", solo.Progress)
+	}
+	if lines := strings.Count(strings.TrimSpace(solo.Progress), "\n") + 1; lines < 2 {
+		t.Fatalf("expected >=2 activity lines, got %d: %q", lines, solo.Progress)
+	}
 }
 
 func TestPlaybookStepsReferenceRealProfiles(t *testing.T) {

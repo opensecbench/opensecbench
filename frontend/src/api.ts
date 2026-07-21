@@ -682,6 +682,7 @@ export interface PlanStep {
   status: string
   result?: string
   error?: string
+  progress?: string
 }
 
 export interface Plan {

@@ -174,6 +174,14 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
                   <span className="grow" />
                   <span className={`ps-status s-${s.status}`}>{s.status}</span>
                 </div>
+                {s.progress && (
+                  <details className="ps-activity" open={s.status === 'running'}>
+                    <summary>
+                      Activity <span className="ps-activity-n">{s.progress.trimEnd().split('\n').length} turns</span>
+                    </summary>
+                    <pre className="ps-activity-log">{s.progress.trimEnd()}</pre>
+                  </details>
+                )}
                 {s.result && <div className="ps-result">{s.result}</div>}
                 {s.error && <div className="ps-error">{s.error}</div>}
               </div>

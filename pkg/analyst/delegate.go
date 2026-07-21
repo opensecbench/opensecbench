@@ -52,6 +52,20 @@ func withDelegationDepth(ctx context.Context, d int) context.Context {
 	return context.WithValue(ctx, delegationDepthKey{}, d)
 }
 
+// progressSinkKey carries an optional per-turn activity listener through the context, so a caller (the
+// plan runner) can stream a delegated sub-agent's tool turns without changing Delegate's signature or
+// affecting the `delegate` tool path (which sets no sink).
+type progressSinkKey struct{}
+
+func withProgressSink(ctx context.Context, sink func(agent.Step)) context.Context {
+	return context.WithValue(ctx, progressSinkKey{}, sink)
+}
+
+func progressSink(ctx context.Context) func(agent.Step) {
+	s, _ := ctx.Value(progressSinkKey{}).(func(agent.Step))
+	return s
+}
+
 // Delegation (ADR-0019 §4). The Lead agent doesn't act directly — it hands each part of the work to the
 // right specialist via the `delegate` tool, which runs that specialist as a sub-agent to completion and
 // returns its result. Delegation is the primitive playbooks (the plan DAG) build on. A specialist that
@@ -99,6 +113,7 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 		Approve:      Approver(authorize),
 		Execute:      svc.executeFor(projectID, tgt.Provider),
 		Audit:        svc.Audit,
+		OnActivity:   progressSink(ctx),
 		MaxSteps:     subAgentMaxSteps(),
 	}
 	// Run the sub-agent one level deeper, so any `delegate` it issues is bounded by maxDelegationDepth.
