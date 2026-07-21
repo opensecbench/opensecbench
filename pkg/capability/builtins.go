@@ -61,6 +61,7 @@ func BuiltIns() *Registry {
 	r.Register(httpProbe{})
 	r.Register(nmapScan{})
 	r.Register(grypeScan{})
+	r.Register(osvScanner{})
 	r.Register(syftSBOM{})
 	r.Register(govulncheck{})
 	r.Register(routeMap{})
@@ -286,6 +287,40 @@ func (grypeScan) Plan(in Input) (runner.RunSpec, error) {
 		Cmd:      []string{"dir:/src", "-o", "sarif", "-q"},
 		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
 		Network:  "bridge", // vuln DB download
+		Timeout:  10 * time.Minute,
+		MemoryMB: 2048,
+		CPUs:     2,
+	}, nil
+}
+
+// osvScanner is SCA via Google's OSV database — broad multi-ecosystem coverage from lockfiles/SBOMs,
+// complementing grype (different DB, different ecosystems). Emits SARIF, interpreted like any other SCA
+// tool and enriched with the shared reachability verdict (ADR-0031). Needs network to query osv.dev.
+type osvScanner struct{}
+
+func (osvScanner) Manifest() Manifest {
+	return Manifest{
+		ID:              "osv-scanner",
+		AppliesTo:       []string{"source_repo"},
+		Version:         "1.0.0",
+		Title:           "OSV-Scanner (SCA / dependency vulnerabilities)",
+		Description:     "Scans dependency manifests/lockfiles against Google's OSV database across ecosystems; emits SARIF. Complements grype (broader ecosystem + advisory coverage). Queries osv.dev over the network.",
+		OutputName:      "osv.sarif",
+		OutputMediaType: "application/sarif+json",
+		OKExitCodes:     []int{0, 1}, // 0 = no vulns, 1 = vulns found; >=2 is an error
+		Dispositions:    scaReachabilityRouting,
+	}
+}
+
+func (osvScanner) Plan(in Input) (runner.RunSpec, error) {
+	if in.TargetDir == "" {
+		return runner.RunSpec{}, errors.New("osv-scanner: target directory required")
+	}
+	return runner.RunSpec{
+		Image:    "ghcr.io/google/osv-scanner:v1.9.2",
+		Cmd:      []string{"--format", "sarif", "--recursive", "/src"},
+		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
+		Network:  "bridge", // query the OSV database
 		Timeout:  10 * time.Minute,
 		MemoryMB: 2048,
 		CPUs:     2,

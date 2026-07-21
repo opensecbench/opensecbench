@@ -42,7 +42,7 @@ func TestScanProjectFansOutApplicableCapabilities(t *testing.T) {
 		enq[tk.CapabilityID] = true
 	}
 	// Language-agnostic source scanners must all fire.
-	for _, want := range []string{"source-inventory", "syft", "grype", "opengrep", "route-map"} {
+	for _, want := range []string{"source-inventory", "syft", "grype", "osv-scanner", "opengrep", "route-map"} {
 		if !enq[want] {
 			t.Errorf("expected %q to be enqueued; got %v", want, enq)
 		}

@@ -12,6 +12,9 @@ function nodeColor(n: GraphNode): string {
       return '#8792a5'
     case 'asset':
       return n.group === 'open_source' ? '#46c07a' : '#f0a83c'
+    case 'dependency':
+      // A dependency node is coloured by the worst vuln severity affecting it; clean deps stay neutral.
+      return n.group ? sevColor(n.group) : '#3a4560'
     case 'finding':
       return sevColor(n.group)
     case 'endpoint':
@@ -176,10 +179,16 @@ export function GraphTab({
               })}
               {nodes.map((n) => (
                 <g key={n.id} onMouseEnter={() => setHover(n)} onMouseLeave={() => setHover(null)} style={{ cursor: 'default' }}>
-                  <rect x={n.x} y={n.y} width={NODE_W} height={NODE_H} rx={5} fill={nodeColor(n)} opacity={0.9} />
+                  {/* A reachable vuln gets a bright outline — it's the one that's actually exploitable. */}
+                  <rect x={n.x} y={n.y} width={NODE_W} height={NODE_H} rx={5} fill={nodeColor(n)} opacity={0.9} stroke={n.reachable ? '#fca5a5' : 'none'} strokeWidth={n.reachable ? 2 : 0} />
                   <text x={n.x + 8} y={n.y + NODE_H / 2 + 4} fill="#fff" fontSize={11} fontFamily="sans-serif">
-                    {n.label.length > 24 ? n.label.slice(0, 23) + '…' : n.label}
+                    {n.label.length > 22 ? n.label.slice(0, 21) + '…' : n.label}
                   </text>
+                  {(n.vulns ?? 0) > 0 && (
+                    <text x={n.x + NODE_W - 8} y={n.y + NODE_H / 2 + 4} fill="#fff" fontSize={10} fontWeight={700} textAnchor="end" fontFamily="sans-serif">
+                      {n.vulns}{n.reachable ? '!' : ''}
+                    </text>
+                  )}
                 </g>
               ))}
             </g>
