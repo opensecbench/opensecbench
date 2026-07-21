@@ -60,8 +60,10 @@ func withDelegationDepth(ctx context.Context, d int) context.Context {
 
 // DelegationResult is what a sub-agent reports back to whoever delegated to it.
 type DelegationResult struct {
-	Profile      string   `json:"profile"`
-	Answer       string   `json:"answer"`
+	Profile string `json:"profile"`
+	Answer  string `json:"answer"`
+	// Stopped is true when the sub-agent hit its step cap without a final answer (Answer is a placeholder).
+	Stopped      bool     `json:"stopped"`
 	StepCount    int      `json:"step_count"`
 	ToolsUsed    []string `json:"tools_used"`
 	InputTokens  int      `json:"input_tokens"`
@@ -118,7 +120,7 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 		}
 	}
 	return DelegationResult{
-		Profile: profile.ID, Answer: res.Answer, StepCount: len(res.Steps), ToolsUsed: tools,
+		Profile: profile.ID, Answer: res.Answer, Stopped: res.Stopped, StepCount: len(res.Steps), ToolsUsed: tools,
 		InputTokens: res.InputTokens, OutputTokens: res.OutputTokens,
 	}, nil
 }

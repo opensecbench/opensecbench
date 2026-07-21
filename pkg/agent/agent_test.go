@@ -89,6 +89,9 @@ func TestLoopStopsAtStepCap(t *testing.T) {
 	if !strings.Contains(res.Answer, "step limit") {
 		t.Fatalf("answer = %q", res.Answer)
 	}
+	if !res.Stopped {
+		t.Fatal("res.Stopped should be true when the loop hits the step cap without an answer")
+	}
 }
 
 type alwaysToolProvider struct{}

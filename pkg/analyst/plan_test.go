@@ -2,6 +2,7 @@ package analyst
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +11,50 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
+
+// alwaysToolProvider never gives a final answer — it emits a tool call every turn, so a sub-agent runs
+// until its step cap and returns Stopped.
+type alwaysToolProvider struct{}
+
+func (alwaysToolProvider) Name() string { return "always-tool" }
+func (alwaysToolProvider) Complete(_ context.Context, _ llm.CompletionRequest) (llm.CompletionResponse, error) {
+	return llm.CompletionResponse{Text: `{"tool":"noop","args":{}}`}, nil
+}
+
+// A sub-agent that exhausts its step budget without a final answer must fail its step (not show as done),
+// so the run reads honestly and dependents don't build on an empty result.
+func TestRunPlanStoppedSubAgentFailsStep(t *testing.T) {
+	t.Setenv("OSB_AGENT_MAX_STEPS", "2")
+	ctx := context.Background()
+	db, projectID := seedProject(t)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", alwaysToolProvider{})
+
+	plan := model.Plan{ProjectID: projectID, PlaybookID: "custom", Steps: []model.PlanStep{
+		{Key: "solo", Profile: "report-writer", Instruction: "do the thing"},
+	}}
+	created, err := db.CreatePlan(ctx, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.runPlan(ctx, created)
+
+	got, _ := db.GetPlan(ctx, created.ID)
+	var solo model.PlanStep
+	for _, s := range got.Steps {
+		if s.Key == "solo" {
+			solo = s
+		}
+	}
+	if solo.Status != model.StepFailed {
+		t.Fatalf("stopped sub-agent step status = %q, want failed", solo.Status)
+	}
+	if !strings.Contains(solo.Error, "without a final answer") {
+		t.Fatalf("step error = %q, want the stopped-without-answer reason", solo.Error)
+	}
+	if got.Status != model.PlanFailed {
+		t.Fatalf("plan status = %q, want failed", got.Status)
+	}
+}
 
 func TestPlaybookStepsReferenceRealProfiles(t *testing.T) {
 	valid := map[string]bool{}

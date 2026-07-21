@@ -281,6 +281,14 @@ func (svc *Service) runWave(ctx context.Context, projectID string, wave []*model
 				svc.setStep(ctx, projectID, s.ID, model.StepFailed, "", err.Error())
 				return
 			}
+			// A sub-agent that hit its step cap without a final answer produced no real work product — mark
+			// the step failed (not done) so the run reads honestly and dependents don't build on nothing.
+			if res.Stopped {
+				failed[s.Key] = true
+				*anyFailed = true
+				svc.setStep(ctx, projectID, s.ID, model.StepFailed, "", "sub-agent stopped without a final answer (reached its step limit); no result produced")
+				return
+			}
 			done[s.Key] = true
 			results[s.Key] = res.Answer
 			svc.setStep(ctx, projectID, s.ID, model.StepDone, res.Answer, "")
