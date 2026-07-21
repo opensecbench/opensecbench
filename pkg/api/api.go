@@ -471,6 +471,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
 	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)
+	s.mux.HandleFunc("GET /v1/activity", s.activity)
 	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scan", s.scanProject)
 	s.mux.HandleFunc("POST /v1/projects/{id}/reevaluate", s.reevaluateProject)
@@ -2468,6 +2469,20 @@ func (s *Server) reevaluateProject(w http.ResponseWriter, r *http.Request) {
 	s.engine.ReEvaluate(r.Context(), r.PathValue("id"))
 	s.record(r.Context(), actorOf(r), "project.reevaluate", r.PathValue("id"), nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// activity returns everything currently in flight across the workbench — running/pending capability tasks
+// and in-flight agent plans — for the top-bar activity menu.
+func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
+	tasks, _ := s.mgr.ListAllTasks(r.Context(), 100)
+	running := make([]model.Task, 0)
+	for _, t := range tasks {
+		if t.Status == model.TaskPending || t.Status == model.TaskRunning {
+			running = append(running, t)
+		}
+	}
+	plans, _ := s.mgr.ListAllRunningPlans(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": running, "plans": plans})
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {

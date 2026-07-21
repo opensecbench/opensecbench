@@ -985,6 +985,7 @@ export const api = {
   // capabilities & tasks
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
   listTasks: () => request<Task[]>('GET', '/v1/tasks'),
+  activity: () => request<{ tasks: Task[] | null; plans: Plan[] | null }>('GET', '/v1/activity'),
   // Fan out every applicable capability across the project's assets (deterministic, no agent). Returns
   // the enqueued tasks + any skips; poll listTasks to watch them run and auto-triage.
   scanProject: (projectId: string) =>

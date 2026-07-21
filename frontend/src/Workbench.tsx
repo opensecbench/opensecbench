@@ -758,6 +758,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             onScan={async () => {
               const res = await api.scanProject(project.id)
               void loadAll()
+              // Jump to Tasks so you can watch the scans run and findings land.
+              if ((res.enqueued?.length ?? 0) > 0) activateSurface('tasks')
               return res
             }}
           />

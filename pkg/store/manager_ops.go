@@ -292,6 +292,22 @@ func (m *Manager) ListAllPlaybookRuns(ctx context.Context, limit int) ([]model.P
 	return out, err
 }
 
+// ListAllRunningPlans returns in-flight agent plans across every project.
+func (m *Manager) ListAllRunningPlans(ctx context.Context) ([]model.Plan, error) {
+	if m.combined {
+		return m.global.ListRunningPlans(ctx)
+	}
+	var out []model.Plan
+	err := m.eachProject(ctx, func(pdb *DB) error {
+		ps, err := pdb.ListRunningPlans(ctx)
+		if err == nil {
+			out = append(out, ps...)
+		}
+		return nil
+	})
+	return out, err
+}
+
 // ListDueSchedules returns schedules due to run at now, across every project.
 func (m *Manager) ListDueSchedules(ctx context.Context, now time.Time) ([]model.Schedule, error) {
 	if m.combined {
