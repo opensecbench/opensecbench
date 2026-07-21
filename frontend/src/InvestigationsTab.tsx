@@ -10,12 +10,14 @@ export function InvestigationsTab({
   online,
   observations,
   onOpenCode,
+  onJump,
   onError,
 }: {
   project: Project
   online: boolean
   observations: Observation[]
   onOpenCode: OpenCode
+  onJump: (t: string) => void
   onError: (m: string) => void
 }) {
   // The observation each investigation was opened for carries the source location (ADR-0050), so a secret
@@ -70,7 +72,12 @@ export function InvestigationsTab({
     <div className="content">
       <div className="hero">
         <h1>Investigations</h1>
-        <p>Follow-ups opened by post-run routing — validate, then confirm or dismiss. Findings stay human-gated.</p>
+        <p>
+          The validation queue: uncertain signals post-run routing flagged for a closer look (e.g. an unverified
+          secret). Run the agent to validate, then confirm — which promotes it to a{' '}
+          <button className="link" onClick={() => onJump('findings')}>Finding</button> — or dismiss it. Human-gated
+          throughout.
+        </p>
       </div>
 
       {note && <div className="banner">{note}</div>}
