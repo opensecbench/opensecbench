@@ -11,6 +11,26 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
+// vulnIDs extracts advisory ids from the rule id, the aliases attribute, AND the finding text — so a
+// grype GHSA finding that names the CVE in its message can match an osv/govulncheck CVE finding.
+func TestVulnIDsScansFindingText(t *testing.T) {
+	o := model.Observation{
+		RuleID: "GHSA-abcd-efgh-ijkl",
+		Detail: "Denial of service in x/net. Fixed in v0.5.0; see CVE-2022-41723.",
+	}
+	ids := vulnIDs(&o)
+	got := map[string]bool{}
+	for _, id := range ids {
+		got[id] = true
+	}
+	if !got["GHSA-abcd-efgh-ijkl"] {
+		t.Errorf("missing GHSA from rule id; got %v", ids)
+	}
+	if !got["CVE-2022-41723"] {
+		t.Errorf("missing CVE extracted from detail text; got %v", ids)
+	}
+}
+
 // The same CVE reported by a second tool merges into the first observation: no duplicate, both tools
 // recorded, the higher severity kept, and a reachability verdict adopted.
 func TestCrossToolMergeCollapsesSameVuln(t *testing.T) {

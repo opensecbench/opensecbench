@@ -1009,6 +1009,16 @@ func vulnIDs(o *model.Observation) []string {
 			add(a)
 		}
 	}
+	// Also scan the finding text: SCA tools cross-reference the other schemes in their message (grype names
+	// the CVE alongside its GHSA rule id, and vice-versa), so extracting both lets a grype GHSA finding match
+	// an osv/govulncheck CVE finding for the same vulnerability (ADR-0031/0037).
+	text := o.Title + " " + o.Detail
+	for _, m := range cveRe.FindAllString(text, -1) {
+		add(m)
+	}
+	for _, m := range ghsaRe.FindAllString(text, -1) {
+		add(m)
+	}
 	return ids
 }
 

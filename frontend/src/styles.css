@@ -2022,6 +2022,30 @@ select option {
 @keyframes orch-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .orch-dot.s-running { animation: none; } }
 
+/* --- Attack surface (RoutesTab) --- */
+.routes-filters { display: flex; align-items: center; gap: 8px; margin: 6px 0 14px; }
+.routes-filters .chip { border: 1px solid var(--line2); background: var(--bg3); color: var(--tx3); border-radius: 14px; padding: 3px 11px; font-size: 11.5px; cursor: pointer; }
+.routes-filters .chip.on { background: var(--bg4); color: var(--tx2); border-color: var(--acc); }
+.routes-list { display: flex; flex-direction: column; gap: 6px; max-width: 1000px; }
+.route-row { border: 1px solid var(--line); border-radius: 8px; background: var(--bg3); overflow: hidden; }
+.route-row.risk { border-color: color-mix(in srgb, var(--red) 35%, var(--line)); }
+.route-head { display: flex; align-items: center; gap: 10px; padding: 9px 12px; }
+.route-method { font-family: var(--mono, monospace); font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 4px; background: var(--bg4); color: var(--tx2); border: 1px solid var(--line2); min-width: 42px; text-align: center; }
+.route-method.m-get { color: #46c07a; } .route-method.m-post { color: #f0a83c; } .route-method.m-put { color: #4aa8ff; } .route-method.m-delete { color: #dc2626; }
+.route-path { font-size: 13px; color: var(--tx2); }
+.route-obs { font-size: 10.5px; color: #46c07a; font-weight: 700; }
+.route-handler { font-size: 11px; }
+.route-fw { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tx3); background: var(--bg4); border-radius: 4px; padding: 1px 6px; }
+.route-risk { font-size: 10.5px; font-weight: 800; color: #fff; border-radius: 10px; padding: 2px 9px; }
+.route-clean { font-size: 11px; color: var(--tx3); }
+.route-caret { color: var(--tx3); font-size: 11px; width: 12px; }
+.route-findings { list-style: none; margin: 0; padding: 2px 12px 10px 14px; border-top: 1px solid var(--line); }
+.route-finding { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12.5px; }
+.rf-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.rf-title { color: var(--tx2); }
+.rf-sev { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tx3); }
+.rf-reach { font-size: 10.5px; font-weight: 700; color: #fca5a5; }
+
 .plan-view { max-width: 980px; margin: 0 auto; }
 .plan-h { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .plan-h b { color: var(--tx2); font-family: var(--mono, monospace); }
