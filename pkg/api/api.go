@@ -100,6 +100,8 @@ type Server struct {
 	sessMu   sync.Mutex
 	sessions map[string]*liveSession
 
+	selfPort string // control-plane listen port; proxy skips capturing the app's own traffic to it
+
 	proxyMu sync.Mutex
 	proxies map[string]*liveProxy
 

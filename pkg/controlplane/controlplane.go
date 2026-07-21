@@ -178,6 +178,9 @@ func Start(opts Options) (*Instance, error) {
 		Methods: methReg, Reports: reportReg, Extensions: loadedExt, TrustStore: trust, ExtDir: extDir,
 		WorkspaceDir: filepath.Join(filepath.Dir(opts.DBPath), "workspace"),
 	})
+	// Tell the API its own address so the proxy skips capturing the app's own control-plane traffic (the
+	// desktop webview follows the system proxy and would otherwise flood the capture list).
+	apiSrv.SetSelfAddr(ln.Addr().String())
 	srv := &http.Server{
 		Handler:           apiSrv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
