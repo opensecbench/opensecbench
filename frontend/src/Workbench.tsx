@@ -748,7 +748,13 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             findings={findings}
             coverage={coverage}
             engagement={engagement}
+            online={online}
             onJump={(t) => activateSurface(t as Tab)}
+            onScan={async () => {
+              const res = await api.scanProject(project.id)
+              void loadAll()
+              return res
+            }}
           />
         )
       case 'assets':

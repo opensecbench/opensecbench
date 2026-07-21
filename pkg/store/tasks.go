@@ -286,6 +286,35 @@ func (db *DB) ListArtifactsByTask(ctx context.Context, taskID string) ([]model.A
 	return out, rows.Err()
 }
 
+// ListArtifacts returns the project's artifacts, newest first, capped. Used by the agent's list_artifacts
+// tool to see the evidence the scanners produced (ADR-0005).
+func (db *DB) ListArtifacts(ctx context.Context, limit int) ([]model.Artifact, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, task_id, sha256, media_type, size, kind, name, created_at
+		 FROM artifacts ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []model.Artifact
+	for rows.Next() {
+		var a model.Artifact
+		var task sql.NullString
+		var created string
+		if err := rows.Scan(&a.ID, &task, &a.SHA256, &a.MediaType, &a.Size, &a.Kind, &a.Name, &created); err != nil {
+			return nil, err
+		}
+		a.TaskID = ptr(task)
+		a.CreatedAt = parseTime(created)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func ptrTime(ns sql.NullString) *time.Time {
 	if !ns.Valid {
 		return nil

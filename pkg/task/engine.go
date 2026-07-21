@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -410,6 +411,79 @@ func (e *Engine) Enqueue(ctx context.Context, req RunRequest) (model.Task, error
 	}
 	e.signal()
 	return t, nil
+}
+
+// ScanResult reports what a project scan enqueued and what it skipped.
+type ScanResult struct {
+	Enqueued []model.Task `json:"enqueued"`
+	Skipped  []ScanSkip   `json:"skipped"`
+}
+
+// ScanSkip records a capability that was not run against an asset, and why.
+type ScanSkip struct {
+	CapabilityID string `json:"capability_id"`
+	AssetID      string `json:"asset_id"`
+	Reason       string `json:"reason"`
+}
+
+// ScanProject fans out every applicable capability across the project's assets — the deterministic
+// "scan everything" path, no agent involved. Each enqueued task flows through the engine's interpret →
+// dedup → reachability/exposure → auto-triage pipeline on completion. Capabilities opt in by declaring
+// AppliesTo; a language-specific one (Ecosystem) runs only where the asset's stack is detected. A
+// per-capability enqueue error (e.g. a technique the engagement forbids, or scope) is recorded as a
+// skip rather than failing the whole scan.
+func (e *Engine) ScanProject(ctx context.Context, projectID string) (ScanResult, error) {
+	assets, err := e.p(projectID).ListAssets(ctx)
+	if err != nil {
+		return ScanResult{}, err
+	}
+	mans := e.registry.Manifests()
+	pid := projectID
+	var res ScanResult
+	for _, a := range assets {
+		for _, m := range mans {
+			if !m.AppliesToKind(a.Type) {
+				continue
+			}
+			if m.Ecosystem != "" && !ecosystemPresent(a.Location, m.Ecosystem) {
+				res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: m.ID, AssetID: a.ID, Reason: "ecosystem " + m.Ecosystem + " not detected"})
+				continue
+			}
+			assetID := a.ID
+			t, err := e.Enqueue(ctx, RunRequest{CapabilityID: m.ID, AssetID: &assetID, ProjectID: &pid, Actor: "scan-all"})
+			if err != nil {
+				res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: m.ID, AssetID: a.ID, Reason: err.Error()})
+				continue
+			}
+			res.Enqueued = append(res.Enqueued, t)
+		}
+	}
+	return res, nil
+}
+
+// ecosystemMarkers maps a stack name to the files that signal its presence at a repo root.
+var ecosystemMarkers = map[string][]string{
+	"go":     {"go.mod"},
+	"node":   {"package.json"},
+	"python": {"requirements.txt", "pyproject.toml", "setup.py", "Pipfile"},
+	"rust":   {"Cargo.toml"},
+	"ruby":   {"Gemfile"},
+	"java":   {"pom.xml", "build.gradle"},
+}
+
+// ecosystemPresent reports whether a repo directory shows a marker file for the given stack. Best-effort:
+// an unknown ecosystem or unreadable dir returns false, so a language-specific scanner is simply skipped.
+func ecosystemPresent(dir, eco string) bool {
+	markers, ok := ecosystemMarkers[eco]
+	if !ok || dir == "" {
+		return false
+	}
+	for _, m := range markers {
+		if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Run plans the capability, executes it in the sandbox synchronously, stores its stdout as an output

@@ -942,6 +942,13 @@ export const api = {
   // capabilities & tasks
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
   listTasks: () => request<Task[]>('GET', '/v1/tasks'),
+  // Fan out every applicable capability across the project's assets (deterministic, no agent). Returns
+  // the enqueued tasks + any skips; poll listTasks to watch them run and auto-triage.
+  scanProject: (projectId: string) =>
+    request<{ enqueued: Task[]; skipped: { capability_id: string; asset_id: string; reason: string }[] }>(
+      'POST',
+      `/v1/projects/${projectId}/scan`,
+    ),
   // Enqueues the task and returns it in the pending state (ADR-0022); poll getTask until terminal.
   runTask: (req: { capability_id: string; asset_id?: string; target_dir?: string; project_id?: string; params?: Record<string, unknown>; actor?: string }) =>
     request<Task>('POST', '/v1/tasks', req),

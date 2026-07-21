@@ -16,6 +16,50 @@ import (
 
 const maxContextBytes = 96 * 1024
 
+// listArtifacts lists the raw scanner output artifacts in the project (metadata only) — the evidence the
+// deterministic scan produced. read_artifact opens one.
+func listArtifacts(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	if _, err := requireProject(deps, "list_artifacts"); err != nil {
+		return "", err
+	}
+	limit := intArg(call, "limit")
+	return jsonify(deps.p().ListArtifacts(ctx, limit))
+}
+
+// readArtifact returns a scanner output artifact's content by id (SARIF, SBOM, inventory, routes, …). It
+// is egress-gated (scan output derives from asset content, treated as private by default — see
+// service.executeFor).
+func readArtifact(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	if _, err := requireProject(deps, "read_artifact"); err != nil {
+		return "", err
+	}
+	id := stringArg(call, "id")
+	if id == "" {
+		return "", errors.New("read_artifact requires 'id'")
+	}
+	art, err := deps.p().GetArtifact(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if deps.Blobs == nil {
+		return "", errors.New("artifact store unavailable")
+	}
+	rc, err := deps.Blobs.Open(art.SHA256)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rc.Close() }()
+	data, err := io.ReadAll(io.LimitReader(rc, maxContextBytes+1))
+	if err != nil {
+		return "", err
+	}
+	out := string(data)
+	if len(data) > maxContextBytes {
+		out = string(data[:maxContextBytes]) + "\n…(truncated)"
+	}
+	return out, nil
+}
+
 // listContext lists the project's ingested corpus (metadata only), optionally filtered by type.
 func listContext(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
 	projectID, err := requireProject(deps, "list_context")

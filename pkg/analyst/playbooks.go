@@ -32,23 +32,27 @@ var builtinPlaybooks = []Playbook{
 	{
 		ID:          "onboarding",
 		Name:        "Onboarding & inventory",
-		Description: "The common start to any engagement: collect information and inventory the assets.",
+		Description: "Synthesize a baseline from the scanners' output. Run \"Scan everything\" first — this reads the results, it does not re-scan.",
 		Goal:        "Establish a baseline understanding of the project — its assets, code, and attack surface.",
 		Steps: []PlaybookStep{
 			{
 				Key:     "inventory",
 				Profile: "code-analysis",
-				Instruction: "Inventory this project. Use list_assets to see the source assets; for each " +
-					"source_repo use list_dir and grep_code to summarize its languages, entry points, and " +
-					"structure. First check the knowledge base and prior context for what's already known. " +
-					"Write a concise inventory to inventory/summary.md in the workspace.",
+				Instruction: "Summarize this project from what the scanners already produced — do NOT crawl the " +
+					"filesystem. Read the evidence: list_assets, list_artifacts then read_artifact for the " +
+					"source-inventory (inventory.txt) and SBOM (sbom.cdx.json), and list_dependencies. Check the " +
+					"knowledge base and prior context first. If there are no scan artifacts yet, say so and stop — " +
+					"the operator must run \"Scan everything\" first. Write a concise inventory (languages, entry " +
+					"points, structure, key dependencies) to inventory/summary.md in the workspace.",
 			},
 			{
 				Key:     "surface",
 				Profile: "code-analysis",
-				Instruction: "Using the inventory, map the attack surface: authentication, key endpoints and " +
-					"handlers, input boundaries, and sensitive components. Write your analysis to " +
-					"analysis/surface.md in the workspace.",
+				Instruction: "Map the attack surface from the scan output — do NOT crawl the filesystem. Read the " +
+					"route-map artifact (routes.json) and list_observations (prioritize exposed / exposed_route / " +
+					"reachable items) and list_findings. Read a specific source file only to confirm a handler or " +
+					"boundary. Cover authentication, key endpoints and handlers, input boundaries, and sensitive " +
+					"components. Write your analysis to analysis/surface.md in the workspace.",
 				DependsOn: []string{"inventory"},
 			},
 			{

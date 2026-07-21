@@ -55,7 +55,7 @@ func (p Profile) ToolSet() []agent.Tool {
 var reads = []string{
 	"list_projects", "list_targets", "list_findings", "list_assets", "list_capabilities", "list_playbooks",
 	"search", "search_corpus", "get_finding", "list_observations", "list_investigations", "list_kb", "get_dossier", "read_file", "list_dir", "grep_code", "find_files",
-	"list_context", "read_context", "get_kb_entry", "list_exchanges", "get_exchange", "get_coverage",
+	"list_context", "read_context", "list_artifacts", "read_artifact", "get_kb_entry", "list_exchanges", "get_exchange", "get_coverage",
 }
 
 func with(base []string, extra ...string) []string {

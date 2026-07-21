@@ -27,6 +27,7 @@ var reachableExposed = []disposition.Disposition{
 //     directly on a live endpoint is strong exposure evidence even without a dataflow trace;
 //  2. a taint finding (reachable) on an exposed service escalates at any severity;
 //  3. a high/critical pattern finding still investigates on severity.
+//
 // There is no downgrade on the ABSENCE of a route or a dataflow trace — route detection is heuristic and
 // incomplete, so a missing route must never hide a finding.
 var sastReachabilityRouting = []disposition.Disposition{
@@ -41,6 +42,7 @@ var sastReachabilityRouting = []disposition.Disposition{
 //  2. a finding in a traffic-confirmed exposed route's handler escalates at medium+;
 //  3. a reachable CVE on an exposed service escalates;
 //  4. anything else high/critical (e.g. a non-Go CVE with no reachability verdict) still investigates.
+//
 // Rule 1 precedes the route escalation: if the vulnerable symbol is proven uncalled, sitting in a live
 // handler's file doesn't make it exploitable.
 var scaReachabilityRouting = []disposition.Disposition{
@@ -73,6 +75,7 @@ type sourceInventory struct{}
 func (sourceInventory) Manifest() Manifest {
 	return Manifest{
 		ID:              "source-inventory",
+		AppliesTo:       []string{"source_repo"},
 		Version:         "1.0.0",
 		Title:           "Source inventory",
 		Description:     "Lists the files in a source tree (offline recon).",
@@ -105,8 +108,10 @@ const semgrepImage = "semgrep/semgrep:1.104.0"
 
 func (semgrep) Manifest() Manifest {
 	return Manifest{
-		ID:              "semgrep",
-		Version:         "1.0.0",
+		ID:      "semgrep",
+		Version: "1.0.0",
+		// No AppliesTo: the scan orchestrator runs opengrep (the open fork with dataflow reachability) as the
+		// default SAST; semgrep stays available for explicit runs (e.g. an existing Semgrep Pro license).
 		Title:           "Semgrep (SAST)",
 		Description:     "Static analysis over source with Semgrep; emits SARIF. Prefer opengrep (open, ships dataflow reachability); use this for an existing Semgrep license — set pro=true + a SEMGREP_APP_TOKEN secret for the Pro engine (interprocedural taint + codeFlows reachability).",
 		OutputName:      "semgrep.sarif",
@@ -153,6 +158,7 @@ const opengrepImage = "osb/opengrep:latest" // OSB-built (images/opengrep); ship
 func (opengrepScan) Manifest() Manifest {
 	return Manifest{
 		ID:              "opengrep",
+		AppliesTo:       []string{"source_repo"},
 		Version:         "1.0.0",
 		Title:           "Opengrep (SAST + dataflow reachability)",
 		Description:     "Static analysis with the open Semgrep fork; emits SARIF with dataflow traces (codeFlows) so taint findings carry reachability. Fetches registry rules over the network.",
@@ -260,6 +266,7 @@ type grypeScan struct{}
 func (grypeScan) Manifest() Manifest {
 	return Manifest{
 		ID:              "grype",
+		AppliesTo:       []string{"source_repo"},
 		Version:         "1.0.0",
 		Title:           "Grype (SCA / dependency vulnerabilities)",
 		Description:     "Scans dependencies for known vulnerabilities; emits SARIF. Fetches its vulnerability DB over the network.",
@@ -291,6 +298,7 @@ type syftSBOM struct{}
 func (syftSBOM) Manifest() Manifest {
 	return Manifest{
 		ID:              "syft",
+		AppliesTo:       []string{"source_repo"},
 		Version:         "1.0.0",
 		Title:           "Syft (SBOM / dependency inventory)",
 		Description:     "Builds a CycloneDX SBOM of a source tree (offline). Feeds the dependency graph.",
@@ -325,6 +333,8 @@ type govulncheck struct{}
 func (govulncheck) Manifest() Manifest {
 	return Manifest{
 		ID:              "govulncheck",
+		AppliesTo:       []string{"source_repo"},
+		Ecosystem:       "go",
 		Version:         "1.0.0",
 		Title:           "govulncheck (Go reachability SCA)",
 		Description:     "Call-graph reachability analysis of Go dependency vulnerabilities; emits govulncheck JSON. Escalates only reachable vulns on an exposed service.",
@@ -378,6 +388,7 @@ func routeRulesDir() (string, error) {
 func (routeMap) Manifest() Manifest {
 	return Manifest{
 		ID:              "route-map",
+		AppliesTo:       []string{"source_repo"},
 		Version:         "1.0.0",
 		Title:           "Route map (HTTP entry points)",
 		Description:     "Extracts declared HTTP routes from source with a bundled semgrep ruleset; feeds the exposed-route inventory. Offline.",

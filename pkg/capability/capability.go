@@ -31,6 +31,24 @@ type Manifest struct {
 	// Dispositions route this capability's observations to a post-run action (ADR-0028). Empty means
 	// everything is left for manual review (default).
 	Dispositions []disposition.Disposition `json:"dispositions,omitempty"`
+	// AppliesTo lists the asset kinds this capability auto-runs against during a project scan (e.g.
+	// "source_repo"). Empty means the scan orchestrator never fires it automatically — it must be invoked
+	// explicitly (network/intrusive capabilities that need a chosen target opt out this way).
+	AppliesTo []string `json:"applies_to,omitempty"`
+	// Ecosystem, if set, restricts auto-run to assets whose stack matches (e.g. "go" for govulncheck, keyed
+	// off a marker file like go.mod). Empty = language-agnostic, runs on any matching asset kind.
+	Ecosystem string `json:"ecosystem,omitempty"`
+}
+
+// AutoScannable reports whether the scan orchestrator may fire this capability against an asset of the
+// given kind. It never returns true for a network/intrusive capability that declares no AppliesTo.
+func (m Manifest) AppliesToKind(kind string) bool {
+	for _, k := range m.AppliesTo {
+		if k == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // ExitOK reports whether an exit code counts as a successful run.
