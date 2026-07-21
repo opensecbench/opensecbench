@@ -2482,6 +2482,9 @@ select option {
 }
 
 /* Explorer: file-tree rows and finding-in-file rows */
+/* Context item rows are anchors that open the ingested artifact — reset link styling, add row hover. */
+.wb-exp-row.ctx-open { cursor: pointer; color: var(--tx2); text-decoration: none; }
+.wb-exp-row.ctx-open:hover { background: var(--bg3); color: var(--tx); }
 .wb-exp-row.file { cursor: pointer; font-family: var(--mono); font-size: 11.5px; }
 .wb-exp-row.file:hover { background: var(--bg3); color: var(--tx); }
 .wb-exp-row.file .dot { width: 7px; height: 7px; min-width: 7px; border-radius: 50%; background: var(--tx3); }
