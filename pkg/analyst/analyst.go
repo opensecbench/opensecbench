@@ -138,8 +138,9 @@ func Tools() []agent.Tool {
 		{Name: "get_exchange", Description: "Get one captured HTTP exchange by id, including request and response headers and bodies.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "exchange id (from list_exchanges)"},
 		}},
-		{Name: "list_context", Description: "List the project's ingested corpus — documents, emails, chat logs, notes (id, type, name). Use read_context for content.", Params: []agent.Param{
+		{Name: "list_context", Description: "List the project's ingested corpus — documents, emails, chat logs, and analyst notes (id, type, name, tags, pinned). Notes the analyst pinned or tagged out-of-scope/constraint/priority/hypothesis are ALREADY injected into your context — use this to browse the rest, and read_context for full content.", Params: []agent.Param{
 			{Name: "type", Type: agent.TypeEnum, Description: "filter by type", Enum: []string{"document", "email", "chat", "note"}},
+			{Name: "tag", Type: agent.TypeString, Description: "filter to items carrying this analyst tag (e.g. out-of-scope, credentials, priority)"},
 		}},
 		{Name: "read_context", Description: "Read the text content of one ingested context item (a document, email, chat log, or note) by id.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "context item id (from list_context)"},

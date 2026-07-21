@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   api,
+  BEHAVIORAL_CONTEXT_TAGS,
   Application,
   Artifact,
   Asset,
@@ -18,6 +19,7 @@ import {
   CodeHit,
   PlaybookRun,
   Project,
+  RouteView,
   RunnerView,
   ScopeEntry,
   SearchResult,
@@ -42,7 +44,7 @@ import { MethodologyTab } from './MethodologyTab'
 import { OrchestrateTab } from './OrchestrateTab'
 import { OverviewTab } from './Overview'
 import { ProxyTab } from './ProxyTab'
-import { TasksTab } from './TasksTab'
+import { ActivityTab } from './ActivityTab'
 import { hasNativePickers, pickDirectory } from './native'
 
 // The terminal pulls in xterm.js; load it only when the tab is opened.
@@ -74,6 +76,7 @@ type Tab =
   | 'audit'
   | 'settings'
   | 'code'
+  | 'finding'
 
 type Conn = 'connecting' | 'online' | 'offline'
 
@@ -84,25 +87,32 @@ interface AppAssets {
 
 // The activity bar surfaces (ADR-0015). The Analyst is not here — it is the
 // right-hand dock, always present, never a surface you navigate to.
-const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
+//
+// `explorer: true` marks a surface whose left Explorer panel is a genuine second axis — a
+// navigable structure that drives a *different* center view (a file tree feeding the code
+// viewer, a route selector feeding the route detail). Surfaces without it render no Explorer
+// at all and the document center reclaims the width: a panel that only mirrored the center's
+// own list, or sat empty, was worse than none. `code` (ADR-0050) is not in this array — it has
+// no activity-bar icon — but it too has an Explorer; see surfaceHasExplorer.
+const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explorer?: boolean }[] = [
   { key: 'overview', icon: '◆', label: 'Overview' },
-  { key: 'assets', icon: '🗂', label: 'Assets' },
-  { key: 'context', icon: '🔬', label: 'Context' },
+  { key: 'assets', icon: '🗂', label: 'Assets', explorer: true },
+  { key: 'context', icon: '🔬', label: 'Context', explorer: true },
   { key: 'knowledge', icon: '📚', label: 'Know' },
   { key: 'replay', icon: '↔', label: 'Replay' },
   { key: 'proxy', icon: '📡', label: 'Proxy' },
   { key: 'intercept', icon: '✋', label: 'Intcpt' },
   { key: 'terminal', icon: '▤', label: 'Term' },
   { key: 'scan', icon: '▷', label: 'Scan' },
-  { key: 'findings', icon: '⚑', label: 'Find' },
+  { key: 'findings', icon: '⚑', label: 'Find', explorer: true },
   { key: 'investigations', icon: '🔎', label: 'Invest' },
-  { key: 'routes', icon: '🎯', label: 'Surface' },
+  { key: 'routes', icon: '🎯', label: 'Surface', explorer: true },
   { key: 'graph', icon: '📊', label: 'Graph' },
-  { key: 'methodology', icon: '✓', label: 'Method' },
+  { key: 'methodology', icon: '✓', label: 'Method', explorer: true },
   { key: 'scope', icon: '🛡', label: 'Scope' },
   { key: 'orchestrate', icon: '🤖', label: 'Agents' },
   { key: 'playbooks', icon: '🧩', label: 'Play' },
-  { key: 'tasks', icon: '☰', label: 'Tasks' },
+  { key: 'tasks', icon: '🕘', label: 'Activity' },
   { key: 'reports', icon: '📄', label: 'Report' },
   { key: 'integrations', icon: '🔌', label: 'Integr', meta: true },
   { key: 'settings', icon: '⚙', label: 'Settings', meta: true },
@@ -128,7 +138,7 @@ const surfaceByKey = (k: Tab) => SURFACES.find((s) => s.key === k)!
 // activity bar, so it needs no tabs (ADR-0015: one way to switch, not two or three).
 // `code` (source files, ADR-0050) has no activity-bar icon — you open specific files,
 // you don't navigate to a blank Code surface — but many can be open at once.
-const MULTI_DOC_SURFACES: Tab[] = ['replay', 'code']
+const MULTI_DOC_SURFACES: Tab[] = ['replay', 'code', 'finding']
 
 function surfaceTitle(t: Tab): string {
   if (t === 'overview') return 'Overview'
@@ -137,6 +147,7 @@ function surfaceTitle(t: Tab): string {
   if (t === 'orchestrate') return 'Agent Playbooks'
   if (t === 'settings') return 'Engagement settings'
   if (t === 'code') return 'Source'
+  if (t === 'finding') return 'Finding'
   return t[0].toUpperCase() + t.slice(1)
 }
 
@@ -144,6 +155,7 @@ function surfaceTitle(t: Tab): string {
 // file glyph directly; everything else looks up its surface icon.
 function docIcon(surface: Tab): string {
   if (surface === 'code') return '📄'
+  if (surface === 'finding') return '⚑'
   return SURFACES.find((s) => s.key === surface)?.icon ?? '📄'
 }
 
@@ -204,7 +216,7 @@ function explorerTitle(t: Tab | null): string {
   if (t === 'findings') return 'Findings'
   if (t === 'context') return 'Context'
   if (t === 'code') return 'Source'
-  if (t === 'investigations') return 'Investigations'
+  if (t === 'routes') return 'Routes'
   return 'Project'
 }
 
@@ -266,6 +278,71 @@ function FileTree({ assetId, online, onOpenFile }: { assetId: string; online: bo
   return <>{roots.map((e) => <TreeNode key={e.path} assetId={assetId} entry={e} depth={0} online={online} onOpenFile={onOpenFile} />)}</>
 }
 
+// RoutesExplorer is the routes surface's selector (ADR-0033, workbench split): search and filter the ranked
+// attack-surface list here; the chosen route is inspected in the center. The list is the browse axis, the
+// center is the detail — deliberately not the same list twice. Filter/search state is local to the panel.
+function RoutesExplorer({
+  routes,
+  selectedId,
+  onSelect,
+}: {
+  routes: RouteView[]
+  selectedId: string | null
+  onSelect: (id: string) => void
+}) {
+  const [q, setQ] = useState('')
+  const [observedOnly, setObservedOnly] = useState(false)
+  const [withFindings, setWithFindings] = useState(false)
+  const needle = q.trim().toLowerCase()
+  const shown = routes.filter(
+    (r) =>
+      (!observedOnly || r.observed) &&
+      (!withFindings || (r.findings?.length ?? 0) > 0) &&
+      (!needle || r.path.toLowerCase().includes(needle) || r.method.toLowerCase().includes(needle)),
+  )
+  const live = routes.filter((r) => r.observed).length
+  const risky = routes.filter((r) => r.reachable_count > 0).length
+  return (
+    <div className="wb-routes-exp">
+      <input className="wb-exp-search" placeholder="🔍 search routes…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="wb-exp-chips">
+        <button className={`chip ${observedOnly ? 'on' : ''}`} onClick={() => setObservedOnly((v) => !v)}>✔ live</button>
+        <button className={`chip ${withFindings ? 'on' : ''}`} onClick={() => setWithFindings((v) => !v)}>⚑ findings</button>
+      </div>
+      <div className="wb-routes-list">
+        {routes.length === 0 ? (
+          <div className="wb-exp-empty">No routes yet — run route-map.</div>
+        ) : shown.length === 0 ? (
+          <div className="wb-exp-empty">No routes match.</div>
+        ) : (
+          shown.map((r) => {
+            const n = r.findings?.length ?? 0
+            return (
+              <div
+                key={r.id}
+                className={`wb-route-row ${selectedId === r.id ? 'sel' : ''} ${r.reachable_count > 0 ? 'risk' : ''}`}
+                onClick={() => onSelect(r.id)}
+                title={`${r.method || 'ANY'} ${r.path}`}
+              >
+                <span className={`route-method m-${(r.method || 'any').toLowerCase()}`}>{r.method || 'ANY'}</span>
+                <span className="wb-route-path mono">{r.path}</span>
+                <span className="grow" />
+                {r.observed && <span className="wb-route-live" title="Traffic-confirmed">✔</span>}
+                {r.reachable_count > 0 ? (
+                  <span className="wb-route-pip risk" title={`${r.reachable_count} reachable finding(s)`}>{r.reachable_count}</span>
+                ) : n > 0 ? (
+                  <span className="wb-route-pip" title={`${n} finding(s)`}>{n}</span>
+                ) : null}
+              </div>
+            )
+          })
+        )}
+      </div>
+      <div className="wb-routes-foot">{routes.length} routes · {live} live · {risky} exploitable</div>
+    </div>
+  )
+}
+
 function WorkbenchExplorer({
   tab,
   project,
@@ -276,7 +353,9 @@ function WorkbenchExplorer({
   coverage,
   online,
   codeAssetId,
-  onJump,
+  routes,
+  selectedRouteId,
+  onSelectRoute,
   onOpenCode,
 }: {
   tab: Tab | null
@@ -288,12 +367,12 @@ function WorkbenchExplorer({
   coverage: CoverageView | null
   online: boolean
   codeAssetId: string | null
-  onJump: (t: Tab) => void
+  routes: RouteView[]
+  selectedRouteId: string | null
+  onSelectRoute: (id: string) => void
   onOpenCode: OpenCode
 }) {
-  // Source-repo assets, and the observations that carry a source location — the inputs to the file browser
-  // and the "findings in files" view.
-  const sourceAssets = apps.flatMap((a) => a.assets.filter((as) => as.type === 'source_repo'))
+  // Observations that carry a source location — the input to the "findings in files" view.
   const located = observations.filter((o) => o.asset_id && o.location)
   return (
     <aside className="wb-explorer">
@@ -397,26 +476,17 @@ function WorkbenchExplorer({
               <div key={type}>
                 <div className="wb-exp-row grp">{type} ({items.length})</div>
                 {items.map((c) => (
-                  <div key={c.id} className="wb-exp-row ind" title={c.name}>
+                  <div key={c.id} className="wb-exp-row ind" title={(c.tags ?? []).length ? `${c.name} · ${(c.tags ?? []).join(', ')}` : c.name}>
+                    {c.pinned && <span className="ic">📌</span>}
                     <span className="lbl">{c.name}</span>
                   </div>
                 ))}
               </div>
             ))
           )
-        ) : (
-          <div className="wb-exp-project">
-            <div className="wb-exp-fact"><span className={`badge ${project.status}`}>{project.status}</span></div>
-            <div className="wb-exp-fact">{apps.length} app{apps.length === 1 ? '' : 's'} · {findings.length} finding{findings.length === 1 ? '' : 's'}</div>
-            <div className="wb-exp-fact">{sourceAssets.length} source repo{sourceAssets.length === 1 ? '' : 's'}</div>
-            {coverage && <div className="wb-exp-fact">Coverage {coverage.summary.covered_pct}%</div>}
-            <div className="wb-exp-links">
-              {(['methodology', 'assets', 'findings', 'replay'] as Tab[]).map((t) => (
-                <button key={t} onClick={() => onJump(t)}>{SURFACES.find((s) => s.key === t)?.icon} {surfaceTitle(t)}</button>
-              ))}
-            </div>
-          </div>
-        )}
+        ) : tab === 'routes' ? (
+          <RoutesExplorer routes={routes} selectedId={selectedRouteId} onSelect={onSelectRoute} />
+        ) : null}
       </div>
     </aside>
   )
@@ -432,6 +502,7 @@ interface Doc {
   bind?: { itemId: string; itemTitle: string }
   seed?: HTTPExchange // prefill a Replay from a captured request (Send to Replay)
   code?: { assetId: string; path: string; line?: number } // a source file opened in CodeView (ADR-0050)
+  finding?: { id: string } // a finding opened in its detail view; the row data is looked up live by id
 }
 
 function replayLabel(ex: HTTPExchange): string {
@@ -607,6 +678,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   // Deep-link target: a surface + row id to scroll to and flash, with a nonce so repeats re-fire.
   const [focus, setFocus] = useState<{ surface: Tab; id: string; n: number } | null>(null)
   const [coverage, setCoverage] = useState<CoverageView | null>(null)
+  const [routes, setRoutes] = useState<RouteView[]>([]) // attack-surface inventory, shared by the routes Explorer + detail
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [methodReload, setMethodReload] = useState(0) // bump to make Methodology docs re-fetch
   const [approvals, setApprovals] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -636,6 +709,15 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
     setApps(withAssets)
   }
 
+  // Routes arrive already ranked by the risk behind each entry point (route→sink). Keep the current
+  // selection if it survives the reload; otherwise fall to the top-ranked route so the detail pane is
+  // never blank on open. Exposed as its own fn so the routes detail's Refresh can re-pull.
+  async function loadRoutes() {
+    const rs = (await api.projectRoutes(project.id)) ?? []
+    setRoutes(rs)
+    setSelectedRouteId((cur) => (cur && rs.some((r) => r.id === cur) ? cur : rs[0]?.id ?? null))
+  }
+
   async function loadAll() {
     try {
       await loadApps()
@@ -645,6 +727,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       setObservations((await api.listObservations(project.id)) ?? [])
       setEngagement((await api.getEngagement(project.id)) ?? null)
       setCoverage(await api.getMethodologyCoverage(project.id))
+      await loadRoutes()
       setError(null)
     } catch (e) {
       setError((e as Error).message)
@@ -750,6 +833,13 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
     })
     setActiveKey(key)
   }
+  // Open a finding's detail document (its info page): title, description, supporting observations and their
+  // locations, and reachability. Clicking a finding row lands here rather than jumping straight to a file —
+  // the source jumps are the explicit ↦ location chips within the detail. One document per finding.
+  function openFinding(f: Finding) {
+    const key = `finding:${f.id}`
+    focusOrAdd({ key, surface: 'finding', title: f.title, finding: { id: f.id } })
+  }
   function closeDoc(key: string, e?: ReactMouseEvent) {
     e?.stopPropagation()
     const idx = openDocs.findIndex((d) => d.key === key)
@@ -810,7 +900,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'orchestrate':
         return <OrchestrateTab project={project} online={online} onError={setError} />
       case 'tasks':
-        return <TasksTab online={online} onError={setError} />
+        return <ActivityTab online={online} onError={setError} />
       case 'findings':
         return (
           <FindingsTab
@@ -819,6 +909,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             findings={findings}
             observations={observations}
             onOpenCode={openCodeFile}
+            onOpenFinding={openFinding}
             reload={loadAll}
             onError={setError}
             focusId={focus?.surface === 'findings' ? focus.id : undefined}
@@ -830,7 +921,17 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'reports':
         return <ReportsTab project={project} online={online} onError={setError} />
       case 'routes':
-        return <RoutesTab project={project} online={online} onError={setError} onJump={(t) => activateSurface(t as Tab)} />
+        return (
+          <RoutesTab
+            routes={routes}
+            selectedRouteId={selectedRouteId}
+            observations={observations}
+            online={online}
+            onReload={() => void loadRoutes().catch((e) => setError((e as Error).message))}
+            onOpenCode={openCodeFile}
+            onJump={(t) => activateSurface(t as Tab)}
+          />
+        )
       case 'graph':
         return <GraphTab project={project} online={online} onError={setError} />
       case 'integrations':
@@ -845,6 +946,18 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             <CodeView assetId={doc.code.assetId} path={doc.code.path} line={doc.code.line} online={online} />
           </Suspense>
         ) : null
+      case 'finding':
+        return doc.finding ? (
+          <FindingDetail
+            projectId={project.id}
+            finding={findings.find((f) => f.id === doc.finding!.id) ?? null}
+            observations={observations}
+            online={online}
+            onOpenCode={openCodeFile}
+            reload={loadAll}
+            onError={setError}
+          />
+        ) : null
     }
   }
 
@@ -856,6 +969,10 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const surfaceDocs = showDocTabs ? openDocs.filter((d) => d.surface === activeSurface) : []
   // When a source file is active, the Explorer browses that file's repo.
   const codeAssetId = openDocs.find((d) => d.key === activeKey)?.code?.assetId ?? null
+  // The Explorer renders only for surfaces where it's a genuine second axis (declared via SURFACES.explorer,
+  // plus `code` which has no activity-bar entry). Elsewhere it's suppressed and the center reclaims the width —
+  // an empty or nav-duplicating panel was worse than none.
+  const surfaceHasExplorer = activeSurface === 'code' || !!SURFACES.find((s) => s.key === activeSurface)?.explorer
   // Authorization soft-gate message, suppressed when the global setting turns the requirement off (ADR-0051).
   const authWarn = requireAuth ? authWarning(engagement) : null
 
@@ -900,21 +1017,25 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
           ))}
         </nav>
 
-        <SurfaceBoundary>
-          <WorkbenchExplorer
-            tab={activeSurface}
-            project={project}
-            apps={apps}
-            findings={findings}
-            observations={observations}
-            context={context}
-            coverage={coverage}
-            online={online}
-            codeAssetId={codeAssetId}
-            onJump={activateSurface}
-            onOpenCode={openCodeFile}
-          />
-        </SurfaceBoundary>
+        {surfaceHasExplorer && (
+          <SurfaceBoundary>
+            <WorkbenchExplorer
+              tab={activeSurface}
+              project={project}
+              apps={apps}
+              findings={findings}
+              observations={observations}
+              context={context}
+              coverage={coverage}
+              online={online}
+              codeAssetId={codeAssetId}
+              routes={routes}
+              selectedRouteId={selectedRouteId}
+              onSelectRoute={setSelectedRouteId}
+              onOpenCode={openCodeFile}
+            />
+          </SurfaceBoundary>
+        )}
 
         <div className="wb-center">
           {showDocTabs && (
@@ -1278,14 +1399,42 @@ function ContextTab({
 }) {
   const [type, setType] = useState('document')
   const [busy, setBusy] = useState(false)
+  const [noteTitle, setNoteTitle] = useState('')
+  const [noteBody, setNoteBody] = useState('')
+  const [tagsText, setTagsText] = useState('')
+  const [pinned, setPinned] = useState(false)
+
+  const tags = tagsText.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
+  // Suggest the reserved behavioral tags plus any already used in this project, minus what's already entered.
+  const usedTags = Array.from(new Set(items.flatMap((i) => i.tags ?? [])))
+  const suggestions = Array.from(new Set([...BEHAVIORAL_CONTEXT_TAGS, ...usedTags])).filter((t) => !tags.includes(t))
+  const addTag = (t: string) => setTagsText([...tags, t].join(', '))
+  const resetLabels = () => { setTagsText(''); setPinned(false) }
+
+  async function addNote() {
+    const body = noteBody.trim()
+    if (!body) return
+    const name = noteTitle.trim() || body.split('\n')[0].slice(0, 60)
+    setBusy(true)
+    try {
+      await api.createNote(project.id, name, body, { tags, pinned })
+      setNoteTitle(''); setNoteBody(''); resetLabels()
+      await reload()
+    } catch (err) {
+      onError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function upload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setBusy(true)
     try {
-      await api.ingestContext(project.id, file.name, type, file)
+      await api.ingestContext(project.id, file.name, type, file, { tags, pinned })
       e.target.value = ''
+      resetLabels()
       await reload()
     } catch (err) {
       onError((err as Error).message)
@@ -1297,17 +1446,41 @@ function ContextTab({
   return (
     <section className="panel">
       <div className="panel-head">Context</div>
-      <div className="create-row">
-        <select value={type} onChange={(e) => setType(e.target.value)}>
-          {['document', 'email', 'chat', 'note'].map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-        <label className={`filebtn ${busy ? 'busy' : ''}`}>
-          {busy ? 'Uploading…' : '＋ Add file'}
-          <input type="file" onChange={upload} disabled={!online || busy} hidden />
+
+      <div className="ctx-compose">
+        <input className="ctx-note-title" placeholder="Note title (optional)" value={noteTitle} onChange={(e) => setNoteTitle(e.target.value)} disabled={busy} />
+        <textarea className="ctx-note-body" placeholder="Write a note… (findings context, constraints, hypotheses — agents can read these)" value={noteBody} onChange={(e) => setNoteBody(e.target.value)} disabled={busy} rows={3} />
+
+        {/* Shared labels — applied to the note or file you add next. */}
+        <input className="ctx-tags" placeholder="tags, comma-separated" value={tagsText} onChange={(e) => setTagsText(e.target.value)} disabled={busy} />
+        {suggestions.length > 0 && (
+          <div className="ctx-tag-suggest">
+            {suggestions.map((t) => (
+              <button key={t} type="button" className={`ctx-tag-chip ${BEHAVIORAL_CONTEXT_TAGS.includes(t) ? 'behavioral' : ''}`} onClick={() => addTag(t)} disabled={busy} title={BEHAVIORAL_CONTEXT_TAGS.includes(t) ? 'Behavioral tag — the agent acts on this' : 'Add tag'}>
+                + {t}
+              </button>
+            ))}
+          </div>
+        )}
+        <label className="ctx-pin" title="Pin: inject this into the agent's context at the start of every run">
+          <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} disabled={busy} /> 📌 Pin for agents
         </label>
+
+        <div className="ctx-compose-actions">
+          <button className="ghost-btn" onClick={() => void addNote()} disabled={!online || busy || !noteBody.trim()}>{busy ? 'Saving…' : '＋ Add note'}</button>
+          <span className="ctx-or">or attach a file</span>
+          <select value={type} onChange={(e) => setType(e.target.value)} disabled={busy}>
+            {['document', 'email', 'chat'].map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          <label className={`filebtn ${busy ? 'busy' : ''}`}>
+            {busy ? 'Uploading…' : '＋ Add file'}
+            <input type="file" onChange={upload} disabled={!online || busy} hidden />
+          </label>
+        </div>
       </div>
+
       {items.length === 0 ? (
         <div className="empty">No context ingested.</div>
       ) : (
@@ -1315,7 +1488,11 @@ function ContextTab({
           {items.map((ci) => (
             <li key={ci.id} className="row-item">
               <span className="badge">{ci.type}</span>
+              {ci.pinned && <span className="ctx-pinned" title="Pinned — injected into agent runs">📌</span>}
               <span className="row-title">{ci.name}</span>
+              {(ci.tags ?? []).map((t) => (
+                <span key={t} className={`ctx-tag ${BEHAVIORAL_CONTEXT_TAGS.includes(t) ? 'behavioral' : ''}`}>{t}</span>
+              ))}
               <a className="link" href={api.artifactContentURL(ci.artifact_id)} target="_blank" rel="noreferrer">open</a>
             </li>
           ))}
@@ -1874,6 +2051,7 @@ function FindingsTab({
   findings,
   observations,
   onOpenCode,
+  onOpenFinding,
   reload,
   onError,
   focusId,
@@ -1884,6 +2062,7 @@ function FindingsTab({
   findings: Finding[]
   observations: Observation[]
   onOpenCode: OpenCode
+  onOpenFinding: (f: Finding) => void
   reload: () => Promise<void>
   onError: (m: string) => void
   focusId?: string
@@ -1923,7 +2102,19 @@ function FindingsTab({
                 }}
                 className={`row-item col${flash === f.id ? ' flash' : ''}`}
               >
-                <div className="row-main">
+                <div
+                  className="row-main clickable"
+                  role="button"
+                  tabIndex={0}
+                  title="Open finding details"
+                  onClick={() => onOpenFinding(f)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onOpenFinding(f)
+                    }
+                  }}
+                >
                   <span className={`sev sev-${f.severity}`}>{f.severity}</span>
                   <span className="row-title">{f.title}</span>
                   {f.cwe && <span className="muted">{f.cwe}</span>}
@@ -1932,6 +2123,7 @@ function FindingsTab({
                     className={`finding-status badge ${f.status}`}
                     value={f.status}
                     title="Finding status"
+                    onClick={(e) => e.stopPropagation()}
                     onChange={async (e) => {
                       try {
                         await api.setFindingStatus(f.id, e.target.value)
@@ -1957,6 +2149,102 @@ function FindingsTab({
               </li>
             )
           })}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+// FindingDetail is a finding's info page, opened as a document when you click a finding row. It shows the
+// finding's description, status (editable), CWE, and every supporting observation the finding was promoted
+// from — each with its scanner rule, detail, routing signals, source locations (jump-to-file ↦ chips) and
+// reachability. The finding is looked up live from the loaded set so status edits and reloads stay in sync;
+// if it disappears (deleted elsewhere) we say so rather than render a blank.
+function FindingDetail({
+  projectId,
+  finding,
+  observations,
+  online,
+  onOpenCode,
+  reload,
+  onError,
+}: {
+  projectId: string
+  finding: Finding | null
+  observations: Observation[]
+  online: boolean
+  onOpenCode: OpenCode
+  reload: () => Promise<void>
+  onError: (m: string) => void
+}) {
+  const byId = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
+  if (!finding) return <div className="empty">This finding is no longer available.</div>
+  const obs = finding.observation_ids.map((id) => byId.get(id)).filter((o): o is Observation => !!o)
+  // Facts worth surfacing on an observation, minus the ones already shown structurally (locations/flow).
+  const signalKeys = (o: Observation) =>
+    Object.keys(o.attributes ?? {}).filter((k) => k !== 'dataflow_source' && k !== 'dataflow_path')
+  return (
+    <section className="fd">
+      <header className="fd-head">
+        <div className="fd-titlerow">
+          <span className={`sev sev-${finding.severity}`}>{finding.severity}</span>
+          <h2 className="fd-title">{finding.title}</h2>
+          <span className="grow" />
+          <select
+            className={`finding-status badge ${finding.status}`}
+            value={finding.status}
+            title="Finding status"
+            onChange={async (e) => {
+              try {
+                await api.setFindingStatus(finding.id, e.target.value)
+                await reload()
+              } catch (err) {
+                onError((err as Error).message)
+              }
+            }}
+          >
+            {FINDING_STATUSES.map((s) => (
+              <option key={s} value={s}>{s.replace('_', ' ')}</option>
+            ))}
+          </select>
+        </div>
+        <div className="fd-meta muted">
+          {finding.cwe && <span>{finding.cwe}</span>}
+          <span>{obs.length} supporting observation{obs.length === 1 ? '' : 's'}</span>
+          <span>opened {new Date(finding.created_at).toLocaleString()}</span>
+        </div>
+      </header>
+
+      {finding.description && <p className="fd-desc">{finding.description}</p>}
+
+      <h3 className="fd-section">Evidence</h3>
+      {obs.length === 0 ? (
+        <div className="empty">No supporting observations are attached to this finding.</div>
+      ) : (
+        <ul className="fd-obs">
+          {obs.map((o) => (
+            <li key={o.id} className="fd-ob">
+              <div className="fd-ob-head">
+                <span className={`sev sev-${o.severity}`}>{o.severity}</span>
+                <span className="row-title">{o.title}</span>
+                {o.rule_id && <span className="muted mono">{o.rule_id}</span>}
+              </div>
+              {o.detail && <div className="fd-ob-detail">{o.detail}</div>}
+              {o.location && (
+                <div className="loc-row">
+                  <LocationChip obs={o} onOpenCode={onOpenCode} />
+                </div>
+              )}
+              {signalKeys(o).length > 0 && (
+                <div className="fd-signals">
+                  {signalKeys(o).map((k) => (
+                    <span key={k} className="fd-signal mono">{k}={o.attributes![k]}</span>
+                  ))}
+                </div>
+              )}
+              <FindingReachability projectId={projectId} subject={o.id} online={online} onError={onError} />
+            </li>
+          ))}
         </ul>
       )}
     </section>

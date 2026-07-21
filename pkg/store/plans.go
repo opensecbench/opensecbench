@@ -214,6 +214,32 @@ func (db *DB) ListRunningPlans(ctx context.Context) ([]model.Plan, error) {
 	return out, rows.Err()
 }
 
+// ListPlans returns up to limit plans (any status, without steps) in this database, newest first.
+// Used by the unified Activity feed so finished/failed agent plans stay browsable after a restart.
+func (db *DB) ListPlans(ctx context.Context, limit int) ([]model.Plan, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, project_id, playbook_id, goal, status, created_at, updated_at
+		 FROM plans ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []model.Plan
+	for rows.Next() {
+		var p model.Plan
+		var created, updated string
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.PlaybookID, &p.Goal, &p.Status, &created, &updated); err != nil {
+			return nil, err
+		}
+		p.CreatedAt, p.UpdatedAt = parseTime(created), parseTime(updated)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (db *DB) ListPlansByProject(ctx context.Context, projectID string) ([]model.Plan, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, project_id, playbook_id, goal, status, created_at, updated_at

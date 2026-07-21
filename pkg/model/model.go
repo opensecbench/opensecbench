@@ -623,8 +623,31 @@ const (
 	ContextNote     = "note"
 )
 
+// Reserved context tags the analyst agent acts on (behavioral). Every other tag is free-form and used
+// only for organization/retrieval. An item carrying any of these — or one that's pinned — is auto-injected
+// into the agent's run-start context (see analyst.contextNotesPreamble); the rest stay pull-only.
+const (
+	CtxTagOutOfScope = "out-of-scope"
+	CtxTagConstraint = "constraint"
+	CtxTagPriority   = "priority"
+	CtxTagHypothesis = "hypothesis"
+)
+
+// BehavioralContextTags lists the reserved tags above in display order.
+var BehavioralContextTags = []string{CtxTagOutOfScope, CtxTagConstraint, CtxTagPriority, CtxTagHypothesis}
+
+// IsBehavioralTag reports whether tag (case-insensitively) is a reserved behavioral context tag.
+func IsBehavioralTag(tag string) bool {
+	switch strings.ToLower(strings.TrimSpace(tag)) {
+	case CtxTagOutOfScope, CtxTagConstraint, CtxTagPriority, CtxTagHypothesis:
+		return true
+	}
+	return false
+}
+
 // ContextItem is ingested unstructured context (a doc, email, chat log, or note) whose bytes
-// live in the CAS as an input artifact, linked to a project.
+// live in the CAS as an input artifact, linked to a project. Tags are analyst-applied labels; Pinned
+// (or a behavioral tag) promotes the item into the agent's run-start context.
 type ContextItem struct {
 	ID            string    `json:"id"`
 	ProjectID     string    `json:"project_id"`
@@ -632,6 +655,8 @@ type ContextItem struct {
 	Type          string    `json:"type"`
 	Name          string    `json:"name"`
 	ArtifactID    string    `json:"artifact_id"`
+	Tags          []string  `json:"tags,omitempty"`
+	Pinned        bool      `json:"pinned"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 

@@ -11,6 +11,68 @@ function cadence(seconds: number): string {
   return `every ${Math.round(seconds / 3600)}h`
 }
 
+// Activity is one turn of a step's live trail: the agent's commentary plus the tool it ran. The backend
+// streams these as JSON lines (see formatActivity); older runs may carry plain-text lines, kept as `raw`.
+type Activity = { k: string; tool: string; note?: string; args?: string; out?: string; raw?: string }
+
+function parseActivity(progress: string): Activity[] {
+  return progress
+    .trimEnd()
+    .split('\n')
+    .filter((l) => l.trim() !== '')
+    .map((line) => {
+      if (line.startsWith('{')) {
+        try {
+          const e = JSON.parse(line)
+          return { k: e.k ?? 'ok', tool: e.tool ?? '', note: e.note, args: e.args, out: e.out }
+        } catch {
+          /* not JSON — fall through to raw */
+        }
+      }
+      return { k: 'ok', tool: '', raw: line }
+    })
+}
+
+// ActivityEntry leads with the agent's own words (what it's thinking/doing) and tucks the mechanical tool
+// call — name, args, output — behind a details toggle, so the trail reads like reasoning, not a log dump.
+function ActivityEntry({ e }: { e: Activity }) {
+  const [open, setOpen] = useState(false)
+  if (e.raw) return <div className="act-entry act-raw">{e.raw}</div>
+  const glyph = e.k === 'err' ? '✗' : e.k === 'deny' ? '⏸' : '→'
+  const hasDetail = !!(e.args || e.out)
+  return (
+    <div className={`act-entry k-${e.k}`}>
+      {e.note && <div className="act-note">{e.note}</div>}
+      <div className="act-tool">
+        <span className="act-glyph">{glyph}</span>
+        <code className="act-toolname">{e.tool}</code>
+        {e.k === 'deny' && <span className="act-tag">denied</span>}
+        {hasDetail && (
+          <button type="button" className="act-toggle" onClick={() => setOpen(!open)}>
+            {open ? 'hide' : 'details'}
+          </button>
+        )}
+      </div>
+      {open && hasDetail && (
+        <div className="act-detail">
+          {e.args && (
+            <pre className="act-code">
+              <span className="act-lbl">args</span>
+              {e.args}
+            </pre>
+          )}
+          {e.out && (
+            <pre className="act-code">
+              <span className="act-lbl">{e.k === 'err' ? 'error' : 'result'}</span>
+              {e.out}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // OrchestrateTab runs and schedules agent playbooks on this project, and watches the resulting plan (a DAG
 // of specialist steps) run to completion (ADR-0019). Playbooks are authored in the global Library; here you
 // pick one to run or schedule.
@@ -174,14 +236,21 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
                   <span className="grow" />
                   <span className={`ps-status s-${s.status}`}>{s.status}</span>
                 </div>
-                {s.progress && (
-                  <details className="ps-activity" open={s.status === 'running'}>
-                    <summary>
-                      Activity <span className="ps-activity-n">{s.progress.trimEnd().split('\n').length} turns</span>
-                    </summary>
-                    <pre className="ps-activity-log">{s.progress.trimEnd()}</pre>
-                  </details>
-                )}
+                {s.progress && (() => {
+                  const entries = parseActivity(s.progress)
+                  return (
+                    <details className="ps-activity" open={s.status === 'running'}>
+                      <summary>
+                        Activity <span className="ps-activity-n">{entries.length} turns</span>
+                      </summary>
+                      <div className="ps-activity-log">
+                        {entries.map((e, i) => (
+                          <ActivityEntry key={i} e={e} />
+                        ))}
+                      </div>
+                    </details>
+                  )
+                })()}
                 {s.result && <div className="ps-result">{s.result}</div>}
                 {s.error && <div className="ps-error">{s.error}</div>}
               </div>

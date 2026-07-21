@@ -453,7 +453,8 @@ func (svc *Service) Send(ctx context.Context, projectID, threadID, userMessage s
 		return SendResult{}, err
 	}
 	if len(existing) == 0 {
-		if _, err := svc.p(projectID).AppendMessage(ctx, threadID, llm.RoleSystem, profile.SystemPrompt()); err != nil {
+		sys := svc.systemPromptFor(ctx, projectID, profile.SystemPrompt(), tgt.Provider)
+		if _, err := svc.p(projectID).AppendMessage(ctx, threadID, llm.RoleSystem, sys); err != nil {
 			return SendResult{}, err
 		}
 	}

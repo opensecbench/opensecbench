@@ -156,6 +156,19 @@ var appearance = Section{
 			Default:     "#4aa8ff",
 			Description: "The highlight color used across the app.",
 		},
+		{
+			Key:         "appearance.text_size",
+			Label:       "Text size",
+			Type:        TypeSelect,
+			Default:     "1",
+			Description: "Scales the whole interface — text and spacing together. Bump this if things feel small.",
+			Options: []Option{
+				{Value: "0.9", Label: "Compact"},
+				{Value: "1", Label: "Default"},
+				{Value: "1.1", Label: "Large"},
+				{Value: "1.25", Label: "Extra large"},
+			},
+		},
 	},
 }
 
