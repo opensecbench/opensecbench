@@ -484,10 +484,17 @@ function WorkbenchExplorer({
               <div key={type}>
                 <div className="wb-exp-row grp">{type} ({items.length})</div>
                 {items.map((c) => (
-                  <div key={c.id} className="wb-exp-row ind" title={(c.tags ?? []).length ? `${c.name} · ${(c.tags ?? []).join(', ')}` : c.name}>
+                  <a
+                    key={c.id}
+                    className="wb-exp-row ind ctx-open"
+                    href={api.artifactContentURL(c.artifact_id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={(c.tags ?? []).length ? `${c.name} · ${(c.tags ?? []).join(', ')} · open` : `${c.name} · open`}
+                  >
                     {c.pinned && <span className="ic">📌</span>}
                     <span className="lbl">{c.name}</span>
-                  </div>
+                  </a>
                 ))}
               </div>
             ))
@@ -1407,7 +1414,6 @@ function ContextTab({
   reload: () => Promise<void>
   onError: (m: string) => void
 }) {
-  const [type, setType] = useState('document')
   const [busy, setBusy] = useState(false)
   const [noteTitle, setNoteTitle] = useState('')
   const [noteBody, setNoteBody] = useState('')
@@ -1442,7 +1448,8 @@ function ContextTab({
     if (!file) return
     setBusy(true)
     try {
-      await api.ingestContext(project.id, file.name, type, file, { tags, pinned })
+      // Files are ingested as "document"; kind/category is expressed with tags, not a separate type picker.
+      await api.ingestContext(project.id, file.name, 'document', file, { tags, pinned })
       e.target.value = ''
       resetLabels()
       await reload()
@@ -1455,7 +1462,8 @@ function ContextTab({
 
   return (
     <section className="panel">
-      <div className="panel-head">Context</div>
+      <div className="panel-head">Add context</div>
+      <p className="hint">Notes and files you add appear in the left panel, grouped by kind. Agents can read them; pin or tag one to fold it into every run.</p>
 
       <div className="ctx-compose">
         <input className="ctx-note-title" placeholder="Note title (optional)" value={noteTitle} onChange={(e) => setNoteTitle(e.target.value)} disabled={busy} />
@@ -1479,35 +1487,12 @@ function ContextTab({
         <div className="ctx-compose-actions">
           <button className="ghost-btn" onClick={() => void addNote()} disabled={!online || busy || !noteBody.trim()}>{busy ? 'Saving…' : '＋ Add note'}</button>
           <span className="ctx-or">or attach a file</span>
-          <select value={type} onChange={(e) => setType(e.target.value)} disabled={busy}>
-            {['document', 'email', 'chat'].map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
           <label className={`filebtn ${busy ? 'busy' : ''}`}>
             {busy ? 'Uploading…' : '＋ Add file'}
             <input type="file" onChange={upload} disabled={!online || busy} hidden />
           </label>
         </div>
       </div>
-
-      {items.length === 0 ? (
-        <div className="empty">No context ingested.</div>
-      ) : (
-        <ul className="rows">
-          {items.map((ci) => (
-            <li key={ci.id} className="row-item">
-              <span className="badge">{ci.type}</span>
-              {ci.pinned && <span className="ctx-pinned" title="Pinned — injected into agent runs">📌</span>}
-              <span className="row-title">{ci.name}</span>
-              {(ci.tags ?? []).map((t) => (
-                <span key={t} className={`ctx-tag ${BEHAVIORAL_CONTEXT_TAGS.includes(t) ? 'behavioral' : ''}`}>{t}</span>
-              ))}
-              <a className="link" href={api.artifactContentURL(ci.artifact_id)} target="_blank" rel="noreferrer">open</a>
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   )
 }
