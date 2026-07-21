@@ -22,6 +22,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/disposition"
+	"github.com/opensecbench/opensecbench/pkg/enrich"
 	"github.com/opensecbench/opensecbench/pkg/interpret"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
@@ -49,6 +50,10 @@ type Engine struct {
 	// resolveRunner, if set, returns the runner for a task's RunnerTarget (a remote runner id). When a
 	// task targets a remote runner and this is nil or errors, the task fails cleanly (ADR-0024).
 	resolveRunner func(runnerID string) (runner.Runner, error)
+
+	// outdatedHTTP, if set, is the HTTP client used to query deps.dev for the outdated-dependency
+	// enrichment after a syft SBOM completes. nil disables it (tests / offline).
+	outdatedHTTP enrich.Doer
 
 	notify     chan struct{}   // "there may be work" wakeup, so workers claim immediately on enqueue
 	baseCtx    context.Context // parent context for background runs (survives request cancellation)
@@ -257,6 +262,10 @@ func (e *Engine) Cancel(taskID string) error {
 // Registry exposes the capabilities this engine can run.
 func (e *Engine) Registry() *capability.Registry { return e.registry }
 
+// SetOutdatedChecker enables the deps.dev outdated-dependency enrichment with the given HTTP client
+// (ADR-0031-adjacent). Without it, syft completion does not trigger a currency check.
+func (e *Engine) SetOutdatedChecker(d enrich.Doer) { e.outdatedHTTP = d }
+
 // RunRequest asks the engine to run a capability against a target directory.
 type RunRequest struct {
 	CapabilityID  string
@@ -459,6 +468,67 @@ func (e *Engine) ScanProject(ctx context.Context, projectID string) (ScanResult,
 		}
 	}
 	return res, nil
+}
+
+// enrichOutdated parses a syft CycloneDX SBOM, asks deps.dev which components are behind their latest
+// release, and records each as an unreviewed observation (fingerprint-deduped so a re-scan doesn't
+// duplicate). Best-effort — a network or parse error just yields fewer observations.
+func (e *Engine) enrichOutdated(ctx context.Context, projectID, taskID, artifactID string, sbom []byte) {
+	var doc struct {
+		Components []struct {
+			PURL string `json:"purl"`
+		} `json:"components"`
+	}
+	if json.Unmarshal(sbom, &doc) != nil {
+		return
+	}
+	purls := make([]string, 0, len(doc.Components))
+	for _, c := range doc.Components {
+		if c.PURL != "" {
+			purls = append(purls, c.PURL)
+		}
+	}
+	comps := enrich.ComponentsFromPURLs(purls)
+	if len(comps) == 0 {
+		return
+	}
+	results := enrich.Checker{HTTP: e.outdatedHTTP}.Check(ctx, comps)
+	pid := projectID
+	for _, r := range results {
+		o := model.Observation{
+			TaskID:      &taskID,
+			ArtifactID:  &artifactID,
+			ProjectID:   &pid,
+			Origin:      model.OriginTool,
+			ReviewState: model.ReviewUnreviewed,
+			Title:       "Outdated dependency: " + r.Name,
+			Detail:      fmt.Sprintf("%s %s is behind the latest release %s (%s update available).", r.Name, r.Version, r.Latest, r.Drift),
+			Severity:    driftSeverity(r.Drift),
+			RuleID:      "outdated/" + r.Ecosystem,
+			Location:    r.Name + "@" + r.Version,
+			Attributes: map[string]string{
+				"package": r.Name, "installed": r.Version, "latest": r.Latest, "drift": r.Drift, "outdated": "true",
+			},
+		}
+		o.Fingerprint = interpret.Fingerprint(o)
+		if _, dup := e.p(projectID).ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
+			continue
+		}
+		_, _ = e.p(projectID).CreateObservation(ctx, o)
+	}
+}
+
+// driftSeverity maps a version drift to an OSB severity — outdated is a currency signal, not a
+// vulnerability, so it stays modest (a major jump is medium at most).
+func driftSeverity(drift string) string {
+	switch drift {
+	case "major":
+		return "medium"
+	case "minor":
+		return "low"
+	default:
+		return "info"
+	}
 }
 
 // ecosystemMarkers maps a stack name to the files that signal its presence at a repo root.
@@ -664,6 +734,15 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	// Route new observations to a post-run disposition (ADR-0028): auto-finding, investigate, or review.
 	if len(created) > 0 {
 		e.applyDispositions(ctx, projectID, man, p.applicationID, created)
+	}
+
+	// Outdated-dependency enrichment (deps.dev): a syft SBOM is the currency signal's input. Flag
+	// components behind their latest release as observations so they join the vuln signal on the graph.
+	// Async + best-effort; only when a checker is configured (skipped in tests / offline).
+	if man.ID == "syft" && projectID != "" && e.outdatedHTTP != nil {
+		sbom := append([]byte(nil), res.Stdout...)
+		taskID, artID := task.ID, art.ID
+		go e.enrichOutdated(context.Background(), projectID, taskID, artID, sbom)
 	}
 
 	status := model.TaskSucceeded

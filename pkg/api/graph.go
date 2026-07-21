@@ -22,6 +22,9 @@ type graphNode struct {
 	// known vulnerabilities affect this component and whether any is reachable (govulncheck call-graph).
 	Vulns     int  `json:"vulns,omitempty"`
 	Reachable bool `json:"reachable,omitempty"`
+	// Outdated/Latest overlay the deps.dev currency signal: the component is behind its latest release.
+	Outdated bool   `json:"outdated,omitempty"`
+	Latest   string `json:"latest,omitempty"`
 }
 type graphEdge struct {
 	From string `json:"from"`
@@ -231,7 +234,14 @@ func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, 
 	obs, _ := s.pdb(r).ListObservationsByProject(r.Context(), projectID)
 	var vulnObs []model.Observation
 	byPackage := map[string][]model.Observation{}
+	outdated := map[string]string{} // lower(package) -> latest version (deps.dev currency signal)
 	for _, o := range obs {
+		if o.Attributes["outdated"] == "true" {
+			if pkg := strings.ToLower(o.Attributes["package"]); pkg != "" {
+				outdated[pkg] = o.Attributes["latest"]
+			}
+			continue
+		}
 		if !looksLikeVuln(o) {
 			continue
 		}
@@ -274,6 +284,11 @@ func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, 
 			if reachable {
 				n.Meta += " · reachable"
 			}
+		}
+		if latest, ok := outdated[strings.ToLower(c.Name)]; ok {
+			n.Outdated = true
+			n.Latest = latest
+			n.Meta += " · → " + latest
 		}
 		g.Nodes = append(g.Nodes, n)
 	}

@@ -13,8 +13,8 @@ function nodeColor(n: GraphNode): string {
     case 'asset':
       return n.group === 'open_source' ? '#46c07a' : '#f0a83c'
     case 'dependency':
-      // A dependency node is coloured by the worst vuln severity affecting it; clean deps stay neutral.
-      return n.group ? sevColor(n.group) : '#3a4560'
+      // Coloured by worst vuln severity; if only outdated (no vuln), amber; otherwise neutral.
+      return n.group ? sevColor(n.group) : n.outdated ? '#b0791f' : '#3a4560'
     case 'finding':
       return sevColor(n.group)
     case 'endpoint':
@@ -184,9 +184,9 @@ export function GraphTab({
                   <text x={n.x + 8} y={n.y + NODE_H / 2 + 4} fill="#fff" fontSize={11} fontFamily="sans-serif">
                     {n.label.length > 22 ? n.label.slice(0, 21) + '…' : n.label}
                   </text>
-                  {(n.vulns ?? 0) > 0 && (
+                  {((n.vulns ?? 0) > 0 || n.outdated) && (
                     <text x={n.x + NODE_W - 8} y={n.y + NODE_H / 2 + 4} fill="#fff" fontSize={10} fontWeight={700} textAnchor="end" fontFamily="sans-serif">
-                      {n.vulns}{n.reachable ? '!' : ''}
+                      {(n.vulns ?? 0) > 0 ? `${n.vulns}${n.reachable ? '!' : ''}` : '↑'}
                     </text>
                   )}
                 </g>
