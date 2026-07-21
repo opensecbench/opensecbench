@@ -476,6 +476,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/projects/{id}/scan", s.scanProject)
 	s.mux.HandleFunc("POST /v1/projects/{id}/reevaluate", s.reevaluateProject)
 	s.mux.HandleFunc("GET /v1/projects/{id}/routes", s.listProjectRoutes)
+	s.mux.HandleFunc("GET /v1/projects/{id}/summary", s.projectSummary)
 	s.mux.HandleFunc("GET /v1/projects/{id}/reachability", s.listReachability)
 	s.mux.HandleFunc("POST /v1/projects/{id}/reachability", s.addReachability)
 
