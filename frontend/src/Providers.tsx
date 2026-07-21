@@ -30,10 +30,7 @@ type TestState = { ok?: boolean; latency_ms?: number; sample?: string; error?: s
 
 // Providers lists/configures inference providers. projectId is optional — the per-project token-usage
 // table shows only when it's given (e.g. from a project's Analyst dock, not global settings).
-// manage (default true) shows the full management surface: add form, delete, and the discovered-models
-// panel. In the Analyst chat dock it's false — there you only pick which connection to use (activate),
-// while adding/configuring connections lives in Settings → Models & Providers.
-export function Providers({ online, projectId, onChanged, manage = true }: { online: boolean; projectId?: string; onChanged?: () => void; manage?: boolean }) {
+export function Providers({ online, projectId, onChanged }: { online: boolean; projectId?: string; onChanged?: () => void }) {
   const [providers, setProviders] = useState<ProviderView[]>([])
   const [usage, setUsage] = useState<UsageByModel[]>([])
   const [type, setType] = useState('anthropic')
@@ -137,9 +134,7 @@ export function Providers({ online, projectId, onChanged, manage = true }: { onl
       {error && <div className="banner error">⚠ {error}</div>}
 
       <div className="prov-list">
-        {providers.length === 0 && (
-          <div className="empty">{manage ? 'No providers configured. Add one below.' : 'No connections yet — add one in Settings → Models & Providers.'}</div>
-        )}
+        {providers.length === 0 && <div className="empty">No providers configured. Add one below.</div>}
         {providers.map((p) => {
           const t = tests[p.id]
           return (
@@ -162,12 +157,10 @@ export function Providers({ online, projectId, onChanged, manage = true }: { onl
                     <div className="prov-test err">✕ {t.error}</div>
                   )
                 )}
-                {manage && (
-                  <button className="ghost-btn prov-models-toggle" onClick={() => toggleModels(p.id)} disabled={!online}>
-                    {expanded === p.id ? '▾' : '▸'} models{connModels[p.id] ? ` (${connModels[p.id].length})` : ''}
-                  </button>
-                )}
-                {manage && expanded === p.id && (
+                <button className="ghost-btn prov-models-toggle" onClick={() => toggleModels(p.id)} disabled={!online}>
+                  {expanded === p.id ? '▾' : '▸'} models{connModels[p.id] ? ` (${connModels[p.id].length})` : ''}
+                </button>
+                {expanded === p.id && (
                   <div className="prov-models">
                     <div className="prov-models-head">
                       <span>
@@ -192,9 +185,9 @@ export function Providers({ online, projectId, onChanged, manage = true }: { onl
                 )}
               </div>
               <div className="prov-actions">
-                {!p.active && <button className="ghost-btn" onClick={() => activate(p.id)}>{manage ? 'activate' : 'use'}</button>}
+                {!p.active && <button className="ghost-btn" onClick={() => activate(p.id)}>activate</button>}
                 <button className="ghost-btn" onClick={() => test(p.id)} disabled={t?.testing}>{t?.testing ? '…' : 'test'}</button>
-                {manage && <button className="del" title="Delete" onClick={() => remove(p.id)}>✕</button>}
+                <button className="del" title="Delete" onClick={() => remove(p.id)}>✕</button>
               </div>
             </div>
           )
@@ -222,7 +215,7 @@ export function Providers({ online, projectId, onChanged, manage = true }: { onl
         </div>
       )}
 
-      {manage && <div className="prov-add">
+      <div className="prov-add">
         <div className="prov-add-title">Add provider</div>
         <select value={type} onChange={(e) => { setType(e.target.value); setModel(''); setCustomModel(false) }}>
           {PROVIDER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -254,7 +247,7 @@ export function Providers({ online, projectId, onChanged, manage = true }: { onl
               ? 'Local models — no key, nothing leaves your machine.'
               : 'An API key is the most reliable path. Keys are sealed in the vault, never stored in the clear.'}
         </div>
-      </div>}
+      </div>
     </div>
   )
 }
