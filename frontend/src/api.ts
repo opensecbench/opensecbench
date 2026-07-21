@@ -789,7 +789,7 @@ export const api = {
   createAsset: (appId: string, type: string, location: string, sensitivity: string) =>
     request<Asset>('POST', `/v1/applications/${appId}/assets`, { type, location, sensitivity }),
   updateAssetSensitivity: (assetId: string, sensitivity: string) =>
-    request<Asset>('PATCH', `/v1/assets/${assetId}`, { sensitivity }),
+    request<Asset>('PUT', `/v1/assets/${assetId}`, { sensitivity }),
 
   // source viewer (ADR-0050): read a source_repo asset's tree/files, path-confined server-side.
   assetSource: (assetId: string, path: string) =>
