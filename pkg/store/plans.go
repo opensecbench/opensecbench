@@ -62,6 +62,14 @@ func (db *DB) UpdatePlanStep(ctx context.Context, stepID, status, result, errMsg
 	return err
 }
 
+// AppendPlanStepProgress appends a line to a step's live activity trail (best-effort streaming; the
+// caller ignores errors so a progress write never derails the run).
+func (db *DB) AppendPlanStepProgress(ctx context.Context, stepID, line string) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE plan_steps SET progress = progress || ? WHERE id = ?`, line, stepID)
+	return err
+}
+
 // UpdatePlanStatus sets a plan's status.
 func (db *DB) UpdatePlanStatus(ctx context.Context, planID, status string) error {
 	_, err := db.ExecContext(ctx,
@@ -93,7 +101,7 @@ func (db *DB) GetPlan(ctx context.Context, id string) (model.Plan, error) {
 
 func (db *DB) listPlanSteps(ctx context.Context, planID string) ([]model.PlanStep, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, plan_id, seq, step_key, profile, instruction, depends_on, gate, gate_approved, status, result, error
+		`SELECT id, plan_id, seq, step_key, profile, instruction, depends_on, gate, gate_approved, status, result, error, progress
 		 FROM plan_steps WHERE plan_id = ? ORDER BY seq`, planID)
 	if err != nil {
 		return nil, err
@@ -104,7 +112,7 @@ func (db *DB) listPlanSteps(ctx context.Context, planID string) ([]model.PlanSte
 		var s model.PlanStep
 		var deps string
 		var gate, gateApproved int
-		if err := rows.Scan(&s.ID, &s.PlanID, &s.Seq, &s.Key, &s.Profile, &s.Instruction, &deps, &gate, &gateApproved, &s.Status, &s.Result, &s.Error); err != nil {
+		if err := rows.Scan(&s.ID, &s.PlanID, &s.Seq, &s.Key, &s.Profile, &s.Instruction, &deps, &gate, &gateApproved, &s.Status, &s.Result, &s.Error, &s.Progress); err != nil {
 			return nil, err
 		}
 		if deps != "" {
