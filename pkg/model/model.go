@@ -652,6 +652,40 @@ type Application struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Reachability fact subjects, verdicts, and confidence (ADR-0031/0034). A fact is one source's opinion on
+// whether a subject (a CVE, or an observation/finding) is reachable; the effective verdict aggregates them.
+const (
+	ReachSubjectCVE         = "cve"
+	ReachSubjectObservation = "observation"
+
+	ReachReachable   = "reachable"
+	ReachUnreachable = "unreachable"
+	ReachUnknown     = "unknown"
+
+	ReachConfProven = "proven" // a sound analysis (e.g. govulncheck's call graph for Go)
+	ReachConfHigh   = "high"
+	ReachConfMedium = "medium"
+	ReachConfLow    = "low"
+)
+
+// ReachabilityFact is one source's determination of whether a subject is reachable, with provenance. Many
+// facts (tools, traffic, a human, an LLM) aggregate into an effective verdict — so a manual/LLM finding for
+// dynamic code that static analysis can't trace is a first-class contributor, not a lost annotation.
+type ReachabilityFact struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	SubjectType string    `json:"subject_type"`
+	SubjectKey  string    `json:"subject_key"`
+	Reachable   string    `json:"reachable"`
+	Confidence  string    `json:"confidence"`
+	Source      string    `json:"source"`
+	Method      string    `json:"method,omitempty"`
+	Rationale   string    `json:"rationale,omitempty"`
+	Actor       string    `json:"actor,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // Asset sensitivity and type enums (mirrored by CHECK constraints in the schema). Sensitivity is an
 // ordered scale — open_source < internal < private — that gates external-LLM egress (ADR-0011): the
 // corporate profile permits internal but not private egress; strict blocks both.

@@ -86,6 +86,13 @@ func Tools() []agent.Tool {
 			{Name: "detail", Type: agent.TypeString, Description: "what was observed and why it matters"},
 			{Name: "location", Type: agent.TypeString, Description: "where (file:line, url, component)"},
 		}},
+		{Name: "record_reachability", Description: "Record a reachability determination for a finding or CVE — your verdict on whether the vulnerable code is actually reachable, with your reasoning. Use this when you've traced reachability the static tools couldn't (e.g. dynamic dispatch, framework routing). It's aggregated with the tool verdicts; give the evidence in 'rationale'.", Params: []agent.Param{
+			{Name: "subject_type", Type: agent.TypeEnum, Required: true, Description: "what the verdict is about", Enum: []string{"observation", "cve"}},
+			{Name: "subject", Type: agent.TypeString, Required: true, Description: "the observation id (from list_observations) or the CVE/GHSA id"},
+			{Name: "reachable", Type: agent.TypeEnum, Required: true, Description: "your verdict", Enum: []string{"reachable", "unreachable", "unknown"}},
+			{Name: "confidence", Type: agent.TypeEnum, Description: "how sure you are (default medium)", Enum: []string{"high", "medium", "low"}},
+			{Name: "rationale", Type: agent.TypeString, Required: true, Description: "the evidence — the call path or dispatch you traced, why it is/isn't reachable"},
+		}},
 		{Name: "draft_kb_entry", Description: "Draft a knowledge-base entry. Saved as an unreviewed draft for human confirmation. Use scope 'org' for knowledge that applies across the whole organization (a shared auth provider, org-wide conventions, common infra) so every app inherits it; 'target' for facts specific to one system.", Params: []agent.Param{
 			{Name: "kind", Type: agent.TypeEnum, Required: true, Description: "entry kind", Enum: []string{"architecture", "auth", "endpoint", "tech_stack", "environment", "data_flow", "convention", "gotcha", "tactic"}},
 			{Name: "title", Type: agent.TypeString, Required: true, Description: "short entry title"},
@@ -297,6 +304,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return generateReport(ctx, deps, call)
 		case "create_observation":
 			return createObservation(ctx, deps.p(), call)
+		case "record_reachability":
+			return recordReachability(ctx, deps, call)
 		case "read_file":
 			return readFile(ctx, deps, call)
 		case "list_dir":
@@ -640,6 +649,38 @@ func createObservation(ctx context.Context, st *store.DB, call agent.ToolCall) (
 		Severity:    sev,
 		Location:    stringArg(call, "location"),
 	}))
+}
+
+// recordReachability adds an LLM-sourced reachability fact — the agent's verdict on whether a finding/CVE
+// is reachable, with its reasoning — into the aggregation store, alongside the tool verdicts (ADR-0031/0034).
+func recordReachability(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	projectID, err := requireProject(deps, "record_reachability")
+	if err != nil {
+		return "", err
+	}
+	subjectType := stringArg(call, "subject_type")
+	subject := stringArg(call, "subject")
+	verdict := stringArg(call, "reachable")
+	rationale := stringArg(call, "rationale")
+	if subject == "" || verdict == "" || rationale == "" {
+		return "", errors.New("record_reachability requires 'subject', 'reachable', and 'rationale'")
+	}
+	if subjectType != model.ReachSubjectCVE {
+		subjectType = model.ReachSubjectObservation
+	}
+	confidence := stringArg(call, "confidence")
+	if confidence == "" {
+		confidence = model.ReachConfMedium
+	}
+	if err := deps.p().AddReachabilityFact(ctx, model.ReachabilityFact{
+		ProjectID: projectID, SubjectType: subjectType, SubjectKey: subject,
+		Reachable: verdict, Confidence: confidence, Source: "llm", Method: "LLM analysis",
+		Rationale: rationale, Actor: "analyst",
+	}); err != nil {
+		return "", err
+	}
+	v, c, facts := deps.p().ResolveReachability(ctx, projectID, subjectType, subject)
+	return jsonify(map[string]any{"recorded": true, "effective_reachable": v, "effective_confidence": c, "facts": len(facts)}, nil)
 }
 
 func runCapability(ctx context.Context, engine *task.Engine, call agent.ToolCall) (string, error) {
