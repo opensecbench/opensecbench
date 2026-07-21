@@ -908,7 +908,7 @@ export const api = {
     postContext(projectId, name, 'note', new Blob([body], { type: 'text/plain' }), 'text/plain', opts),
   // Edit a context item's mutable fields. `body` (notes only) re-stores the note text as a fresh artifact.
   updateContext: (id: string, patch: { name?: string; tags?: string[]; pinned?: boolean; body?: string }) =>
-    request<ContextItem>('PATCH', `/v1/context/${id}`, patch),
+    request<ContextItem>('PUT', `/v1/context/${id}`, patch),
   deleteContext: (id: string) => request<void>('DELETE', `/v1/context/${id}`),
 
   // scope
