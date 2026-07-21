@@ -2048,6 +2048,17 @@ select option {
 .rf-unreach { font-size: 10.5px; color: var(--tx3); }
 .rf-src { font-size: 10px; color: var(--tx3); font-family: var(--mono, monospace); }
 
+/* --- Asset ecosystem tags --- */
+.asset-eco { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-top: 6px; padding-left: 2px; }
+.ae-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx3); font-weight: 700; margin-right: 2px; }
+.ae-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; border-radius: 10px; padding: 1px 8px; }
+.ae-tag.detected { background: var(--bg4); color: var(--tx3); border: 1px dashed var(--line2); }
+.ae-tag.manual { background: var(--bg4); color: var(--tx2); border: 1px solid var(--acc); }
+.ae-x { border: 0; background: none; color: var(--tx3); cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+.ae-x:hover { color: var(--red); }
+.ae-none { font-size: 11px; color: var(--tx3); }
+.ae-add { width: 70px; background: var(--bg3); border: 1px solid var(--line2); border-radius: 10px; padding: 1px 8px; color: var(--tx2); font-size: 11px; }
+
 /* --- Finding reachability widget --- */
 .reach { margin-top: 6px; }
 .reach-toggle { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--tx3); font-size: 11px; cursor: pointer; padding: 2px 0; }

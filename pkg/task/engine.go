@@ -12,7 +12,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -455,12 +454,17 @@ func (e *Engine) ScanProject(ctx context.Context, projectID string) (ScanResult,
 	pid := projectID
 	var res ScanResult
 	for _, a := range assets {
-		detected := detectEcosystems(a.Location)
+		// The gate uses what we detect from the repo UNION the operator's manual tags, so a monorepo/polyglot
+		// asset that root-level detection under-reads can be corrected by tagging.
+		eco := capability.DetectEcosystems(a.Location)
+		for _, t := range a.Ecosystems {
+			eco[t] = true
+		}
 		for _, m := range mans {
 			if !m.AppliesToKind(a.Type) {
 				continue
 			}
-			if !m.TargetsEcosystems(detected) {
+			if !m.TargetsEcosystems(eco) {
 				res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: m.ID, AssetID: a.ID, Reason: "no matching ecosystem (needs " + strings.Join(m.Ecosystems, "/") + ")"})
 				continue
 			}
@@ -535,35 +539,6 @@ func driftSeverity(drift string) string {
 	default:
 		return "info"
 	}
-}
-
-// ecosystemMarkers maps a stack name to the files that signal its presence at a repo root.
-var ecosystemMarkers = map[string][]string{
-	"go":     {"go.mod"},
-	"node":   {"package.json"},
-	"python": {"requirements.txt", "pyproject.toml", "setup.py", "Pipfile"},
-	"rust":   {"Cargo.toml"},
-	"ruby":   {"Gemfile"},
-	"java":   {"pom.xml", "build.gradle"},
-}
-
-// detectEcosystems returns the set of language ecosystems present at a repo root, from marker files — the
-// input to the auto-run gate, so a capability only fires where its stack exists. Best-effort: an unreadable
-// dir yields the empty set (only language-agnostic capabilities then run).
-func detectEcosystems(dir string) map[string]bool {
-	out := map[string]bool{}
-	if dir == "" {
-		return out
-	}
-	for eco, markers := range ecosystemMarkers {
-		for _, m := range markers {
-			if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
-				out[eco] = true
-				break
-			}
-		}
-	}
-	return out
 }
 
 // Run plans the capability, executes it in the sandbox synchronously, stores its stdout as an output

@@ -31,6 +31,7 @@ import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
 import { RoutesTab } from './RoutesTab'
 import { FindingReachability } from './FindingReachability'
+import { AssetEcosystems } from './AssetEcosystems'
 import { IntegrationsTab } from './IntegrationsTab'
 import { InvestigationsTab } from './InvestigationsTab'
 import { KnowledgeTab } from './KnowledgeTab'
@@ -1187,20 +1188,23 @@ function AssetsTab({
             ) : (
               <ul className="rows">
                 {assets.map((as) => (
-                  <li key={as.id} className="row-item">
-                    <span className="badge">{as.type}</span>
-                    <select
-                      className={`sens sens-${as.sensitivity}`}
-                      value={as.sensitivity}
-                      disabled={!online}
-                      title="Data sensitivity — gates whether this asset may reach an external AI provider (open_source ≤ internal ≤ private)"
-                      onChange={(e) => changeAssetSensitivity(as.id, e.target.value)}
-                    >
-                      <option value="open_source">open_source</option>
-                      <option value="internal">internal</option>
-                      <option value="private">private</option>
-                    </select>
-                    <span className="mono">{as.location}</span>
+                  <li key={as.id} className="row-item col">
+                    <div className="row-main">
+                      <span className="badge">{as.type}</span>
+                      <select
+                        className={`sens sens-${as.sensitivity}`}
+                        value={as.sensitivity}
+                        disabled={!online}
+                        title="Data sensitivity — gates whether this asset may reach an external AI provider (open_source ≤ internal ≤ private)"
+                        onChange={(e) => changeAssetSensitivity(as.id, e.target.value)}
+                      >
+                        <option value="open_source">open_source</option>
+                        <option value="internal">internal</option>
+                        <option value="private">private</option>
+                      </select>
+                      <span className="mono">{as.location}</span>
+                    </div>
+                    {as.type === 'source_repo' && <AssetEcosystems assetId={as.id} online={online} onError={onError} />}
                   </li>
                 ))}
               </ul>

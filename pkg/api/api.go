@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/opensecbench/opensecbench/pkg/analyst"
+	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/dlp"
 	"github.com/opensecbench/opensecbench/pkg/events"
@@ -461,6 +462,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
 	s.mux.HandleFunc("PUT /v1/assets/{id}", s.updateAsset)
+	s.mux.HandleFunc("GET /v1/assets/{id}/ecosystems", s.getAssetEcosystems)
+	s.mux.HandleFunc("PUT /v1/assets/{id}/ecosystems", s.setAssetEcosystems)
 	// Source viewer (ADR-0050): read a source_repo asset's tree/files for the in-app code viewer and
 	// click-to-file from findings. Reads are path-confined to the asset root (pkg/srcfile).
 	s.mux.HandleFunc("GET /v1/assets/{id}/source", s.getAssetSource)
@@ -1859,6 +1862,45 @@ func (s *Server) updateAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	asset, err := s.pdb(r).UpdateAssetSensitivity(r.Context(), r.PathValue("id"), req.Sensitivity)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "asset not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, asset)
+}
+
+// getAssetEcosystems returns what the scanner auto-detects in the asset's repo (from marker files) and the
+// operator's manual tags — the two inputs to the scan auto-run gate, so the UI can show both.
+func (s *Server) getAssetEcosystems(w http.ResponseWriter, r *http.Request) {
+	asset, err := s.pdb(r).GetAsset(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "asset not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"detected": capability.DetectEcosystemList(asset.Location),
+		"tags":     asset.Ecosystems,
+	})
+}
+
+// setAssetEcosystems replaces an asset's manual ecosystem tags — the operator override that the scan gate
+// unions with detection (e.g. to run a Python tool on a polyglot repo detection under-read).
+func (s *Server) setAssetEcosystems(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Ecosystems []string `json:"ecosystems"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	asset, err := s.pdb(r).SetAssetEcosystems(r.Context(), r.PathValue("id"), req.Ecosystems)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "asset not found")
 		return
