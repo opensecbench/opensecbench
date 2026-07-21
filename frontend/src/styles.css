@@ -1329,14 +1329,16 @@ select option {
 .wb-ov-h { font-size: 18px; margin: 0 0 4px; letter-spacing: -0.01em; }
 .wb-ov-lede { color: var(--tx2); font-size: 12.5px; margin: 0 0 20px; max-width: 62ch; line-height: 1.5; }
 .wb-ov-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
-.wb-ov-stat { background: var(--bg2); border: 1px solid var(--line); border-radius: 9px; padding: 11px 15px; min-width: 96px; }
+.wb-ov-stat { background: var(--bg2); border: 1px solid var(--line); border-radius: 9px; padding: 11px 15px; min-width: 96px; text-align: left; cursor: pointer; color: inherit; font: inherit; transition: border-color 0.12s, background 0.12s; }
+.wb-ov-stat:hover { border-color: var(--line2); background: var(--bg3); }
 .wb-ov-stat .v { font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .wb-ov-stat .v.good { color: var(--green); } .wb-ov-stat .v.warn { color: var(--amber); } .wb-ov-stat .v.crit { color: var(--red); }
 .wb-ov-stat .k { font-size: 10.5px; color: var(--tx3); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 1px; }
 .ov-rollup { margin-bottom: 22px; }
 .ov-rollup-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tx3); font-weight: 700; margin: 2px 0 9px; }
 .ov-rollup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-.ovr-card { border: 1px solid var(--line); background: var(--bg3); border-radius: 10px; padding: 12px 14px; }
+.ovr-card { border: 1px solid var(--line); background: var(--bg3); border-radius: 10px; padding: 12px 14px; text-align: left; cursor: pointer; color: inherit; font: inherit; display: block; width: 100%; transition: border-color 0.12s, background 0.12s; }
+.ovr-card:hover { border-color: var(--line2); background: var(--bg4); }
 .ovr-k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx3); font-weight: 700; margin-bottom: 8px; }
 .ovr-sevs { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
 .ovr-sev { font-size: 11px; font-weight: 800; color: #fff; border-radius: 10px; padding: 2px 9px; }

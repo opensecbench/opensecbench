@@ -105,17 +105,17 @@ export function OverviewTab({
       <p className="wb-ov-lede">Where the assessment stands and what to do next. Every tool is on the left, grouped by what it's for — but you don't have to hunt. Start here.</p>
 
       <div className="wb-ov-stats">
-        <div className="wb-ov-stat"><div className="v">{assets}</div><div className="k">assets</div></div>
-        <div className="wb-ov-stat"><div className={`v ${findings.length ? 'crit' : ''}`}>{findings.length}</div><div className="k">findings</div></div>
-        <div className="wb-ov-stat"><div className={`v ${adopted ? (covered >= 80 ? 'good' : 'warn') : ''}`}>{adopted ? `${covered}%` : '—'}</div><div className="k">coverage</div></div>
-        <div className="wb-ov-stat"><div className={`v ${hasEngagement ? 'good' : 'warn'}`}>{hasEngagement ? '✓' : '—'}</div><div className="k">engagement</div></div>
+        <button className="wb-ov-stat" onClick={() => onJump('assets')} title="View assets"><div className="v">{assets}</div><div className="k">assets</div></button>
+        <button className="wb-ov-stat" onClick={() => onJump('findings')} title="View findings"><div className={`v ${findings.length ? 'crit' : ''}`}>{findings.length}</div><div className="k">findings</div></button>
+        <button className="wb-ov-stat" onClick={() => onJump('methodology')} title="View coverage"><div className={`v ${adopted ? (covered >= 80 ? 'good' : 'warn') : ''}`}>{adopted ? `${covered}%` : '—'}</div><div className="k">coverage</div></button>
+        <button className="wb-ov-stat" onClick={() => onJump('scope')} title="Scope & engagement"><div className={`v ${hasEngagement ? 'good' : 'warn'}`}>{hasEngagement ? '✓' : '—'}</div><div className="k">engagement</div></button>
       </div>
 
       {summary && (summary.findings.total > 0 || summary.dependencies.Total > 0) && (
         <div className="ov-rollup">
           <div className="ov-rollup-h">What we've found</div>
           <div className="ov-rollup-grid">
-            <div className="ovr-card">
+            <button className="ovr-card" onClick={() => onJump('findings')} title="View findings">
               <div className="ovr-k">Findings</div>
               <div className="ovr-sevs">
                 {['critical', 'high', 'medium', 'low'].map((sev) =>
@@ -126,17 +126,17 @@ export function OverviewTab({
                 {!summary.findings.total && <span className="ovr-none">none yet</span>}
               </div>
               <div className="ovr-sub">{summary.reachable} reachable · {summary.open_investigations} open investigation{summary.open_investigations === 1 ? '' : 's'}</div>
-            </div>
-            <div className="ovr-card">
+            </button>
+            <button className="ovr-card" onClick={() => onJump('routes')} title="View the attack surface">
               <div className="ovr-k">Attack surface</div>
               <div className="ovr-big">{summary.routes.Total} <span className="ovr-unit">routes</span></div>
               <div className="ovr-sub">{summary.routes.Exposed} traffic-confirmed · <b className={summary.routes.WithFindings ? 'crit' : ''}>{summary.routes.WithFindings} with findings</b></div>
-            </div>
-            <div className="ovr-card">
+            </button>
+            <button className="ovr-card" onClick={() => onJump('graph')} title="View the dependency graph">
               <div className="ovr-k">Dependencies</div>
               <div className="ovr-big">{summary.dependencies.Total}</div>
               <div className="ovr-sub"><b className={summary.dependencies.Vulnerabilities ? 'crit' : ''}>{summary.dependencies.Vulnerabilities} vulnerable</b> · {summary.dependencies.Outdated} outdated</div>
-            </div>
+            </button>
           </div>
         </div>
       )}
