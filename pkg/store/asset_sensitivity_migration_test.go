@@ -2,27 +2,30 @@ package store
 
 import (
 	"context"
+	"io/fs"
 	"testing"
 
 	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
-// TestMigration0053PreservesAssetLinks proves the assets-table rebuild that widens the sensitivity
-// CHECK to include 'internal' keeps the inbound FK links (tasks.asset_id, playbook_runs.asset_id)
-// intact — the DROP would otherwise SET NULL them, since foreign_keys can't be toggled mid-migration.
-func TestMigration0053PreservesAssetLinks(t *testing.T) {
+// assetLinkPreservationCase applies fsys up to (but excluding) cutoff, seeds an asset plus rows in both
+// child tables that reference it, then applies the rest — proving the assets-table rebuild that widens
+// the sensitivity CHECK to include 'internal' keeps tasks.asset_id / playbook_runs.asset_id intact (the
+// DROP would otherwise SET NULL them, since foreign_keys can't be toggled mid-migration) and that the
+// widened CHECK then accepts 'internal'.
+func assetLinkPreservationCase(t *testing.T, fsys fs.FS, cutoff int) {
+	t.Helper()
 	db := openTestDB(t)
 	ctx := context.Background()
-	all, err := LoadMigrations(migrations.FS)
+	all, err := LoadMigrations(fsys)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Apply everything up to (but not including) 0053.
 	var pre []Migration
 	for _, m := range all {
-		if m.Version < 53 {
+		if m.Version < cutoff {
 			pre = append(pre, m)
 		}
 	}
@@ -30,7 +33,6 @@ func TestMigration0053PreservesAssetLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Seed an asset and rows in both child tables that reference it.
 	proj, _ := db.CreateProject(ctx, NewProject{Name: "P"})
 	app, _ := db.CreateApplication(ctx, proj.ID, "app")
 	asset, err := db.CreateAsset(ctx, NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/work/x", Sensitivity: model.SensitivityPrivate})
@@ -49,12 +51,10 @@ func TestMigration0053PreservesAssetLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Apply 0053.
 	if _, err := db.Apply(all); err != nil {
-		t.Fatalf("apply 0053: %v", err)
+		t.Fatalf("apply sensitivity migration: %v", err)
 	}
 
-	// The asset survives, and both links still point at it.
 	if got, err := db.GetAsset(ctx, asset.ID); err != nil || got.Sensitivity != model.SensitivityPrivate {
 		t.Fatalf("asset lost or altered after rebuild: %+v err=%v", got, err)
 	}
@@ -71,9 +71,18 @@ func TestMigration0053PreservesAssetLinks(t *testing.T) {
 	if prunAsset != asset.ID {
 		t.Fatalf("playbook_run.asset_id = %q, want %q (link nulled by rebuild)", prunAsset, asset.ID)
 	}
-
-	// And the widened CHECK now accepts 'internal'.
 	if _, err := db.UpdateAssetSensitivity(ctx, asset.ID, model.SensitivityInternal); err != nil {
 		t.Fatalf("internal sensitivity rejected after migration: %v", err)
 	}
+}
+
+// The project set (migrations/project/) is what the running app applies to each project.db — this is the
+// migration that actually reaches users editing an asset's sensitivity.
+func TestProjectMigrationAssetInternal(t *testing.T) {
+	assetLinkPreservationCase(t, migrations.Project(), 6)
+}
+
+// The legacy single-database set (migrations/*.sql) still backs the store/analyst test fixtures.
+func TestLegacyMigrationAssetInternal(t *testing.T) {
+	assetLinkPreservationCase(t, migrations.FS, 53)
 }
