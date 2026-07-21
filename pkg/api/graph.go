@@ -5,16 +5,23 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+
+	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
 // graphNode/graphEdge are the view model for the interactive graph visualization (P8/P12).
 type graphNode struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
-	Kind  string `json:"kind"`            // project|application|asset|finding|host|endpoint
+	Kind  string `json:"kind"`            // project|application|asset|dependency|finding|host|endpoint
 	Group string `json:"group,omitempty"` // e.g. severity or status, for coloring
 	Meta  string `json:"meta,omitempty"`
+	// Vulns/Reachable overlay dependency nodes with the enrichment the scanners already computed: how many
+	// known vulnerabilities affect this component and whether any is reachable (govulncheck call-graph).
+	Vulns     int  `json:"vulns,omitempty"`
+	Reachable bool `json:"reachable,omitempty"`
 }
 type graphEdge struct {
 	From string `json:"from"`
@@ -196,7 +203,10 @@ type cycloneDX struct {
 	} `json:"dependencies"`
 }
 
-// dependencyGraph parses the project's latest syft SBOM into a component/dependency graph.
+// dependencyGraph parses the project's latest syft SBOM into a component/dependency graph, and overlays
+// the vulnerability enrichment the scanners already produced (ADR-0028–0033): each component is coloured
+// by the worst severity of any known vuln affecting it and marked reachable when a scanner (govulncheck)
+// proved a vulnerable symbol is actually called. This turns "what depends on what" into "where the risk is".
 func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, error) {
 	g := graphResp{Kind: "dependency"}
 	sha, err := s.pdb(r).LatestArtifactSHA(r.Context(), projectID, "syft")
@@ -214,6 +224,24 @@ func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, 
 	if err := json.Unmarshal(raw, &sbom); err != nil {
 		return g, nil
 	}
+
+	// Pull the project's vuln observations once and index them by affected package so the overlay is a
+	// cheap lookup per component. Observations with a structured "package" attribute (govulncheck) join
+	// precisely; the rest (e.g. grype SARIF, package in free text) are matched by name below.
+	obs, _ := s.pdb(r).ListObservationsByProject(r.Context(), projectID)
+	var vulnObs []model.Observation
+	byPackage := map[string][]model.Observation{}
+	for _, o := range obs {
+		if !looksLikeVuln(o) {
+			continue
+		}
+		if pkg := strings.ToLower(o.Attributes["package"]); pkg != "" {
+			byPackage[pkg] = append(byPackage[pkg], o)
+		} else {
+			vulnObs = append(vulnObs, o) // no structured package → name-match fallback
+		}
+	}
+
 	const maxNodes = 400
 	label := map[string]string{} // ref -> label
 	for _, c := range sbom.Components {
@@ -229,7 +257,25 @@ func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, 
 			l += "@" + c.Version
 		}
 		label[ref] = l
-		g.Nodes = append(g.Nodes, graphNode{ID: "c:" + ref, Label: l, Kind: "asset", Meta: c.Version})
+		n := graphNode{ID: "c:" + ref, Label: l, Kind: "dependency", Meta: c.Version}
+		// Overlay: structured package matches first, then a name-substring fallback for tools that only
+		// carry the package in free text.
+		matches := byPackage[strings.ToLower(c.Name)]
+		for _, o := range vulnObs {
+			if mentionsPackage(o, c.Name) {
+				matches = append(matches, o)
+			}
+		}
+		if worst, reachable := summarizeVulns(matches); len(matches) > 0 {
+			n.Group = worst
+			n.Vulns = len(matches)
+			n.Reachable = reachable
+			n.Meta = c.Version + " · " + strconv.Itoa(len(matches)) + " vuln" + plural(len(matches))
+			if reachable {
+				n.Meta += " · reachable"
+			}
+		}
+		g.Nodes = append(g.Nodes, n)
 	}
 	for _, d := range sbom.Dependencies {
 		if _, ok := label[d.Ref]; !ok {
@@ -243,6 +289,69 @@ func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, 
 		}
 	}
 	return g, nil
+}
+
+// looksLikeVuln reports whether an observation is a dependency vulnerability (a CVE/GHSA/OSV id from a
+// tool), as opposed to a SAST hit, secret, or open port.
+func looksLikeVuln(o model.Observation) bool {
+	if o.Origin != model.OriginTool {
+		return false
+	}
+	id := strings.ToUpper(o.RuleID)
+	return strings.HasPrefix(id, "CVE-") || strings.HasPrefix(id, "GHSA-") || strings.HasPrefix(id, "GO-") || strings.HasPrefix(id, "OSV-")
+}
+
+// mentionsPackage reports whether an observation's text refers to a component by name, as a token (so
+// "flask" doesn't match "flask-login" spuriously by prefix). Short names are ignored to avoid noise.
+func mentionsPackage(o model.Observation, name string) bool {
+	if len(name) < 3 {
+		return false
+	}
+	hay := strings.ToLower(o.Title + " " + o.Detail + " " + o.Location)
+	needle := strings.ToLower(name)
+	for {
+		i := strings.Index(hay, needle)
+		if i < 0 {
+			return false
+		}
+		before := i == 0 || !isPkgChar(hay[i-1])
+		afterIdx := i + len(needle)
+		after := afterIdx >= len(hay) || !isPkgChar(hay[afterIdx])
+		if before && after {
+			return true
+		}
+		hay = hay[i+len(needle):]
+	}
+}
+
+// isPkgChar reports whether a byte can be part of a package name token. Package names commonly contain
+// '-', '.', '/', '_', '@' (flask-login, golang.org/x/net, @scope/pkg), so those count as inside the token
+// — otherwise a short name like "flask" would spuriously prefix-match "flask-login".
+func isPkgChar(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-' || b == '.' || b == '/' || b == '_' || b == '@'
+}
+
+var sevOrder = map[string]int{"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+// summarizeVulns returns the worst severity across the matched observations and whether any is reachable.
+func summarizeVulns(obs []model.Observation) (worst string, reachable bool) {
+	best := -1
+	for _, o := range obs {
+		if r, ok := sevOrder[o.Severity]; ok && r > best {
+			best, worst = r, o.Severity
+		}
+		if o.Attributes["reachable"] == "true" {
+			reachable = true
+		}
+	}
+	return worst, reachable
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // statusClass buckets an HTTP status for coloring.

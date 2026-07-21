@@ -244,6 +244,8 @@ export interface GraphNode {
   kind: string
   group?: string
   meta?: string
+  vulns?: number
+  reachable?: boolean
 }
 export interface Graph {
   kind: string
