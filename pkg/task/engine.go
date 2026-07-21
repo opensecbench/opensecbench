@@ -886,6 +886,39 @@ func (e *Engine) recordReachabilityFacts(ctx context.Context, projectID string, 
 	}
 }
 
+var reachConfRank = map[string]int{
+	model.ReachConfLow: 1, model.ReachConfMedium: 2, model.ReachConfHigh: 3, model.ReachConfProven: 4,
+}
+
+// applyAggregateReachability folds the resolved reachability verdict (across all sources — tools, traffic,
+// and any manual/LLM fact) back onto an observation's attributes, so disposition and the UI see the
+// aggregate rather than a single tool's opinion. reachable_confirmed marks a high-confidence reachable
+// verdict (a sound tool, or a human/LLM who verified it) — the signal that escalates on its own.
+func (e *Engine) applyAggregateReachability(ctx context.Context, projectID string, o *model.Observation) {
+	verdict, conf, _ := e.p(projectID).ResolveReachability(ctx, projectID, model.ReachSubjectObservation, o.ID)
+	// A CVE-subject verdict (e.g. govulncheck's, or a manual verdict on the CVE) applies too — take the
+	// strongest across the observation and its advisory ids; on a tie, reachable wins.
+	for _, id := range vulnIDs(o) {
+		v, c, _ := e.p(projectID).ResolveReachability(ctx, projectID, model.ReachSubjectCVE, id)
+		if reachConfRank[c] > reachConfRank[conf] || (reachConfRank[c] == reachConfRank[conf] && v == model.ReachReachable) {
+			verdict, conf = v, c
+		}
+	}
+	if verdict == model.ReachUnknown || conf == "" {
+		return
+	}
+	if o.Attributes == nil {
+		o.Attributes = map[string]string{}
+	}
+	o.Attributes["reachable"] = strconv.FormatBool(verdict == model.ReachReachable)
+	o.Attributes["reachable_confidence"] = conf
+	if verdict == model.ReachReachable && (conf == model.ReachConfProven || conf == model.ReachConfHigh) {
+		o.Attributes["reachable_confirmed"] = "true"
+	} else {
+		delete(o.Attributes, "reachable_confirmed")
+	}
+}
+
 // reEvalTrigger reports whether finishing this capability changed a correlation input (routes, the shared
 // reachability verdict, or network exposure) and therefore warrants re-evaluating existing observations.
 func reEvalTrigger(capID string) bool {
@@ -927,6 +960,9 @@ func (e *Engine) ReEvaluate(ctx context.Context, projectID string) {
 		}
 		e.correlateReachability(ctx, projectID, &o)
 		e.correlateExposedRoute(ctx, projectID, exposedAttr, &o)
+		// Fold the aggregated reachability verdict (including any manual/LLM fact) back onto the observation,
+		// so a human/LLM "reachable" determination flows into disposition and display.
+		e.applyAggregateReachability(ctx, projectID, &o)
 		if attrsKey(o.Attributes) != before {
 			_ = e.p(projectID).RefreshObservation(ctx, o.ID, o.Severity, o.Detail, o.Attributes)
 		}

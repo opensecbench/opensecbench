@@ -8,12 +8,16 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
-// routeFinding is a vulnerability reachable from (or co-located in) a route's handler.
+// routeFinding is a vulnerability reachable from (or co-located in) a route's handler, with the resolved
+// reachability verdict and its provenance (which sources agree, at what confidence).
 type routeFinding struct {
-	ObservationID  string `json:"observation_id"`
-	Title          string `json:"title"`
-	Severity       string `json:"severity"`
-	RouteReachable bool   `json:"route_reachable"` // a proven dataflow path from this route to the sink
+	ObservationID   string   `json:"observation_id"`
+	Title           string   `json:"title"`
+	Severity        string   `json:"severity"`
+	RouteReachable  bool     `json:"route_reachable"` // a proven dataflow path from this route to the sink
+	Reachable       string   `json:"reachable,omitempty"`
+	ReachConfidence string   `json:"reach_confidence,omitempty"`
+	ReachSources    []string `json:"reach_sources,omitempty"`
 }
 
 // routeView is one entry point plus the risk behind it — the attack-surface view (ADR-0033/0034): what
@@ -43,12 +47,24 @@ func (s *Server) listProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		if key == "" {
 			continue
 		}
-		byRoute[key] = append(byRoute[key], routeFinding{
+		rf := routeFinding{
 			ObservationID:  o.ID,
 			Title:          o.Title,
 			Severity:       o.Severity,
 			RouteReachable: o.Attributes["route_reachable"] == "true",
-		})
+		}
+		// The resolved reachability verdict + who determined it (tools, traffic, human, LLM).
+		if v, c, facts := s.pdb(r).ResolveReachability(ctx, projectID, model.ReachSubjectObservation, o.ID); len(facts) > 0 {
+			rf.Reachable, rf.ReachConfidence = v, c
+			seen := map[string]bool{}
+			for _, f := range facts {
+				if !seen[f.Source] {
+					seen[f.Source] = true
+					rf.ReachSources = append(rf.ReachSources, f.Source)
+				}
+			}
+		}
+		byRoute[key] = append(byRoute[key], rf)
 	}
 
 	views := make([]routeView, 0, len(routes))
@@ -140,6 +156,10 @@ func (s *Server) addReachability(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.record(r.Context(), actorOf(r), "reachability.manual", req.Subject, map[string]any{"reachable": req.Reachable})
+	// Propagate the new verdict into disposition (a manual "reachable" can escalate the finding).
+	if s.engine != nil {
+		s.engine.ReEvaluate(r.Context(), projectID)
+	}
 	verdict, confidence, facts := s.pdb(r).ResolveReachability(r.Context(), projectID, req.SubjectType, req.Subject)
 	writeJSON(w, http.StatusOK, map[string]any{"reachable": verdict, "confidence": confidence, "facts": facts})
 }

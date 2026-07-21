@@ -83,7 +83,16 @@ export function RoutesTab({ project, online, onError, onJump }: { project: Proje
                       <span className="rf-dot" style={{ background: sevColor(f.severity) }} />
                       <span className="rf-title">{f.title}</span>
                       <span className="rf-sev">{f.severity}</span>
-                      {f.route_reachable && <span className="rf-reach" title="A proven dataflow path runs from this route to the sink">↯ reachable</span>}
+                      {f.reachable === 'reachable' ? (
+                        <span className="rf-reach" title={`Reachability: ${f.reach_confidence} confidence · ${(f.reach_sources ?? []).join(', ')}`}>
+                          ↯ reachable{f.reach_confidence ? ` (${f.reach_confidence})` : ''}
+                        </span>
+                      ) : f.reachable === 'unreachable' ? (
+                        <span className="rf-unreach" title={`Determined unreachable · ${(f.reach_sources ?? []).join(', ')}`}>unreachable</span>
+                      ) : f.route_reachable ? (
+                        <span className="rf-reach" title="A dataflow path runs from this route to the sink">↯ reachable</span>
+                      ) : null}
+                      {(f.reach_sources?.length ?? 0) > 0 && <span className="rf-src">{f.reach_sources!.join(' · ')}</span>}
                       <span className="grow" />
                       <button className="link" onClick={() => onJump('findings')}>view →</button>
                     </li>

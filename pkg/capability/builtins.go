@@ -33,8 +33,11 @@ var reachableExposed = []disposition.Disposition{
 // There is no downgrade on the ABSENCE of a route or a dataflow trace — route detection is heuristic and
 // incomplete, so a missing route must never hide a finding.
 var sastReachabilityRouting = []disposition.Disposition{
-	// Strongest signal (ADR-0034): a traced call-graph path from an HTTP entry point to the sink — the sink
-	// is provably reachable from a route, so escalate at any severity.
+	// A verified reachability verdict (a sound tool, or a human/LLM who confirmed it — the resolved aggregate
+	// at high/proven confidence) escalates at any severity, regardless of how the sink was found.
+	{When: map[string]string{"reachable_confirmed": "true"}, Action: disposition.ActionInvestigate},
+	// Strongest static signal (ADR-0034): a traced call-graph path from an HTTP entry point to the sink — the
+	// sink is provably reachable from a route, so escalate at any severity.
 	{When: map[string]string{"route_reachable": "true"}, Action: disposition.ActionInvestigate},
 	{When: map[string]string{"route_observed": "true"}, MinSeverity: "medium", Action: disposition.ActionInvestigate},
 	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
@@ -51,6 +54,9 @@ var sastReachabilityRouting = []disposition.Disposition{
 // Rule 1 precedes the route escalation: if the vulnerable symbol is proven uncalled, sitting in a live
 // handler's file doesn't make it exploitable.
 var scaReachabilityRouting = []disposition.Disposition{
+	// A verified reachable verdict (sound tool / human / LLM) escalates before the reachable=false downgrade,
+	// so a confirmation always beats a stale "uncalled" verdict.
+	{When: map[string]string{"reachable_confirmed": "true"}, Action: disposition.ActionInvestigate},
 	{When: map[string]string{"reachable": "false"}, Action: disposition.ActionReview},
 	{When: map[string]string{"route_observed": "true"}, MinSeverity: "medium", Action: disposition.ActionInvestigate},
 	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
