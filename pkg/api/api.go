@@ -470,6 +470,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)
 	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scan", s.scanProject)
+	s.mux.HandleFunc("POST /v1/projects/{id}/reevaluate", s.reevaluateProject)
 
 	// Remote runners — operator actions on the trusted (loopback) API (ADR-0024). The runner protocol
 	// itself is served on a separate network-exposed listener; see RunnerHandler.
@@ -2408,6 +2409,20 @@ func (s *Server) scanProject(w http.ResponseWriter, r *http.Request) {
 		"enqueued": len(res.Enqueued), "skipped": len(res.Skipped),
 	})
 	writeJSON(w, http.StatusAccepted, res)
+}
+
+// reevaluateProject re-runs correlation + disposition over the project's existing observations, so
+// findings recorded before the data that makes them exploitable (a route, a reachability verdict) are
+// upgraded retroactively. Normally fires automatically when the relevant scans finish; this is the manual
+// trigger.
+func (s *Server) reevaluateProject(w http.ResponseWriter, r *http.Request) {
+	if s.engine == nil {
+		writeErr(w, http.StatusServiceUnavailable, "task engine not available")
+		return
+	}
+	s.engine.ReEvaluate(r.Context(), r.PathValue("id"))
+	s.record(r.Context(), actorOf(r), "project.reevaluate", r.PathValue("id"), nil)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
