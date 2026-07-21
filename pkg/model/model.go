@@ -527,6 +527,7 @@ type SavedProfile struct {
 	Description string          `json:"description"`
 	Persona     string          `json:"persona"`
 	Tools       json.RawMessage `json:"tools"`
+	ModelTag    string          `json:"model_tag"` // routing tag (ADR-0052); empty = the default list
 	CreatedAt   time.Time       `json:"created_at"`
 }
 

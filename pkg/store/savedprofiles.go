@@ -20,8 +20,8 @@ func (db *DB) CreateSavedProfile(ctx context.Context, p model.SavedProfile) (mod
 	}
 	ts := nowString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO saved_profiles (id, name, description, persona, tools, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.Persona, string(p.Tools), ts); err != nil {
+		`INSERT INTO saved_profiles (id, name, description, persona, tools, model_tag, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.Persona, string(p.Tools), p.ModelTag, ts); err != nil {
 		return model.SavedProfile{}, err
 	}
 	p.CreatedAt = parseTime(ts)
@@ -33,8 +33,8 @@ func (db *DB) GetSavedProfile(ctx context.Context, id string) (model.SavedProfil
 	var p model.SavedProfile
 	var tools, created string
 	err := db.QueryRowContext(ctx,
-		`SELECT id, name, description, persona, tools, created_at FROM saved_profiles WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &p.Description, &p.Persona, &tools, &created)
+		`SELECT id, name, description, persona, tools, model_tag, created_at FROM saved_profiles WHERE id = ?`, id).
+		Scan(&p.ID, &p.Name, &p.Description, &p.Persona, &tools, &p.ModelTag, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.SavedProfile{}, ErrNotFound
 	}
@@ -49,7 +49,7 @@ func (db *DB) GetSavedProfile(ctx context.Context, id string) (model.SavedProfil
 // ListSavedProfiles returns all saved profiles, newest first.
 func (db *DB) ListSavedProfiles(ctx context.Context) ([]model.SavedProfile, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, name, description, persona, tools, created_at FROM saved_profiles ORDER BY created_at DESC`)
+		`SELECT id, name, description, persona, tools, model_tag, created_at FROM saved_profiles ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (db *DB) ListSavedProfiles(ctx context.Context) ([]model.SavedProfile, erro
 	for rows.Next() {
 		var p model.SavedProfile
 		var tools, created string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Persona, &tools, &created); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Persona, &tools, &p.ModelTag, &created); err != nil {
 			return nil, err
 		}
 		p.Tools = []byte(tools)

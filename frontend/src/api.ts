@@ -1076,7 +1076,7 @@ export const api = {
     request<{ profiles: AgentProfile[] }>('GET', '/v1/analyst/profiles').then((r) => r.profiles ?? []),
   listAgentTools: () =>
     request<{ tools: AgentTool[] }>('GET', '/v1/analyst/tools').then((r) => r.tools ?? []),
-  createAgentProfile: (p: { name: string; description: string; persona: string; tools: string[] }) =>
+  createAgentProfile: (p: { name: string; description: string; persona: string; tools: string[]; model_tag?: string }) =>
     request<{ id: string }>('POST', '/v1/analyst/profiles', p),
   deleteAgentProfile: (id: string) => request<void>('DELETE', '/v1/analyst/profiles/' + id),
   createThread: (projectId?: string, title?: string, agentType?: string) =>

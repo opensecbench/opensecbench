@@ -14,13 +14,16 @@ func TestSaveProfileAndResolve(t *testing.T) {
 	db := migratedStore(t)
 	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
-	sp, err := svc.SaveProfile(ctx, "My Agent", "a custom one", "You are a bespoke reviewer.", []string{"search", "get_finding", "read_file"})
+	sp, err := svc.SaveProfile(ctx, "My Agent", "a custom one", "You are a bespoke reviewer.", []string{"search", "get_finding", "read_file"}, "reasoning")
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := svc.resolveProfile(ctx, sp.ID)
 	if p.Name != "My Agent" || len(p.ToolSet()) != 3 {
 		t.Fatalf("resolved profile = %+v (tools %d)", p, len(p.ToolSet()))
+	}
+	if p.ModelTag != "reasoning" {
+		t.Fatalf("custom agent lost its routing tag: %q", p.ModelTag)
 	}
 	// The custom persona is wrapped with the non-overridable safety invariants.
 	if !strings.Contains(p.SystemPrompt(), "bespoke reviewer") || !strings.Contains(p.SystemPrompt(), "Never invent") {
@@ -32,13 +35,13 @@ func TestSaveProfileValidates(t *testing.T) {
 	ctx := context.Background()
 	svc := NewService(store.NewCombinedManager(migratedStore(t)), nil, nil, "", &llm.MockProvider{})
 
-	if _, err := svc.SaveProfile(ctx, "n", "", "", []string{"search"}); err == nil {
+	if _, err := svc.SaveProfile(ctx, "n", "", "", []string{"search"}, ""); err == nil {
 		t.Error("empty persona should error")
 	}
-	if _, err := svc.SaveProfile(ctx, "n", "", "persona", []string{"not_a_tool"}); err == nil {
+	if _, err := svc.SaveProfile(ctx, "n", "", "persona", []string{"not_a_tool"}, ""); err == nil {
 		t.Error("unknown tool should error")
 	}
-	if _, err := svc.SaveProfile(ctx, "n", "", "persona", nil); err == nil {
+	if _, err := svc.SaveProfile(ctx, "n", "", "persona", nil, ""); err == nil {
 		t.Error("no tools should error (least privilege)")
 	}
 }
@@ -48,7 +51,7 @@ func TestPlaybookCanReferenceSavedProfile(t *testing.T) {
 	db := migratedStore(t)
 	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
 
-	sp, err := svc.SaveProfile(ctx, "Custom", "", "persona", []string{"search"})
+	sp, err := svc.SaveProfile(ctx, "Custom", "", "persona", []string{"search"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
