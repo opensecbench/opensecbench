@@ -1085,6 +1085,7 @@ export const api = {
   setScheduleEnabled: (id: string, enabled: boolean) => request<void>('PUT', '/v1/schedules/' + id, { enabled }),
   deleteSchedule: (id: string) => request<void>('DELETE', '/v1/schedules/' + id),
   getPlan: (id: string) => request<Plan>('GET', '/v1/plans/' + id),
+  cancelPlan: (id: string) => request<Plan>('POST', `/v1/plans/${id}/cancel`, {}),
   listPlans: (projectId: string) => request<Plan[]>('GET', `/v1/projects/${projectId}/plans`),
 
   listThreads: () => request<Thread[]>('GET', '/v1/threads'),

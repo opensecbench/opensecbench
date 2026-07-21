@@ -388,6 +388,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/projects/{id}/plans", s.startPlan)
 	s.mux.HandleFunc("GET /v1/projects/{id}/plans", s.listPlans)
 	s.mux.HandleFunc("GET /v1/plans/{id}", s.getPlan)
+	s.mux.HandleFunc("POST /v1/plans/{id}/cancel", s.cancelPlan)
 	s.mux.HandleFunc("POST /v1/plans/{id}/steps/{stepID}/resolve", s.resolvePlanGate)
 	s.mux.HandleFunc("POST /v1/plans/{id}/save-as-playbook", s.savePlanAsPlaybook)
 	s.mux.HandleFunc("POST /v1/projects/{id}/schedules", s.createSchedule)
@@ -903,6 +904,18 @@ func (s *Server) getPlan(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
+// cancelPlan stops a running plan: aborts its in-flight LLM call and skips unfinished steps (ADR-0019).
+func (s *Server) cancelPlan(w http.ResponseWriter, r *http.Request) {
+	projectID := projectFromReq(r)
+	if err := s.analystService().CancelPlan(r.Context(), projectID, r.PathValue("id")); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "plan.cancel", r.PathValue("id"), map[string]string{"project": projectID})
+	plan, _ := s.pdbID(projectID).GetPlan(r.Context(), r.PathValue("id"))
 	writeJSON(w, http.StatusOK, plan)
 }
 

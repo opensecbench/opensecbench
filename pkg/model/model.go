@@ -514,10 +514,11 @@ type Message struct {
 // Plan / plan-step statuses (ADR-0019). PlanWaiting/StepWaiting are the mid-run approval pause (ADR-0044):
 // a gate step, once its dependencies complete, holds the plan until a human approves it.
 const (
-	PlanRunning = "running"
-	PlanWaiting = "waiting"
-	PlanDone    = "done"
-	PlanFailed  = "failed"
+	PlanRunning   = "running"
+	PlanWaiting   = "waiting"
+	PlanDone      = "done"
+	PlanFailed    = "failed"
+	PlanCancelled = "cancelled" // stopped by a human mid-run (ADR-0019)
 
 	StepPending = "pending"
 	StepRunning = "running"

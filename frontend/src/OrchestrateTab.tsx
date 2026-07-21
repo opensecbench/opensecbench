@@ -93,6 +93,15 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
     }
   }
 
+  async function stop(p: Plan) {
+    try {
+      setSelected(await api.cancelPlan(p.id))
+      await loadPlans()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
   async function schedule(pb: AgentPlaybook, seconds: number) {
     try {
       await api.createSchedule(project.id, pb.id, seconds)
@@ -203,6 +212,11 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
               <b>{selected.playbook_id}</b>
               <span className="plan-goal">{selected.goal}</span>
               <span className="grow" />
+              {(selected.status === 'running' || selected.status === 'waiting') && (
+                <button className="orch-stop" disabled={!online} onClick={() => stop(selected)} title="Stop this run — aborts in-flight work and skips remaining steps">
+                  ■ Stop
+                </button>
+              )}
               <button className="ghost-btn" disabled={!online} onClick={() => saveAsPlaybook(selected)} title="Record this run as a reusable playbook">
                 ＋ Save as playbook
               </button>
