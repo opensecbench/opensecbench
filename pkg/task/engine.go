@@ -887,6 +887,14 @@ func (e *Engine) correlateReachability(ctx context.Context, projectID string, o 
 // project-level `exposed` to a concrete route. File-level proximity — the finding sits in the handler file,
 // not proven reachable from the route by a call graph. Best-effort; a nil route inventory just skips it.
 func (e *Engine) correlateExposedRoute(ctx context.Context, projectID, exposedAttr string, o *model.Observation) {
+	// Call-graph route→sink reachability first (ADR-0034): opengrep's dataflow trace lists every location
+	// from the untrusted source to the sink. A route handler anywhere on that path proves the sink is
+	// reachable from that HTTP entry point — the strong, path-based signal (route_reachable).
+	if e.correlateDataflowRoute(ctx, projectID, exposedAttr, o) {
+		return
+	}
+	// Fallback (ADR-0033): the sink itself sits in a route handler's file. Weaker — co-location, not a
+	// traced path — so it sets exposed_route/route_observed but not route_reachable.
 	file, line := splitLocation(o.Location)
 	if file == "" {
 		return
@@ -902,11 +910,46 @@ func (e *Engine) correlateExposedRoute(ctx context.Context, projectID, exposedAt
 	if !r.Observed && exposedAttr != "true" {
 		return
 	}
+	setRouteAttrs(o, r, false)
+}
+
+// correlateDataflowRoute walks the finding's recorded source→sink dataflow path and, if a route handler
+// sits on it, attributes that route and marks the finding route_reachable. Returns true when it matched.
+func (e *Engine) correlateDataflowRoute(ctx context.Context, projectID, exposedAttr string, o *model.Observation) bool {
+	raw := o.Attributes["dataflow_path"]
+	if raw == "" {
+		return false
+	}
+	for _, loc := range strings.Split(raw, ",") {
+		file, line := splitLocation(loc)
+		if file == "" {
+			continue
+		}
+		routes, err := e.p(projectID).RoutesForHandlerFile(ctx, projectID, file)
+		if err != nil || len(routes) == 0 {
+			continue
+		}
+		r := nearestRoute(routes, line)
+		if !r.Observed && exposedAttr != "true" {
+			continue
+		}
+		setRouteAttrs(o, r, true)
+		return true
+	}
+	return false
+}
+
+// setRouteAttrs tags an observation with the entry-point route. reachable marks a traced call-graph path
+// from that route to the sink (route_reachable), as opposed to mere sink-in-handler-file co-location.
+func setRouteAttrs(o *model.Observation, r model.Route, reachable bool) {
 	if o.Attributes == nil {
 		o.Attributes = map[string]string{}
 	}
 	o.Attributes["exposed_route"] = strings.TrimSpace(r.Method + " " + r.Path)
 	o.Attributes["route_observed"] = strconv.FormatBool(r.Observed)
+	if reachable {
+		o.Attributes["route_reachable"] = "true"
+	}
 }
 
 // nearestRoute returns the route whose registration is closest at or above the finding's line — i.e. the

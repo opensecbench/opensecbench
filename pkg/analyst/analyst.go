@@ -56,7 +56,7 @@ func Tools() []agent.Tool {
 		{Name: "get_finding", Description: "Get one finding by id, including its supporting observation ids.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "finding id"},
 		}},
-		{Name: "list_observations", Description: "List the current project's observations (tool findings + AI/investigation candidates) with their routing attributes — reachable, exposed, exposed_route, dataflow_source, security_severity, verified — for triage. Prioritize reachable + exposed/exposed_route items.", Params: []agent.Param{
+		{Name: "list_observations", Description: "List the current project's observations (tool findings + AI/investigation candidates) with their routing attributes — reachable, exposed, exposed_route, route_reachable (a proven dataflow path from an HTTP route to the sink — the strongest exploitability signal), dataflow_source, security_severity, verified — for triage. Prioritize route_reachable, then reachable + exposed/exposed_route items.", Params: []agent.Param{
 			{Name: "unreviewed_only", Type: agent.TypeBoolean, Description: "only observations still awaiting triage (review_state=unreviewed)"},
 		}},
 		{Name: "list_investigations", Description: "List the current project's open investigations — observations the disposition layer flagged for validation (id, title, status, observation_id).", Params: []agent.Param{

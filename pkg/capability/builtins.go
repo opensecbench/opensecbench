@@ -23,6 +23,8 @@ var reachableExposed = []disposition.Disposition{
 
 // sastReachabilityRouting routes semgrep with dataflow reachability (ADR-0032) and route awareness
 // (ADR-0034). Order matters — first match wins:
+//  0. route_reachable: the dataflow trace runs from an HTTP entry point through to the sink — a proven
+//     route→sink path, exploitable at any severity;
 //  1. a finding in a TRAFFIC-CONFIRMED exposed route's handler (route_observed) escalates at medium+ — being
 //     directly on a live endpoint is strong exposure evidence even without a dataflow trace;
 //  2. a taint finding (reachable) on an exposed service escalates at any severity;
@@ -31,6 +33,9 @@ var reachableExposed = []disposition.Disposition{
 // There is no downgrade on the ABSENCE of a route or a dataflow trace — route detection is heuristic and
 // incomplete, so a missing route must never hide a finding.
 var sastReachabilityRouting = []disposition.Disposition{
+	// Strongest signal (ADR-0034): a traced call-graph path from an HTTP entry point to the sink — the sink
+	// is provably reachable from a route, so escalate at any severity.
+	{When: map[string]string{"route_reachable": "true"}, Action: disposition.ActionInvestigate},
 	{When: map[string]string{"route_observed": "true"}, MinSeverity: "medium", Action: disposition.ActionInvestigate},
 	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
 	{MinSeverity: "high", Action: disposition.ActionInvestigate},

@@ -130,6 +130,11 @@ func SARIF(data []byte) ([]model.Observation, error) {
 				if src := dataflowSource(r.CodeFlows); src != "" {
 					attrs["dataflow_source"] = src
 				}
+				// The full source→sink path lets the engine tell whether a route handler is anywhere on it
+				// (call-graph route→sink reachability, ADR-0034) — not just whether the sink shares a file.
+				if path := dataflowPath(r.CodeFlows); len(path) > 0 {
+					attrs["dataflow_path"] = strings.Join(path, ",")
+				}
 			}
 			// Effective level: the result's own, else the rule's defaultConfiguration (where semgrep/opengrep
 			// registry rules put it). The SARIF level collapses distinct CVSS bands (grype maps both Critical
@@ -228,6 +233,26 @@ func dataflowSource(flows []sarifCodeFlow) string {
 		}
 	}
 	return ""
+}
+
+// dataflowPath returns every "file:line" location along the first taint trace, in order from the
+// untrusted source to the sink. A route handler appearing anywhere on this path means the sink is
+// reachable from that HTTP entry point (ADR-0034) — stronger than the sink merely sharing a handler's file.
+func dataflowPath(flows []sarifCodeFlow) []string {
+	for _, cf := range flows {
+		var out []string
+		for _, tf := range cf.ThreadFlows {
+			for _, loc := range tf.Locations {
+				if l := firstLocation([]sarifLocation{loc.Location}); l != "" {
+					out = append(out, l)
+				}
+			}
+		}
+		if len(out) > 0 {
+			return out // the first code flow with locations is enough
+		}
+	}
+	return nil
 }
 
 func firstLocation(locs []sarifLocation) string {
