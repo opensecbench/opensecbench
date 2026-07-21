@@ -156,7 +156,9 @@ function AddModelRow({
 }) {
   const [conn, setConn] = useState('')
   const [model, setModel] = useState('')
+  const [custom, setCustom] = useState(false)
   const list = models[conn]
+  const loaded = list !== undefined
   return (
     <div className="add-model-row">
       <select
@@ -164,6 +166,7 @@ function AddModelRow({
         onChange={(e) => {
           setConn(e.target.value)
           setModel('')
+          setCustom(false)
           loadModels(e.target.value)
         }}
         disabled={!online}
@@ -171,15 +174,29 @@ function AddModelRow({
         <option value="">+ add a model…</option>
         {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
-      {conn &&
-        (list && list.length > 0 ? (
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
-            <option value="">connection default</option>
-            {list.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name || m.model_id}</option>)}
-          </select>
-        ) : (
-          <input placeholder="model id" value={model} onChange={(e) => setModel(e.target.value)} />
-        ))}
+      {conn && !custom && (
+        <select
+          value={model}
+          onChange={(e) => {
+            if (e.target.value === '__custom__') {
+              setCustom(true)
+              setModel('')
+            } else setModel(e.target.value)
+          }}
+        >
+          <option value="">{loaded ? 'connection default' : 'loading models…'}</option>
+          {(list ?? []).map((m) => (
+            <option key={m.model_id} value={m.model_id}>
+              {m.display_name || m.model_id}
+              {m.input_per_mtok || m.output_per_mtok ? ` · $${m.input_per_mtok}/$${m.output_per_mtok}` : ''}
+            </option>
+          ))}
+          <option value="__custom__">Custom id…</option>
+        </select>
+      )}
+      {conn && custom && (
+        <input autoFocus placeholder="model id" value={model} onChange={(e) => setModel(e.target.value)} />
+      )}
       {conn && (
         <button
           className="ghost-btn"
@@ -187,6 +204,7 @@ function AddModelRow({
             onAdd({ provider_id: conn, model })
             setConn('')
             setModel('')
+            setCustom(false)
           }}
         >
           add
