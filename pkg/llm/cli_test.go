@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/runner"
 )
@@ -176,30 +178,46 @@ func TestCLIProviderSandboxIsolatesCredential(t *testing.T) {
 	}
 }
 
-func TestNewCLISandboxConfig(t *testing.T) {
-	// Sandbox on with no image → the conventional osb/claude-cli:latest (built by `make claude-image`).
-	p, err := New(Config{Type: "claude-cli", CLISandbox: true, CLICredential: "/c/cred.json"})
+// The claude-cli connection type now builds a NATIVE Anthropic provider authenticated by the subscription
+// OAuth token (not a `claude -p` subprocess), so it can run tool-using agents (native tools everywhere).
+func TestClaudeSubscriptionIsNative(t *testing.T) {
+	p, err := New(Config{Type: "claude-cli", CLICredential: "/c/cred.json", NativeTools: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := p.(*CLIProvider).Sandbox; s == nil || s.Image != DefaultCLIImage {
-		t.Fatalf("sandbox default image = %+v, want %s", s, DefaultCLIImage)
+	a, ok := p.(*AnthropicProvider)
+	if !ok {
+		t.Fatalf("claude-cli should build an AnthropicProvider, got %T", p)
 	}
-	// An explicit image and credential are honored.
-	p, err = New(Config{Type: "claude-cli", CLISandbox: true, CLIImage: "img", CLICredential: "/c/cred.json"})
-	if err != nil {
-		t.Fatal(err)
+	if a.CredentialFile != "/c/cred.json" || !a.NativeTools() || a.Model != "claude-sonnet-5" {
+		t.Fatalf("subscription provider misconfigured: %+v", a)
 	}
-	cp := p.(*CLIProvider)
-	if cp.Sandbox == nil || cp.Sandbox.Image != "img" || cp.Sandbox.CredentialSrc != "/c/cred.json" {
-		t.Fatalf("sandbox not configured: %+v", cp.Sandbox)
-	}
-	// Default claude-cli is NOT sandboxed.
-	p2, _ := New(Config{Type: "claude-cli"})
-	if p2.(*CLIProvider).Sandbox != nil {
-		t.Fatal("default claude-cli must run on the host, not sandboxed")
+	if a.Name() != "claude-subscription" {
+		t.Fatalf("name = %q", a.Name())
 	}
 }
+
+func TestReadSubscriptionToken(t *testing.T) {
+	dir := t.TempDir()
+	// Valid, unexpired token.
+	good := filepath.Join(dir, "good.json")
+	_ = os.WriteFile(good, []byte(`{"claudeAiOauth":{"accessToken":"sk-ant-oat01-x","expiresAt":`+itoa64(time.Now().Add(time.Hour).UnixMilli())+`}}`), 0o600)
+	if tok, err := readSubscriptionToken(good); err != nil || tok != "sk-ant-oat01-x" {
+		t.Fatalf("read = %q err=%v", tok, err)
+	}
+	// Expired token → a clear error.
+	exp := filepath.Join(dir, "exp.json")
+	_ = os.WriteFile(exp, []byte(`{"claudeAiOauth":{"accessToken":"x","expiresAt":1}}`), 0o600)
+	if _, err := readSubscriptionToken(exp); err == nil {
+		t.Fatal("expired token should error")
+	}
+	// Missing file → error.
+	if _, err := readSubscriptionToken(filepath.Join(dir, "nope.json")); err == nil {
+		t.Fatal("missing credential file should error")
+	}
+}
+
+func itoa64(v int64) string { return strconv.FormatInt(v, 10) }
 
 // TestCLIProviderSandboxReal exercises the full sandbox path — CLIProvider.Sandbox + the real
 // LocalRunner + the osb/claude-cli image + your ambient credential — end to end. It makes a real API

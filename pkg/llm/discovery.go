@@ -82,9 +82,6 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]DiscoveredModel, err
 // ListModels enumerates models via the Anthropic GET {BaseURL}/v1/models endpoint, which (unlike the
 // OpenAI shape) returns a human display_name.
 func (a *AnthropicProvider) ListModels(ctx context.Context) ([]DiscoveredModel, error) {
-	if a.APIKey == "" {
-		return nil, fmt.Errorf("llm anthropic: API key not set")
-	}
 	base := a.BaseURL
 	if base == "" {
 		base = "https://api.anthropic.com"
@@ -94,8 +91,9 @@ func (a *AnthropicProvider) ListModels(ctx context.Context) ([]DiscoveredModel, 
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-api-key", a.APIKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	if err := a.setAuth(req); err != nil {
+		return nil, err
+	}
 	body, err := doDiscovery(a.HTTP, req, a.Name())
 	if err != nil {
 		return nil, err

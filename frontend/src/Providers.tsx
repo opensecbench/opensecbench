@@ -242,7 +242,7 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
         <button className="prov-add-btn" onClick={add} disabled={!online}>＋ Add provider</button>
         <div className="prov-hint">
           {type === 'claude-cli'
-            ? 'Uses your local `claude` login (a Claude subscription), driven headless in JSON mode.'
+            ? 'Uses your local `claude` login (a Claude subscription) as a native Anthropic API backend via its OAuth token — full tool-use, like an API key. Run `claude` once to log in.'
             : type === 'ollama'
               ? 'Local models — no key, nothing leaves your machine.'
               : 'An API key is the most reliable path. Keys are sealed in the vault, never stored in the clear.'}

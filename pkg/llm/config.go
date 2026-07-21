@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/opensecbench/opensecbench/pkg/runner"
 )
 
 // Config selects and configures a provider.
@@ -34,29 +32,22 @@ func New(cfg Config) (Provider, error) {
 	case "", "mock":
 		return &MockProvider{}, nil
 	case "claude-cli", "cli", "claude":
-		p := NewCLIProvider(cfg.Bin)
-		p.Model = cfg.Model // a subscription connection can run a specific Anthropic model (ADR-0052)
-		if cfg.CLISandbox {
-			image := cfg.CLIImage
-			if image == "" {
-				image = DefaultCLIImage // built by `make claude-image`
+		// A Claude subscription as a first-class NATIVE-tools backend: the Anthropic Messages API
+		// authenticated by the subscription's OAuth token (read from the `claude` login's credential file),
+		// not a `claude -p` subprocess. This lets it run tool-using agents like any API provider — the CLI
+		// harness couldn't (it can't take injected tool definitions). Native tools everywhere (ADR-0017).
+		cred := cfg.CLICredential
+		if cred == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, fmt.Errorf("llm: cannot locate ~/.claude/.credentials.json: %w", err)
 			}
-			cred := cfg.CLICredential
-			if cred == "" {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return nil, fmt.Errorf("llm: cannot locate ~/.claude/.credentials.json: %w", err)
-				}
-				cred = filepath.Join(home, ".claude", ".credentials.json")
-			}
-			p.Sandbox = &CLISandbox{
-				Runner:        runner.LocalRunner{},
-				Image:         image,
-				CredentialSrc: cred,
-				Network:       cfg.CLINetwork,
-			}
+			cred = filepath.Join(home, ".claude", ".credentials.json")
 		}
-		return p, nil
+		return &AnthropicProvider{
+			BaseURL: cfg.BaseURL, CredentialFile: cred, Model: orDefault(cfg.Model, "claude-sonnet-5"),
+			UseNativeTools: cfg.NativeTools,
+		}, nil
 	case "anthropic":
 		return &AnthropicProvider{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: orDefault(cfg.Model, "claude-sonnet-5"), UseNativeTools: cfg.NativeTools}, nil
 	case "ollama":

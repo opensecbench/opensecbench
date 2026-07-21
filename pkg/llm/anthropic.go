@@ -8,7 +8,36 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"time"
 )
+
+// readSubscriptionToken reads a Claude subscription's OAuth access token from the credential file the
+// `claude` login writes (~/.claude/.credentials.json). Read per-call so a token the CLI refreshes in the
+// background is picked up. Returns a clear error when the file is missing or the token has expired (run
+// `claude` to refresh).
+func readSubscriptionToken(path string) (string, error) {
+	raw, err := os.ReadFile(path) //nolint:gosec // operator-configured credential path
+	if err != nil {
+		return "", fmt.Errorf("llm claude: reading subscription credential %s: %w", path, err)
+	}
+	var creds struct {
+		OAuth struct {
+			AccessToken string `json:"accessToken"`
+			ExpiresAt   int64  `json:"expiresAt"` // epoch millis
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(raw, &creds); err != nil {
+		return "", fmt.Errorf("llm claude: parsing subscription credential: %w", err)
+	}
+	if creds.OAuth.AccessToken == "" {
+		return "", errors.New("llm claude: no subscription token found (run `claude` to log in)")
+	}
+	if creds.OAuth.ExpiresAt > 0 && time.UnixMilli(creds.OAuth.ExpiresAt).Before(time.Now()) {
+		return "", errors.New("llm claude: subscription token expired (run `claude` to refresh)")
+	}
+	return creds.OAuth.AccessToken, nil
+}
 
 // AnthropicProvider talks to the Anthropic Messages API natively (system prompt is a top-level
 // field; only user/assistant turns go in messages).
@@ -21,19 +50,46 @@ type AnthropicProvider struct {
 	// instead of the prompted text protocol. The config paths enable it by default (OSB_LLM_NATIVE_TOOLS=0
 	// forces the prompted fallback).
 	UseNativeTools bool
+	// CredentialFile, when set, authenticates with a Claude subscription's OAuth token read fresh from
+	// that file (~/.claude/.credentials.json) on each call — so the CLI's own token refresh is picked up —
+	// instead of an x-api-key. This makes the Claude subscription a first-class NATIVE-tools backend
+	// (no CLI subprocess, no MCP): the Messages API with a Bearer token and the oauth beta header.
+	CredentialFile string
 }
 
 // Name identifies the provider.
-func (a *AnthropicProvider) Name() string { return "anthropic" }
+func (a *AnthropicProvider) Name() string {
+	if a.CredentialFile != "" {
+		return "claude-subscription"
+	}
+	return "anthropic"
+}
+
+// setAuth attaches Anthropic auth: a subscription OAuth Bearer token (read fresh from the credential file)
+// when configured, else the x-api-key. Always sets anthropic-version.
+func (a *AnthropicProvider) setAuth(req *http.Request) error {
+	req.Header.Set("anthropic-version", "2023-06-01")
+	if a.CredentialFile != "" {
+		tok, err := readSubscriptionToken(a.CredentialFile)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+		return nil
+	}
+	if a.APIKey == "" {
+		return errors.New("llm anthropic: no API key or subscription credential")
+	}
+	req.Header.Set("x-api-key", a.APIKey)
+	return nil
+}
 
 // NativeTools reports whether this provider handles tools natively (ToolAware).
 func (a *AnthropicProvider) NativeTools() bool { return a.UseNativeTools }
 
 // Complete calls the Messages API.
 func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
-	if a.APIKey == "" {
-		return CompletionResponse{}, errors.New("llm anthropic: API key not set")
-	}
 	base := a.BaseURL
 	if base == "" {
 		base = "https://api.anthropic.com"
@@ -85,8 +141,9 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 		return CompletionResponse{}, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", a.APIKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	if err := a.setAuth(httpReq); err != nil {
+		return CompletionResponse{}, err
+	}
 
 	client := a.HTTP
 	if client == nil {
