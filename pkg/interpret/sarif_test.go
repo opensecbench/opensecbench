@@ -180,6 +180,10 @@ func TestSARIFDataflowReachability(t *testing.T) {
 	if taint.Attributes["dataflow_source"] != "app/views.py:12" {
 		t.Fatalf("dataflow_source = %q, want app/views.py:12", taint.Attributes["dataflow_source"])
 	}
+	// The full source→sink path is captured so the engine can test route→sink reachability against it.
+	if taint.Attributes["dataflow_path"] != "app/views.py:12,app/views.py:42" {
+		t.Fatalf("dataflow_path = %q, want app/views.py:12,app/views.py:42", taint.Attributes["dataflow_path"])
+	}
 	// The plain pattern finding has no dataflow trace → reachability not applicable (unset, not "false").
 	if _, has := obs[1].Attributes["reachable"]; has {
 		t.Fatalf("pattern finding should have no reachable attribute, got %q", obs[1].Attributes["reachable"])
