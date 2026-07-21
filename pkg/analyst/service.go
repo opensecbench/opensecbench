@@ -31,10 +31,14 @@ type Service struct {
 	replay        *replay.Client
 	casr          cas.Resolver
 	workspaceRoot string
-	egressStrict  bool
-	providerLocal bool
-	tokenBudget   int
-	indexer       *rag.Indexer // semantic corpus index (ADR-0039)
+	// egress posture by asset tier: whether internal / private content may reach an external provider.
+	// open_source is always allowed. Set from the active governance profile (SetEgressPolicy) or the
+	// OSB_EGRESS_POLICY env fallback.
+	egressAllowInternal bool
+	egressAllowPrivate  bool
+	providerLocal       bool
+	tokenBudget         int
+	indexer             *rag.Indexer // semantic corpus index (ADR-0039)
 
 	// egressSender, if set, routes the send_request tool through a chosen runner's vantage (ADR-0025).
 	egressSender func(context.Context, string, replay.Request) (replay.Response, error)
@@ -65,9 +69,12 @@ func NewService(mgr *store.Manager, engine *task.Engine, casr cas.Resolver, work
 		replay:        replay.New(0),
 		casr:          casr,
 		workspaceRoot: workspaceRoot,
-		egressStrict:  os.Getenv("OSB_EGRESS_POLICY") != "open", // default: strict
-		providerLocal: provider != nil && llm.IsLocal(provider),
-		tokenBudget:   budget,
+		// OSB_EGRESS_POLICY=open allows every tier out; anything else is the strict fallback (block
+		// internal + private). The active governance profile normally overrides this via SetEgressPolicy.
+		egressAllowInternal: os.Getenv("OSB_EGRESS_POLICY") == "open",
+		egressAllowPrivate:  os.Getenv("OSB_EGRESS_POLICY") == "open",
+		providerLocal:       provider != nil && llm.IsLocal(provider),
+		tokenBudget:         budget,
 		// Semantic corpus index (ADR-0039): a local embedder by default, so corpus text is embedded on-host.
 		indexer: &rag.Indexer{Mgr: mgr, Casr: casr, Embed: llm.EmbedderFromEnv()},
 	}
@@ -111,9 +118,13 @@ func (svc *Service) p(projectID string) *store.DB {
 	return db
 }
 
-// SetEgressStrict overrides the data-egress posture (e.g. from the active policy profile): when
-// strict, capability output for a private asset is not sent to an external provider.
-func (svc *Service) SetEgressStrict(strict bool) { svc.egressStrict = strict }
+// SetEgressPolicy sets the data-egress posture from the active governance profile: whether internal and
+// private asset content may be sent to an external provider (open_source always may). A restricted
+// engagement tightens this further per-project (see executeFor).
+func (svc *Service) SetEgressPolicy(allowInternal, allowPrivate bool) {
+	svc.egressAllowInternal = allowInternal
+	svc.egressAllowPrivate = allowPrivate
+}
 
 // SetProviderResolver injects a function that builds a configured provider by its registry id, enabling
 // cross-provider model routing (ADR-0021). Without it, routing falls back to the active provider.
@@ -345,13 +356,15 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context
 	if prov != nil {
 		pname = prov.Name()
 	}
-	// Per-engagement tightening (ADR-0051): a project whose engagement data class is "restricted" forces
-	// strict egress for that project, regardless of the global posture — OR-ed with the global flag, so it
-	// is never looser than global, only tighter. Resolved once here, not per tool call.
-	strict := svc.egressStrict
-	if !strict && projectID != "" {
+	// Resolve the egress ceiling once here (not per tool call): whether internal / private content may
+	// reach the external provider. Per-engagement tightening (ADR-0051) — a project whose engagement data
+	// class is "restricted" forces the strictest posture regardless of the global/profile setting, only
+	// ever tighter, never looser.
+	allowInternal := svc.egressAllowInternal
+	allowPrivate := svc.egressAllowPrivate
+	if projectID != "" {
 		if eng, err := svc.p(projectID).GetEngagement(context.Background(), projectID); err == nil && eng.DataClass == model.DataRestricted {
-			strict = true
+			allowInternal, allowPrivate = false, false
 		}
 	}
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
@@ -360,23 +373,33 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context
 		if call.Tool == "delegate" {
 			return svc.runDelegate(ctx, projectID, call)
 		}
-		if strict && external {
-			// Reading a private asset's contents into an external model is data egress (ADR-0011/0020).
+		if external {
+			// Reading an asset's contents into an external model is data egress (ADR-0011/0020), gated by
+			// the asset's sensitivity tier: open_source always passes; internal and private are blocked
+			// unless the posture permits their tier.
 			if assetEgressTools[call.Tool] {
 				if assetID, _ := call.Args["asset"].(string); assetID != "" {
-					if asset, err := svc.p(projectID).GetAsset(ctx, assetID); err == nil && asset.Sensitivity == model.SensitivityPrivate {
-						return "", fmt.Errorf("blocked by data-egress policy: %q would send a private asset's contents to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", call.Tool, pname)
+					if asset, err := svc.p(projectID).GetAsset(ctx, assetID); err == nil {
+						switch {
+						case asset.Sensitivity == model.SensitivityPrivate && !allowPrivate:
+							return "", fmt.Errorf("blocked by data-egress policy: %q would send a private asset's contents to the external provider %q; use a local provider (e.g. ollama), switch to a governance profile that permits it, or lower the asset's sensitivity", call.Tool, pname)
+						case asset.Sensitivity == model.SensitivityInternal && !allowInternal:
+							return "", fmt.Errorf("blocked by data-egress policy: %q would send an internal asset's contents to the external provider %q; use a local provider (e.g. ollama) or switch to a governance profile that permits internal egress", call.Tool, pname)
+						}
 					}
 				}
 			}
 			// Ingested corpus (documents, emails, chat) has no per-item sensitivity flag, so it is treated
-			// as private by default: its content does not leave to an external provider under a strict policy.
-			if call.Tool == "read_context" {
-				return "", fmt.Errorf("blocked by data-egress policy: read_context would send ingested document/correspondence content to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", pname)
-			}
-			// search_corpus returns corpus/KB chunk text to the model — same egress class as read_context.
-			if call.Tool == "search_corpus" {
-				return "", fmt.Errorf("blocked by data-egress policy: search_corpus would send corpus/KB content to the external provider %q; use a local provider (e.g. ollama) or set OSB_EGRESS_POLICY=open", pname)
+			// as private by default: its content does not leave to an external provider unless private egress
+			// is permitted.
+			if !allowPrivate {
+				if call.Tool == "read_context" {
+					return "", fmt.Errorf("blocked by data-egress policy: read_context would send ingested document/correspondence content to the external provider %q; use a local provider (e.g. ollama) or switch to a governance profile that permits it", pname)
+				}
+				// search_corpus returns corpus/KB chunk text to the model — same egress class as read_context.
+				if call.Tool == "search_corpus" {
+					return "", fmt.Errorf("blocked by data-egress policy: search_corpus would send corpus/KB content to the external provider %q; use a local provider (e.g. ollama) or switch to a governance profile that permits it", pname)
+				}
 			}
 		}
 		return exec(ctx, call)

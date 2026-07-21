@@ -117,7 +117,7 @@ func TestEgressPolicyBlocksPrivateAssetOnExternalProvider(t *testing.T) {
 	priv, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/work/private", Sensitivity: model.SensitivityPrivate})
 	oss, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/oss/pub", Sensitivity: model.SensitivityOpenSource})
 
-	svc := &Service{mgr: store.NewCombinedManager(db), egressStrict: true}
+	svc := &Service{mgr: store.NewCombinedManager(db), egressAllowInternal: false, egressAllowPrivate: false}
 	ext := &llm.AnthropicProvider{} // IsLocal → false (external)
 	local := &llm.MockProvider{}    // IsLocal → true
 
@@ -149,8 +149,8 @@ func TestRestrictedDataClassForcesStrictEgress(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Global egress is OPEN (personal) — egressStrict false.
-	svc := &Service{mgr: store.NewCombinedManager(db), egressStrict: false}
+	// Global egress is OPEN (personal) — every tier may reach an external provider.
+	svc := &Service{mgr: store.NewCombinedManager(db), egressAllowInternal: true, egressAllowPrivate: true}
 	ext := &llm.AnthropicProvider{} // external
 
 	// Restricted project: read_context to an external provider is blocked despite the open global policy.

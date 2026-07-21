@@ -1161,11 +1161,12 @@ function AssetsTab({
                       className={`sens sens-${as.sensitivity}`}
                       value={as.sensitivity}
                       disabled={!online}
-                      title="Data sensitivity — gates whether this asset may reach an external AI provider"
+                      title="Data sensitivity — gates whether this asset may reach an external AI provider (open_source ≤ internal ≤ private)"
                       onChange={(e) => changeAssetSensitivity(as.id, e.target.value)}
                     >
-                      <option value="private">private</option>
                       <option value="open_source">open_source</option>
+                      <option value="internal">internal</option>
+                      <option value="private">private</option>
                     </select>
                     <span className="mono">{as.location}</span>
                   </li>
@@ -1193,8 +1194,9 @@ function AssetsTab({
               )}
               <select value={inp.sensitivity} onChange={(e) => setAssetInputs({ ...assetInputs, [app.id]: { ...inp, sensitivity: e.target.value } })}>
                 <option value="">sensitivity: infer</option>
-                <option value="private">private</option>
                 <option value="open_source">open_source</option>
+                <option value="internal">internal</option>
+                <option value="private">private</option>
               </select>
               <button disabled={!online || !inp.location.trim()} onClick={() => addAsset(app.id)}>＋ Asset</button>
             </div>

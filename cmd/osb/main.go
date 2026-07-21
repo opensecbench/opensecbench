@@ -915,7 +915,7 @@ func policyCmd(ctx context.Context, c *client.Client, args []string) error {
 			return err
 		}
 		for _, p := range ps {
-			fmt.Printf("%-10s ext-private=%-5v agent-private=%-5v  %s\n", p.Name, p.AllowExternalForPrivate, p.AgentSeesPrivate, p.Description)
+			fmt.Printf("%-10s ext-private=%-5v ext-internal=%-5v agent-private=%-5v  %s\n", p.Name, p.AllowExternalForPrivate, p.AllowExternalForInternal, p.AgentSeesPrivate, p.Description)
 		}
 		return nil
 	case "active":

@@ -537,7 +537,8 @@ func (s *Server) analystService() *analyst.Service {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}
 	// The active policy profile governs data egress (ADR-0006).
-	svc.SetEgressStrict(!s.activePolicy().AllowExternalForPrivate)
+	ap := s.activePolicy()
+	svc.SetEgressPolicy(ap.AllowExternalForInternal, ap.AllowExternalForPrivate)
 	// Cross-provider model routing (ADR-0021): build a configured provider by registry id, DLP-guarded.
 	svc.SetProviderResolver(func(ctx context.Context, id string) (llm.Provider, error) {
 		p, err := s.global().GetProvider(ctx, id)
@@ -555,7 +556,7 @@ func (s *Server) analystService() *analyst.Service {
 	return svc
 }
 
-// activePolicy returns the currently selected governance profile (default: conservative).
+// activePolicy returns the currently selected governance profile (default: personal).
 func (s *Server) activePolicy() policy.Profile {
 	name := policy.Default
 	if v, err := s.global().GetSetting(context.Background(), "active_policy_profile"); err == nil && v != "" {

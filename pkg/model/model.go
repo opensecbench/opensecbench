@@ -49,7 +49,7 @@ const (
 type ScopeEntry struct {
 	ID          string    `json:"id"`
 	ProjectID   string    `json:"project_id"`
-	Kind        string    `json:"kind"`        // host | domain | cidr
+	Kind        string    `json:"kind"` // host | domain | cidr
 	Value       string    `json:"value"`
 	Disposition string    `json:"disposition"` // allow | deny (default allow)
 	CreatedAt   time.Time `json:"created_at"`
@@ -435,19 +435,19 @@ const (
 // HTTPExchange is a request and (once sent) its response, anchored to a project (ADR-0007). The
 // Replay edits and resends it; save-as-evidence promotes a response into the CAS.
 type HTTPExchange struct {
-	ID              string     `json:"id"`
-	ProjectID       string     `json:"project_id"`
-	Name            string     `json:"name"`
-	Origin          string     `json:"origin"`
-	Method          string     `json:"method"`
-	URL             string     `json:"url"`
-	RequestHeaders  string     `json:"request_headers"`
-	RequestBody     string     `json:"request_body"`
-	Status          *int       `json:"status,omitempty"`
-	ResponseHeaders string     `json:"response_headers"`
-	ResponseBody    string     `json:"response_body"`
-	DurationMS      *int       `json:"duration_ms,omitempty"`
-	Egress          string     `json:"egress,omitempty"` // "" = control-plane host; else the runner id (ADR-0025)
+	ID              string `json:"id"`
+	ProjectID       string `json:"project_id"`
+	Name            string `json:"name"`
+	Origin          string `json:"origin"`
+	Method          string `json:"method"`
+	URL             string `json:"url"`
+	RequestHeaders  string `json:"request_headers"`
+	RequestBody     string `json:"request_body"`
+	Status          *int   `json:"status,omitempty"`
+	ResponseHeaders string `json:"response_headers"`
+	ResponseBody    string `json:"response_body"`
+	DurationMS      *int   `json:"duration_ms,omitempty"`
+	Egress          string `json:"egress,omitempty"` // "" = control-plane host; else the runner id (ADR-0025)
 	// TLS is a JSON summary of the upstream server certificate captured for a proxied HTTPS exchange
 	// (subject/issuer/validity + flags: expired, hostname mismatch, self-signed, untrusted). Empty for
 	// plain HTTP or when no cert was presented.
@@ -649,9 +649,12 @@ type Application struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Asset sensitivity and type enums (mirrored by CHECK constraints in the schema).
+// Asset sensitivity and type enums (mirrored by CHECK constraints in the schema). Sensitivity is an
+// ordered scale — open_source < internal < private — that gates external-LLM egress (ADR-0011): the
+// corporate profile permits internal but not private egress; strict blocks both.
 const (
 	SensitivityOpenSource = "open_source"
+	SensitivityInternal   = "internal"
 	SensitivityPrivate    = "private"
 
 	AssetSourceRepo      = "source_repo"

@@ -270,10 +270,11 @@ type ExtensionInfo struct {
 
 // PolicyProfile is a governance posture.
 type PolicyProfile struct {
-	Name                    string `json:"name"`
-	Description             string `json:"description"`
-	AllowExternalForPrivate bool   `json:"allow_external_for_private"`
-	AgentSeesPrivate        bool   `json:"agent_sees_private"`
+	Name                     string `json:"name"`
+	Description              string `json:"description"`
+	AllowExternalForPrivate  bool   `json:"allow_external_for_private"`
+	AllowExternalForInternal bool   `json:"allow_external_for_internal"`
+	AgentSeesPrivate         bool   `json:"agent_sees_private"`
 }
 
 // ListPolicyProfiles returns the available governance profiles.

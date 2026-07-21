@@ -517,6 +517,10 @@ a.link,
   background: var(--red-bg);
   color: var(--red);
 }
+.sens-internal {
+  background: var(--amber-bg, #2a2114);
+  color: var(--amber);
+}
 .sens-open_source {
   background: var(--green-bg);
   color: var(--green);
