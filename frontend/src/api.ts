@@ -268,18 +268,32 @@ export interface ExtensionInfo {
   methodologies?: string[]
 }
 
-export interface IntegrationConfig {
+// A global external-tracker connection (ADR-0027 / IA declutter) — built in the Library, bound to projects.
+export interface Connector {
   id: string
-  project_id: string
-  integration: string
+  name: string
+  type: string // jira | defectdojo
   base_url: string
-  project_key: string
   credential: string // vault secret name (never a value)
-  updated_at: string
+  created_at: string
+}
+// The connector types available to build from (jira/defectdojo) and whether each supports inbound pull.
+export interface ConnectorType {
+  type: string
+  pullable: boolean
+}
+// A global connector merged with this project's binding state.
+export interface ProjectConnector {
+  id: string
+  name: string
+  type: string
+  base_url: string
+  pullable: boolean
+  bound: boolean
+  project_key: string
 }
 export interface ProjectIntegrations {
-  configs: IntegrationConfig[] | null
-  connectors: { name: string; pullable: boolean }[]
+  connectors: ProjectConnector[]
 }
 export interface PullResult {
   imported: number
@@ -828,19 +842,21 @@ export const api = {
     request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, runnerId ? { runner_id: runnerId } : {}),
   listRunners: () => request<RunnerView[]>('GET', '/v1/runners'),
 
-  // Integrations (ADR-0027): per-project config + inbound pull.
+  // Integrations (ADR-0027 / IA declutter): global connectors (Library) + per-project bindings + pull.
   listSecrets: () => request<{ name: string }[]>('GET', '/v1/secrets'),
+  listConnectorTypes: () => request<ConnectorType[]>('GET', '/v1/integrations'),
+  listConnectors: () => request<Connector[]>('GET', '/v1/connectors'),
+  createConnector: (body: { name: string; type: string; base_url: string; credential: string }) =>
+    request<Connector>('POST', '/v1/connectors', body),
+  deleteConnector: (id: string) => request<void>('DELETE', `/v1/connectors/${id}`),
   getProjectIntegrations: (projectId: string) =>
     request<ProjectIntegrations>('GET', `/v1/projects/${projectId}/integrations`),
-  setIntegrationConfig: (
-    projectId: string,
-    integration: string,
-    cfg: { base_url: string; project_key: string; credential: string },
-  ) => request<IntegrationConfig>('PUT', `/v1/projects/${projectId}/integrations/${integration}`, cfg),
-  deleteIntegrationConfig: (projectId: string, integration: string) =>
-    request<void>('DELETE', `/v1/projects/${projectId}/integrations/${integration}`),
-  pullIntegration: (projectId: string, integration: string) =>
-    request<PullResult>('POST', `/v1/projects/${projectId}/integrations/${integration}/pull`, {}),
+  setBinding: (projectId: string, connectorId: string, projectKey: string) =>
+    request<void>('PUT', `/v1/projects/${projectId}/integrations/${connectorId}`, { project_key: projectKey }),
+  deleteBinding: (projectId: string, connectorId: string) =>
+    request<void>('DELETE', `/v1/projects/${projectId}/integrations/${connectorId}`),
+  pullIntegration: (projectId: string, connectorId: string) =>
+    request<PullResult>('POST', `/v1/projects/${projectId}/integrations/${connectorId}/pull`, {}),
 
   // Investigations (ADR-0028): disposition-routed follow-ups.
   listInvestigations: (projectId: string) =>

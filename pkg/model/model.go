@@ -237,17 +237,25 @@ type ProxyRule struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// IntegrationConfig is a reusable per-project connection to an external tracker (ADR-0027). Credential is
-// a vault secret NAME, never a value.
-type IntegrationConfig struct {
+// Connector is a GLOBAL external-tracker connection (ADR-0027 / IA declutter): a tracker instance + how to
+// auth, built once in the Library and bound to projects. Credential is a vault secret NAME, never a value.
+type Connector struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Type       string    `json:"type"` // jira | defectdojo
+	BaseURL    string    `json:"base_url"`
+	Credential string    `json:"credential"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// IntegrationBinding attaches a project to a connector with a project-side scope (e.g. a DefectDojo test
+// id) — the per-project half of the split.
+type IntegrationBinding struct {
 	ID          string    `json:"id"`
 	ProjectID   string    `json:"project_id"`
-	Integration string    `json:"integration"`
-	BaseURL     string    `json:"base_url"`
+	ConnectorID string    `json:"connector_id"`
 	ProjectKey  string    `json:"project_key"`
-	Credential  string    `json:"credential"`
 	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // ExternalLink ties an OSB finding to an issue in an external tracker (idempotent per integration).

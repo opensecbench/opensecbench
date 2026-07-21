@@ -494,10 +494,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/findings/{id}/links", s.listFindingLinks)
 	s.mux.HandleFunc("POST /v1/findings/{id}/push", s.pushFinding)
 	// Per-project integration configs + inbound pull (ADR-0027).
+	// Global connectors (Library) + per-project bindings (ADR-0027 / IA declutter).
+	s.mux.HandleFunc("GET /v1/connectors", s.listConnectors)
+	s.mux.HandleFunc("POST /v1/connectors", s.createConnector)
+	s.mux.HandleFunc("DELETE /v1/connectors/{id}", s.deleteConnector)
 	s.mux.HandleFunc("GET /v1/projects/{id}/integrations", s.listProjectIntegrations)
-	s.mux.HandleFunc("PUT /v1/projects/{id}/integrations/{integration}", s.setIntegrationConfig)
-	s.mux.HandleFunc("DELETE /v1/projects/{id}/integrations/{integration}", s.deleteIntegrationConfig)
-	s.mux.HandleFunc("POST /v1/projects/{id}/integrations/{integration}/pull", s.pullIntegration)
+	s.mux.HandleFunc("PUT /v1/projects/{id}/integrations/{connectorId}", s.setBinding)
+	s.mux.HandleFunc("DELETE /v1/projects/{id}/integrations/{connectorId}", s.deleteBinding)
+	s.mux.HandleFunc("POST /v1/projects/{id}/integrations/{connectorId}/pull", s.pullIntegration)
 	// Post-run disposition routing + investigations (ADR-0028).
 	s.mux.HandleFunc("GET /v1/projects/{id}/observations", s.listProjectObservations)
 	// Knowledge dossier — consolidated "what we know" view (ADR-0042).

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -53,18 +54,42 @@ func TestPushFindingToJiraIsIdempotent(t *testing.T) {
 	t.Cleanup(func() { srv.Close(); _ = db.Close() })
 	ctx := context.Background()
 
-	// A finding to push, and a vault credential for Jira basic auth.
-	app, _ := db.CreateApplication(ctx, mustProject(t, db).ID, "Storefront")
+	// A finding to push, a vault credential for Jira basic auth, a global Jira connector, and a per-project
+	// binding that supplies the Jira project key.
+	proj := mustProject(t, db)
+	app, _ := db.CreateApplication(ctx, proj.ID, "Storefront")
 	finding, _ := db.CreateFinding(ctx, store.NewFinding{ApplicationID: &app.ID, Title: "Auth bypass", Severity: "high"})
 	sealed, _ := vault.Seal([]byte("bot@acme.com:token123"))
 	if _, err := db.SetSecret(ctx, "jira_cred", sealed); err != nil {
 		t.Fatal(err)
 	}
+	conn, err := db.CreateConnector(ctx, model.Connector{Name: "Jira", Type: "jira", BaseURL: jira.URL, Credential: "jira_cred"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SetBinding(ctx, model.IntegrationBinding{ProjectID: proj.ID, ConnectorID: conn.ID, ProjectKey: "SEC"}); err != nil {
+		t.Fatal(err)
+	}
 
-	push := `{"integration":"jira","base_url":"` + jira.URL + `","project_key":"SEC","credential":"jira_cred"}`
+	// The push resolves the binding's project key from the active project (X-Project-Id, as the UI sends).
+	push := func() (int, model.ExternalLink) {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/findings/"+finding.ID+"/push", strings.NewReader(`{"connector_id":"`+conn.ID+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Project-Id", proj.ID)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		var l model.ExternalLink
+		if resp.StatusCode < http.StatusBadRequest {
+			_ = json.NewDecoder(resp.Body).Decode(&l)
+		}
+		return resp.StatusCode, l
+	}
 
-	var link model.ExternalLink
-	if code := postJSON(t, srv.URL+"/v1/findings/"+finding.ID+"/push", push, &link); code != http.StatusCreated {
+	code, link := push()
+	if code != http.StatusCreated {
 		t.Fatalf("push = %d", code)
 	}
 	if link.ExternalID != "SEC-42" || !strings.Contains(link.ExternalURL, "/browse/SEC-42") {
@@ -75,7 +100,7 @@ func TestPushFindingToJiraIsIdempotent(t *testing.T) {
 	}
 
 	// Re-push is idempotent: returns the existing link, does not create a second issue.
-	if code := postJSON(t, srv.URL+"/v1/findings/"+finding.ID+"/push", push, &link); code != http.StatusOK {
+	if code, _ := push(); code != http.StatusOK {
 		t.Fatalf("re-push = %d, want 200", code)
 	}
 	if created != 1 {

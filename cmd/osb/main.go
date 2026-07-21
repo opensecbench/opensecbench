@@ -258,7 +258,7 @@ func investigationCmd(ctx context.Context, c *client.Client, args []string) erro
 
 func integrationCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) < 2 {
-		return errors.New("usage: osb integration <list|set|pull> <project> [args]")
+		return errors.New("usage: osb integration <list|bind|pull> <project> [connector-id] [project-key]")
 	}
 	sub, projectID := args[0], args[1]
 	switch sub {
@@ -267,46 +267,41 @@ func integrationCmd(ctx context.Context, c *client.Client, args []string) error 
 		if err != nil {
 			return err
 		}
-		for _, cfg := range pi.Configs {
-			fmt.Printf("%-12s %-40s key=%s cred=%s\n", cfg.Integration, cfg.BaseURL, cfg.ProjectKey, cfg.Credential)
-		}
-		modes := make([]string, 0, len(pi.Connectors))
 		for _, conn := range pi.Connectors {
-			m := "push"
+			mode := "push"
 			if conn.Pullable {
-				m = "push+pull"
+				mode = "push+pull"
 			}
-			modes = append(modes, conn.Name+"("+m+")")
+			state := "—"
+			if conn.Bound {
+				state = "bound key=" + conn.ProjectKey
+			}
+			fmt.Printf("%-24s %-12s %-10s %-40s %s\n", conn.ID, conn.Type, mode, conn.BaseURL, state)
 		}
-		fmt.Printf("available: %s\n", strings.Join(modes, ", "))
 		return nil
-	case "set":
-		fs := flag.NewFlagSet("integration set", flag.ContinueOnError)
-		integration := fs.String("integration", "", "connector name (jira|defectdojo)")
-		baseURL := fs.String("base-url", "", "tracker base URL")
-		projectKey := fs.String("project-key", "", "tracker project key / test id")
-		credential := fs.String("credential", "", "vault secret name holding the API token")
-		if err := fs.Parse(args[2:]); err != nil {
-			return err
+	case "bind":
+		if len(args) < 3 {
+			return errors.New("usage: osb integration bind <project> <connector-id> [project-key]")
 		}
-		if *integration == "" || *baseURL == "" {
-			return errors.New("integration set: --integration and --base-url are required")
+		key := ""
+		if len(args) > 3 {
+			key = args[3]
 		}
-		cfg, err := c.SetIntegrationConfig(ctx, projectID, *integration, *baseURL, *projectKey, *credential)
+		b, err := c.SetBinding(ctx, projectID, args[2], key)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("configured %s for project %s\n", cfg.Integration, projectID)
+		fmt.Printf("bound connector %s to project %s (key=%s)\n", b.ConnectorID, projectID, b.ProjectKey)
 		return nil
 	case "pull":
 		if len(args) < 3 {
-			return errors.New("usage: osb integration pull <project> <integration>")
+			return errors.New("usage: osb integration pull <project> <connector-id>")
 		}
 		res, err := c.PullIntegration(ctx, projectID, args[2])
 		if err != nil {
 			return err
 		}
-		fmt.Printf("pulled %s: %d imported, %d already present (of %d)\n", args[2], res.Imported, res.Skipped, res.Total)
+		fmt.Printf("pulled: %d imported, %d already present (of %d)\n", res.Imported, res.Skipped, res.Total)
 		return nil
 	default:
 		return fmt.Errorf("unknown integration subcommand %q", sub)
