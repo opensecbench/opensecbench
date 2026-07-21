@@ -76,6 +76,17 @@ func claudeCodeUserAgent() string {
 	return "claude-cli/2.1.214 (external, cli)"
 }
 
+// claudeCodeBillingPrefix is the text of the first `system` block a real `claude -p` sends — Anthropic
+// uses it to attribute an OAuth (subscription) request to the Claude Code subscription. It's a fixed
+// billing marker, NOT the persona: the actual instructions follow as the next block. Override with
+// OSB_CLAUDE_SYSTEM_PREFIX to match a re-captured value if Anthropic changes the shape.
+func claudeCodeBillingPrefix() string {
+	if v := os.Getenv("OSB_CLAUDE_SYSTEM_PREFIX"); v != "" {
+		return v
+	}
+	return "You are Claude Code, Anthropic's official CLI for Claude."
+}
+
 // setAuth attaches Anthropic auth: a subscription OAuth Bearer token (read fresh from the credential file)
 // when configured, else the x-api-key. Always sets anthropic-version.
 func (a *AnthropicProvider) setAuth(req *http.Request) error {
@@ -145,7 +156,19 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 		}
 		payload["messages"] = msgs
 	}
-	if system != "" {
+	// On the subscription OAuth path, the `system` array must lead with the Claude Code billing block —
+	// how Anthropic attributes the call to the subscription. Its absence yields the opaque
+	// 429 rate_limit_error even at 0% utilization; with it, requests succeed even mid-throttle.
+	if a.CredentialFile != "" {
+		blocks := []map[string]any{{
+			"type": "text", "text": claudeCodeBillingPrefix(),
+			"cache_control": map[string]any{"type": "ephemeral"},
+		}}
+		if system != "" {
+			blocks = append(blocks, map[string]any{"type": "text", "text": system})
+		}
+		payload["system"] = blocks
+	} else if system != "" {
 		payload["system"] = system
 	}
 	body, err := json.Marshal(payload)

@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -290,3 +292,52 @@ func TestSubscriptionRequestShape(t *testing.T) {
 		t.Fatalf("api-key path headers wrong: x-api-key=%q auth=%q", kreq.Header.Get("x-api-key"), kreq.Header.Get("Authorization"))
 	}
 }
+
+func TestSubscriptionBillingBlockAndHeaders(t *testing.T) {
+	dir := t.TempDir()
+	cred := filepath.Join(dir, "c.json")
+	_ = os.WriteFile(cred, []byte(`{"claudeAiOauth":{"accessToken":"sk-ant-oat01-tok","expiresAt":`+strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)+`}}`), 0o600)
+
+	var gotBody []byte
+	var gotUA, gotAuth, gotApp string
+	a := &AnthropicProvider{
+		CredentialFile: cred, UseNativeTools: true,
+		HTTP: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			gotBody, _ = io.ReadAll(r.Body)
+			gotUA, gotAuth, gotApp = r.Header.Get("User-Agent"), r.Header.Get("Authorization"), r.Header.Get("x-app")
+			return jsonResp(`{"model":"claude-sonnet-5","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`), nil
+		})},
+	}
+	if _, err := a.Complete(context.Background(), CompletionRequest{Messages: []Message{
+		{Role: RoleSystem, Content: "You are the Analyst."},
+		{Role: RoleUser, Content: "hi"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Headers: Claude Code client shape.
+	if gotAuth != "Bearer sk-ant-oat01-tok" || gotApp != "cli" || !strings.HasPrefix(gotUA, "claude-cli/") {
+		t.Fatalf("headers wrong: ua=%q auth=%q app=%q", gotUA, gotAuth, gotApp)
+	}
+
+	// Body: system is an array whose FIRST block is the billing prefix, then the real persona.
+	var body struct {
+		System []struct {
+			Text string `json:"text"`
+		} `json:"system"`
+	}
+	if err := jsonUnmarshalStrict(gotBody, &body); err != nil {
+		t.Fatalf("decode body: %v — %s", err, gotBody)
+	}
+	if len(body.System) < 2 {
+		t.Fatalf("system should have billing block + persona, got %d: %s", len(body.System), gotBody)
+	}
+	if !strings.Contains(body.System[0].Text, "Claude Code") {
+		t.Fatalf("first system block is not the billing prefix: %q", body.System[0].Text)
+	}
+	if !strings.Contains(body.System[1].Text, "You are the Analyst") {
+		t.Fatalf("persona not preserved as the second block: %q", body.System[1].Text)
+	}
+}
+
+func jsonUnmarshalStrict(b []byte, v any) error { return json.Unmarshal(b, v) }
