@@ -124,8 +124,8 @@ func (svc *Service) SetProviderResolver(fn func(context.Context, string) (llm.Pr
 // ModelRoutingSetting is the settings key holding the tag → (provider, model) routing map (ADR-0021).
 const ModelRoutingSetting = "model_routing"
 
-// RoutingTags is the fixed routing vocabulary (ADR-0021). These drive model routing; users may also apply
-// their own tags as labels, but the runtime resolves on these.
+// RoutingTags is the built-in routing vocabulary (ADR-0021 / ADR-0052). These drive the built-in task
+// profiles; users may also define arbitrary custom tags, which resolve the same way.
 func RoutingTags() []string {
 	return []string{"default", "cheap", "fast", "reasoning", "long-context"}
 }
@@ -134,17 +134,62 @@ type modelRef struct {
 	ProviderID string `json:"provider_id"`
 	Model      string `json:"model"`
 }
+
+// modelRouting maps a tag to an ordered priority list of (connection, model) — index 0 is used first,
+// later entries are fall-through candidates (ADR-0052). "default" is a tag like any other.
 type modelRouting struct {
-	Default modelRef            `json:"default"`
-	Tags    map[string]modelRef `json:"tags"`
+	Tags map[string][]modelRef
 }
 
+// loadRouting reads the routing setting. Canonical shape (ADR-0052) is flat: {tag: [ordered refs]}. It
+// also accepts the legacy nested shape ({"default": ref, "tags": {tag: ref}}) so existing configs keep
+// working — detected by a "tags" key whose value is a JSON object.
 func (svc *Service) loadRouting(ctx context.Context) modelRouting {
-	var r modelRouting
-	if raw, err := svc.g().GetSetting(ctx, ModelRoutingSetting); err == nil && raw != "" {
-		_ = json.Unmarshal([]byte(raw), &r)
+	out := modelRouting{Tags: map[string][]modelRef{}}
+	raw, err := svc.g().GetSetting(ctx, ModelRoutingSetting)
+	if err != nil || raw == "" {
+		return out
 	}
-	return r
+	var top map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &top) != nil {
+		return out
+	}
+	asList := func(m json.RawMessage) []modelRef {
+		if len(m) == 0 || string(m) == "null" {
+			return nil
+		}
+		var list []modelRef
+		if json.Unmarshal(m, &list) == nil {
+			return list // ordered-list shape
+		}
+		var one modelRef
+		if json.Unmarshal(m, &one) == nil && one.ProviderID != "" {
+			return []modelRef{one} // legacy single ref → 1-item list
+		}
+		return nil
+	}
+	// Legacy nested shape: a "tags" key holding an object of per-tag refs.
+	if tagsRaw, ok := top["tags"]; ok {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(tagsRaw, &nested) == nil {
+			if l := asList(top["default"]); len(l) > 0 {
+				out.Tags["default"] = l
+			}
+			for tag, m := range nested {
+				if l := asList(m); len(l) > 0 {
+					out.Tags[tag] = l
+				}
+			}
+			return out
+		}
+	}
+	// Canonical flat shape: every key is a tag.
+	for tag, m := range top {
+		if l := asList(m); len(l) > 0 {
+			out.Tags[tag] = l
+		}
+	}
+	return out
 }
 
 // runTarget is the provider a task runs on plus how to attribute its token usage. ProviderName/AttrModel
@@ -157,33 +202,56 @@ type runTarget struct {
 	AttrModel    string // model recorded for usage; "" = active provider's default
 }
 
-// targetForTag resolves the run target for a task with the given tag: the tag's mapping, else the routing
-// default, else the active provider (ADR-0021). Cross-provider capable. When routing resolves a distinct
-// provider it also captures that provider's type + model for accurate per-task usage attribution.
+// targetForTag resolves the run target for a task with the given tag (ADR-0052): the first resolvable
+// entry in the tag's ordered list, falling to the "default" list, then to the active provider. Later
+// entries in a list are fall-through candidates — used here only when an earlier one can't be built
+// (unknown provider / vault failure); fall-through on a failed *call* is layered on separately. When
+// routing resolves a distinct provider it captures that provider's type + model for usage attribution.
 func (svc *Service) targetForTag(ctx context.Context, tag string) runTarget {
-	if tag == "" || svc.resolver == nil {
+	if svc.resolver == nil {
 		return runTarget{Provider: svc.provider}
 	}
 	r := svc.loadRouting(ctx)
-	ref, ok := r.Tags[tag]
-	if !ok || ref.ProviderID == "" {
-		ref = r.Default
+	list := r.Tags[tag]
+	if len(list) == 0 && tag != "default" {
+		list = r.Tags["default"] // an unset or empty tag inherits the default list
 	}
-	if ref.ProviderID == "" {
-		return runTarget{Provider: svc.provider}
+	for _, ref := range list {
+		if ref.ProviderID == "" {
+			continue
+		}
+		p, err := svc.resolver(ctx, ref.ProviderID)
+		if err != nil || p == nil {
+			continue // unresolvable connection — try the next in priority order
+		}
+		t := runTarget{Provider: p, SessionModel: ref.Model, AttrModel: ref.Model}
+		if reg, err := svc.g().GetProvider(ctx, ref.ProviderID); err == nil {
+			t.ProviderName = reg.Type
+			if t.AttrModel == "" {
+				t.AttrModel = reg.Model // no routed model → the connection's configured default
+			}
+		}
+		return t
 	}
-	p, err := svc.resolver(ctx, ref.ProviderID)
-	if err != nil || p == nil {
-		return runTarget{Provider: svc.provider}
-	}
-	t := runTarget{Provider: p, SessionModel: ref.Model, AttrModel: ref.Model}
-	if reg, err := svc.g().GetProvider(ctx, ref.ProviderID); err == nil {
-		t.ProviderName = reg.Type
-		if t.AttrModel == "" {
-			t.AttrModel = reg.Model // no routed model → the provider's configured default
+	return runTarget{Provider: svc.provider}
+}
+
+// RoutingEntry is one (connection, model) in a tag's ordered priority list — the API/UI boundary type.
+type RoutingEntry struct {
+	ProviderID string `json:"provider_id"`
+	Model      string `json:"model"`
+}
+
+// Routing returns the normalized tag → ordered-list routing map (ADR-0052), reading through the legacy
+// single-ref shape so the UI always sees ordered lists.
+func (svc *Service) Routing(ctx context.Context) map[string][]RoutingEntry {
+	out := map[string][]RoutingEntry{}
+	for tag, list := range svc.loadRouting(ctx).Tags {
+		for _, ref := range list {
+			out[tag] = append(out[tag], RoutingEntry{ProviderID: ref.ProviderID, Model: ref.Model})
 		}
 	}
-	return t
+	return out
 }
 
 // providerModelForTag resolves the provider + session model for a tag (ADR-0021). Retained for callers

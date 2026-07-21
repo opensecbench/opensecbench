@@ -57,6 +57,50 @@ func TestProviderModelForTag(t *testing.T) {
 	}
 }
 
+// The ordered-list shape (ADR-0052): a tag holds a priority list; the first resolvable entry wins, so an
+// unresolvable top entry falls through to the next.
+func TestRoutingOrderedListFallThrough(t *testing.T) {
+	ctx := context.Background()
+	db := migratedStore(t)
+	active := &llm.MockProvider{}
+	sub := &llm.MockProvider{}  // "subscription" (top choice)
+	gw := &llm.MockProvider{}   // "gateway" fallback
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", active)
+	svc.SetProviderResolver(func(_ context.Context, id string) (llm.Provider, error) {
+		switch id {
+		case "cli":
+			return sub, nil
+		case "bedrock":
+			return gw, nil
+		}
+		return nil, errors.New("unknown provider")
+	})
+
+	// Priority: subscription first, gateway second.
+	if err := db.SetSetting(ctx, ModelRoutingSetting,
+		`{"default":[{"provider_id":"cli","model":"claude-sonnet-5"},{"provider_id":"bedrock","model":"anthropic.claude-sonnet-4-5-v1:0"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	if p, m := svc.providerModelForTag(ctx, "default"); p != sub || m != "claude-sonnet-5" {
+		t.Fatalf("top of the list should win, got %v/%q", p, m)
+	}
+
+	// Top entry unresolvable → falls through to the next in priority order.
+	if err := db.SetSetting(ctx, ModelRoutingSetting,
+		`{"default":[{"provider_id":"gone","model":"x"},{"provider_id":"bedrock","model":"anthropic.claude-sonnet-4-5-v1:0"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	if p, m := svc.providerModelForTag(ctx, "default"); p != gw || m != "anthropic.claude-sonnet-4-5-v1:0" {
+		t.Fatalf("unresolvable top should fall through to gateway, got %v/%q", p, m)
+	}
+
+	// The Routing() view normalizes to ordered lists for the UI.
+	view := svc.Routing(ctx)
+	if len(view["default"]) != 2 || view["default"][1].ProviderID != "bedrock" {
+		t.Fatalf("Routing() view wrong: %+v", view["default"])
+	}
+}
+
 // The interactive chat runs on the generalist profile; it must carry a routing tag so the routing
 // "default" row applies, instead of silently using the active provider's default model.
 func TestGeneralistHonorsRoutingDefault(t *testing.T) {
