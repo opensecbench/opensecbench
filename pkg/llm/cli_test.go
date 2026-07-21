@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -249,5 +250,43 @@ func TestCLIProviderSurfacesError(t *testing.T) {
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}); err == nil || !strings.Contains(err.Error(), "quota exceeded") {
 		t.Fatalf("expected the CLI error to surface, got %v", err)
+	}
+}
+
+func TestSubscriptionRequestShape(t *testing.T) {
+	dir := t.TempDir()
+	cred := filepath.Join(dir, "c.json")
+	_ = os.WriteFile(cred, []byte(`{"claudeAiOauth":{"accessToken":"sk-ant-oat01-tok","expiresAt":`+strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)+`}}`), 0o600)
+
+	// Subscription (OAuth) path: Claude Code client shape — Bearer + oauth beta + CLI User-Agent + x-app.
+	a := &AnthropicProvider{CredentialFile: cred}
+	req, _ := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
+	if err := a.setAuth(req); err != nil {
+		t.Fatal(err)
+	}
+	if req.Header.Get("Authorization") != "Bearer sk-ant-oat01-tok" {
+		t.Fatalf("authorization = %q", req.Header.Get("Authorization"))
+	}
+	if req.Header.Get("anthropic-beta") != "oauth-2025-04-20" {
+		t.Fatalf("oauth beta missing: %q", req.Header.Get("anthropic-beta"))
+	}
+	if !strings.HasPrefix(req.Header.Get("User-Agent"), "claude-cli/") || !strings.Contains(req.Header.Get("User-Agent"), "(external, cli)") {
+		t.Fatalf("user-agent not the Claude Code shape: %q", req.Header.Get("User-Agent"))
+	}
+	if req.Header.Get("x-app") != "cli" {
+		t.Fatalf("x-app = %q", req.Header.Get("x-app"))
+	}
+	if req.Header.Get("x-api-key") != "" {
+		t.Fatal("OAuth path must not send x-api-key")
+	}
+
+	// API-key path: x-api-key, no Bearer, no CLI user-agent.
+	k := &AnthropicProvider{APIKey: "sk-ant-api03-key"}
+	kreq, _ := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
+	if err := k.setAuth(kreq); err != nil {
+		t.Fatal(err)
+	}
+	if kreq.Header.Get("x-api-key") != "sk-ant-api03-key" || kreq.Header.Get("Authorization") != "" {
+		t.Fatalf("api-key path headers wrong: x-api-key=%q auth=%q", kreq.Header.Get("x-api-key"), kreq.Header.Get("Authorization"))
 	}
 }
