@@ -71,7 +71,7 @@ func TestAnthropicProvider(t *testing.T) {
 func TestConfigSelectsProvider(t *testing.T) {
 	cases := map[string]string{
 		"mock":       "mock",
-		"claude-cli": "cli:claude",
+		"claude-cli": "claude-subscription", // now a native Anthropic provider on the subscription OAuth token
 		"ollama":     "ollama",
 		"deepseek":   "deepseek",
 		"grok":       "grok",
