@@ -1293,6 +1293,31 @@ select option {
   width: 100%;
   text-align: center;
 }
+.wb-ic-top { margin-bottom: 4px; }
+
+/* Overview start page (per-project) */
+.wb-ov { padding: 24px 28px; max-width: 760px; overflow-y: auto; height: 100%; }
+.wb-ov-crumbs { font-size: 11.5px; color: var(--tx3); margin-bottom: 3px; }
+.wb-ov-h { font-size: 18px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.wb-ov-lede { color: var(--tx2); font-size: 12.5px; margin: 0 0 20px; max-width: 62ch; line-height: 1.5; }
+.wb-ov-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+.wb-ov-stat { background: var(--bg2); border: 1px solid var(--line); border-radius: 9px; padding: 11px 15px; min-width: 96px; }
+.wb-ov-stat .v { font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.wb-ov-stat .v.good { color: var(--green); } .wb-ov-stat .v.warn { color: var(--amber); } .wb-ov-stat .v.crit { color: var(--red); }
+.wb-ov-stat .k { font-size: 10.5px; color: var(--tx3); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 1px; }
+.wb-ov-starth { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tx3); margin: 2px 0 9px; }
+.wb-ov-steps { display: flex; flex-direction: column; gap: 8px; }
+.wb-ov-step { display: flex; align-items: center; gap: 12px; background: var(--bg2); border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; }
+.wb-ov-step .mark { width: 23px; height: 23px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; flex: none; border: 1px solid var(--line2); color: var(--tx3); font-weight: 700; }
+.wb-ov-step.done .mark { background: color-mix(in srgb, var(--green) 20%, transparent); color: var(--green); border-color: transparent; }
+.wb-ov-step.now .mark { background: color-mix(in srgb, var(--acc) 22%, transparent); color: var(--acc); border-color: transparent; }
+.wb-ov-step .body { flex: 1; min-width: 0; }
+.wb-ov-step .body .t { font-weight: 600; font-size: 13px; color: var(--tx2); }
+.wb-ov-step.now .body .t { color: var(--tx); }
+.wb-ov-step .body .d { font-size: 11.5px; color: var(--tx3); margin-top: 1px; }
+.wb-ov-step .go { font-size: 11.5px; color: var(--acc); border: 1px solid color-mix(in srgb, var(--acc) 40%, var(--line)); border-radius: 6px; padding: 5px 12px; background: transparent; cursor: pointer; flex: none; }
+.wb-ov-step .go:hover { background: color-mix(in srgb, var(--acc) 12%, transparent); }
+.wb-ov-step.done .go { color: var(--tx3); border-color: var(--line); }
 .wb-ic {
   width: 48px;
   min-height: 37px;

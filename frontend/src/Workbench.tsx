@@ -35,6 +35,7 @@ import { KnowledgeTab } from './KnowledgeTab'
 import { InterceptTab } from './InterceptTab'
 import { MethodologyTab } from './MethodologyTab'
 import { OrchestrateTab } from './OrchestrateTab'
+import { OverviewTab } from './Overview'
 import { ProxyTab } from './ProxyTab'
 import { TasksTab } from './TasksTab'
 import { hasNativePickers, pickDirectory } from './native'
@@ -45,6 +46,7 @@ const TerminalTab = lazy(() => import('./TerminalTab').then((m) => ({ default: m
 const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })))
 
 type Tab =
+  | 'overview'
   | 'assets'
   | 'methodology'
   | 'knowledge'
@@ -77,6 +79,7 @@ interface AppAssets {
 // The activity bar surfaces (ADR-0015). The Analyst is not here — it is the
 // right-hand dock, always present, never a surface you navigate to.
 const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
+  { key: 'overview', icon: '◆', label: 'Overview' },
   { key: 'assets', icon: '🗂', label: 'Assets' },
   { key: 'context', icon: '🔬', label: 'Context' },
   { key: 'knowledge', icon: '📚', label: 'Know' },
@@ -121,6 +124,7 @@ const surfaceByKey = (k: Tab) => SURFACES.find((s) => s.key === k)!
 const MULTI_DOC_SURFACES: Tab[] = ['replay', 'code']
 
 function surfaceTitle(t: Tab): string {
+  if (t === 'overview') return 'Overview'
   if (t === 'assets') return 'Applications & Assets'
   if (t === 'scan') return 'Scan'
   if (t === 'orchestrate') return 'Agent Playbooks'
@@ -566,9 +570,9 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   // Open documents are kept mounted so their state survives navigation (ADR-0015
   // Phase 3): switching surfaces hides the inactive ones, it never tears them down.
   const [openDocs, setOpenDocs] = useState<Doc[]>([
-    { key: 'methodology', surface: 'methodology', title: surfaceTitle('methodology') }, // land on the coverage home
+    { key: 'overview', surface: 'overview', title: surfaceTitle('overview') }, // land on the start page
   ])
-  const [activeKey, setActiveKey] = useState<string | null>('methodology')
+  const [activeKey, setActiveKey] = useState<string | null>('overview')
   const [apps, setApps] = useState<AppAssets[]>([])
   const [capabilities, setCapabilities] = useState<CapabilityManifest[]>([])
   const [context, setContext] = useState<ContextItem[]>([])
@@ -718,6 +722,17 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   // toggles visibility. Adding a surface here makes it an openable document.
   function renderSurface(doc: Doc) {
     switch (doc.surface) {
+      case 'overview':
+        return (
+          <OverviewTab
+            project={project}
+            assets={allAssets.length}
+            findings={findings}
+            coverage={coverage}
+            engagement={engagement}
+            onJump={(t) => activateSurface(t as Tab)}
+          />
+        )
       case 'assets':
         return <AssetsTab project={project} apps={apps} online={online} reload={loadApps} onError={setError} />
       case 'methodology':
@@ -805,6 +820,10 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
 
       <div className="wb-body">
         <nav className="wb-activity">
+          <button className={`wb-ic wb-ic-top ${activeSurface === 'overview' ? 'on' : ''}`} title="Overview — where the assessment stands" onClick={() => activateSurface('overview')}>
+            <span>◆</span>
+            <small>Overview</small>
+          </button>
           {SURFACE_GROUPS.map((g) => (
             <div key={g.label} className="wb-actgrp">
               <div className="wb-actgrp-h">{g.label}</div>
