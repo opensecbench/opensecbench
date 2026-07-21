@@ -109,7 +109,7 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 		Provider:     tgt.Provider,
 		Model:        tgt.SessionModel,
 		Tools:        profile.ToolSet(),
-		SystemPrompt: profile.SystemPrompt(),
+		SystemPrompt: svc.systemPromptFor(ctx, projectID, profile.SystemPrompt(), tgt.Provider),
 		Approve:      Approver(authorize),
 		Execute:      svc.executeFor(projectID, tgt.Provider),
 		Audit:        svc.Audit,

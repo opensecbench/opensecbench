@@ -40,13 +40,15 @@ export function App() {
     if (conn !== 'online') return
     let theme = 'dark'
     let accent = ''
+    let textSize = '1'
     void loadTheme().then((t) => {
       theme = t.theme
       accent = t.accent
-      applyTheme(theme, accent)
+      textSize = t.textSize
+      applyTheme(theme, accent, textSize)
     })
     const mq = window.matchMedia('(prefers-color-scheme: light)')
-    const onChange = () => theme === 'system' && applyTheme('system', accent)
+    const onChange = () => theme === 'system' && applyTheme('system', accent, textSize)
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [conn])

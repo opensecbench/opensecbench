@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 )
@@ -71,17 +72,23 @@ func listContext(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 		return "", err
 	}
 	typ := stringArg(call, "type")
+	tag := strings.ToLower(strings.TrimSpace(stringArg(call, "tag")))
 	type row struct {
-		ID   string `json:"id"`
-		Type string `json:"type"`
-		Name string `json:"name"`
+		ID     string   `json:"id"`
+		Type   string   `json:"type"`
+		Name   string   `json:"name"`
+		Tags   []string `json:"tags,omitempty"`
+		Pinned bool     `json:"pinned,omitempty"`
 	}
 	out := make([]row, 0, len(items))
 	for _, it := range items {
 		if typ != "" && it.Type != typ {
 			continue
 		}
-		out = append(out, row{ID: it.ID, Type: it.Type, Name: it.Name})
+		if tag != "" && !containsFold(it.Tags, tag) {
+			continue
+		}
+		out = append(out, row{ID: it.ID, Type: it.Type, Name: it.Name, Tags: it.Tags, Pinned: it.Pinned})
 	}
 	return jsonify(out, nil)
 }
@@ -132,17 +139,17 @@ func readContext(ctx context.Context, deps ExecDeps, call agent.ToolCall) (strin
 				extractTruncated = true
 			}
 			return jsonify(map[string]any{
-				"name": ci.Name, "type": ci.Type, "media_type": art.MediaType,
+				"name": ci.Name, "type": ci.Type, "tags": ci.Tags, "pinned": ci.Pinned, "media_type": art.MediaType,
 				"content": text, "extracted": true, "truncated": truncated || extractTruncated,
 			}, nil)
 		}
 		return jsonify(map[string]any{
-			"name": ci.Name, "type": ci.Type, "media_type": art.MediaType, "bytes": art.Size,
+			"name": ci.Name, "type": ci.Type, "tags": ci.Tags, "pinned": ci.Pinned, "media_type": art.MediaType, "bytes": art.Size,
 			"note": "binary document; no text extractor for this format — attach a text export instead",
 		}, nil)
 	}
 	return jsonify(map[string]any{
-		"name": ci.Name, "type": ci.Type, "media_type": art.MediaType,
+		"name": ci.Name, "type": ci.Type, "tags": ci.Tags, "pinned": ci.Pinned, "media_type": art.MediaType,
 		"content": string(data), "truncated": truncated,
 	}, nil)
 }

@@ -6,8 +6,8 @@
   --line: #242c3a;
   --line2: #2f3a4d;
   --tx: #c7d0de;
-  --tx2: #8792a5;
-  --tx3: #5c6675;
+  --tx2: #929db1;
+  --tx3: #6d7789;
   --acc: #4aa8ff;
   --acc2: #7c5cff;
   --green: #46c07a;
@@ -37,7 +37,7 @@ body {
   background: var(--bg);
   color: var(--tx);
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -1343,7 +1343,7 @@ select option {
 .ovr-sevs { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
 .ovr-sev { font-size: 11px; font-weight: 800; color: #fff; border-radius: 10px; padding: 2px 9px; }
 .ovr-none { font-size: 12px; color: var(--tx3); }
-.ovr-big { font-size: 26px; font-weight: 800; color: var(--tx1); line-height: 1.1; margin-bottom: 6px; }
+.ovr-big { font-size: 26px; font-weight: 800; color: var(--tx); line-height: 1.1; margin-bottom: 6px; }
 .ovr-unit { font-size: 13px; font-weight: 500; color: var(--tx3); }
 .ovr-sub { font-size: 12px; color: var(--tx3); }
 .ovr-sub b.crit { color: var(--red); }
@@ -1919,7 +1919,7 @@ select option {
 .proxy-table th:last-child { width: 44px; }
 .proxy-table thead tr.sortable th { cursor: pointer; user-select: none; }
 .proxy-table thead tr.sortable th:hover { color: var(--tx2); }
-.proxy-table thead tr.sortable th.on { color: var(--tx1); }
+.proxy-table thead tr.sortable th.on { color: var(--tx); }
 .proxy-table .sort-arrow { font-size: 8px; }
 .proxy-table td.num { color: var(--tx3); font-variant-numeric: tabular-nums; }
 .proxy-table td { padding: 5px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
@@ -2093,6 +2093,35 @@ select option {
 .rf-unreach { font-size: 10.5px; color: var(--tx3); }
 .rf-src { font-size: 10px; color: var(--tx3); font-family: var(--mono, monospace); }
 
+/* Attack surface — route detail pane (workbench split): the selected route's inspector. */
+.routes-detail { max-width: 1000px; }
+.route-detail-head { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.route-detail-path { font-size: 18px; color: var(--tx); word-break: break-all; }
+.route-detail-meta { display: flex; flex-direction: column; gap: 7px; margin-bottom: 22px; }
+.rdm-row { display: flex; gap: 12px; font-size: 13px; }
+.rdm-k { min-width: 76px; color: var(--tx3); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.06em; font-weight: 700; padding-top: 2px; }
+.rdm-v { color: var(--tx2); }
+.route-detail-h { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx3); font-weight: 700; margin: 0 0 8px; }
+.route-findings.detail { border-top: none; padding: 0; }
+.route-findings.detail .route-finding { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; background: var(--bg3); }
+.empty.small { padding: 14px; font-size: 12.5px; }
+
+/* --- Context notes + tags composer (ADR-0015) --- */
+.ctx-compose { display: flex; flex-direction: column; gap: 8px; padding: 10px 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.ctx-note-title, .ctx-tags { padding: 6px 9px; font-size: 13px; background: var(--bg3); border: 1px solid var(--line2); border-radius: 6px; color: var(--tx); }
+.ctx-note-body { padding: 7px 9px; font-size: 13px; background: var(--bg3); border: 1px solid var(--line2); border-radius: 6px; color: var(--tx); resize: vertical; font-family: inherit; line-height: 1.45; }
+.ctx-note-title:focus, .ctx-note-body:focus, .ctx-tags:focus { outline: none; border-color: var(--acc); }
+.ctx-tag-suggest { display: flex; flex-wrap: wrap; gap: 5px; }
+.ctx-tag-chip { font-size: 11px; padding: 2px 8px; border-radius: 11px; border: 1px dashed var(--line2); background: transparent; color: var(--tx3); cursor: pointer; }
+.ctx-tag-chip:hover { border-color: var(--acc); color: var(--tx2); }
+.ctx-tag-chip.behavioral { border-style: solid; border-color: color-mix(in srgb, var(--amber) 45%, var(--line2)); color: var(--amber); }
+.ctx-pin { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tx2); cursor: pointer; user-select: none; }
+.ctx-compose-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ctx-or { font-size: 11.5px; color: var(--tx3); }
+.ctx-pinned { font-size: 12px; }
+.ctx-tag { font-size: 10.5px; padding: 1px 7px; border-radius: 9px; background: var(--bg4); color: var(--tx3); border: 1px solid var(--line2); }
+.ctx-tag.behavioral { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, var(--line2)); }
+
 /* --- Asset ecosystem tags --- */
 .asset-eco { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-top: 6px; padding-left: 2px; }
 .ae-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx3); font-weight: 700; margin-right: 2px; }
@@ -2142,7 +2171,22 @@ select option {
 .ps-activity { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
 .ps-activity > summary { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tx3); font-weight: 700; user-select: none; }
 .ps-activity-n { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--tx3); margin-left: 4px; }
-.ps-activity-log { margin: 8px 0 2px; font-family: var(--mono, monospace); font-size: 11.5px; line-height: 1.55; color: var(--tx3); white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto; background: var(--bg4); border-radius: 6px; padding: 8px 10px; }
+.ps-activity-log { margin: 8px 0 2px; max-height: 360px; overflow-y: auto; background: var(--bg4); border-radius: 6px; padding: 4px 2px; }
+/* One turn of the trail: the agent's commentary reads as prose; the tool call sits under it, quiet. */
+.act-entry { padding: 6px 10px; border-radius: 6px; }
+.act-entry + .act-entry { border-top: 1px solid var(--line); }
+.act-note { font-size: 12.5px; line-height: 1.5; color: var(--tx); white-space: pre-wrap; word-break: break-word; margin-bottom: 4px; }
+.act-tool { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--tx3); }
+.act-glyph { font-family: var(--mono, monospace); color: var(--tx3); }
+.k-err .act-glyph { color: var(--red); }
+.act-toolname { font-family: var(--mono, monospace); font-size: 11px; color: var(--tx2); background: var(--bg3); border-radius: 4px; padding: 1px 6px; }
+.act-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--amber, var(--tx3)); }
+.act-toggle { margin-left: auto; background: none; border: none; cursor: pointer; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--tx3); padding: 2px 4px; border-radius: 4px; }
+.act-toggle:hover { color: var(--tx); background: var(--bg3); }
+.act-detail { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.act-code { margin: 0; font-family: var(--mono, monospace); font-size: 11px; line-height: 1.5; color: var(--tx3); white-space: pre-wrap; word-break: break-word; background: var(--bg3); border-radius: 5px; padding: 6px 8px; }
+.act-lbl { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx3); opacity: 0.7; margin-bottom: 3px; }
+.act-raw { font-family: var(--mono, monospace); font-size: 11.5px; line-height: 1.55; color: var(--tx3); white-space: pre-wrap; word-break: break-word; }
 .ps-result { margin-top: 8px; font-size: 12.5px; color: var(--tx2); line-height: 1.5; white-space: pre-wrap; border-top: 1px solid var(--line); padding-top: 8px; }
 .ps-error { margin-top: 8px; font-size: 12px; color: var(--red); }
 
@@ -2228,7 +2272,7 @@ select option {
   --line2: #c4ccd6;
   --tx: #1a1f28;
   --tx2: #47515f;
-  --tx3: #79828f;
+  --tx3: #6a7280;
   --green: #1a8a4e;
   --green-bg: #dcefe2;
   --amber: #a8710f;
@@ -2403,6 +2447,25 @@ select option {
 .loc-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .row-item.col { flex-direction: column; align-items: stretch; }
 .row-item.col .row-main { display: flex; align-items: center; gap: 9px; }
+/* A finding's main line opens its detail page; the ↦ location chips below stay independent file jumps. */
+.row-main.clickable { cursor: pointer; border-radius: 6px; margin: -2px -4px; padding: 2px 4px; }
+.row-main.clickable:hover { background: var(--bg3); }
+.row-main.clickable:focus-visible { outline: 1px solid var(--acc); outline-offset: 1px; }
+
+/* Finding detail — the info page opened from a finding row (ADR-0050 sibling of the code viewer). */
+.fd { padding: 20px 22px; max-width: 900px; }
+.fd-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 16px; }
+.fd-titlerow { display: flex; align-items: center; gap: 10px; }
+.fd-title { font-size: 17px; font-weight: 600; margin: 0; color: var(--tx); }
+.fd-meta { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; margin-top: 8px; }
+.fd-desc { font-size: 13.5px; line-height: 1.6; color: var(--tx2); margin: 0 0 20px; white-space: pre-wrap; }
+.fd-section { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx3); margin: 0 0 10px; }
+.fd-obs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.fd-ob { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.fd-ob-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.fd-ob-detail { font-size: 12.5px; line-height: 1.55; color: var(--tx2); margin-top: 8px; white-space: pre-wrap; }
+.fd-signals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.fd-signal { font-size: 11px; color: var(--tx3); background: var(--bg3); border: 1px solid var(--line2); border-radius: 10px; padding: 1px 8px; }
 
 /* Deep-link flash: briefly highlight a row scrolled to from omni-search (ADR-0050) */
 @keyframes row-flash {
@@ -2421,6 +2484,25 @@ select option {
 .wb-exp-row.file .dot.sev-critical, .wb-exp-row.file .dot.sev-high { background: var(--red); }
 .wb-exp-row.file .dot.sev-medium { background: var(--amber); }
 .wb-exp-row.file .dot.sev-low, .wb-exp-row.file .dot.sev-info { background: var(--acc); }
+
+/* Routes Explorer — the attack-surface selector: search + filter + ranked list, feeding the center detail. */
+.wb-routes-exp { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.wb-exp-search { margin: 8px 10px 6px; padding: 5px 9px; font-size: 12px; background: var(--bg3); border: 1px solid var(--line2); border-radius: 6px; color: var(--tx); }
+.wb-exp-search:focus { outline: none; border-color: var(--acc); }
+.wb-exp-chips { display: flex; gap: 6px; padding: 0 10px 8px; border-bottom: 1px solid var(--line); }
+.wb-exp-chips .chip { border: 1px solid var(--line2); background: var(--bg3); color: var(--tx3); border-radius: 12px; padding: 2px 9px; font-size: 11px; cursor: pointer; }
+.wb-exp-chips .chip.on { background: var(--bg4); color: var(--tx2); border-color: var(--acc); }
+.wb-routes-list { flex: 1; overflow: auto; padding: 4px 0; }
+.wb-route-row { display: flex; align-items: center; gap: 7px; padding: 5px 10px; cursor: pointer; border-left: 2px solid transparent; }
+.wb-route-row:hover { background: var(--bg3); }
+.wb-route-row.sel { background: var(--bg4); border-left-color: var(--acc); }
+.wb-route-row.risk .wb-route-path { color: #fca5a5; }
+.wb-route-row .route-method { min-width: 38px; font-size: 9.5px; padding: 1px 4px; }
+.wb-route-path { font-size: 11.5px; color: var(--tx2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-route-live { font-size: 10px; color: #46c07a; font-weight: 700; flex: none; }
+.wb-route-pip { font-size: 10px; font-weight: 800; color: var(--tx2); background: var(--bg2); border: 1px solid var(--line2); border-radius: 9px; padding: 0 6px; min-width: 16px; text-align: center; flex: none; }
+.wb-route-pip.risk { color: #fff; background: var(--red); border-color: var(--red); }
+.wb-routes-foot { padding: 7px 10px; font-size: 10.5px; color: var(--tx3); border-top: 1px solid var(--line); }
 
 /* The code document */
 .cv { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -2580,3 +2662,68 @@ select.em-in { cursor: pointer; }
 .es-note { margin-left: 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--acc); }
 .es-actions { display: flex; align-items: center; gap: 12px; justify-content: flex-end; max-width: 760px; margin: 4px 0 30px; }
 .es-saved { color: var(--green); font-size: 13px; }
+
+/* Right-click context menu (ContextMenu.tsx) — floating, viewport-clamped, theme-aware. */
+.ctx-menu {
+  position: fixed; z-index: 200; min-width: 180px; padding: 4px;
+  background: var(--bg3); border: 1px solid var(--line2); border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); font-family: var(--sans);
+  animation: ctx-in 90ms ease-out;
+}
+@keyframes ctx-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.ctx-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 6px 10px; border: 0; border-radius: 5px; background: transparent;
+  color: var(--tx); font-size: 12.5px; text-align: left; cursor: pointer;
+}
+.ctx-item:hover:not(:disabled) { background: var(--acc); color: #fff; }
+.ctx-item:disabled { color: var(--tx3); cursor: default; }
+.ctx-ico { width: 15px; text-align: center; flex: 0 0 auto; opacity: 0.9; }
+.ctx-lbl { flex: 1 1 auto; }
+
+/* ===== Activity feed (unified run history) ===== */
+.act-filters { display: flex; gap: 4px; padding: 2px 2px 8px; flex-wrap: wrap; }
+.act-filter { border: 1px solid var(--line); background: transparent; color: var(--tx2); border-radius: 999px; padding: 2px 10px; font-size: 11px; cursor: pointer; }
+.act-filter:hover { background: var(--bg3); }
+.act-filter.on { background: var(--bg4); color: var(--tx); border-color: var(--line2); font-weight: 600; }
+.act-row .tr-cap { flex: 0 1 auto; }
+.act-row .grow { flex: 1 1 auto; }
+.act-kind { flex: 0 0 auto; width: 18px; text-align: center; font-size: 13px; opacity: 0.95; }
+.act-kind.k-thread { color: var(--acc2); }
+.act-kind.k-plan { color: var(--amber); }
+.act-kind.k-playbook { color: var(--acc); }
+.act-proj { color: var(--tx3); font-size: 10.5px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* thread transcript */
+.act-transcript { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; max-height: 560px; overflow: auto; }
+.act-msg { font-size: 12.5px; line-height: 1.5; border-radius: 8px; padding: 8px 11px; }
+.act-msg.user { background: var(--bg3); }
+.act-msg.analyst { background: var(--bg4); }
+.act-msg.propose, .act-msg.tool { background: var(--bg3); border: 1px solid var(--line); font-size: 11.5px; }
+.act-msg.tool.error { border-color: #4a2226; }
+.act-msg > b { color: var(--tx2); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.act-msg-body { margin-top: 3px; color: var(--tx); white-space: pre-wrap; word-break: break-word; }
+.act-msg summary { cursor: pointer; color: var(--tx2); user-select: none; }
+.act-msg summary b { color: var(--tx); }
+.act-toolout { margin: 8px 0 2px; padding: 8px 10px; background: var(--bg); border-radius: 6px; font-family: var(--mono); font-size: 11px; color: var(--tx2); max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+
+/* plan steps */
+.act-steps { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; }
+.act-step { border: 1px solid var(--line); border-radius: 8px; background: var(--bg2); padding: 8px 11px; }
+.act-step summary { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 12px; }
+.act-step-key { color: var(--tx); font-weight: 600; }
+.act-step-instr { margin-top: 7px; font-size: 12px; color: var(--tx2); line-height: 1.5; }
+
+/* playbook children */
+.act-child { width: 100%; background: transparent; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; text-align: left; }
+.act-child:hover { background: var(--bg3); }
+
+/* extra status badge colors used across kinds — scoped to the Activity layout so the global
+   project-status .badge.active (green) is unaffected elsewhere. */
+.tasks-layout .badge.active,
+.tasks-layout .badge.awaiting_approval,
+.tasks-layout .badge.waiting,
+.tasks-layout .badge.pending { background: #2a2114; color: var(--amber); }
+.tasks-layout .badge.done { background: var(--green-bg); color: var(--green); }
+.tasks-layout .badge.error,
+.tasks-layout .badge.cancelled { background: var(--red-bg); color: var(--red); }

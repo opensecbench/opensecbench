@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, CertSummary, HTTPExchange, ProxyRule, ProxyStatus, Project, RunnerView } from './api'
 import { actionsFor, type ActionContext } from './exchangeActions'
+import { ContextMenu, useContextMenu } from './ContextMenu'
 import { hasNativeBrowserLaunch, openProxyBrowser } from './native'
 
 const METHODS = ['', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
@@ -70,6 +71,7 @@ export function ProxyTab({
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<HTTPExchange | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const rowMenu = useContextMenu<HTTPExchange>()
   const [rules, setRules] = useState<ProxyRule[]>([])
   const [showRules, setShowRules] = useState(false)
   const [ruleTarget, setRuleTarget] = useState('response_body')
@@ -366,7 +368,12 @@ export function ProxyTab({
               </thead>
               <tbody>
                 {sorted.map(({ e, ord }) => (
-                  <tr key={e.id} className={`${selected?.id === e.id ? 'sel' : ''} ${e.in_scope === false ? 'oos' : ''}`} onClick={() => setSelected(e)}>
+                  <tr
+                    key={e.id}
+                    className={`${selected?.id === e.id ? 'sel' : ''} ${e.in_scope === false ? 'oos' : ''}`}
+                    onClick={() => setSelected(e)}
+                    onContextMenu={(ev) => { setSelected(e); rowMenu.open(ev, e) }}
+                  >
                     <td className="muted num">{ord}</td>
                     <td><span className={`badge ${statusClass(e.status)}`}>{e.status ?? '—'}</span></td>
                     <td className="kind">{e.method}</td>
@@ -409,6 +416,20 @@ export function ProxyTab({
           )}
         </div>
       </div>
+
+      {rowMenu.menu && (
+        <ContextMenu
+          x={rowMenu.menu.x}
+          y={rowMenu.menu.y}
+          onClose={rowMenu.close}
+          items={actionsFor(rowMenu.menu.payload).map((a) => ({
+            id: a.id,
+            label: a.label,
+            icon: a.icon,
+            onSelect: () => a.run(rowMenu.menu!.payload, ctx),
+          }))}
+        />
+      )}
 
       {toast && <div className="proxy-toast">{toast}</div>}
     </div>

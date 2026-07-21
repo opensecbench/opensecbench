@@ -54,8 +54,14 @@ export interface ContextItem {
   type: string
   name: string
   artifact_id: string
+  tags?: string[]
+  pinned?: boolean
   created_at: string
 }
+
+// The reserved context tags the analyst agent acts on (behavioral); every other tag is free-form. Mirrors
+// model.BehavioralContextTags in the Go backend.
+export const BEHAVIORAL_CONTEXT_TAGS = ['out-of-scope', 'constraint', 'priority', 'hypothesis']
 
 export interface ScopeEntry {
   id: string
@@ -481,6 +487,19 @@ export interface Task {
   created_at: string
 }
 
+// One row in the unified Activity feed (GET /v1/activity/feed). `kind` selects the detail view.
+export interface ActivityItem {
+  kind: 'task' | 'thread' | 'plan' | 'playbook'
+  id: string
+  title: string
+  subtitle?: string
+  status: string
+  actor?: string
+  project_id?: string
+  project?: string
+  timestamp: string
+}
+
 export interface Observation {
   id: string
   task_id?: string
@@ -814,6 +833,28 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await res.json()) as T
 }
 
+// postContext ingests one context item — a file or a note body — with optional analyst tags + pin flag.
+// Metadata rides in the query string; the raw bytes are the request body (see api.ingestContext handler).
+async function postContext(
+  projectId: string,
+  name: string,
+  type: string,
+  body: Blob,
+  contentType: string,
+  opts?: { tags?: string[]; pinned?: boolean },
+): Promise<ContextItem> {
+  const q = new URLSearchParams({ name, type })
+  if (opts?.tags?.length) q.set('tags', opts.tags.join(','))
+  if (opts?.pinned) q.set('pinned', 'true')
+  const res = await fetch(`${baseURL}/v1/projects/${projectId}/context?${q.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType, ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
+    body,
+  })
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText)
+  return (await res.json()) as ContextItem
+}
+
 export const api = {
   baseURL,
   // artifactContentURL is embedded in <img>/<a> where no header can be set, so it carries the active
@@ -859,17 +900,12 @@ export const api = {
   // context
   listContext: (projectId: string) =>
     request<ContextItem[]>('GET', `/v1/projects/${projectId}/context`),
-  ingestContext: async (projectId: string, name: string, type: string, file: File) => {
-    const url =
-      `${baseURL}/v1/projects/${projectId}/context?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': file.type || 'application/octet-stream', ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
-      body: file,
-    })
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText)
-    return (await res.json()) as ContextItem
-  },
+  ingestContext: (projectId: string, name: string, type: string, file: File, opts?: { tags?: string[]; pinned?: boolean }) =>
+    postContext(projectId, name, type, file, file.type || 'application/octet-stream', opts),
+  // A note is a body-only context item: its text IS the artifact (type=note), so read_context, semantic
+  // search, and the agent run-start injection all work on it unchanged — no separate endpoint needed.
+  createNote: (projectId: string, name: string, body: string, opts?: { tags?: string[]; pinned?: boolean }) =>
+    postContext(projectId, name, 'note', new Blob([body], { type: 'text/plain' }), 'text/plain', opts),
 
   // scope
   listScope: (projectId: string) =>
@@ -999,6 +1035,9 @@ export const api = {
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
   listTasks: () => request<Task[]>('GET', '/v1/tasks'),
   activity: () => request<{ tasks: Task[] | null; plans: Plan[] | null }>('GET', '/v1/activity'),
+  // The unified Activity history: scanner tasks, agent threads, agent plans, and playbook runs merged
+  // newest-first across every project (durable — an agent transcript stays here after a restart).
+  activityFeed: () => request<ActivityItem[]>('GET', '/v1/activity/feed'),
   // Fan out every applicable capability across the project's assets (deterministic, no agent). Returns
   // the enqueued tasks + any skips; poll listTasks to watch them run and auto-triage.
   scanProject: (projectId: string) =>

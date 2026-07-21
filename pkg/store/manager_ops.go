@@ -314,6 +314,23 @@ func (m *Manager) ListAllPlaybookRuns(ctx context.Context, limit int) ([]model.P
 	return out, err
 }
 
+// ListAllPlans returns up to limit agent plans (any status) across every project — the durable history
+// the Activity feed shows, so a finished plan stays browsable after a restart.
+func (m *Manager) ListAllPlans(ctx context.Context, limit int) ([]model.Plan, error) {
+	if m.combined {
+		return m.global.ListPlans(ctx, limit)
+	}
+	var out []model.Plan
+	err := m.eachProject(ctx, func(pdb *DB) error {
+		ps, err := pdb.ListPlans(ctx, limit)
+		if err == nil {
+			out = append(out, ps...)
+		}
+		return nil
+	})
+	return out, err
+}
+
 // ListAllRunningPlans returns in-flight agent plans across every project.
 func (m *Manager) ListAllRunningPlans(ctx context.Context) ([]model.Plan, error) {
 	if m.combined {

@@ -36,9 +36,9 @@ func (db *DB) CreateContextItem(ctx context.Context, ci model.ContextItem) (mode
 	}
 	ci.CreatedAt = time.Now().UTC()
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO context_items (id, project_id, application_id, type, name, artifact_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		ci.ID, ci.ProjectID, ci.ApplicationID, ci.Type, ci.Name, ci.ArtifactID, ci.CreatedAt.Format(timeLayout))
+		`INSERT INTO context_items (id, project_id, application_id, type, name, artifact_id, tags, pinned, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ci.ID, ci.ProjectID, ci.ApplicationID, ci.Type, ci.Name, ci.ArtifactID, joinTags(ci.Tags), ci.Pinned, ci.CreatedAt.Format(timeLayout))
 	if err != nil {
 		return model.ContextItem{}, err
 	}
@@ -49,10 +49,10 @@ func (db *DB) CreateContextItem(ctx context.Context, ci model.ContextItem) (mode
 func (db *DB) GetContextItem(ctx context.Context, id string) (model.ContextItem, error) {
 	var ci model.ContextItem
 	var app sql.NullString
-	var created string
+	var tags, created string
 	err := db.QueryRowContext(ctx,
-		`SELECT id, project_id, application_id, type, name, artifact_id, created_at
-		 FROM context_items WHERE id = ?`, id).Scan(&ci.ID, &ci.ProjectID, &app, &ci.Type, &ci.Name, &ci.ArtifactID, &created)
+		`SELECT id, project_id, application_id, type, name, artifact_id, tags, pinned, created_at
+		 FROM context_items WHERE id = ?`, id).Scan(&ci.ID, &ci.ProjectID, &app, &ci.Type, &ci.Name, &ci.ArtifactID, &tags, &ci.Pinned, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.ContextItem{}, ErrNotFound
 	}
@@ -60,6 +60,7 @@ func (db *DB) GetContextItem(ctx context.Context, id string) (model.ContextItem,
 		return model.ContextItem{}, err
 	}
 	ci.ApplicationID = ptr(app)
+	ci.Tags = splitTags(tags)
 	ci.CreatedAt = parseTime(created)
 	return ci, nil
 }
@@ -67,7 +68,7 @@ func (db *DB) GetContextItem(ctx context.Context, id string) (model.ContextItem,
 // ListContextItemsByProject returns a project's context items, newest first.
 func (db *DB) ListContextItemsByProject(ctx context.Context, projectID string) ([]model.ContextItem, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, project_id, application_id, type, name, artifact_id, created_at
+		`SELECT id, project_id, application_id, type, name, artifact_id, tags, pinned, created_at
 		 FROM context_items WHERE project_id = ? ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, err
@@ -78,11 +79,12 @@ func (db *DB) ListContextItemsByProject(ctx context.Context, projectID string) (
 	for rows.Next() {
 		var ci model.ContextItem
 		var app sql.NullString
-		var created string
-		if err := rows.Scan(&ci.ID, &ci.ProjectID, &app, &ci.Type, &ci.Name, &ci.ArtifactID, &created); err != nil {
+		var tags, created string
+		if err := rows.Scan(&ci.ID, &ci.ProjectID, &app, &ci.Type, &ci.Name, &ci.ArtifactID, &tags, &ci.Pinned, &created); err != nil {
 			return nil, err
 		}
 		ci.ApplicationID = ptr(app)
+		ci.Tags = splitTags(tags)
 		ci.CreatedAt = parseTime(created)
 		out = append(out, ci)
 	}

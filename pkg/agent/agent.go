@@ -110,6 +110,10 @@ type Step struct {
 	Approved bool     `json:"approved"`
 	Result   string   `json:"result,omitempty"`
 	Error    string   `json:"error,omitempty"`
+	// Note is the assistant's commentary that accompanied this tool call — the prose it wrote before
+	// deciding to act. Surfaced in the live activity trail so a human sees the agent's reasoning, not
+	// just the mechanical tool sequence.
+	Note string `json:"note,omitempty"`
 }
 
 // Result is the outcome of a run.
@@ -182,7 +186,7 @@ func (l *Loop) Run(ctx context.Context, userMessage string) (Result, error) {
 
 		call := resp.ToolCalls[0]
 		l.audit("agent.tool.proposed", call.Tool)
-		st := Step{Call: call}
+		st := Step{Call: call, Note: strings.TrimSpace(resp.Text)}
 
 		if verr := validateCall(l.Tools, call); verr != nil {
 			l.audit("agent.tool.invalid", call.Tool)

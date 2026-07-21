@@ -13,23 +13,49 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
-// formatActivity renders one of a sub-agent's tool turns into a compact line for the step's live activity
-// trail: the tool, a short args summary, and a result/error preview. One line per turn (newline-terminated).
+// activityEntry is one turn of a sub-agent's live activity trail. It is serialised as a single JSON line
+// (JSONL) so the UI can lead with the agent's own commentary and tuck the tool's args/output behind an
+// expander, instead of dumping a wall of raw tool lines. The frontend tolerates legacy plain-text lines.
+type activityEntry struct {
+	Kind string `json:"k"`              // ok | err | deny
+	Tool string `json:"tool"`           // the tool that ran this turn
+	Note string `json:"note,omitempty"` // the agent's prose for this turn — shown first, most prominent
+	Args string `json:"args,omitempty"` // args preview, revealed on expand
+	Out  string `json:"out,omitempty"`  // result/error preview, revealed on expand
+}
+
+// clip truncates s to at most max runes, preserving internal newlines (commentary is meant to be read, not
+// flattened). Kept distinct from oneLine, which collapses whitespace for one-line previews.
+func clip(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
+	}
+	return s
+}
+
+// formatActivity renders one of a sub-agent's tool turns into a JSON line for the step's live activity
+// trail: the agent's commentary, the tool, and previews of its args and result/error. One line per turn.
 func formatActivity(st agent.Step) string {
-	args := ""
+	e := activityEntry{Kind: "ok", Tool: st.Call.Tool, Note: clip(st.Note, 800)}
 	if len(st.Call.Args) > 0 {
 		if b, err := json.Marshal(st.Call.Args); err == nil {
-			args = oneLine(string(b), 140)
+			e.Args = oneLine(string(b), 400)
 		}
 	}
 	switch {
 	case st.Error != "":
-		return fmt.Sprintf("✗ %s %s — %s\n", st.Call.Tool, args, oneLine(st.Error, 200))
+		e.Kind, e.Out = "err", clip(st.Error, 600)
 	case st.Result == "(denied)":
-		return fmt.Sprintf("⏸ %s %s — denied\n", st.Call.Tool, args)
+		e.Kind = "deny"
 	default:
-		return fmt.Sprintf("→ %s %s — %s\n", st.Call.Tool, args, oneLine(st.Result, 160))
+		e.Out = clip(st.Result, 600)
 	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Sprintf("→ %s — %s\n", st.Call.Tool, oneLine(st.Result, 160))
+	}
+	return string(b) + "\n"
 }
 
 // planCancels tracks in-flight plan runs so a human can stop them. Plans run in background goroutines that

@@ -37,7 +37,8 @@ export function Settings({ online }: { online: boolean }) {
   async function setValue(key: string, value: string) {
     const next = { ...values, [key]: value }
     setValues(next)
-    if (key.startsWith('appearance.')) applyTheme(next['appearance.theme'] || 'dark', next['appearance.accent'] || '')
+    if (key.startsWith('appearance.'))
+      applyTheme(next['appearance.theme'] || 'dark', next['appearance.accent'] || '', next['appearance.text_size'] || '1')
     try {
       await api.putSettings({ [key]: value })
     } catch {
