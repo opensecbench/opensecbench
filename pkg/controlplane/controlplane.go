@@ -118,6 +118,8 @@ func Start(opts Options) (*Instance, error) {
 	}
 
 	engine := task.NewEngine(mgr, casr, capReg, runner.LocalRunner{})
+	// Enable the deps.dev outdated-dependency enrichment (fires after a syft SBOM completes).
+	engine.SetOutdatedChecker(&http.Client{Timeout: 20 * time.Second})
 
 	// The LLM provider is configured via OSB_LLM_* (ollama/deepseek/grok/claude-cli/anthropic);
 	// unset yields a mock. A misconfiguration disables the Analyst but never blocks startup.
