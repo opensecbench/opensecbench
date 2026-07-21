@@ -146,10 +146,15 @@ export function GraphTab({
             onMouseUp={() => (drag.current = null)}
             onMouseLeave={() => (drag.current = null)}
             onMouseMove={(e) => {
-              if (!drag.current) return
-              setTx((v) => v + (e.clientX - drag.current!.x))
-              setTy((v) => v + (e.clientY - drag.current!.y))
+              // Capture the delta up front. The setTx/setTy updater closures run later during commit, by
+              // which point a mouseup/leave can have nulled drag.current — dereferencing it there crashed.
+              const d = drag.current
+              if (!d) return
+              const dx = e.clientX - d.x
+              const dy = e.clientY - d.y
               drag.current = { x: e.clientX, y: e.clientY }
+              setTx((v) => v + dx)
+              setTy((v) => v + dy)
             }}
           >
             <g transform={`translate(${tx},${ty}) scale(${scale})`}>
