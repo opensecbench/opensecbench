@@ -1,5 +1,7 @@
-import { useState } from 'react'
-import { CoverageView, Engagement, Finding, Project } from './api'
+import { useEffect, useState } from 'react'
+import { api, CoverageView, Engagement, Finding, Project, ProjectSummary } from './api'
+
+const SEV_COLOR: Record<string, string> = { critical: '#7c1d1d', high: '#dc2626', medium: '#f59e0b', low: '#3b82f6', info: '#6b7280' }
 
 // OverviewTab is the per-project start page — status at a glance plus a "Start here" checklist that
 // orients someone who opens a project and doesn't know where to begin (ADR IA declutter). Each step
@@ -25,6 +27,11 @@ export function OverviewTab({
 }) {
   const [scanBusy, setScanBusy] = useState(false)
   const [scanMsg, setScanMsg] = useState<string | null>(null)
+  const [summary, setSummary] = useState<ProjectSummary | null>(null)
+  useEffect(() => {
+    if (!online) return
+    api.projectSummary(project.id).then(setSummary).catch(() => {})
+  }, [online, project.id, findings.length])
   async function runScan() {
     setScanBusy(true)
     setScanMsg(null)
@@ -103,6 +110,36 @@ export function OverviewTab({
         <div className="wb-ov-stat"><div className={`v ${adopted ? (covered >= 80 ? 'good' : 'warn') : ''}`}>{adopted ? `${covered}%` : '—'}</div><div className="k">coverage</div></div>
         <div className="wb-ov-stat"><div className={`v ${hasEngagement ? 'good' : 'warn'}`}>{hasEngagement ? '✓' : '—'}</div><div className="k">engagement</div></div>
       </div>
+
+      {summary && (summary.findings.total > 0 || summary.dependencies.Total > 0) && (
+        <div className="ov-rollup">
+          <div className="ov-rollup-h">What we've found</div>
+          <div className="ov-rollup-grid">
+            <div className="ovr-card">
+              <div className="ovr-k">Findings</div>
+              <div className="ovr-sevs">
+                {['critical', 'high', 'medium', 'low'].map((sev) =>
+                  summary.findings[sev] ? (
+                    <span key={sev} className="ovr-sev" style={{ background: SEV_COLOR[sev] }}>{summary.findings[sev]} {sev}</span>
+                  ) : null,
+                )}
+                {!summary.findings.total && <span className="ovr-none">none yet</span>}
+              </div>
+              <div className="ovr-sub">{summary.reachable} reachable · {summary.open_investigations} open investigation{summary.open_investigations === 1 ? '' : 's'}</div>
+            </div>
+            <div className="ovr-card">
+              <div className="ovr-k">Attack surface</div>
+              <div className="ovr-big">{summary.routes.Total} <span className="ovr-unit">routes</span></div>
+              <div className="ovr-sub">{summary.routes.Exposed} traffic-confirmed · <b className={summary.routes.WithFindings ? 'crit' : ''}>{summary.routes.WithFindings} with findings</b></div>
+            </div>
+            <div className="ovr-card">
+              <div className="ovr-k">Dependencies</div>
+              <div className="ovr-big">{summary.dependencies.Total}</div>
+              <div className="ovr-sub"><b className={summary.dependencies.Vulnerabilities ? 'crit' : ''}>{summary.dependencies.Vulnerabilities} vulnerable</b> · {summary.dependencies.Outdated} outdated</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="wb-ov-starth">Start here</div>
       <div className="wb-ov-steps">

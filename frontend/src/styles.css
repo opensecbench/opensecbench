@@ -1327,6 +1327,19 @@ select option {
 .wb-ov-stat .v { font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .wb-ov-stat .v.good { color: var(--green); } .wb-ov-stat .v.warn { color: var(--amber); } .wb-ov-stat .v.crit { color: var(--red); }
 .wb-ov-stat .k { font-size: 10.5px; color: var(--tx3); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 1px; }
+.ov-rollup { margin-bottom: 22px; }
+.ov-rollup-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tx3); font-weight: 700; margin: 2px 0 9px; }
+.ov-rollup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.ovr-card { border: 1px solid var(--line); background: var(--bg3); border-radius: 10px; padding: 12px 14px; }
+.ovr-k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx3); font-weight: 700; margin-bottom: 8px; }
+.ovr-sevs { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.ovr-sev { font-size: 11px; font-weight: 800; color: #fff; border-radius: 10px; padding: 2px 9px; }
+.ovr-none { font-size: 12px; color: var(--tx3); }
+.ovr-big { font-size: 26px; font-weight: 800; color: var(--tx1); line-height: 1.1; margin-bottom: 6px; }
+.ovr-unit { font-size: 13px; font-weight: 500; color: var(--tx3); }
+.ovr-sub { font-size: 12px; color: var(--tx3); }
+.ovr-sub b.crit { color: var(--red); }
+
 .wb-ov-starth { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tx3); margin: 2px 0 9px; }
 .wb-ov-steps { display: flex; flex-direction: column; gap: 8px; }
 .wb-ov-step { display: flex; align-items: center; gap: 12px; background: var(--bg2); border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; }

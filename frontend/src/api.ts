@@ -263,6 +263,13 @@ export interface ReachabilityFact {
   actor?: string
   updated_at: string
 }
+export interface ProjectSummary {
+  findings: Record<string, number>
+  reachable: number
+  open_investigations: number
+  routes: { Total: number; Exposed: number; WithFindings: number }
+  dependencies: { Total: number; Vulnerabilities: number; Outdated: number }
+}
 export interface RouteFinding {
   observation_id: string
   title: string
@@ -1057,6 +1064,8 @@ export const api = {
     request<Graph>('GET', `/v1/projects/${projectId}/graph?kind=${kind}`),
   projectRoutes: (projectId: string) =>
     request<RouteView[]>('GET', `/v1/projects/${projectId}/routes`),
+  projectSummary: (projectId: string) =>
+    request<ProjectSummary>('GET', `/v1/projects/${projectId}/summary`),
   getReachability: (projectId: string, subjectType: string, subject: string) =>
     request<{ reachable: string; confidence: string; facts: ReachabilityFact[] | null }>(
       'GET',
