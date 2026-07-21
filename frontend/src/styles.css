@@ -1650,6 +1650,7 @@ select option {
   font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--tx3);
 }
 .prov-head .link { margin-left: auto; }
+.prov-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .prov-list { flex: 1; overflow: auto; min-height: 60px; }
 .prov-item { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
 .prov-item.active { background: var(--bg4); box-shadow: inset 2px 0 0 var(--acc); }

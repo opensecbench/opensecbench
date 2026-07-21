@@ -1,17 +1,14 @@
-import { ApprovalPolicy } from './ApprovalPolicy'
-import { CustomAgents } from './CustomAgents'
 import { Providers } from './Providers'
 
-// ProviderSettings is the Analyst dock's inline config overlay: providers + usage, the approval policy,
-// and custom agents. The same leaves are reused as tabs in the global Settings surface (ADR-0021).
+// ProviderSettings is the Analyst dock's connection picker: select which connection the chat uses. It is
+// deliberately minimal — adding/configuring connections, tags, approvals, and custom agents all live in
+// the global Settings surface, not here.
 export function ProviderSettings({
   online,
-  projectId,
   onClose,
   onChanged,
 }: {
   online: boolean
-  projectId: string
   onClose: () => void
   onChanged: () => void
 }) {
@@ -21,9 +18,10 @@ export function ProviderSettings({
         Use a connection
         <button className="link" onClick={onClose}>done</button>
       </div>
-      <Providers online={online} projectId={projectId} onChanged={onChanged} manage={false} />
-      <ApprovalPolicy online={online} />
-      <CustomAgents online={online} />
+      <div className="prov-scroll">
+        <Providers online={online} onChanged={onChanged} manage={false} />
+        <div className="prov-hint">Add or configure connections, tags, approvals and agents in Settings → Models &amp; Providers.</div>
+      </div>
     </div>
   )
 }
