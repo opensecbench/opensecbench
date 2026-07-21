@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   api,
   Application,
@@ -573,6 +573,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
     { key: 'overview', surface: 'overview', title: surfaceTitle('overview') }, // land on the start page
   ])
   const [activeKey, setActiveKey] = useState<string | null>('overview')
+  const docAreaRef = useRef<HTMLDivElement>(null)
   const [apps, setApps] = useState<AppAssets[]>([])
   const [capabilities, setCapabilities] = useState<CapabilityManifest[]>([])
   const [context, setContext] = useState<ContextItem[]>([])
@@ -587,6 +588,23 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const [methodReload, setMethodReload] = useState(0) // bump to make Methodology docs re-fetch
   const [approvals, setApprovals] = useState(0)
   const [error, setError] = useState<string | null>(null)
+
+  // Generic scroll-stuck fix for the mounted-and-toggled document frame. Each doc stays mounted with its
+  // display toggled; a hidden doc keeps its scrollTop, and when it is re-shown — or its content shrank
+  // while hidden — the browser does not re-clamp, leaving you stranded past the end with no scrollbar. On
+  // every activation, re-clamp the active doc and any scrolled descendant to a valid offset. This only
+  // touches containers actually scrolled past their content, so a still-valid remembered position is kept.
+  useLayoutEffect(() => {
+    const doc = docAreaRef.current?.querySelector<HTMLElement>(`[data-dockey="${CSS.escape(activeKey ?? '')}"]`)
+    if (!doc) return
+    const reclamp = (el: HTMLElement) => {
+      if (el.scrollTop <= 0) return // fast path: not scrolled, nothing to clamp
+      const max = el.scrollHeight - el.clientHeight
+      if (el.scrollTop > max) el.scrollTop = Math.max(0, max)
+    }
+    reclamp(doc)
+    doc.querySelectorAll<HTMLElement>('*').forEach(reclamp)
+  }, [activeKey])
 
   async function loadApps() {
     const list = (await api.listApplications(project.id)) ?? []
@@ -884,12 +902,12 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             </div>
           )}
           {error && <div className="banner error wb-banner">⚠ {error}</div>}
-          <div className="wb-docarea">
+          <div className="wb-docarea" ref={docAreaRef}>
             {openDocs.length === 0 && (
               <div className="empty">No document open — pick a surface from the activity bar on the left.</div>
             )}
             {openDocs.map((d) => (
-              <div key={d.key} className="wb-doc" style={{ display: activeKey === d.key ? 'block' : 'none' }}>
+              <div key={d.key} data-dockey={d.key} className="wb-doc" style={{ display: activeKey === d.key ? 'block' : 'none' }}>
                 <SurfaceBoundary>{renderSurface(d)}</SurfaceBoundary>
               </div>
             ))}
