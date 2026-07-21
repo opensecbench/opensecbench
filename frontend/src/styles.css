@@ -2045,6 +2045,8 @@ select option {
 .rf-title { color: var(--tx2); }
 .rf-sev { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tx3); }
 .rf-reach { font-size: 10.5px; font-weight: 700; color: #fca5a5; }
+.rf-unreach { font-size: 10.5px; color: var(--tx3); }
+.rf-src { font-size: 10px; color: var(--tx3); font-family: var(--mono, monospace); }
 
 .plan-view { max-width: 980px; margin: 0 auto; }
 .plan-h { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }

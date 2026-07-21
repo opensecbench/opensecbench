@@ -679,6 +679,10 @@ func recordReachability(ctx context.Context, deps ExecDeps, call agent.ToolCall)
 	}); err != nil {
 		return "", err
 	}
+	// Propagate into disposition: a confirmed-reachable verdict can escalate the finding.
+	if deps.Engine != nil {
+		deps.Engine.ReEvaluate(ctx, projectID)
+	}
 	v, c, facts := deps.p().ResolveReachability(ctx, projectID, subjectType, subject)
 	return jsonify(map[string]any{"recorded": true, "effective_reachable": v, "effective_confidence": c, "facts": len(facts)}, nil)
 }

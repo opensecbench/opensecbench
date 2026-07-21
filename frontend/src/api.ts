@@ -254,6 +254,9 @@ export interface RouteFinding {
   title: string
   severity: string
   route_reachable: boolean
+  reachable?: string
+  reach_confidence?: string
+  reach_sources?: string[]
 }
 export interface RouteView {
   id: string
