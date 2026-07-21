@@ -443,7 +443,7 @@ type ScanSkip struct {
 // ScanProject fans out every applicable capability across the project's assets — the deterministic
 // "scan everything" path, no agent involved. Each enqueued task flows through the engine's interpret →
 // dedup → reachability/exposure → auto-triage pipeline on completion. Capabilities opt in by declaring
-// AppliesTo; a language-specific one (Ecosystem) runs only where the asset's stack is detected. A
+// AppliesTo; a language-specific one (Ecosystems) runs only where one of its stacks is detected. A
 // per-capability enqueue error (e.g. a technique the engagement forbids, or scope) is recorded as a
 // skip rather than failing the whole scan.
 func (e *Engine) ScanProject(ctx context.Context, projectID string) (ScanResult, error) {
@@ -455,12 +455,13 @@ func (e *Engine) ScanProject(ctx context.Context, projectID string) (ScanResult,
 	pid := projectID
 	var res ScanResult
 	for _, a := range assets {
+		detected := detectEcosystems(a.Location)
 		for _, m := range mans {
 			if !m.AppliesToKind(a.Type) {
 				continue
 			}
-			if m.Ecosystem != "" && !ecosystemPresent(a.Location, m.Ecosystem) {
-				res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: m.ID, AssetID: a.ID, Reason: "ecosystem " + m.Ecosystem + " not detected"})
+			if !m.TargetsEcosystems(detected) {
+				res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: m.ID, AssetID: a.ID, Reason: "no matching ecosystem (needs " + strings.Join(m.Ecosystems, "/") + ")"})
 				continue
 			}
 			assetID := a.ID
@@ -546,19 +547,23 @@ var ecosystemMarkers = map[string][]string{
 	"java":   {"pom.xml", "build.gradle"},
 }
 
-// ecosystemPresent reports whether a repo directory shows a marker file for the given stack. Best-effort:
-// an unknown ecosystem or unreadable dir returns false, so a language-specific scanner is simply skipped.
-func ecosystemPresent(dir, eco string) bool {
-	markers, ok := ecosystemMarkers[eco]
-	if !ok || dir == "" {
-		return false
+// detectEcosystems returns the set of language ecosystems present at a repo root, from marker files — the
+// input to the auto-run gate, so a capability only fires where its stack exists. Best-effort: an unreadable
+// dir yields the empty set (only language-agnostic capabilities then run).
+func detectEcosystems(dir string) map[string]bool {
+	out := map[string]bool{}
+	if dir == "" {
+		return out
 	}
-	for _, m := range markers {
-		if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
-			return true
+	for eco, markers := range ecosystemMarkers {
+		for _, m := range markers {
+			if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
+				out[eco] = true
+				break
+			}
 		}
 	}
-	return false
+	return out
 }
 
 // Run plans the capability, executes it in the sandbox synchronously, stores its stdout as an output

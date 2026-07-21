@@ -380,7 +380,7 @@ func (govulncheck) Manifest() Manifest {
 	return Manifest{
 		ID:              "govulncheck",
 		AppliesTo:       []string{"source_repo"},
-		Ecosystem:       "go",
+		Ecosystems:      []string{"go"},
 		Version:         "1.0.0",
 		Title:           "govulncheck (Go reachability SCA)",
 		Description:     "Call-graph reachability analysis of Go dependency vulnerabilities; emits govulncheck JSON. Escalates only reachable vulns on an exposed service.",
