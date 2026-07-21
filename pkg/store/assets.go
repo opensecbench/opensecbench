@@ -117,6 +117,30 @@ func (db *DB) CreateAsset(ctx context.Context, na NewAsset) (model.Asset, error)
 	return a, nil
 }
 
+var validSensitivities = map[string]bool{
+	model.SensitivityPrivate:    true,
+	model.SensitivityOpenSource: true,
+}
+
+// UpdateAssetSensitivity changes an asset's sensitivity in place and returns the updated asset. The
+// sensitivity must be one of the known values — unlike create, an empty value is not inferred here,
+// because the caller is editing an existing asset deliberately.
+func (db *DB) UpdateAssetSensitivity(ctx context.Context, id, sensitivity string) (model.Asset, error) {
+	if !validSensitivities[sensitivity] {
+		return model.Asset{}, fmt.Errorf("store: invalid sensitivity %q", sensitivity)
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE assets SET sensitivity = ?, updated_at = ? WHERE id = ?`,
+		sensitivity, nowString(), id)
+	if err != nil {
+		return model.Asset{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return model.Asset{}, ErrNotFound
+	}
+	return db.GetAsset(ctx, id)
+}
+
 // ListAssetsByApplication returns an application's assets, oldest first.
 func (db *DB) ListAssetsByApplication(ctx context.Context, applicationID string) ([]model.Asset, error) {
 	rows, err := db.QueryContext(ctx,
