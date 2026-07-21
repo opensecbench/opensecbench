@@ -167,6 +167,31 @@ func gateError(approve bool, note string) string {
 }
 
 // ListPlansByProject returns a project's plans (without steps), newest first.
+// FailUnfinishedPlans marks agent plans left "running" by a control-plane restart as failed — their
+// driving goroutine is gone, so they'd otherwise linger as a ghost that shows "running" forever — and
+// resolves their non-terminal steps (running → failed, pending → skipped). A "waiting" plan is left
+// alone: it is durably parked on a gate and resumes when the gate is approved. Returns how many plans it
+// reconciled.
+func (db *DB) FailUnfinishedPlans(ctx context.Context) (int, error) {
+	if _, err := db.ExecContext(ctx,
+		`UPDATE plan_steps
+		    SET status = CASE status WHEN ? THEN ? ELSE ? END,
+		        error = 'interrupted by a control-plane restart'
+		  WHERE status IN (?, ?) AND plan_id IN (SELECT id FROM plans WHERE status = ?)`,
+		model.StepRunning, model.StepFailed, model.StepSkipped,
+		model.StepRunning, model.StepPending, model.PlanRunning); err != nil {
+		return 0, err
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE plans SET status = ?, updated_at = ? WHERE status = ?`,
+		model.PlanFailed, nowString(), model.PlanRunning)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // ListRunningPlans returns plans still in flight (running or waiting on a gate) in this database.
 func (db *DB) ListRunningPlans(ctx context.Context) ([]model.Plan, error) {
 	rows, err := db.QueryContext(ctx,
