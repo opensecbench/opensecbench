@@ -18,10 +18,10 @@ export function ProviderSettings({
   return (
     <div className="prov">
       <div className="prov-head">
-        Model / provider
+        Use a connection
         <button className="link" onClick={onClose}>done</button>
       </div>
-      <Providers online={online} projectId={projectId} onChanged={onChanged} />
+      <Providers online={online} projectId={projectId} onChanged={onChanged} manage={false} />
       <ApprovalPolicy online={online} />
       <CustomAgents online={online} />
     </div>
