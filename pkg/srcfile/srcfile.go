@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -100,6 +101,56 @@ func ConfinedPath(root, rel string) (string, error) {
 	return full, nil
 }
 
+// normalizeRel strips a `file://` scheme (and any authority) and percent-decodes the remainder, so a
+// SARIF-style "file:///src/app/x.go" location resolves the same as a plain path. Plain paths are returned
+// untouched — we do not percent-decode those, since a literal "%" is a valid filename character.
+func normalizeRel(rel string) string {
+	rel = strings.TrimSpace(rel)
+	if after, ok := strings.CutPrefix(rel, "file://"); ok {
+		if i := strings.IndexByte(after, '/'); i > 0 { // drop an authority ("host" in file://host/path)
+			after = after[i:]
+		}
+		if dec, err := url.PathUnescape(after); err == nil {
+			after = dec
+		}
+		rel = after
+	}
+	return rel
+}
+
+// Resolve maps a caller-supplied path to a confined, existing path under root. It first tries the path as
+// given; if that lexically escapes the root it returns the escape error (callers surface a 4xx), and if it
+// simply doesn't exist it strips leading path segments one at a time — longest suffix first — and returns
+// the first candidate that exists. That fallback recovers findings whose `location` carries a scanner's
+// container-mount prefix: TruffleHog (`filesystem /src`) and govulncheck emit absolute "/src/app/x.go"
+// paths that must be re-anchored to the on-disk repo root as "app/x.go". Every candidate is confined to
+// root, so no fallback can escape it. Returns an error wrapping fs.ErrNotExist when nothing matches, which
+// errors.Is(err, fs.ErrNotExist) detects so callers can map it to 404.
+func Resolve(root, rel string) (string, error) {
+	rel = normalizeRel(rel)
+	// The path exactly as given wins when it exists — a real escape here is a hard error, not a not-found.
+	full, err := ConfinedPath(root, rel)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(full); err == nil {
+		return full, nil
+	}
+	// Not found as given: peel leading segments (a mount prefix like "src/") and try each shorter suffix,
+	// most-specific first so we prefer "app/x.go" over a coincidental top-level "x.go".
+	segs := strings.Split(strings.TrimLeft(filepath.ToSlash(rel), "/"), "/")
+	for i := 1; i < len(segs); i++ {
+		cand, err := ConfinedPath(root, strings.Join(segs[i:], "/"))
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(cand); err == nil {
+			return cand, nil
+		}
+	}
+	return "", fmt.Errorf("resolve %q under asset root: %w", rel, fs.ErrNotExist)
+}
+
 // File is a file's contents plus enough metadata for a viewer to show size and a truncation notice.
 type File struct {
 	Path      string `json:"path"`
@@ -110,15 +161,19 @@ type File struct {
 }
 
 // ReadFile returns a confined file's contents, capped at maxBytes. It rejects directories so the caller
-// gets a clear error rather than a stream of bytes.
+// gets a clear error rather than a stream of bytes. The returned Path is re-anchored to the asset root, so
+// a location carrying a mount prefix (e.g. "/src/app/x.go") is reported back as the clean "app/x.go".
 func ReadFile(root, rel string, maxBytes int) (File, error) {
-	full, err := ConfinedPath(root, rel)
+	full, err := Resolve(root, rel)
 	if err != nil {
 		return File{}, err
 	}
 	info, err := os.Stat(full)
 	if err != nil {
 		return File{}, err
+	}
+	if disp, err := filepath.Rel(filepath.Clean(root), full); err == nil {
+		rel = filepath.ToSlash(disp)
 	}
 	if info.IsDir() {
 		return File{}, fmt.Errorf("%q is a directory", rel)
