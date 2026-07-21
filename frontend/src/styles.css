@@ -2471,6 +2471,14 @@ select option {
 .fd-signals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .fd-signal { font-size: 11px; color: var(--tx3); background: var(--bg3); border: 1px solid var(--line2); border-radius: 10px; padding: 1px 8px; }
 
+/* Context item viewer/editor (opened from the left panel): read the note/file, or edit name/body/tags/pin. */
+.ctx-edit-meta { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.ctx-edit-meta .ctx-tags { flex: 1; min-width: 180px; }
+.ctx-view-body { margin: 16px 0 0; padding: 14px 16px; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--tx); white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
+.ctx-view-editor { margin-top: 16px; width: 100%; min-height: 320px; padding: 14px 16px; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--tx); resize: vertical; }
+.ctx-view-editor:focus { outline: none; border-color: var(--acc); }
+.ctx-view-img { margin-top: 16px; max-width: 100%; border: 1px solid var(--line); border-radius: 10px; }
+
 /* Deep-link flash: briefly highlight a row scrolled to from omni-search (ADR-0050) */
 @keyframes row-flash {
   0% { background: color-mix(in srgb, var(--acc) 32%, transparent); }

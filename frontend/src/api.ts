@@ -906,6 +906,10 @@ export const api = {
   // search, and the agent run-start injection all work on it unchanged — no separate endpoint needed.
   createNote: (projectId: string, name: string, body: string, opts?: { tags?: string[]; pinned?: boolean }) =>
     postContext(projectId, name, 'note', new Blob([body], { type: 'text/plain' }), 'text/plain', opts),
+  // Edit a context item's mutable fields. `body` (notes only) re-stores the note text as a fresh artifact.
+  updateContext: (id: string, patch: { name?: string; tags?: string[]; pinned?: boolean; body?: string }) =>
+    request<ContextItem>('PATCH', `/v1/context/${id}`, patch),
+  deleteContext: (id: string) => request<void>('DELETE', `/v1/context/${id}`),
 
   // scope
   listScope: (projectId: string) =>
