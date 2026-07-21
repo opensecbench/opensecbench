@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -147,6 +148,12 @@ func (s *Server) stopProxy(w http.ResponseWriter, r *http.Request) {
 // (ADR-0026) so the history shows which vantage each forward went out from.
 func (s *Server) proxyCapture(projectID, runnerID string) func(proxy.Exchange) {
 	return func(e proxy.Exchange) {
+		// Don't capture the app's own control-plane traffic (ADR-0016). The desktop WebKit webview follows
+		// the system proxy, so the frontend's calls to the local API route through this proxy — capturing
+		// them would flood the list with the app's own polling. Forwarding still happens; only capture skips.
+		if s.isSelfTraffic(e.URL) {
+			return
+		}
 		ctx := context.Background()
 		ex, err := s.pdbID(projectID).CreateExchange(ctx, model.HTTPExchange{
 			ProjectID:      projectID,
@@ -166,6 +173,43 @@ func (s *Server) proxyCapture(projectID, runnerID string) func(proxy.Exchange) {
 		}
 		s.publishExchange(ctx, projectID, ex.ID)
 	}
+}
+
+// SetSelfAddr records the control-plane's own listen address so the proxy can skip capturing the app's
+// own traffic to it (the webview routes through the proxy). Called once at startup, when the port is known.
+func (s *Server) SetSelfAddr(addr string) {
+	if _, port, err := net.SplitHostPort(addr); err == nil {
+		s.selfPort = port
+	}
+}
+
+// isSelfTraffic reports whether a captured request is aimed at this app's own control-plane API — a
+// loopback host on the control-plane's port. Such traffic is the frontend talking to its backend, not the
+// target under test, so it's excluded from the capture list.
+func (s *Server) isSelfTraffic(rawurl string) bool {
+	if s.selfPort == "" {
+		return false
+	}
+	u, err := url.Parse(rawurl)
+	if err != nil {
+		return false
+	}
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	if port != s.selfPort {
+		return false
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1", "0.0.0.0":
+		return true
+	}
+	return false
 }
 
 // publishExchange emits the current, complete state of an exchange to subscribers (SSE). Best-effort:
