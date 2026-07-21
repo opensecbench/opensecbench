@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -116,6 +117,45 @@ func (db *DB) ObservationByFingerprint(ctx context.Context, projectID, fingerpri
 		return "", false
 	}
 	return id, true
+}
+
+// ObservationForVuln returns the id of the observation that already owns any of the given advisory ids
+// (CVE/GHSA) in the project — used to merge the same vulnerability reported by a second tool into the
+// first observation instead of creating a duplicate (ADR-0037). Mirrors InvestigationForVuln.
+func (db *DB) ObservationForVuln(ctx context.Context, projectID string, vulnIDs []string) (string, bool) {
+	if projectID == "" || len(vulnIDs) == 0 {
+		return "", false
+	}
+	q := `SELECT observation_id FROM observation_vulns WHERE project_id = ? AND vuln_id IN (?` +
+		strings.Repeat(", ?", len(vulnIDs)-1) + `) LIMIT 1`
+	args := make([]any, 0, len(vulnIDs)+1)
+	args = append(args, projectID)
+	for _, v := range vulnIDs {
+		args = append(args, v)
+	}
+	var id string
+	if err := db.QueryRowContext(ctx, q, args...).Scan(&id); err != nil {
+		return "", false
+	}
+	return id, true
+}
+
+// RecordObservationVulns claims each advisory id for an observation. Idempotent: an id already claimed
+// (by this or another observation) is left as-is, so the first observation owns the vuln (ADR-0037).
+func (db *DB) RecordObservationVulns(ctx context.Context, projectID, observationID string, vulnIDs []string) error {
+	now := time.Now().UTC().Format(timeLayout)
+	for _, v := range vulnIDs {
+		if v == "" {
+			continue
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT OR IGNORE INTO observation_vulns (id, observation_id, project_id, vuln_id, created_at)
+			 VALUES (?, ?, ?, ?, ?)`,
+			uuid.NewString(), observationID, projectID, v, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func parseAttrs(s string) map[string]string {

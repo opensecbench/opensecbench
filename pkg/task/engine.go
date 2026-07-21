@@ -731,9 +731,24 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 				_ = e.p(pidOf(task)).RefreshObservation(ctx, existingID, o.Severity, o.Detail, o.Attributes)
 				continue
 			}
+			// Cross-tool merge (ADR-0037): the same vulnerability reported by a second tool under a different
+			// advisory id (grype→GHSA, osv-scanner→CVE, govulncheck→GO id) merges into the first observation
+			// rather than creating a duplicate — one observation, annotated with every tool that corroborates.
+			if ids := vulnIDs(&o); len(ids) > 0 {
+				if existingID, dup := e.p(pidOf(task)).ObservationForVuln(ctx, projectID, ids); dup {
+					e.mergeVulnObservation(ctx, projectID, existingID, &o, ids)
+					continue
+				}
+			}
 		}
 		if saved, err := e.p(pidOf(task)).CreateObservation(ctx, o); err == nil {
 			created = append(created, saved)
+			// Claim this observation's advisory ids so a later tool's report of the same vuln merges here.
+			if projectID != "" {
+				if ids := vulnIDs(&saved); len(ids) > 0 {
+					_ = e.p(pidOf(task)).RecordObservationVulns(ctx, projectID, saved.ID, ids)
+				}
+			}
 		}
 	}
 	// Route new observations to a post-run disposition (ADR-0028): auto-finding, investigate, or review.
@@ -770,6 +785,59 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		return e.outcome(ctx, pidOf(task), task.ID), err
 	}
 	return e.outcome(ctx, pidOf(task), task.ID), nil
+}
+
+// mergeVulnObservation folds a second tool's report of a vulnerability into the observation that already
+// owns it (ADR-0037): it records the additional tool, unions the advisory ids, keeps the higher severity,
+// and adopts a reachability verdict if the first tool had none. The duplicate is never created, and no
+// second disposition fires — the merged observation keeps the first one's triage.
+func (e *Engine) mergeVulnObservation(ctx context.Context, projectID, existingID string, o *model.Observation, newIDs []string) {
+	existing, err := e.p(projectID).GetObservation(ctx, existingID)
+	if err != nil {
+		return
+	}
+	attrs := existing.Attributes
+	if attrs == nil {
+		attrs = map[string]string{}
+	}
+	attrs["tools"] = unionCSV(firstNonBlank(attrs["tools"], attrs["tool"]), firstNonBlank(o.Attributes["tools"], o.Attributes["tool"]))
+	attrs["aliases"] = unionCSV(attrs["aliases"], strings.Join(newIDs, ","))
+	if attrs["reachable"] == "" && o.Attributes["reachable"] != "" {
+		attrs["reachable"] = o.Attributes["reachable"]
+	}
+	sev := existing.Severity
+	if severityRank(o.Severity) > severityRank(sev) {
+		sev = o.Severity
+	}
+	_ = e.p(projectID).RefreshObservation(ctx, existingID, sev, existing.Detail, attrs)
+	// Claim the second tool's ids for the existing observation, so a third tool with yet another id merges too.
+	_ = e.p(projectID).RecordObservationVulns(ctx, projectID, existingID, newIDs)
+}
+
+var severityOrder = map[string]int{"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+func severityRank(s string) int { return severityOrder[s] }
+
+func firstNonBlank(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
+}
+
+// unionCSV merges two comma-separated sets into one, order-stable, de-duplicated, blanks dropped.
+func unionCSV(a, b string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, part := range append(strings.Split(a, ","), strings.Split(b, ",")...) {
+		part = strings.TrimSpace(part)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+	}
+	return strings.Join(out, ",")
 }
 
 // reEvalTrigger reports whether finishing this capability changed a correlation input (routes, the shared
