@@ -216,24 +216,49 @@ func (svc *Service) targetForTag(ctx context.Context, tag string) runTarget {
 	if len(list) == 0 && tag != "default" {
 		list = r.Tags["default"] // an unset or empty tag inherits the default list
 	}
+	var entries []llm.FallbackEntry
+	var top runTarget
+	var mode, haveTop bool
 	for _, ref := range list {
 		if ref.ProviderID == "" {
 			continue
 		}
 		p, err := svc.resolver(ctx, ref.ProviderID)
 		if err != nil || p == nil {
-			continue // unresolvable connection — try the next in priority order
+			continue // unresolvable connection — skip it in priority order
 		}
-		t := runTarget{Provider: p, SessionModel: ref.Model, AttrModel: ref.Model}
-		if reg, err := svc.g().GetProvider(ctx, ref.ProviderID); err == nil {
-			t.ProviderName = reg.Type
-			if t.AttrModel == "" {
-				t.AttrModel = reg.Model // no routed model → the connection's configured default
+		m := nativeMode(p)
+		if !haveTop {
+			mode, haveTop = m, true
+			top = runTarget{Provider: p, SessionModel: ref.Model, AttrModel: ref.Model}
+			if reg, err := svc.g().GetProvider(ctx, ref.ProviderID); err == nil {
+				top.ProviderName = reg.Type
+				if top.AttrModel == "" {
+					top.AttrModel = reg.Model // no routed model → the connection's configured default
+				}
 			}
+		} else if m != mode {
+			continue // fall-through candidates must share the top's tool mode (consistent rendering)
 		}
-		return t
+		entries = append(entries, llm.FallbackEntry{Provider: p, Model: ref.Model})
 	}
-	return runTarget{Provider: svc.provider}
+	if !haveTop {
+		return runTarget{Provider: svc.provider}
+	}
+	if len(entries) > 1 {
+		// The chain tries the top first and falls through on a transient failure (ADR-0052). Usage is
+		// attributed to the top entry; a fell-through call is a rare, transient event.
+		top.Provider = &llm.FallbackProvider{Entries: entries}
+	}
+	return top
+}
+
+// nativeMode reports a provider's tool-use mode (false when it doesn't advertise one).
+func nativeMode(p llm.Provider) bool {
+	if n, ok := p.(interface{ NativeTools() bool }); ok {
+		return n.NativeTools()
+	}
+	return false
 }
 
 // RoutingEntry is one (connection, model) in a tag's ordered priority list — the API/UI boundary type.

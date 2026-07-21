@@ -76,13 +76,19 @@ func TestRoutingOrderedListFallThrough(t *testing.T) {
 		return nil, errors.New("unknown provider")
 	})
 
-	// Priority: subscription first, gateway second.
+	// Priority: subscription first, gateway second. Two resolvable entries → a fallback chain that tries
+	// the subscription first.
 	if err := db.SetSetting(ctx, ModelRoutingSetting,
 		`{"default":[{"provider_id":"cli","model":"claude-sonnet-5"},{"provider_id":"bedrock","model":"anthropic.claude-sonnet-4-5-v1:0"}]}`); err != nil {
 		t.Fatal(err)
 	}
-	if p, m := svc.providerModelForTag(ctx, "default"); p != sub || m != "claude-sonnet-5" {
-		t.Fatalf("top of the list should win, got %v/%q", p, m)
+	p, m := svc.providerModelForTag(ctx, "default")
+	fb, ok := p.(*llm.FallbackProvider)
+	if !ok || m != "claude-sonnet-5" {
+		t.Fatalf("2-entry list should yield a fallback chain / top model, got %T / %q", p, m)
+	}
+	if len(fb.Entries) != 2 || fb.Entries[0].Provider != sub || fb.Entries[1].Provider != gw {
+		t.Fatalf("chain order wrong: %+v", fb.Entries)
 	}
 
 	// Top entry unresolvable → falls through to the next in priority order.
