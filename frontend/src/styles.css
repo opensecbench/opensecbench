@@ -2158,6 +2158,15 @@ select option {
 .mcat-item-d { font-size: 11.5px; color: var(--tx3); margin-top: 2px; line-height: 1.45; }
 .mcat-item-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .mcat-tag { font-family: var(--mono); font-size: 9.5px; color: var(--tx3); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; }
+/* Connectors (Library) */
+.conn-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
+.conn-row { display: flex; align-items: center; gap: 11px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 13px; }
+.conn-row .conn-id { flex: 1; min-width: 0; }
+.conn-row .conn-name { font-weight: 600; font-size: 12.5px; display: flex; align-items: center; gap: 8px; }
+.conn-row .conn-meta { font-family: var(--mono); font-size: 10.5px; color: var(--tx3); margin-top: 1px; }
+/* Integrations (project, binding-only) */
+.row-item.bound { box-shadow: inset 2px 0 0 var(--acc); }
+.integ-key { background: var(--bg); border: 1px solid var(--line2); border-radius: 6px; padding: 4px 8px; font-size: 12px; color: var(--tx); font-family: var(--mono); max-width: 180px; }
 .settings-fields h2 { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
 .settings-ext { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 20px; background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--acc); }
 .settings-field { margin-bottom: 18px; }

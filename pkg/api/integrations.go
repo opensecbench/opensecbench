@@ -10,8 +10,149 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
+// listIntegrations returns the available connector TYPES (jira/defectdojo) — the vocabulary for creating a
+// connector in the Library.
 func (s *Server) listIntegrations(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.integr.Names())
+	type typeView struct {
+		Type     string `json:"type"`
+		Pullable bool   `json:"pullable"`
+	}
+	out := make([]typeView, 0)
+	for _, name := range s.integr.Names() {
+		c, _ := s.integr.Get(name)
+		_, pullable := c.(integration.Puller)
+		out = append(out, typeView{Type: name, Pullable: pullable})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// --- Global connectors (Library) ---
+
+func (s *Server) listConnectors(w http.ResponseWriter, r *http.Request) {
+	cs, err := s.global().ListConnectors(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if cs == nil {
+		cs = []model.Connector{}
+	}
+	writeJSON(w, http.StatusOK, cs)
+}
+
+func (s *Server) createConnector(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		BaseURL    string `json:"base_url"`
+		Credential string `json:"credential"` // vault secret NAME
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if _, ok := s.integr.Get(req.Type); !ok {
+		writeErr(w, http.StatusBadRequest, "unknown connector type "+req.Type)
+		return
+	}
+	c, err := s.global().CreateConnector(r.Context(), model.Connector{
+		Name: req.Name, Type: req.Type, BaseURL: req.BaseURL, Credential: req.Credential,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "connector.add", c.ID, map[string]string{"type": c.Type})
+	writeJSON(w, http.StatusCreated, c)
+}
+
+func (s *Server) deleteConnector(w http.ResponseWriter, r *http.Request) {
+	if err := s.global().DeleteConnector(r.Context(), r.PathValue("id")); errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "connector not found")
+		return
+	} else if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Per-project bindings ---
+
+// listProjectIntegrations returns each global connector merged with this project's binding state — bound?
+// its project_key? does the type support inbound pull?
+func (s *Server) listProjectIntegrations(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	connectors, err := s.global().ListConnectors(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	bindings, err := s.pdb(r).ListBindings(r.Context(), projectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	bound := map[string]model.IntegrationBinding{}
+	for _, b := range bindings {
+		bound[b.ConnectorID] = b
+	}
+	type view struct {
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		BaseURL    string `json:"base_url"`
+		Pullable   bool   `json:"pullable"`
+		Bound      bool   `json:"bound"`
+		ProjectKey string `json:"project_key"`
+	}
+	out := make([]view, 0, len(connectors))
+	for _, c := range connectors {
+		pullable := false
+		if impl, ok := s.integr.Get(c.Type); ok {
+			_, pullable = impl.(integration.Puller)
+		}
+		v := view{ID: c.ID, Name: c.Name, Type: c.Type, BaseURL: c.BaseURL, Pullable: pullable}
+		if b, ok := bound[c.ID]; ok {
+			v.Bound, v.ProjectKey = true, b.ProjectKey
+		}
+		out = append(out, v)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"connectors": out})
+}
+
+// setBinding attaches (or updates) this project's binding to a connector with a project-side scope.
+func (s *Server) setBinding(w http.ResponseWriter, r *http.Request) {
+	projectID, connectorID := r.PathValue("id"), r.PathValue("connectorId")
+	if _, err := s.global().GetConnector(r.Context(), connectorID); errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusBadRequest, "unknown connector")
+		return
+	}
+	var req struct {
+		ProjectKey string `json:"project_key"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	b, err := s.pdb(r).SetBinding(r.Context(), model.IntegrationBinding{
+		ProjectID: projectID, ConnectorID: connectorID, ProjectKey: req.ProjectKey,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "integration.bind", connectorID, map[string]string{"project": projectID})
+	writeJSON(w, http.StatusOK, b)
+}
+
+func (s *Server) deleteBinding(w http.ResponseWriter, r *http.Request) {
+	if err := s.pdb(r).DeleteBinding(r.Context(), r.PathValue("id"), r.PathValue("connectorId")); errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "no such binding")
+		return
+	} else if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listFindingLinks(w http.ResponseWriter, r *http.Request) {
@@ -23,31 +164,54 @@ func (s *Server) listFindingLinks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, links)
 }
 
-// pushFinding sends a finding to an external tracker, resolving its credential from the vault and
-// recording an idempotent external link (re-push returns the existing link) (P10).
+// configForConnector assembles the runtime push/pull config from the global connector (base URL +
+// resolved credential) and this project's binding (project-side scope). It also returns the connector's
+// type so the caller can select the connector implementation.
+func (s *Server) configForConnector(ctx context.Context, projectID, connectorID string) (integration.Config, string, error) {
+	c, err := s.global().GetConnector(ctx, connectorID)
+	if err != nil {
+		return integration.Config{}, "", err
+	}
+	cred, err := s.resolveCredential(ctx, c.Credential)
+	if err != nil {
+		return integration.Config{}, "", err
+	}
+	cfg := integration.Config{BaseURL: c.BaseURL, Credential: cred}
+	if b, err := s.pdbID(projectID).GetBinding(ctx, projectID, connectorID); err == nil {
+		cfg.ProjectKey = b.ProjectKey
+	}
+	return cfg, c.Type, nil
+}
+
+// pushFinding sends a finding to an external tracker via a connector, recording an idempotent external
+// link (re-push returns the existing link).
 func (s *Server) pushFinding(w http.ResponseWriter, r *http.Request) {
 	findingID := r.PathValue("id")
 	var req struct {
-		Integration string `json:"integration"`
-		BaseURL     string `json:"base_url"`
-		ProjectKey  string `json:"project_key"`
-		Credential  string `json:"credential"` // a vault secret NAME (not a value)
+		ConnectorID string `json:"connector_id"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	conn, ok := s.integr.Get(req.Integration)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "unknown integration "+req.Integration)
+	cfg, connType, err := s.configForConnector(r.Context(), s.pdbProjectID(r), req.ConnectorID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusBadRequest, "unknown connector")
 		return
 	}
-
-	// Idempotency: if already linked, return the existing link.
-	if existing, err := s.pdb(r).GetExternalLink(r.Context(), findingID, req.Integration); err == nil {
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	conn, ok := s.integr.Get(connType)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "unknown connector type "+connType)
+		return
+	}
+	// Idempotency: keyed by connector id so the same finding isn't double-pushed to the same tracker.
+	if existing, err := s.pdb(r).GetExternalLink(r.Context(), findingID, req.ConnectorID); err == nil {
 		writeJSON(w, http.StatusOK, existing)
 		return
 	}
-
 	finding, err := s.pdb(r).GetFinding(r.Context(), findingID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "finding not found")
@@ -57,49 +221,20 @@ func (s *Server) pushFinding(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	// Resolve the connection: an explicit base_url in the body overrides (legacy path); otherwise use the
-	// project's stored config (ADR-0027), so connection details aren't re-sent on every push.
-	var cfg integration.Config
-	if req.BaseURL != "" {
-		cred, cerr := s.resolveCredential(r.Context(), req.Credential)
-		if cerr != nil {
-			writeErr(w, http.StatusBadRequest, cerr.Error())
-			return
-		}
-		cfg = integration.Config{BaseURL: req.BaseURL, ProjectKey: req.ProjectKey, Credential: cred}
-	} else {
-		projectID := s.projectOfFinding(r, finding)
-		if projectID == "" {
-			writeErr(w, http.StatusBadRequest, "no base_url and the finding has no project to resolve a stored integration config")
-			return
-		}
-		cfg, err = s.integrationConfig(r.Context(), projectID, req.Integration)
-		if errors.Is(err, store.ErrNotFound) {
-			writeErr(w, http.StatusBadRequest, "no stored config for "+req.Integration+"; configure it (or pass base_url)")
-			return
-		}
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
 	ref, err := conn.PushFinding(r.Context(), cfg, finding)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "push: "+err.Error())
 		return
 	}
-
 	link, err := s.pdb(r).CreateExternalLink(r.Context(), model.ExternalLink{
-		FindingID: findingID, Integration: req.Integration, ExternalID: ref.ID, ExternalURL: ref.URL,
+		FindingID: findingID, Integration: req.ConnectorID, ExternalID: ref.ID, ExternalURL: ref.URL,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.record(r.Context(), actorOf(r), "integration.push", findingID, map[string]string{
-		"integration": req.Integration, "external_id": ref.ID,
+		"connector": req.ConnectorID, "external_id": ref.ID,
 	})
 	writeJSON(w, http.StatusCreated, link)
 }
@@ -123,114 +258,30 @@ func (s *Server) resolveCredential(ctx context.Context, name string) (string, er
 	return string(v), nil
 }
 
-// integrationConfig loads a project's stored integration config and resolves its credential (ADR-0027).
-func (s *Server) integrationConfig(ctx context.Context, projectID, name string) (integration.Config, error) {
-	c, err := s.pdbID(projectID).GetIntegrationConfig(ctx, projectID, name)
-	if err != nil {
-		return integration.Config{}, err
-	}
-	cred, err := s.resolveCredential(ctx, c.Credential)
-	if err != nil {
-		return integration.Config{}, err
-	}
-	return integration.Config{BaseURL: c.BaseURL, ProjectKey: c.ProjectKey, Credential: cred}, nil
-}
+// pdbProjectID resolves the active project id for a request (X-Project-Id header / query / path).
+func (s *Server) pdbProjectID(r *http.Request) string { return projectFromReq(r) }
 
-// projectOfFinding resolves a finding's project via its application (findings scope through applications).
-// The finding was loaded from the request's active project, so its application lives in that project's db.
-func (s *Server) projectOfFinding(r *http.Request, f model.Finding) string {
-	if f.ApplicationID == nil {
-		return ""
-	}
-	app, err := s.pdb(r).GetApplication(r.Context(), *f.ApplicationID)
-	if err != nil {
-		return ""
-	}
-	return app.ProjectID
-}
-
-// listProjectIntegrations returns a project's configured integrations plus the available connectors and
-// whether each supports inbound pull.
-func (s *Server) listProjectIntegrations(w http.ResponseWriter, r *http.Request) {
-	configs, err := s.pdb(r).ListIntegrationConfigs(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	type connView struct {
-		Name     string `json:"name"`
-		Pullable bool   `json:"pullable"`
-	}
-	conns := make([]connView, 0)
-	for _, name := range s.integr.Names() {
-		c, _ := s.integr.Get(name)
-		_, pullable := c.(integration.Puller)
-		conns = append(conns, connView{Name: name, Pullable: pullable})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"configs": configs, "connectors": conns})
-}
-
-// setIntegrationConfig upserts a project's config for an integration (credential is a vault secret name).
-func (s *Server) setIntegrationConfig(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("integration")
-	if _, ok := s.integr.Get(name); !ok {
-		writeErr(w, http.StatusBadRequest, "unknown integration "+name)
-		return
-	}
-	var req struct {
-		BaseURL    string `json:"base_url"`
-		ProjectKey string `json:"project_key"`
-		Credential string `json:"credential"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	cfg, err := s.pdb(r).SetIntegrationConfig(r.Context(), model.IntegrationConfig{
-		ProjectID: r.PathValue("id"), Integration: name,
-		BaseURL: req.BaseURL, ProjectKey: req.ProjectKey, Credential: req.Credential,
-	})
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.record(r.Context(), actorOf(r), "integration.config", name, map[string]string{"project": r.PathValue("id")})
-	writeJSON(w, http.StatusOK, cfg)
-}
-
-// deleteIntegrationConfig removes a project's config for an integration.
-func (s *Server) deleteIntegrationConfig(w http.ResponseWriter, r *http.Request) {
-	if err := s.pdb(r).DeleteIntegrationConfig(r.Context(), r.PathValue("id"), r.PathValue("integration")); errors.Is(err, store.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "no such integration config")
-		return
-	} else if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// pullIntegration imports external findings into the project as unreviewed observations (ADR-0027),
-// deduped by external id so a re-pull only brings in new ones.
+// pullIntegration imports external findings via a connector into the project as unreviewed observations
+// (ADR-0027), deduped by external id so a re-pull only brings in new ones.
 func (s *Server) pullIntegration(w http.ResponseWriter, r *http.Request) {
-	projectID := r.PathValue("id")
-	name := r.PathValue("integration")
-	conn, ok := s.integr.Get(name)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "unknown integration "+name)
-		return
-	}
-	puller, ok := conn.(integration.Puller)
-	if !ok {
-		writeErr(w, http.StatusBadRequest, name+" does not support pull")
-		return
-	}
-	cfg, err := s.integrationConfig(r.Context(), projectID, name)
+	projectID, connectorID := r.PathValue("id"), r.PathValue("connectorId")
+	cfg, connType, err := s.configForConnector(r.Context(), projectID, connectorID)
 	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, http.StatusBadRequest, "no config for "+name+"; configure it first")
+		writeErr(w, http.StatusBadRequest, "unknown connector")
 		return
 	}
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	conn, ok := s.integr.Get(connType)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "unknown connector type "+connType)
+		return
+	}
+	puller, ok := conn.(integration.Puller)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, connType+" does not support pull")
 		return
 	}
 	ext, err := puller.Pull(r.Context(), cfg)
@@ -238,13 +289,12 @@ func (s *Server) pullIntegration(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "pull: "+err.Error())
 		return
 	}
-
 	imported, skipped := 0, 0
 	for _, ef := range ext {
 		if ef.ExternalID == "" {
 			continue
 		}
-		if has, _ := s.pdb(r).HasImport(r.Context(), projectID, name, ef.ExternalID); has {
+		if has, _ := s.pdb(r).HasImport(r.Context(), projectID, connectorID, ef.ExternalID); has {
 			skipped++
 			continue
 		}
@@ -256,16 +306,16 @@ func (s *Server) pullIntegration(w http.ResponseWriter, r *http.Request) {
 		obs, err := s.pdb(r).CreateObservation(r.Context(), model.Observation{
 			ProjectID: &pid, Origin: model.OriginTool, ReviewState: review,
 			Title: ef.Title, Detail: ef.Detail, Severity: normalizeSeverity(ef.Severity),
-			RuleID: name + ":" + ef.ExternalID, Location: ef.URL,
+			RuleID: connType + ":" + ef.ExternalID, Location: ef.URL,
 		})
 		if err != nil {
 			continue
 		}
-		_ = s.pdb(r).RecordImport(r.Context(), projectID, name, ef.ExternalID, obs.ID)
+		_ = s.pdb(r).RecordImport(r.Context(), projectID, connectorID, ef.ExternalID, obs.ID)
 		imported++
 	}
 	s.record(r.Context(), actorOf(r), "integration.pull", projectID, map[string]any{
-		"integration": name, "imported": imported, "skipped": skipped,
+		"connector": connectorID, "imported": imported, "skipped": skipped,
 	})
 	writeJSON(w, http.StatusOK, map[string]int{"imported": imported, "skipped": skipped, "total": len(ext)})
 }

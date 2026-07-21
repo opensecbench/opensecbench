@@ -828,12 +828,17 @@ func (c *Client) DeleteRunner(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/runners/"+id, nil, nil)
 }
 
-// ProjectIntegrations is a project's configured integrations + available connectors (ADR-0027).
+// ProjectIntegrations is the global connectors merged with this project's binding state (ADR-0027 / IA
+// declutter).
 type ProjectIntegrations struct {
-	Configs    []model.IntegrationConfig `json:"configs"`
 	Connectors []struct {
-		Name     string `json:"name"`
-		Pullable bool   `json:"pullable"`
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		BaseURL    string `json:"base_url"`
+		Pullable   bool   `json:"pullable"`
+		Bound      bool   `json:"bound"`
+		ProjectKey string `json:"project_key"`
 	} `json:"connectors"`
 }
 
@@ -844,23 +849,41 @@ type PullResult struct {
 	Total    int `json:"total"`
 }
 
-// ListProjectIntegrations returns a project's integration configs + available connectors.
+// ListConnectors returns the global external-tracker connectors.
+func (c *Client) ListConnectors(ctx context.Context) ([]model.Connector, error) {
+	var out []model.Connector
+	return out, c.do(ctx, http.MethodGet, "/v1/connectors", nil, &out)
+}
+
+// CreateConnector registers a global connector (credential is a vault secret name).
+func (c *Client) CreateConnector(ctx context.Context, name, typ, baseURL, credential string) (model.Connector, error) {
+	var out model.Connector
+	body := map[string]string{"name": name, "type": typ, "base_url": baseURL, "credential": credential}
+	return out, c.do(ctx, http.MethodPost, "/v1/connectors", body, &out)
+}
+
+// DeleteConnector removes a global connector.
+func (c *Client) DeleteConnector(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/connectors/"+id, nil, nil)
+}
+
+// ListProjectIntegrations returns the connectors merged with this project's binding state.
 func (c *Client) ListProjectIntegrations(ctx context.Context, projectID string) (ProjectIntegrations, error) {
 	var out ProjectIntegrations
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/integrations", nil, &out)
 }
 
-// SetIntegrationConfig upserts a project's config for an integration (credential is a vault secret name).
-func (c *Client) SetIntegrationConfig(ctx context.Context, projectID, integration, baseURL, projectKey, credential string) (model.IntegrationConfig, error) {
-	var out model.IntegrationConfig
-	body := map[string]string{"base_url": baseURL, "project_key": projectKey, "credential": credential}
-	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+projectID+"/integrations/"+integration, body, &out)
+// SetBinding attaches a project to a global connector with a project-side scope (ADR-0027).
+func (c *Client) SetBinding(ctx context.Context, projectID, connectorID, projectKey string) (model.IntegrationBinding, error) {
+	var out model.IntegrationBinding
+	body := map[string]string{"project_key": projectKey}
+	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+projectID+"/integrations/"+connectorID, body, &out)
 }
 
-// PullIntegration imports external findings into the project as observations.
-func (c *Client) PullIntegration(ctx context.Context, projectID, integration string) (PullResult, error) {
+// PullIntegration imports external findings from a connector into the project as observations.
+func (c *Client) PullIntegration(ctx context.Context, projectID, connectorID string) (PullResult, error) {
 	var out PullResult
-	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/integrations/"+integration+"/pull", nil, &out)
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/integrations/"+connectorID+"/pull", nil, &out)
 }
 
 // ListInvestigations returns a project's disposition-opened investigations (ADR-0028).

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { api, IntegrationConfig, Project } from './api'
+import { api, ProjectConnector, Project } from './api'
 
-// Per-project integrations (ADR-0027): configure a tracker once (reused by push + pull), and pull
-// external findings in as observations that enter triage.
+// IntegrationsTab binds this project to global connectors (ADR-0027 / IA declutter). Connectors (tracker
+// instance + credential) are built once in the Library; here you attach one to the project, set its
+// project-side scope, and pull findings in.
 export function IntegrationsTab({
   project,
   online,
@@ -12,77 +13,53 @@ export function IntegrationsTab({
   online: boolean
   onError: (m: string) => void
 }) {
-  const [configs, setConfigs] = useState<IntegrationConfig[]>([])
-  const [connectors, setConnectors] = useState<{ name: string; pullable: boolean }[]>([])
-  const [secrets, setSecrets] = useState<string[]>([])
-  const [integration, setIntegration] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [projectKey, setProjectKey] = useState('')
-  const [credential, setCredential] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [connectors, setConnectors] = useState<ProjectConnector[]>([])
+  const [keys, setKeys] = useState<Record<string, string>>({}) // editable project_key per connector
+  const [busy, setBusy] = useState('')
   const [result, setResult] = useState<string | null>(null)
 
   async function load() {
     const pi = await api.getProjectIntegrations(project.id)
-    setConfigs(pi.configs ?? [])
-    setConnectors(pi.connectors ?? [])
-    if (!integration && pi.connectors?.length) setIntegration(pi.connectors[0].name)
+    const cs = pi.connectors ?? []
+    setConnectors(cs)
+    setKeys(Object.fromEntries(cs.map((c) => [c.id, c.project_key])))
   }
-
   useEffect(() => {
     if (!online) return
     void load().catch((e) => onError((e as Error).message))
-    api.listSecrets().then((s) => setSecrets((s ?? []).map((x) => x.name))).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, project.id])
 
-  // Prefill the form from an existing config when the selected integration changes.
-  useEffect(() => {
-    const c = configs.find((x) => x.integration === integration)
-    setBaseUrl(c?.base_url ?? '')
-    setProjectKey(c?.project_key ?? '')
-    setCredential(c?.credential ?? '')
-  }, [integration, configs])
-
-  const pullable = (name: string) => connectors.find((c) => c.name === name)?.pullable ?? false
-
-  async function save() {
-    if (!integration || !baseUrl.trim()) return
-    setBusy(true)
+  async function bind(c: ProjectConnector) {
+    setBusy(c.id)
     try {
-      await api.setIntegrationConfig(project.id, integration, {
-        base_url: baseUrl.trim(),
-        project_key: projectKey.trim(),
-        credential,
-      })
+      await api.setBinding(project.id, c.id, keys[c.id] ?? '')
       await load()
-      setResult('Saved.')
+      setResult(`Bound ${c.name}.`)
     } catch (e) {
       onError((e as Error).message)
     } finally {
-      setBusy(false)
+      setBusy('')
     }
   }
-
-  async function pull(name: string) {
-    setBusy(true)
+  async function unbind(c: ProjectConnector) {
+    try {
+      await api.deleteBinding(project.id, c.id)
+      await load()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+  async function pull(c: ProjectConnector) {
+    setBusy(c.id)
     setResult(null)
     try {
-      const r = await api.pullIntegration(project.id, name)
-      setResult(`Pulled ${name}: ${r.imported} imported, ${r.skipped} already present (of ${r.total}). Imported findings are unreviewed observations — triage them in Findings.`)
+      const r = await api.pullIntegration(project.id, c.id)
+      setResult(`Pulled ${c.name}: ${r.imported} imported, ${r.skipped} already present (of ${r.total}). Imported findings are unreviewed observations — triage them in Findings.`)
     } catch (e) {
       onError((e as Error).message)
     } finally {
-      setBusy(false)
-    }
-  }
-
-  async function remove(name: string) {
-    try {
-      await api.deleteIntegrationConfig(project.id, name)
-      await load()
-    } catch (e) {
-      onError((e as Error).message)
+      setBusy('')
     }
   }
 
@@ -90,52 +67,37 @@ export function IntegrationsTab({
     <div className="content">
       <div className="hero">
         <h1>Integrations</h1>
-        <p>Connect an external tracker once — reused for pushing findings out and pulling findings in.</p>
+        <p>Attach a connector to this project and pull findings in. Connectors (tracker + credential) are defined once in the Library (📚 → Connectors).</p>
       </div>
 
       {result && <div className="banner">{result}</div>}
 
       <section className="panel">
-        <div className="panel-head">Configured</div>
-        {configs.length === 0 ? (
-          <div className="empty">No integrations configured yet.</div>
+        <div className="panel-head">Connectors</div>
+        {connectors.length === 0 ? (
+          <div className="empty">No connectors defined. Add one in the Library → Connectors, then bind it here.</div>
         ) : (
           <ul className="rows">
-            {configs.map((c) => (
-              <li key={c.id} className="row-item">
-                <span className="kind">{c.integration}</span>
-                <span className="row-title mono">{c.base_url}</span>
-                <span className="muted">key {c.project_key || '—'} · cred {c.credential || '—'}</span>
+            {connectors.map((c) => (
+              <li key={c.id} className={`row-item ${c.bound ? 'bound' : ''}`}>
+                <span className="kind">{c.type}</span>
+                <span className="row-title">{c.name}{c.bound ? '' : ' — not bound'}</span>
+                <input
+                  className="integ-key"
+                  placeholder="project key / test id"
+                  value={keys[c.id] ?? ''}
+                  onChange={(e) => setKeys((k) => ({ ...k, [c.id]: e.target.value }))}
+                />
                 <span className="grow" />
-                {pullable(c.integration) && (
-                  <button className="mini ok" disabled={!online || busy} onClick={() => pull(c.integration)}>
-                    ⟱ Pull
-                  </button>
+                <button className="mini" disabled={!online || busy === c.id} onClick={() => bind(c)}>{c.bound ? 'update' : 'bind'}</button>
+                {c.bound && c.pullable && (
+                  <button className="mini ok" disabled={!online || busy === c.id} onClick={() => pull(c)}>{busy === c.id ? '…' : '⟱ Pull'}</button>
                 )}
-                <button className="mini no" disabled={busy} onClick={() => remove(c.integration)}>remove</button>
+                {c.bound && <button className="mini no" onClick={() => unbind(c)}>unbind</button>}
               </li>
             ))}
           </ul>
         )}
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">Configure</div>
-        <div className="create-row">
-          <select value={integration} onChange={(e) => setIntegration(e.target.value)}>
-            {connectors.map((c) => (
-              <option key={c.name} value={c.name}>{c.name}{c.pullable ? ' (push + pull)' : ' (push)'}</option>
-            ))}
-          </select>
-          <input placeholder="base URL, e.g. https://defectdojo.local" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-          <input placeholder="project key / test id" value={projectKey} onChange={(e) => setProjectKey(e.target.value)} />
-          <select value={credential} onChange={(e) => setCredential(e.target.value)}>
-            <option value="">credential (vault secret)…</option>
-            {secrets.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <button disabled={!online || busy || !integration || !baseUrl.trim()} onClick={save}>Save</button>
-        </div>
-        <p className="hint">The credential is a vault secret name — add it under Secrets first; its value never leaves the vault.</p>
       </section>
     </div>
   )

@@ -69,15 +69,21 @@ func TestIntegrationConfigAndPull(t *testing.T) {
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
 
-	// Seal the DefectDojo API token in the vault (the config stores only its name).
+	// Seal the DefectDojo API token in the vault (the connector stores only its name).
 	if code := postJSON(t, srv.URL+"/v1/secrets", `{"name":"dd_token","value":"secret-token"}`, &struct{}{}); code >= 300 {
 		t.Fatalf("set secret = %d", code)
 	}
 
-	// Configure the project's DefectDojo integration.
-	base := srv.URL + "/v1/projects/" + proj.ID + "/integrations/defectdojo"
-	if code := putJSON(t, base, `{"base_url":"`+dd.URL+`","project_key":"9","credential":"dd_token"}`, &struct{}{}); code != http.StatusOK {
-		t.Fatalf("set config = %d", code)
+	// Create a global DefectDojo connector, then bind this project to it with a project-side scope.
+	var conn struct {
+		ID string `json:"id"`
+	}
+	if code := postJSON(t, srv.URL+"/v1/connectors", `{"name":"DD","type":"defectdojo","base_url":"`+dd.URL+`","credential":"dd_token"}`, &conn); code != http.StatusCreated {
+		t.Fatalf("create connector = %d", code)
+	}
+	base := srv.URL + "/v1/projects/" + proj.ID + "/integrations/" + conn.ID
+	if code := putJSON(t, base, `{"project_key":"9"}`, &struct{}{}); code != http.StatusOK {
+		t.Fatalf("bind = %d", code)
 	}
 
 	// Pull: two observations imported, correct review states.
@@ -125,9 +131,14 @@ func TestIntegrationConfigAndPull(t *testing.T) {
 func TestPullUnsupportedIntegration(t *testing.T) {
 	srv, db := newIntegrationServer(t)
 	proj, _ := db.CreateProject(context.Background(), store.NewProject{Name: "p"})
-	// jira is push-only.
-	base := srv.URL + "/v1/projects/" + proj.ID + "/integrations/jira"
-	_ = putJSON(t, base, `{"base_url":"https://jira.local","credential":""}`, &struct{}{})
+	// jira is push-only — a jira connector can't be pulled.
+	var conn struct {
+		ID string `json:"id"`
+	}
+	if code := postJSON(t, srv.URL+"/v1/connectors", `{"name":"J","type":"jira","base_url":"https://jira.local"}`, &conn); code != http.StatusCreated {
+		t.Fatalf("create connector = %d", code)
+	}
+	base := srv.URL + "/v1/projects/" + proj.ID + "/integrations/" + conn.ID
 	var body map[string]any
 	if code := postJSON(t, base+"/pull", `{}`, &body); code != http.StatusBadRequest {
 		t.Fatalf("pull jira = %d, want 400 (push-only)", code)

@@ -7,43 +7,54 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
-func TestIntegrationConfigCRUD(t *testing.T) {
+func TestConnectorCRUD(t *testing.T) {
+	db := migratedDB(t)
+	ctx := context.Background()
+
+	c, err := db.CreateConnector(ctx, model.Connector{Name: "DefectDojo (prod)", Type: "defectdojo", BaseURL: "https://dd.local", Credential: "dd_token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ID == "" || c.Type != "defectdojo" {
+		t.Fatalf("connector not stored: %+v", c)
+	}
+	got, err := db.GetConnector(ctx, c.ID)
+	if err != nil || got.BaseURL != "https://dd.local" || got.Credential != "dd_token" {
+		t.Fatalf("GetConnector = %+v err=%v", got, err)
+	}
+	if list, _ := db.ListConnectors(ctx); len(list) != 1 {
+		t.Fatalf("list = %d, want 1", len(list))
+	}
+	if err := db.DeleteConnector(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetConnector(ctx, c.ID); err != ErrNotFound {
+		t.Fatalf("after delete = %v, want ErrNotFound", err)
+	}
+}
+
+func TestBindingCRUD(t *testing.T) {
 	db := migratedDB(t)
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, NewProject{Name: "p"})
+	conn, _ := db.CreateConnector(ctx, model.Connector{Name: "DD", Type: "defectdojo"})
 
-	c, err := db.SetIntegrationConfig(ctx, model.IntegrationConfig{
-		ProjectID: proj.ID, Integration: "defectdojo", BaseURL: "https://dd.local", ProjectKey: "42", Credential: "dd_token",
-	})
-	if err != nil {
-		t.Fatal(err)
+	b, err := db.SetBinding(ctx, model.IntegrationBinding{ProjectID: proj.ID, ConnectorID: conn.ID, ProjectKey: "42"})
+	if err != nil || b.ID == "" || b.ProjectKey != "42" {
+		t.Fatalf("binding not stored: %+v err=%v", b, err)
 	}
-	if c.ID == "" || c.BaseURL != "https://dd.local" || c.Credential != "dd_token" {
-		t.Fatalf("config not stored: %+v", c)
+	// Upsert on (project, connector) updates the project_key in place.
+	b2, err := db.SetBinding(ctx, model.IntegrationBinding{ProjectID: proj.ID, ConnectorID: conn.ID, ProjectKey: "7"})
+	if err != nil || b2.ID != b.ID || b2.ProjectKey != "7" {
+		t.Fatalf("upsert should update in place: %+v err=%v", b2, err)
 	}
-
-	// Upsert on the unique (project, integration) key updates in place.
-	c2, err := db.SetIntegrationConfig(ctx, model.IntegrationConfig{
-		ProjectID: proj.ID, Integration: "defectdojo", BaseURL: "https://dd2.local", ProjectKey: "7", Credential: "dd_token2",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c2.ID != c.ID || c2.BaseURL != "https://dd2.local" {
-		t.Fatalf("upsert should update in place: %+v", c2)
-	}
-
-	got, err := db.GetIntegrationConfig(ctx, proj.ID, "defectdojo")
-	if err != nil || got.ProjectKey != "7" {
-		t.Fatalf("GetIntegrationConfig = %+v err=%v", got, err)
-	}
-	if list, _ := db.ListIntegrationConfigs(ctx, proj.ID); len(list) != 1 {
+	if list, _ := db.ListBindings(ctx, proj.ID); len(list) != 1 {
 		t.Fatalf("list = %d, want 1", len(list))
 	}
-	if err := db.DeleteIntegrationConfig(ctx, proj.ID, "defectdojo"); err != nil {
+	if err := db.DeleteBinding(ctx, proj.ID, conn.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.GetIntegrationConfig(ctx, proj.ID, "defectdojo"); err != ErrNotFound {
+	if _, err := db.GetBinding(ctx, proj.ID, conn.ID); err != ErrNotFound {
 		t.Fatalf("after delete = %v, want ErrNotFound", err)
 	}
 }
