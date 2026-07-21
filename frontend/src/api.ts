@@ -249,6 +249,24 @@ export interface GraphNode {
   outdated?: boolean
   latest?: string
 }
+export interface RouteFinding {
+  observation_id: string
+  title: string
+  severity: string
+  route_reachable: boolean
+}
+export interface RouteView {
+  id: string
+  method: string
+  path: string
+  handler_file?: string
+  handler_line?: number
+  framework?: string
+  observed: boolean
+  findings: RouteFinding[] | null
+  worst_severity?: string
+  reachable_count: number
+}
 export interface Graph {
   kind: string
   nodes: GraphNode[]
@@ -1015,6 +1033,8 @@ export const api = {
     request<MethodologySuggestion[]>('GET', `/v1/projects/${projectId}/methodology/suggestions`),
   projectGraph: (projectId: string, kind: string) =>
     request<Graph>('GET', `/v1/projects/${projectId}/graph?kind=${kind}`),
+  projectRoutes: (projectId: string) =>
+    request<RouteView[]>('GET', `/v1/projects/${projectId}/routes`),
 
   // extensions, hub, policy
   listExtensions: () => request<ExtensionInfo[]>('GET', '/v1/extensions'),

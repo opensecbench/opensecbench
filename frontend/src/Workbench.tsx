@@ -29,6 +29,7 @@ import { LocationChip, OpenCode, parseLoc } from './CodeLink'
 import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
+import { RoutesTab } from './RoutesTab'
 import { IntegrationsTab } from './IntegrationsTab'
 import { InvestigationsTab } from './InvestigationsTab'
 import { KnowledgeTab } from './KnowledgeTab'
@@ -62,6 +63,7 @@ type Tab =
   | 'tasks'
   | 'findings'
   | 'investigations'
+  | 'routes'
   | 'reports'
   | 'graph'
   | 'integrations'
@@ -90,6 +92,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
   { key: 'scan', icon: '▷', label: 'Scan' },
   { key: 'findings', icon: '⚑', label: 'Find' },
   { key: 'investigations', icon: '🔎', label: 'Invest' },
+  { key: 'routes', icon: '🎯', label: 'Surface' },
   { key: 'graph', icon: '📊', label: 'Graph' },
   { key: 'methodology', icon: '✓', label: 'Method' },
   { key: 'scope', icon: '🛡', label: 'Scope' },
@@ -109,7 +112,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean }[] = [
 const SURFACE_GROUPS: { label: string; keys: Tab[] }[] = [
   { label: 'Evidence', keys: ['assets', 'context', 'knowledge'] },
   { label: 'Testing', keys: ['replay', 'proxy', 'intercept', 'terminal', 'scan'] },
-  { label: 'Analysis', keys: ['findings', 'investigations', 'graph'] },
+  { label: 'Analysis', keys: ['findings', 'investigations', 'routes', 'graph'] },
   { label: 'Coverage', keys: ['methodology', 'scope'] },
   { label: 'Run', keys: ['orchestrate', 'playbooks', 'tasks'] },
   { label: 'Deliver', keys: ['reports'] },
@@ -803,6 +806,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         return <InvestigationsTab project={project} online={online} observations={observations} onOpenCode={openCodeFile} onError={setError} />
       case 'reports':
         return <ReportsTab project={project} online={online} onError={setError} />
+      case 'routes':
+        return <RoutesTab project={project} online={online} onError={setError} onJump={(t) => activateSurface(t as Tab)} />
       case 'graph':
         return <GraphTab project={project} online={online} onError={setError} />
       case 'integrations':
