@@ -155,16 +155,47 @@ export function ProxyTab({
 
   // Live push (SSE): upsert captured exchanges as they happen; reflect proxy start/stop. Subscribe
   // once per project — filters are applied via the ref, so typing never tears down the stream.
+  //
+  // A busy target can emit hundreds of exchanges/second. Rendering the (up to 300-row) list on every
+  // event pegged a CPU core, so events are coalesced into a buffer and flushed at most ~5×/s — the render
+  // rate is decoupled from the event rate.
+  const pendingRef = useRef<HTTPExchange[]>([])
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!online) return
+    const flush = () => {
+      flushTimer.current = null
+      const batch = pendingRef.current
+      if (batch.length === 0) return
+      pendingRef.current = []
+      setCaptured((prev) => {
+        const seen = new Set<string>()
+        const merged: HTTPExchange[] = []
+        // Newest event first: the buffer is in arrival (oldest→newest) order, so walk it reversed.
+        for (let i = batch.length - 1; i >= 0; i--) {
+          if (!seen.has(batch[i].id)) { seen.add(batch[i].id); merged.push(batch[i]) }
+        }
+        for (const ex of prev) {
+          if (!seen.has(ex.id)) { seen.add(ex.id); merged.push(ex) }
+        }
+        return merged.slice(0, 300)
+      })
+    }
     const close = api.subscribeProjectEvents(project.id, {
       exchange: (ex) => {
         if (!matchesFilter(ex)) return
-        setCaptured((prev) => [ex, ...prev.filter((e) => e.id !== ex.id)].slice(0, 300))
+        pendingRef.current.push(ex)
+        // Only the newest ~300 can survive the merge; cap the buffer so an extreme burst can't grow it.
+        if (pendingRef.current.length > 400) pendingRef.current.splice(0, pendingRef.current.length - 400)
+        if (flushTimer.current === null) flushTimer.current = setTimeout(flush, 200)
       },
       proxy: setStatus,
     })
-    return close
+    return () => {
+      close()
+      if (flushTimer.current !== null) { clearTimeout(flushTimer.current); flushTimer.current = null }
+      pendingRef.current = []
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, project.id])
 
