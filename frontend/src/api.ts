@@ -246,8 +246,21 @@ export interface GraphNode {
   meta?: string
   vulns?: number
   reachable?: boolean
+  reach_confidence?: string
   outdated?: boolean
   latest?: string
+}
+export interface ReachabilityFact {
+  id: string
+  subject_type: string
+  subject_key: string
+  reachable: string
+  confidence: string
+  source: string
+  method?: string
+  rationale?: string
+  actor?: string
+  updated_at: string
 }
 export interface RouteFinding {
   observation_id: string
@@ -1038,6 +1051,13 @@ export const api = {
     request<Graph>('GET', `/v1/projects/${projectId}/graph?kind=${kind}`),
   projectRoutes: (projectId: string) =>
     request<RouteView[]>('GET', `/v1/projects/${projectId}/routes`),
+  getReachability: (projectId: string, subjectType: string, subject: string) =>
+    request<{ reachable: string; confidence: string; facts: ReachabilityFact[] | null }>(
+      'GET',
+      `/v1/projects/${projectId}/reachability?subject_type=${subjectType}&subject=${encodeURIComponent(subject)}`,
+    ),
+  addReachability: (projectId: string, body: { subject_type: string; subject: string; reachable: string; confidence?: string; rationale?: string }) =>
+    request<{ reachable: string; confidence: string; facts: ReachabilityFact[] | null }>('POST', `/v1/projects/${projectId}/reachability`, body),
 
   // extensions, hub, policy
   listExtensions: () => request<ExtensionInfo[]>('GET', '/v1/extensions'),

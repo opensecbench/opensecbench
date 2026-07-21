@@ -54,7 +54,7 @@ func TestSummarizeVulns(t *testing.T) {
 		toolVuln("CVE-2", "critical", map[string]string{"reachable": "true"}),
 		toolVuln("CVE-3", "low", nil),
 	}
-	worst, reachable := summarizeVulns(obs)
+	worst, reachable, _ := summarizeVulns(obs)
 	if worst != "critical" {
 		t.Errorf("worst = %q, want critical", worst)
 	}
@@ -62,8 +62,20 @@ func TestSummarizeVulns(t *testing.T) {
 		t.Error("should be reachable (one obs has reachable=true)")
 	}
 
-	worst2, reachable2 := summarizeVulns([]model.Observation{toolVuln("CVE-9", "high", nil)})
+	worst2, reachable2, _ := summarizeVulns([]model.Observation{toolVuln("CVE-9", "high", nil)})
 	if worst2 != "high" || reachable2 {
 		t.Errorf("got (%q, %v), want (high, false)", worst2, reachable2)
+	}
+}
+
+// summarizeVulns surfaces the reachability confidence from the aggregate folded onto the observation.
+func TestSummarizeVulnsConfidence(t *testing.T) {
+	obs := []model.Observation{
+		{Severity: "high", Attributes: map[string]string{"reachable": "true", "reachable_confidence": "medium"}},
+		{Severity: "critical", Attributes: map[string]string{"reachable": "true", "reachable_confidence": "proven"}},
+	}
+	_, reachable, conf := summarizeVulns(obs)
+	if !reachable || conf != "proven" {
+		t.Fatalf("got reachable=%v conf=%q, want true/proven (strongest)", reachable, conf)
 	}
 }
