@@ -65,6 +65,40 @@ func (db *DB) GetContextItem(ctx context.Context, id string) (model.ContextItem,
 	return ci, nil
 }
 
+// UpdateContextItem updates a context item's mutable fields: name, tags, pinned, and artifact_id. The
+// artifact_id changes only when a note's body is re-saved (its text is re-stored in the CAS and this points
+// at the new blob); metadata-only edits pass the item's existing artifact_id unchanged. Returns ErrNotFound
+// when no row matches.
+func (db *DB) UpdateContextItem(ctx context.Context, id, name string, tags []string, pinned bool, artifactID string) (model.ContextItem, error) {
+	if id == "" || name == "" || artifactID == "" {
+		return model.ContextItem{}, errors.New("store: context item id, name, and artifact id required")
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE context_items SET name = ?, tags = ?, pinned = ?, artifact_id = ? WHERE id = ?`,
+		name, joinTags(tags), pinned, artifactID, id)
+	if err != nil {
+		return model.ContextItem{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return model.ContextItem{}, ErrNotFound
+	}
+	return db.GetContextItem(ctx, id)
+}
+
+// DeleteContextItem removes a context item. The CAS blob it referenced is left in place — content-addressed
+// storage may be shared by other artifacts, and orphan blobs are harmless. Returns ErrNotFound when no row
+// matches.
+func (db *DB) DeleteContextItem(ctx context.Context, id string) error {
+	res, err := db.ExecContext(ctx, `DELETE FROM context_items WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListContextItemsByProject returns a project's context items, newest first.
 func (db *DB) ListContextItemsByProject(ctx context.Context, projectID string) ([]model.ContextItem, error) {
 	rows, err := db.QueryContext(ctx,

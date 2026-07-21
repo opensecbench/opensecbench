@@ -138,7 +138,7 @@ const surfaceByKey = (k: Tab) => SURFACES.find((s) => s.key === k)!
 // activity bar, so it needs no tabs (ADR-0015: one way to switch, not two or three).
 // `code` (source files, ADR-0050) has no activity-bar icon — you open specific files,
 // you don't navigate to a blank Code surface — but many can be open at once.
-const MULTI_DOC_SURFACES: Tab[] = ['replay', 'code', 'finding']
+const MULTI_DOC_SURFACES: Tab[] = ['replay', 'code', 'finding', 'context']
 
 function surfaceTitle(t: Tab): string {
   if (t === 'overview') return 'Overview'
@@ -358,6 +358,7 @@ function WorkbenchExplorer({
   onSelectRoute,
   onOpenCode,
   onOpenFinding,
+  onOpenContextItem,
 }: {
   tab: Tab | null
   project: Project
@@ -373,6 +374,7 @@ function WorkbenchExplorer({
   onSelectRoute: (id: string) => void
   onOpenCode: OpenCode
   onOpenFinding: (f: Finding) => void
+  onOpenContextItem: (c: ContextItem) => void
 }) {
   // "Findings in files": each finding's located observations, so the Explorer lists findings-by-file (not
   // raw observations). Clicking a row opens the finding's detail — its info — with the source file one more
@@ -484,17 +486,15 @@ function WorkbenchExplorer({
               <div key={type}>
                 <div className="wb-exp-row grp">{type} ({items.length})</div>
                 {items.map((c) => (
-                  <a
+                  <div
                     key={c.id}
                     className="wb-exp-row ind ctx-open"
-                    href={api.artifactContentURL(c.artifact_id)}
-                    target="_blank"
-                    rel="noreferrer"
+                    onClick={() => onOpenContextItem(c)}
                     title={(c.tags ?? []).length ? `${c.name} · ${(c.tags ?? []).join(', ')} · open` : `${c.name} · open`}
                   >
                     {c.pinned && <span className="ic">📌</span>}
                     <span className="lbl">{c.name}</span>
-                  </a>
+                  </div>
                 ))}
               </div>
             ))
@@ -518,6 +518,7 @@ interface Doc {
   seed?: HTTPExchange // prefill a Replay from a captured request (Send to Replay)
   code?: { assetId: string; path: string; line?: number } // a source file opened in CodeView (ADR-0050)
   finding?: { id: string } // a finding opened in its detail view; the row data is looked up live by id
+  ctx?: { id: string } // a context item opened in its detail/editor view; looked up live by id
 }
 
 function replayLabel(ex: HTTPExchange): string {
@@ -855,6 +856,11 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
     const key = `finding:${f.id}`
     focusOrAdd({ key, surface: 'finding', title: f.title, finding: { id: f.id } })
   }
+  // Open a context item (note/file) in an in-app detail+editor document. A separate document per item, kept
+  // under the Context surface so the left list stays visible; the row data is looked up live by id.
+  function openContextItem(ci: ContextItem) {
+    focusOrAdd({ key: `ctx:${ci.id}`, surface: 'context', title: ci.name, ctx: { id: ci.id } })
+  }
   function closeDoc(key: string, e?: ReactMouseEvent) {
     e?.stopPropagation()
     const idx = openDocs.findIndex((d) => d.key === key)
@@ -893,7 +899,17 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'knowledge':
         return <KnowledgeTab project={project} online={online} onError={setError} />
       case 'context':
-        return <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />
+        return doc.ctx ? (
+          <ContextView
+            item={context.find((c) => c.id === doc.ctx!.id) ?? null}
+            online={online}
+            reload={async () => setContext((await api.listContext(project.id)) ?? [])}
+            onError={setError}
+            onClose={() => closeDoc(doc.key)}
+          />
+        ) : (
+          <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />
+        )
       case 'scope':
         return <ScopeTab project={project} online={online} onError={setError} />
       case 'scan':
@@ -1050,6 +1066,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
               onSelectRoute={setSelectedRouteId}
               onOpenCode={openCodeFile}
               onOpenFinding={openFinding}
+              onOpenContextItem={openContextItem}
             />
           </SurfaceBoundary>
         )}
@@ -1493,6 +1510,146 @@ function ContextTab({
           </label>
         </div>
       </div>
+    </section>
+  )
+}
+
+// ContextView displays one context item in the center and lets you edit or delete it. Notes are text you
+// rewrite in place; uploaded files show their content read-only (text inline, images inline, anything else a
+// placeholder) while their name/tags/pin stay editable. Delete closes the document. The item is looked up
+// live by id so edits/reloads stay in sync; a deleted item shows an unavailable notice.
+function ContextView({
+  item,
+  online,
+  reload,
+  onError,
+  onClose,
+}: {
+  item: ContextItem | null
+  online: boolean
+  reload: () => Promise<void>
+  onError: (m: string) => void
+  onClose: () => void
+}) {
+  const [content, setContent] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState('')
+  const [body, setBody] = useState('')
+  const [tagsText, setTagsText] = useState('')
+  const [pinned, setPinned] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const isNote = item?.type === 'note'
+  const artifactId = item?.artifact_id
+  const isImage = !!item && /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(item.name)
+
+  // Fetch text content for notes/files (images render via <img>, so skip the text fetch for them).
+  useEffect(() => {
+    if (!artifactId || !online || isImage) { setContent(null); return }
+    let alive = true
+    setLoading(true)
+    api
+      .artifactContent(artifactId)
+      .then((t) => alive && setContent(t))
+      .catch(() => alive && setContent(null))
+      .finally(() => alive && setLoading(false))
+    return () => { alive = false }
+  }, [artifactId, online, isImage])
+
+  function startEdit() {
+    if (!item) return
+    setName(item.name)
+    setBody(content ?? '')
+    setTagsText((item.tags ?? []).join(', '))
+    setPinned(!!item.pinned)
+    setEditing(true)
+  }
+
+  async function save() {
+    if (!item) return
+    const tags = tagsText.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
+    setBusy(true)
+    try {
+      await api.updateContext(item.id, { name: name.trim() || item.name, tags, pinned, ...(isNote ? { body } : {}) })
+      if (isNote) setContent(body)
+      await reload()
+      setEditing(false)
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function del() {
+    if (!item) return
+    if (!window.confirm(`Delete "${item.name}"? This can't be undone.`)) return
+    setBusy(true)
+    try {
+      await api.deleteContext(item.id)
+      await reload()
+      onClose()
+    } catch (e) {
+      onError((e as Error).message)
+      setBusy(false)
+    }
+  }
+
+  if (!item) return <div className="empty">This context item is no longer available.</div>
+
+  const binary = content != null && content.includes('�')
+
+  return (
+    <section className="fd">
+      <header className="fd-head">
+        <div className="fd-titlerow">
+          <span className="badge">{item.type}</span>
+          {editing ? (
+            <input className="ctx-note-title" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
+          ) : (
+            <h2 className="fd-title">{item.pinned ? '📌 ' : ''}{item.name}</h2>
+          )}
+          <span className="grow" />
+          {!editing ? (
+            <>
+              <button className="mini" disabled={!online || busy} onClick={startEdit}>✎ Edit</button>
+              <button className="mini no" disabled={!online || busy} onClick={() => void del()}>🗑 Delete</button>
+            </>
+          ) : (
+            <>
+              <button className="mini ok" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</button>
+              <button className="mini" disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
+            </>
+          )}
+        </div>
+        {editing ? (
+          <div className="ctx-edit-meta">
+            <input className="ctx-tags" placeholder="tags, comma-separated" value={tagsText} onChange={(e) => setTagsText(e.target.value)} disabled={busy} />
+            <label className="ctx-pin"><input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} disabled={busy} /> 📌 Pin for agents</label>
+          </div>
+        ) : (
+          (item.tags ?? []).length > 0 && (
+            <div className="fd-meta">
+              {(item.tags ?? []).map((t) => (
+                <span key={t} className={`ctx-tag ${BEHAVIORAL_CONTEXT_TAGS.includes(t) ? 'behavioral' : ''}`}>{t}</span>
+              ))}
+            </div>
+          )
+        )}
+      </header>
+
+      {editing && isNote ? (
+        <textarea className="ctx-view-editor" value={body} onChange={(e) => setBody(e.target.value)} disabled={busy} placeholder="Note text…" />
+      ) : isImage ? (
+        <img className="ctx-view-img" src={api.artifactContentURL(item.artifact_id)} alt={item.name} />
+      ) : loading ? (
+        <div className="empty">Loading…</div>
+      ) : binary ? (
+        <div className="empty">Binary file — no inline preview.</div>
+      ) : (
+        <pre className="ctx-view-body">{content}</pre>
+      )}
     </section>
   )
 }

@@ -433,6 +433,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/applications/{id}", s.getApplication)
 	s.mux.HandleFunc("GET /v1/projects/{id}/context", s.listContext)
 	s.mux.HandleFunc("POST /v1/projects/{id}/context", s.ingestContext)
+	s.mux.HandleFunc("PATCH /v1/context/{id}", s.updateContext)
+	s.mux.HandleFunc("DELETE /v1/context/{id}", s.deleteContext)
 	s.mux.HandleFunc("GET /v1/projects/{id}/scope", s.listScope)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scope", s.addScope)
 	s.mux.HandleFunc("GET /v1/projects/{id}/engagement", s.getEngagement)
@@ -2099,6 +2101,109 @@ func (s *Server) ingestContext(w http.ResponseWriter, r *http.Request) {
 		_ = ix.IndexContextItem(r.Context(), ci.ProjectID, ci.ID)
 	}
 	writeJSON(w, http.StatusCreated, ci)
+}
+
+// updateContext edits a context item's mutable fields. Any provided field replaces the current value; a
+// `body` (notes only) is re-stored in the CAS as a fresh artifact the item then points at. Metadata-only
+// edits (name/tags/pinned) keep the existing artifact. Re-indexes the item best-effort.
+func (s *Server) updateContext(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	cur, err := s.pdb(r).GetContextItem(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "context item not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var req struct {
+		Name   *string   `json:"name"`
+		Tags   *[]string `json:"tags"`
+		Pinned *bool     `json:"pinned"`
+		Body   *string   `json:"body"` // notes only: the new note text
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	name, tags, pinned, artifactID := cur.Name, cur.Tags, cur.Pinned, cur.ArtifactID
+	if req.Name != nil {
+		name = strings.TrimSpace(*req.Name)
+	}
+	if req.Tags != nil {
+		tags = nil
+		for _, t := range *req.Tags {
+			if t = strings.TrimSpace(t); t != "" {
+				tags = append(tags, t)
+			}
+		}
+	}
+	if req.Pinned != nil {
+		pinned = *req.Pinned
+	}
+	// A note's body is its artifact: re-store the edited text and repoint the item at the new blob.
+	if req.Body != nil {
+		if cur.Type != model.ContextNote {
+			writeErr(w, http.StatusBadRequest, "only notes have an editable body")
+			return
+		}
+		data := []byte(*req.Body)
+		digest, err := s.casFor(projectFromReq(r)).Put(bytes.NewReader(data))
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		art, err := s.pdb(r).CreateArtifact(r.Context(), model.Artifact{
+			SHA256:    digest,
+			Size:      int64(len(data)),
+			Kind:      model.ArtifactInput,
+			Name:      name,
+			MediaType: "text/plain",
+		})
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		artifactID = art.ID
+	}
+
+	ci, err := s.pdb(r).UpdateContextItem(r.Context(), id, name, tags, pinned, artifactID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "context item not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if ix := s.analystService().Indexer(); ix != nil && ix.Available() {
+		_ = ix.IndexContextItem(r.Context(), ci.ProjectID, ci.ID)
+	}
+	s.record(r.Context(), actorOf(r), "context.update", ci.ID, nil)
+	writeJSON(w, http.StatusOK, ci)
+}
+
+// deleteContext removes a context item and its semantic-index chunks. The CAS blob is left in place.
+func (s *Server) deleteContext(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ci, err := s.pdb(r).GetContextItem(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "context item not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.pdb(r).DeleteContextItem(r.Context(), id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Drop its retrieval chunks so a deleted note can't resurface in semantic search. Best-effort.
+	_ = s.pdb(r).DeleteChunksForSource(r.Context(), ci.ProjectID, "context", id)
+	s.record(r.Context(), actorOf(r), "context.delete", id, nil)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- scope allowlist (P6) ---
