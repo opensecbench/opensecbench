@@ -1021,14 +1021,13 @@ func (s *Server) getModelCatalog(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"models": catalog.Models()})
 }
 
-// getModelRouting returns the fixed routing tag vocabulary + the current tag → (provider, model) map.
+// getModelRouting returns the built-in tag vocabulary + the current tag → ordered (connection, model)
+// lists (ADR-0052), normalized through the legacy shape.
 func (s *Server) getModelRouting(w http.ResponseWriter, r *http.Request) {
-	raw, _ := s.global().GetSetting(r.Context(), analyst.ModelRoutingSetting)
-	routing := json.RawMessage("{}")
-	if raw != "" && json.Valid([]byte(raw)) {
-		routing = json.RawMessage(raw)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"tags": analyst.RoutingTags(), "routing": routing})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tags":    analyst.RoutingTags(),
+		"routing": s.analystService().Routing(r.Context()),
+	})
 }
 
 // setModelRouting stores the routing map (a tag → {provider_id, model} object plus a default).
