@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,6 +63,10 @@ type Engine struct {
 
 	mu      sync.Mutex
 	running map[string]runState
+
+	// reEvalMu serializes retroactive re-evaluation so two capabilities finishing at once can't both
+	// promote the same observation into a duplicate finding.
+	reEvalMu sync.Mutex
 }
 
 type runState struct {
@@ -745,6 +750,15 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		go e.enrichOutdated(context.Background(), projectID, taskID, artID, sbom)
 	}
 
+	// Retroactive re-evaluation (ADR-0034): a capability that changes correlation inputs — routes
+	// (route-map), the shared reachability verdict (govulncheck), or network exposure (nmap/http-probe) —
+	// can make an EARLIER finding exploitable. Re-run correlation + disposition over existing observations
+	// so a route or reachability verdict that arrives after a finding was recorded still upgrades it.
+	if projectID != "" && reEvalTrigger(man.ID) {
+		pid := projectID
+		go e.ReEvaluate(context.Background(), pid)
+	}
+
 	status := model.TaskSucceeded
 	errMsg := ""
 	if !man.ExitOK(res.ExitCode) {
@@ -756,6 +770,82 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		return e.outcome(ctx, pidOf(task), task.ID), err
 	}
 	return e.outcome(ctx, pidOf(task), task.ID), nil
+}
+
+// reEvalTrigger reports whether finishing this capability changed a correlation input (routes, the shared
+// reachability verdict, or network exposure) and therefore warrants re-evaluating existing observations.
+func reEvalTrigger(capID string) bool {
+	switch capID {
+	case "route-map", "govulncheck", "nmap", "http-probe":
+		return true
+	}
+	return false
+}
+
+// ReEvaluate re-runs correlation (exposure, reachability, route→sink) and disposition over the project's
+// existing observations, so a finding recorded before the data that makes it exploitable arrived — a
+// route discovered later, or a govulncheck reachability verdict for a CVE grype already reported — is
+// upgraded retroactively (ADR-0034). Only still-unreviewed observations are (re)dispositioned; human
+// triage is never overridden. Best-effort; serialized so concurrent triggers can't double-promote.
+func (e *Engine) ReEvaluate(ctx context.Context, projectID string) {
+	if projectID == "" {
+		return
+	}
+	e.reEvalMu.Lock()
+	defer e.reEvalMu.Unlock()
+
+	obs, err := e.p(projectID).ListObservationsByProject(ctx, projectID)
+	if err != nil || len(obs) == 0 {
+		return
+	}
+	exposedAttr := ""
+	if exp, err := e.p(projectID).ProjectExposure(ctx, projectID); err == nil {
+		exposedAttr = strconv.FormatBool(exp.Exposed)
+	}
+	for i := range obs {
+		o := obs[i]
+		before := attrsKey(o.Attributes)
+		if o.Attributes == nil {
+			o.Attributes = map[string]string{}
+		}
+		if exposedAttr != "" {
+			o.Attributes["exposed"] = exposedAttr
+		}
+		e.correlateReachability(ctx, projectID, &o)
+		e.correlateExposedRoute(ctx, projectID, exposedAttr, &o)
+		if attrsKey(o.Attributes) != before {
+			_ = e.p(projectID).RefreshObservation(ctx, o.ID, o.Severity, o.Detail, o.Attributes)
+		}
+		// Retroactive escalation: an unreviewed observation whose disposition now fires promotes to a
+		// finding/investigation. Already-triaged (confirmed/rejected) observations are left alone.
+		if o.ReviewState == model.ReviewUnreviewed && o.TaskID != nil {
+			if task, err := e.p(projectID).GetTask(ctx, *o.TaskID); err == nil {
+				if c, ok := e.registry.Get(task.CapabilityID); ok {
+					e.applyDispositions(ctx, projectID, c.Manifest(), task.ApplicationID, []model.Observation{o})
+				}
+			}
+		}
+	}
+}
+
+// attrsKey is a stable serialization of an attribute map, for detecting whether re-correlation changed it.
+func attrsKey(m map[string]string) string {
+	if len(m) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(m[k])
+		b.WriteByte(';')
+	}
+	return b.String()
 }
 
 // applyDispositions routes each new observation to a post-run action per the capability's declared
