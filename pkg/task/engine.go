@@ -748,6 +748,7 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 				if ids := vulnIDs(&saved); len(ids) > 0 {
 					_ = e.p(pidOf(task)).RecordObservationVulns(ctx, projectID, saved.ID, ids)
 				}
+				e.recordReachabilityFacts(ctx, projectID, &saved)
 			}
 		}
 	}
@@ -838,6 +839,51 @@ func unionCSV(a, b string) string {
 		out = append(out, part)
 	}
 	return strings.Join(out, ",")
+}
+
+// recordReachabilityFacts emits reachability facts from an observation's correlated attributes into the
+// aggregation store (ADR-0031/0034): govulncheck's call-graph verdict (per CVE, proven), a taint dataflow
+// trace (per observation, medium), and a proven route→sink path (per observation, high). Human/LLM facts
+// are added through their own paths. Best-effort.
+func (e *Engine) recordReachabilityFacts(ctx context.Context, projectID string, o *model.Observation) {
+	a := o.Attributes
+	if a == nil {
+		return
+	}
+	// govulncheck: a sound call-graph verdict on a CVE (reachable OR unreachable) — proven for Go.
+	if a["tool"] == "govulncheck" && a["reachable"] != "" {
+		verdict := model.ReachUnreachable
+		if a["reachable"] == "true" {
+			verdict = model.ReachReachable
+		}
+		for _, id := range vulnIDs(o) {
+			_ = e.p(projectID).AddReachabilityFact(ctx, model.ReachabilityFact{
+				ProjectID: projectID, SubjectType: model.ReachSubjectCVE, SubjectKey: id,
+				Reachable: verdict, Confidence: model.ReachConfProven, Source: "govulncheck",
+				Method: "static call graph", Rationale: a["package"],
+			})
+		}
+	}
+	// SAST taint dataflow: the sink is reachable from an untrusted source — heuristic (medium).
+	if a["dataflow_source"] != "" || a["dataflow_path"] != "" {
+		src := a["tool"]
+		if src == "" {
+			src = "opengrep"
+		}
+		_ = e.p(projectID).AddReachabilityFact(ctx, model.ReachabilityFact{
+			ProjectID: projectID, SubjectType: model.ReachSubjectObservation, SubjectKey: o.ID,
+			Reachable: model.ReachReachable, Confidence: model.ReachConfMedium, Source: src,
+			Method: "taint dataflow", Rationale: "source: " + a["dataflow_source"],
+		})
+	}
+	// route→sink: a proven path from an HTTP entry point to the sink (high).
+	if a["route_reachable"] == "true" {
+		_ = e.p(projectID).AddReachabilityFact(ctx, model.ReachabilityFact{
+			ProjectID: projectID, SubjectType: model.ReachSubjectObservation, SubjectKey: o.ID,
+			Reachable: model.ReachReachable, Confidence: model.ReachConfHigh, Source: "route-analysis",
+			Method: "route→sink dataflow", Rationale: "entry point: " + a["exposed_route"],
+		})
+	}
 }
 
 // reEvalTrigger reports whether finishing this capability changed a correlation input (routes, the shared

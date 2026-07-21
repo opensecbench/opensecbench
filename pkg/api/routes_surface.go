@@ -90,3 +90,56 @@ func (s *Server) listProjectRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func sevRank(s string) int { return sevOrder[s] }
+
+// listReachability returns reachability facts. With subject_type + subject query params, it also resolves
+// the effective verdict for that subject; otherwise it lists all of the project's facts.
+func (s *Server) listReachability(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := r.PathValue("id")
+	st := r.URL.Query().Get("subject_type")
+	sk := r.URL.Query().Get("subject")
+	if st != "" && sk != "" {
+		verdict, confidence, facts := s.pdb(r).ResolveReachability(ctx, projectID, st, sk)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"reachable": verdict, "confidence": confidence, "facts": facts,
+		})
+		return
+	}
+	facts, err := s.pdb(r).ListReachabilityFactsByProject(ctx, projectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, facts)
+}
+
+// addReachability records a manual reachability determination (source=manual) — a human's verdict on
+// whether a finding/CVE is reachable, aggregated with the tool and LLM facts.
+func (s *Server) addReachability(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SubjectType string `json:"subject_type"`
+		Subject     string `json:"subject"`
+		Reachable   string `json:"reachable"`
+		Confidence  string `json:"confidence"`
+		Rationale   string `json:"rationale"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Subject == "" || req.Reachable == "" {
+		writeErr(w, http.StatusBadRequest, "subject and reachable are required")
+		return
+	}
+	projectID := r.PathValue("id")
+	if err := s.pdb(r).AddReachabilityFact(r.Context(), model.ReachabilityFact{
+		ProjectID: projectID, SubjectType: req.SubjectType, SubjectKey: req.Subject,
+		Reachable: req.Reachable, Confidence: req.Confidence, Source: "manual",
+		Method: "manual review", Rationale: req.Rationale, Actor: actorOf(r),
+	}); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "reachability.manual", req.Subject, map[string]any{"reachable": req.Reachable})
+	verdict, confidence, facts := s.pdb(r).ResolveReachability(r.Context(), projectID, req.SubjectType, req.Subject)
+	writeJSON(w, http.StatusOK, map[string]any{"reachable": verdict, "confidence": confidence, "facts": facts})
+}
