@@ -341,6 +341,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /v1/home", s.getHome)
 	s.mux.HandleFunc("GET /v1/search", s.search)
+	s.mux.HandleFunc("GET /v1/projects/{id}/search/code", s.searchCode)
 	s.mux.HandleFunc("GET /v1/audit", s.listAudit)
 	s.mux.HandleFunc("GET /v1/audit/verify", s.verifyAudit)
 	s.mux.HandleFunc("GET /v1/notifications", s.listNotifications)
@@ -1704,6 +1705,40 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
+}
+
+// codeHit is one source-content search result — where a string was found inside a repo.
+type codeHit struct {
+	AssetID string `json:"asset_id"`
+	Path    string `json:"path"`
+	Line    int    `json:"line"`
+	Text    string `json:"text"`
+}
+
+// searchCode greps the project's source_repo assets for a literal string — the content tier of search, so
+// the search bar finds text inside files, not just names/metadata. Bounded across assets so it stays snappy.
+func (s *Server) searchCode(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	out := []codeHit{}
+	if strings.TrimSpace(q) == "" {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	assets, err := s.pdb(r).ListAssets(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	const maxTotal = 60
+	for _, a := range assets {
+		if a.Type != model.AssetSourceRepo || len(out) >= maxTotal {
+			continue
+		}
+		for _, m := range srcfile.Grep(a.Location, q, maxTotal-len(out), 2<<20) {
+			out = append(out, codeHit{AssetID: a.ID, Path: m.Path, Line: m.Line, Text: m.Text})
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // --- templates ---

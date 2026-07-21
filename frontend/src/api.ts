@@ -549,6 +549,12 @@ export interface SearchResult {
   title: string
   detail?: string
 }
+export interface CodeHit {
+  asset_id: string
+  path: string
+  line: number
+  text: string
+}
 
 export interface Playbook {
   id: string
@@ -1102,6 +1108,8 @@ export const api = {
 
   // search
   search: (q: string) => request<SearchResult[]>('GET', '/v1/search?q=' + encodeURIComponent(q)),
+  searchCode: (projectId: string, q: string) =>
+    request<CodeHit[]>('GET', `/v1/projects/${projectId}/search/code?q=` + encodeURIComponent(q)),
 
   // analyst threads & approvals
   // Analyst provider / model

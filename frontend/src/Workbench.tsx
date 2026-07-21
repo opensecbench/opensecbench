@@ -15,6 +15,7 @@ import {
   Playbook,
   Report,
   ReportTemplate,
+  CodeHit,
   PlaybookRun,
   Project,
   RunnerView,
@@ -456,16 +457,20 @@ const HIT_SURFACE: Record<string, Tab> = {
 // The titlebar omni-search: a real input over the already-shipped /v1/search
 // (project-scoped). Results drop down live as you type; selecting one navigates
 // to the surface that owns it. ⌘K / Ctrl+K focuses it from anywhere.
-function OmniSearch({ online, onNavigate }: { online: boolean; onNavigate: (surface: Tab, id?: string) => void }) {
+type OmniResult = SearchResult & { code?: CodeHit }
+
+function OmniSearch({ online, projectId, onNavigate, onOpenCode }: { online: boolean; projectId: string; onNavigate: (surface: Tab, id?: string) => void; onOpenCode: (assetId: string, path: string, line?: number) => void }) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SearchResult[] | null>(null)
+  const [results, setResults] = useState<OmniResult[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
 
-  // Debounce so we hit the endpoint once the user pauses, not on every keystroke.
+  // Debounce so we hit the endpoints once the user pauses, not on every keystroke. Metadata (names,
+  // findings, knowledge) and source-content (grep of the repos) run in parallel; code hits are the heavier
+  // tier so they only run for queries of 3+ chars.
   useEffect(() => {
     const q = query.trim()
     if (!q) {
@@ -477,17 +482,27 @@ function OmniSearch({ online, onNavigate }: { online: boolean; onNavigate: (surf
     setBusy(true)
     const timer = setTimeout(async () => {
       try {
-        const hits = (await api.search(q)) ?? []
-        setResults(hits)
+        const [meta, code] = await Promise.all([
+          api.search(q).catch(() => [] as SearchResult[]),
+          q.length >= 3 ? api.searchCode(projectId, q).catch(() => [] as CodeHit[]) : Promise.resolve([] as CodeHit[]),
+        ])
+        const codeResults: OmniResult[] = (code ?? []).map((c) => ({
+          kind: 'code',
+          id: `${c.asset_id}:${c.path}:${c.line}`,
+          title: `${c.path}:${c.line}`,
+          detail: c.text,
+          code: c,
+        }))
+        setResults([...(meta ?? []), ...codeResults])
         setActive(0)
       } catch {
         setResults([])
       } finally {
         setBusy(false)
       }
-    }, 220)
+    }, 260)
     return () => clearTimeout(timer)
-  }, [query, online])
+  }, [query, online, projectId])
 
   // ⌘K / Ctrl+K focuses the search from anywhere in the Workbench.
   useEffect(() => {
@@ -511,8 +526,9 @@ function OmniSearch({ online, onNavigate }: { online: boolean; onNavigate: (surf
     return () => window.removeEventListener('mousedown', onDown)
   }, [])
 
-  function choose(r: SearchResult) {
-    onNavigate(HIT_SURFACE[r.kind] ?? 'assets', r.id)
+  function choose(r: OmniResult) {
+    if (r.code) onOpenCode(r.code.asset_id, r.code.path, r.code.line)
+    else onNavigate(HIT_SURFACE[r.kind] ?? 'assets', r.id)
     setOpen(false)
     setQuery('')
     setResults(null)
@@ -540,7 +556,7 @@ function OmniSearch({ online, onNavigate }: { online: boolean; onNavigate: (surf
         onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
         onKeyDown={onInputKey}
-        placeholder={online ? 'Search findings · assets · context · knowledge…' : 'Search unavailable — offline'}
+        placeholder={online ? 'Search findings · code · assets · knowledge…' : 'Search unavailable — offline'}
         disabled={!online}
         spellCheck={false}
       />
@@ -849,7 +865,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         <button className={`wb-proj ${online ? 'online' : ''}`} onClick={onHome} title="Back to Home">
           <span className="dot" /> {project.name} <span className="car">▾</span>
         </button>
-        <OmniSearch online={online} onNavigate={navigateTo} />
+        <OmniSearch online={online} projectId={project.id} onNavigate={navigateTo} onOpenCode={openCodeFile} />
         <ActivityMenu online={online} />
         <NotificationBell online={online} />
         <code className="apiurl">{api.baseURL}</code>

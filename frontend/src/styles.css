@@ -494,6 +494,10 @@ a.link,
   background: var(--red-bg);
   color: var(--red);
 }
+.kind-code {
+  background: #14261c;
+  color: #7cd0a0;
+}
 .kind-observation {
   background: #2a2114;
   color: var(--amber);
