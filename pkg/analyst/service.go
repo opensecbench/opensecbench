@@ -400,6 +400,11 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context
 				if call.Tool == "search_corpus" {
 					return "", fmt.Errorf("blocked by data-egress policy: search_corpus would send corpus/KB content to the external provider %q; use a local provider (e.g. ollama) or switch to a governance profile that permits it", pname)
 				}
+				// read_artifact returns raw scanner output (SARIF/SBOM/inventory) derived from asset content —
+				// treated as private by default, same egress class as read_context.
+				if call.Tool == "read_artifact" {
+					return "", fmt.Errorf("blocked by data-egress policy: read_artifact would send scanner output derived from asset content to the external provider %q; use a local provider (e.g. ollama) or switch to a governance profile that permits it", pname)
+				}
 			}
 		}
 		return exec(ctx, call)

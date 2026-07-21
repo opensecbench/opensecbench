@@ -469,6 +469,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
 	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)
 	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
+	s.mux.HandleFunc("POST /v1/projects/{id}/scan", s.scanProject)
 
 	// Remote runners — operator actions on the trusted (loopback) API (ADR-0024). The runner protocol
 	// itself is served on a separate network-exposed listener; see RunnerHandler.
@@ -2388,6 +2389,25 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		"capability": req.CapabilityID, "status": t.Status,
 	})
 	writeJSON(w, http.StatusAccepted, t)
+}
+
+// scanProject fans out every applicable capability across the project's assets — the deterministic
+// "scan everything" action. Each enqueued task runs on the worker pool and auto-triages on completion;
+// the client polls GET /v1/tasks. No agent is involved.
+func (s *Server) scanProject(w http.ResponseWriter, r *http.Request) {
+	if s.engine == nil {
+		writeErr(w, http.StatusServiceUnavailable, "task engine not available")
+		return
+	}
+	res, err := s.engine.ScanProject(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "project.scan", r.PathValue("id"), map[string]any{
+		"enqueued": len(res.Enqueued), "skipped": len(res.Skipped),
+	})
+	writeJSON(w, http.StatusAccepted, res)
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {

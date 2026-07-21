@@ -62,6 +62,12 @@ func Tools() []agent.Tool {
 		{Name: "list_investigations", Description: "List the current project's open investigations — observations the disposition layer flagged for validation (id, title, status, observation_id).", Params: []agent.Param{
 			{Name: "open_only", Type: agent.TypeBoolean, Description: "only investigations not yet resolved/dismissed"},
 		}},
+		{Name: "list_artifacts", Description: "List the raw output artifacts the scanners produced (id, name, media_type, kind, task, size) — e.g. inventory.txt, sbom.cdx.json, opengrep.sarif, routes.json. These are the evidence behind the observations/findings; use read_artifact to read one.", Params: []agent.Param{
+			{Name: "limit", Type: agent.TypeInteger, Description: "max artifacts to return (default 100, newest first)"},
+		}},
+		{Name: "read_artifact", Description: "Read a scanner output artifact's content by id (SARIF, SBOM, inventory, route map, etc.). This is how you inspect the actual tool output — e.g. an opengrep codeFlow to validate a taint, or the SBOM to reason about a dependency — instead of re-running the scan.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "artifact id (from list_artifacts, or an observation's artifact_id)"},
+		}},
 		{Name: "list_kb", Description: "List the current project's knowledge-base entries (id, target, kind, title, review_state) — the durable knowledge about how this target is set up (architecture, auth, tech_stack, data_flow, conventions, gotchas). Check here before drafting to update rather than duplicate.", Params: []agent.Param{
 			{Name: "kind", Type: agent.TypeString, Description: "filter to one kind (architecture|auth|endpoint|tech_stack|environment|data_flow|convention|gotcha|tactic)"},
 		}},
@@ -307,6 +313,10 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return listContext(ctx, deps, call)
 		case "read_context":
 			return readContext(ctx, deps, call)
+		case "list_artifacts":
+			return listArtifacts(ctx, deps, call)
+		case "read_artifact":
+			return readArtifact(ctx, deps, call)
 		case "get_kb_entry":
 			return getKBEntry(ctx, deps, call)
 		case "workspace_write":

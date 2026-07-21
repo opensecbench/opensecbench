@@ -108,6 +108,48 @@ func TestReadContextEgressBlocked(t *testing.T) {
 	}
 }
 
+// The agent can list and read the raw scanner output artifacts (evidence), and that read is egress-gated.
+func TestListAndReadArtifact(t *testing.T) {
+	ctx := context.Background()
+	db := migratedStore(t)
+	blobs, err := cas.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	const sarif = `{"runs":[{"results":[{"ruleId":"py.sql-injection"}]}]}`
+	digest, err := blobs.Put(strings.NewReader(sarif))
+	if err != nil {
+		t.Fatal(err)
+	}
+	art, err := db.CreateArtifact(ctx, model.Artifact{SHA256: digest, MediaType: "application/sarif+json", Size: int64(len(sarif)), Name: "opengrep.sarif", Kind: "output"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), Blobs: blobs, ProjectID: proj.ID})
+	out, err := exec(ctx, agent.ToolCall{Tool: "list_artifacts", Args: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "opengrep.sarif") || !strings.Contains(out, art.ID) {
+		t.Fatalf("list_artifacts = %s", out)
+	}
+	content, err := exec(ctx, agent.ToolCall{Tool: "read_artifact", Args: map[string]any{"id": art.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, "py.sql-injection") {
+		t.Fatalf("read_artifact content = %q", content)
+	}
+
+	// Egress-gated: strict posture + external provider must block reading scan output.
+	svc := &Service{mgr: store.NewCombinedManager(db), casr: cas.Fixed(blobs), egressAllowInternal: false, egressAllowPrivate: false}
+	if _, err := svc.executeFor(proj.ID, &llm.AnthropicProvider{})(ctx, agent.ToolCall{Tool: "read_artifact", Args: map[string]any{"id": art.ID}}); err == nil || !strings.Contains(err.Error(), "egress") {
+		t.Fatalf("read_artifact should be egress-blocked on an external provider, got %v", err)
+	}
+}
+
 func TestGetKBEntry(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)

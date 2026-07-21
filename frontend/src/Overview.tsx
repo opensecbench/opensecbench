@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { CoverageView, Engagement, Finding, Project } from './api'
 
 // OverviewTab is the per-project start page — status at a glance plus a "Start here" checklist that
@@ -9,15 +10,34 @@ export function OverviewTab({
   findings,
   coverage,
   engagement,
+  online,
   onJump,
+  onScan,
 }: {
   project: Project
   assets: number
   findings: Finding[]
   coverage: CoverageView | null
   engagement: Engagement | null
+  online: boolean
   onJump: (t: string) => void
+  onScan: () => Promise<{ enqueued: unknown[]; skipped: unknown[] }>
 }) {
+  const [scanBusy, setScanBusy] = useState(false)
+  const [scanMsg, setScanMsg] = useState<string | null>(null)
+  async function runScan() {
+    setScanBusy(true)
+    setScanMsg(null)
+    try {
+      const res = await onScan()
+      const n = res.enqueued.length
+      setScanMsg(n === 0 ? 'No applicable scanners for the current assets.' : `Started ${n} scan${n === 1 ? '' : 's'}. Watch them in Tasks; findings will appear as they finish.`)
+    } catch (e) {
+      setScanMsg(`Scan failed: ${(e as Error).message}`)
+    } finally {
+      setScanBusy(false)
+    }
+  }
   const covered = coverage?.summary.covered_pct ?? 0
   const adopted = (coverage?.packs ?? []).length > 0
   const hasEngagement = !!engagement
@@ -37,6 +57,14 @@ export function OverviewTab({
       t: 'Bring in assets',
       d: assets > 0 ? `${assets} asset${assets === 1 ? '' : 's'} imported.` : 'Add the apps, hosts, repos, and endpoints in scope.',
       go: 'Assets',
+    },
+    {
+      done: findings.length > 0,
+      to: 'scan',
+      scan: true,
+      t: 'Scan everything',
+      d: assets > 0 ? 'Run every applicable scanner across your assets — SBOM, CVEs, SAST, routes, secrets — auto-triaged into findings. No agent needed.' : 'Add assets first, then scan them all in one click.',
+      go: 'Scan',
     },
     {
       done: adopted,
@@ -83,9 +111,13 @@ export function OverviewTab({
             <div className="mark">{s.done ? '✓' : i === nowIdx ? '▸' : i + 1}</div>
             <div className="body">
               <div className="t">{s.t}</div>
-              <div className="d">{s.d}</div>
+              <div className="d">{'scan' in s && s.scan && scanMsg ? scanMsg : s.d}</div>
             </div>
-            <button className="go" onClick={() => onJump(s.to)}>{s.go}</button>
+            {'scan' in s && s.scan ? (
+              <button className="go" disabled={!online || scanBusy || assets === 0} onClick={runScan}>{scanBusy ? 'Scanning…' : s.go}</button>
+            ) : (
+              <button className="go" onClick={() => onJump(s.to)}>{s.go}</button>
+            )}
           </div>
         ))}
       </div>
