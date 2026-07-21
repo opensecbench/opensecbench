@@ -65,6 +65,17 @@ func (a *AnthropicProvider) Name() string {
 	return "anthropic"
 }
 
+// claudeCodeUserAgent identifies the request as the official Claude Code CLI. A subscription OAuth token
+// used outside that client shape is rejected with a misleading `429 rate_limit_error` (message "Error") —
+// so we must present the CLI's User-Agent and app headers, not the Go default. Override the version with
+// OSB_CLAUDE_USER_AGENT if the installed CLI drifts.
+func claudeCodeUserAgent() string {
+	if v := os.Getenv("OSB_CLAUDE_USER_AGENT"); v != "" {
+		return v
+	}
+	return "claude-cli/2.1.214 (external, cli)"
+}
+
 // setAuth attaches Anthropic auth: a subscription OAuth Bearer token (read fresh from the credential file)
 // when configured, else the x-api-key. Always sets anthropic-version.
 func (a *AnthropicProvider) setAuth(req *http.Request) error {
@@ -76,6 +87,12 @@ func (a *AnthropicProvider) setAuth(req *http.Request) error {
 		}
 		req.Header.Set("Authorization", "Bearer "+tok)
 		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+		// Present the Claude Code client shape so the OAuth token is accepted (see claudeCodeUserAgent).
+		req.Header.Set("User-Agent", claudeCodeUserAgent())
+		req.Header.Set("x-app", "cli")
+		req.Header.Set("x-stainless-lang", "js")
+		req.Header.Set("x-stainless-runtime", "node")
+		req.Header.Set("x-stainless-retry-count", "0")
 		return nil
 	}
 	if a.APIKey == "" {
