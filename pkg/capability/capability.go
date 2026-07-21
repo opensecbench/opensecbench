@@ -35,9 +35,26 @@ type Manifest struct {
 	// "source_repo"). Empty means the scan orchestrator never fires it automatically — it must be invoked
 	// explicitly (network/intrusive capabilities that need a chosen target opt out this way).
 	AppliesTo []string `json:"applies_to,omitempty"`
-	// Ecosystem, if set, restricts auto-run to assets whose stack matches (e.g. "go" for govulncheck, keyed
-	// off a marker file like go.mod). Empty = language-agnostic, runs on any matching asset kind.
-	Ecosystem string `json:"ecosystem,omitempty"`
+	// Ecosystems, if set, restricts auto-run to assets whose stack includes at least one of them (e.g.
+	// {"go"} for govulncheck, {"python"} for a Python-only checker, {"rust"} for cargo-audit). Empty =
+	// language-agnostic (syft/grype/opengrep auto-detect), runs on any matching asset kind. Detection is
+	// by marker files at the repo root. This is the gate that keeps a Rust app from getting a Python tool.
+	Ecosystems []string `json:"ecosystems,omitempty"`
+}
+
+// TargetsEcosystems reports whether this capability should auto-run given the ecosystems detected in an
+// asset. A capability with no declared ecosystems is language-agnostic and always runs; otherwise it runs
+// only when at least one of its ecosystems is present.
+func (m Manifest) TargetsEcosystems(detected map[string]bool) bool {
+	if len(m.Ecosystems) == 0 {
+		return true
+	}
+	for _, e := range m.Ecosystems {
+		if detected[e] {
+			return true
+		}
+	}
+	return false
 }
 
 // AutoScannable reports whether the scan orchestrator may fire this capability against an asset of the

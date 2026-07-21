@@ -5,12 +5,87 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
+
+// pyOnlyCap is a language-specific fake: it declares the python ecosystem, so the scan gate must keep it
+// off a non-python repo.
+type pyOnlyCap struct{}
+
+func (pyOnlyCap) Manifest() capability.Manifest {
+	return capability.Manifest{
+		ID: "py-checker", Version: "1.0.0", OutputName: "o",
+		AppliesTo: []string{"source_repo"}, Ecosystems: []string{"python"}, OKExitCodes: []int{0},
+	}
+}
+func (pyOnlyCap) Plan(capability.Input) (runner.RunSpec, error) {
+	return runner.RunSpec{Image: "x", Cmd: []string{"x"}, Timeout: time.Minute}, nil
+}
+
+func seedRepoAsset(t *testing.T, db *store.DB, projectID, marker, content string) {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, marker), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, _ := db.CreateApplication(ctx, projectID, marker)
+	if _, err := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: dir, Sensitivity: "private"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A language-specific capability runs only on a repo whose stack it targets — a Python checker is kept off
+// a Rust app and fired on a Python one.
+func TestScanProjectGatesLanguageSpecificTool(t *testing.T) {
+	db, blobs := openStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry()
+	reg.Register(pyOnlyCap{})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{code: 0})
+	defer eng.Close()
+
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	seedRepoAsset(t, db, proj.ID, "Cargo.toml", "[package]\n") // a Rust app
+
+	res, err := eng.ScanProject(ctx, proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tk := range res.Enqueued {
+		if tk.CapabilityID == "py-checker" {
+			t.Fatal("python checker must not run on a rust repo")
+		}
+	}
+	var skipped bool
+	for _, s := range res.Skipped {
+		if s.CapabilityID == "py-checker" {
+			skipped = true
+		}
+	}
+	if !skipped {
+		t.Fatalf("py-checker should be a recorded skip; skips=%v", res.Skipped)
+	}
+
+	// Add a Python app — now the checker fires (on that asset).
+	seedRepoAsset(t, db, proj.ID, "requirements.txt", "flask\n")
+	res2, _ := eng.ScanProject(ctx, proj.ID)
+	var ran bool
+	for _, tk := range res2.Enqueued {
+		if tk.CapabilityID == "py-checker" {
+			ran = true
+		}
+	}
+	if !ran {
+		t.Fatal("python checker should run on a python repo")
+	}
+}
 
 // ScanProject fans every applicable capability across a source_repo asset, skips a language-specific one
 // whose ecosystem isn't detected, and never fires a capability that opts out (no AppliesTo).
