@@ -5,12 +5,76 @@
 package srcfile
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// GrepMatch is one content hit: a repo-relative path, 1-based line number, and the (trimmed) line text.
+type GrepMatch struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
+// Grep searches a source tree for a literal, case-insensitive substring, bounded so it stays fast enough
+// to back an interactive search: it skips noise dirs and dotdirs, files larger than maxFileBytes, and
+// binary files (NUL byte), and stops at maxMatches. Best-effort — unreadable entries are skipped.
+func Grep(root, needle string, maxMatches, maxFileBytes int) []GrepMatch {
+	needle = strings.ToLower(strings.TrimSpace(needle))
+	if needle == "" {
+		return nil
+	}
+	if maxMatches <= 0 {
+		maxMatches = 100
+	}
+	if maxFileBytes <= 0 {
+		maxFileBytes = 2 << 20
+	}
+	root = filepath.Clean(root)
+	nb := []byte(needle)
+	var out []GrepMatch
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries
+		}
+		if d.IsDir() {
+			if p != root && (noiseDirs[d.Name()] || strings.HasPrefix(d.Name(), ".")) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if info, err := d.Info(); err != nil || info.Size() > int64(maxFileBytes) {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		if err != nil || bytes.IndexByte(data, 0) >= 0 { // unreadable or binary
+			return nil
+		}
+		if !bytes.Contains(bytes.ToLower(data), nb) {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, p)
+		for i, line := range strings.Split(string(data), "\n") {
+			if strings.Contains(strings.ToLower(line), needle) {
+				text := strings.TrimSpace(line)
+				if len(text) > 200 {
+					text = text[:200] + "…"
+				}
+				out = append(out, GrepMatch{Path: rel, Line: i + 1, Text: text})
+				if len(out) >= maxMatches {
+					return fs.SkipAll
+				}
+			}
+		}
+		return nil
+	})
+	return out
+}
 
 // ConfinedPath resolves rel against root and refuses anything that escapes it — both lexically (".." /
 // absolute paths) and via symlinks when the target already exists on disk.
