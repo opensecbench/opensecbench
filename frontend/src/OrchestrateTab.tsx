@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, AgentPlaybook, Plan, Project, Schedule } from './api'
-import { PlaybookBuilder } from './PlaybookBuilder'
 
 const DAY = 86400
 const WEEK = 604800
@@ -12,16 +11,15 @@ function cadence(seconds: number): string {
   return `every ${Math.round(seconds / 3600)}h`
 }
 
-// OrchestrateTab lets a human trigger an agent playbook and watch the resulting plan (a DAG of steps,
-// each delegated to a specialist) run to completion (ADR-0019).
+// OrchestrateTab runs and schedules agent playbooks on this project, and watches the resulting plan (a DAG
+// of specialist steps) run to completion (ADR-0019). Playbooks are authored in the global Library; here you
+// pick one to run or schedule.
 export function OrchestrateTab({ project, online, onError }: { project: Project; online: boolean; onError: (m: string) => void }) {
   const [playbooks, setPlaybooks] = useState<AgentPlaybook[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
   const [selected, setSelected] = useState<Plan | null>(null)
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [busy, setBusy] = useState('')
-  const [building, setBuilding] = useState(false)
-  const [editing, setEditing] = useState<AgentPlaybook | null>(null)
 
   const loadPlaybooks = useCallback(async () => {
     try {
@@ -95,15 +93,6 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
     }
   }
 
-  async function deletePlaybook(id: string) {
-    try {
-      await api.deleteAgentPlaybook(id)
-      await loadPlaybooks()
-    } catch (e) {
-      onError((e as Error).message)
-    }
-  }
-
   async function schedule(pb: AgentPlaybook, seconds: number) {
     try {
       await api.createSchedule(project.id, pb.id, seconds)
@@ -149,36 +138,14 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
       <div className="orch-left">
         <div className="orch-section-h orch-ph">
           <span>Playbooks</span>
-          <span className="grow" />
-          <button className="orch-new" disabled={!online} onClick={() => { setEditing(null); setBuilding((v) => !v) }}>{building && !editing ? 'Close' : '＋ New'}</button>
         </div>
-        {(building || editing) && (
-          <PlaybookBuilder
-            key={editing?.id ?? 'new'}
-            online={online}
-            edit={editing ?? undefined}
-            onCancel={() => { setBuilding(false); setEditing(null) }}
-            onSaved={() => {
-              setBuilding(false)
-              setEditing(null)
-              void loadPlaybooks()
-            }}
-          />
-        )}
+        {playbooks.length === 0 && <div className="orch-empty">No playbooks yet — build one in the Library.</div>}
         {playbooks.map((pb) => (
           <div key={pb.id} className="orch-pb">
             <div className="orch-pb-h">
               <b>{pb.name}</b>
               {!pb.builtin && <span className="orch-saved">saved</span>}
               <span className="grow" />
-              {!pb.builtin && (
-                <>
-                  <button className="orch-edit" title="Edit this saved playbook" disabled={!online} onClick={() => { setEditing(pb); setBuilding(true) }}>✎ Edit</button>
-                  <button className="orch-del" title="Delete this saved playbook" disabled={!online} onClick={() => deletePlaybook(pb.id)}>
-                    ×
-                  </button>
-                </>
-              )}
               <button disabled={!online || !!busy} onClick={() => run(pb)}>{busy === pb.id ? '…' : '▷ Run'}</button>
             </div>
             <div className="orch-pb-d">{pb.description}</div>

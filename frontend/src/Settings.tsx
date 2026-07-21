@@ -4,13 +4,12 @@ import { applyTheme } from './theme'
 import { Providers } from './Providers'
 import { Tags } from './Tags'
 import { ApprovalPolicy } from './ApprovalPolicy'
-import { CustomAgents } from './CustomAgents'
 
 // Custom (bespoke-component) sections, composed alongside declarative ones from the API (ADR-0021).
+// Custom Agents moved to the global Library (build & reuse) — see Library.tsx.
 const CUSTOM: { id: string; title: string; icon: string; order: number }[] = [
   { id: 'providers', title: 'Models & Providers', icon: '🧠', order: 20 },
   { id: 'approvals', title: 'Approvals', icon: '🛡', order: 30 },
-  { id: 'agents', title: 'Custom Agents', icon: '🤖', order: 40 },
 ]
 
 export function Settings({ online }: { online: boolean }) {
@@ -65,7 +64,6 @@ export function Settings({ online }: { online: boolean }) {
           </>
         )}
         {active === 'approvals' && <ApprovalPolicy online={online} />}
-        {active === 'agents' && <CustomAgents online={online} />}
         {activeSection && (
           <div className="settings-fields">
             <h2>
