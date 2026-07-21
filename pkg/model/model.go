@@ -722,8 +722,11 @@ type Asset struct {
 	Type          string    `json:"type"`
 	Location      string    `json:"location"`
 	Sensitivity   string    `json:"sensitivity"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	// Ecosystems are the asset's manual technology/ecosystem tags (python, go, rust, node, …). The scan
+	// auto-run gate unions these with what it detects from the repo, so an operator can correct detection.
+	Ecosystems []string  `json:"ecosystems,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Task status values (mirrored by a CHECK constraint in the schema).

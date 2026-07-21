@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -145,7 +146,7 @@ func (db *DB) UpdateAssetSensitivity(ctx context.Context, id, sensitivity string
 // ListAssetsByApplication returns an application's assets, oldest first.
 func (db *DB) ListAssetsByApplication(ctx context.Context, applicationID string) ([]model.Asset, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, application_id, type, location, sensitivity, created_at, updated_at
+		`SELECT id, application_id, type, location, sensitivity, ecosystems, created_at, updated_at
 		 FROM assets WHERE application_id = ? ORDER BY created_at`, applicationID)
 	if err != nil {
 		return nil, err
@@ -157,7 +158,7 @@ func (db *DB) ListAssetsByApplication(ctx context.Context, applicationID string)
 // ListAssets returns all assets, newest first (used by the Analyst to find scan targets).
 func (db *DB) ListAssets(ctx context.Context) ([]model.Asset, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, application_id, type, location, sensitivity, created_at, updated_at
+		`SELECT id, application_id, type, location, sensitivity, ecosystems, created_at, updated_at
 		 FROM assets ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -169,16 +170,17 @@ func (db *DB) ListAssets(ctx context.Context) ([]model.Asset, error) {
 // GetAsset returns an asset by id.
 func (db *DB) GetAsset(ctx context.Context, id string) (model.Asset, error) {
 	var a model.Asset
-	var created, updated string
+	var created, updated, eco string
 	err := db.QueryRowContext(ctx,
-		`SELECT id, application_id, type, location, sensitivity, created_at, updated_at FROM assets WHERE id = ?`, id).
-		Scan(&a.ID, &a.ApplicationID, &a.Type, &a.Location, &a.Sensitivity, &created, &updated)
+		`SELECT id, application_id, type, location, sensitivity, ecosystems, created_at, updated_at FROM assets WHERE id = ?`, id).
+		Scan(&a.ID, &a.ApplicationID, &a.Type, &a.Location, &a.Sensitivity, &eco, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Asset{}, ErrNotFound
 	}
 	if err != nil {
 		return model.Asset{}, err
 	}
+	a.Ecosystems = splitTags(eco)
 	a.CreatedAt, a.UpdatedAt = parseTime(created), parseTime(updated)
 	return a, nil
 }
@@ -187,12 +189,52 @@ func scanAssets(rows *sql.Rows) ([]model.Asset, error) {
 	var out []model.Asset
 	for rows.Next() {
 		var a model.Asset
-		var created, updated string
-		if err := rows.Scan(&a.ID, &a.ApplicationID, &a.Type, &a.Location, &a.Sensitivity, &created, &updated); err != nil {
+		var created, updated, eco string
+		if err := rows.Scan(&a.ID, &a.ApplicationID, &a.Type, &a.Location, &a.Sensitivity, &eco, &created, &updated); err != nil {
 			return nil, err
 		}
+		a.Ecosystems = splitTags(eco)
 		a.CreatedAt, a.UpdatedAt = parseTime(created), parseTime(updated)
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// SetAssetEcosystems replaces an asset's manual ecosystem tags (normalized: lowercased, trimmed, deduped).
+func (db *DB) SetAssetEcosystems(ctx context.Context, id string, ecosystems []string) (model.Asset, error) {
+	res, err := db.ExecContext(ctx,
+		`UPDATE assets SET ecosystems = ?, updated_at = ? WHERE id = ?`,
+		joinTags(ecosystems), nowString(), id)
+	if err != nil {
+		return model.Asset{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return model.Asset{}, ErrNotFound
+	}
+	return db.GetAsset(ctx, id)
+}
+
+// splitTags parses a comma-separated tag list; joinTags normalizes and serializes one.
+func splitTags(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func joinTags(tags []string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range tags {
+		t = strings.ToLower(strings.TrimSpace(t))
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return strings.Join(out, ",")
 }

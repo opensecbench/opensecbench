@@ -87,6 +87,48 @@ func TestScanProjectGatesLanguageSpecificTool(t *testing.T) {
 	}
 }
 
+func enqueuedHas(res ScanResult, cap string) bool {
+	for _, tk := range res.Enqueued {
+		if tk.CapabilityID == cap {
+			return true
+		}
+	}
+	return false
+}
+
+// A manual ecosystem tag makes a tool run where detection missed the stack — the operator override for
+// a polyglot/unusual repo. It's unioned with detection and normalized (Python → python).
+func TestScanProjectManualEcosystemTagOverride(t *testing.T) {
+	db, blobs := openStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry()
+	reg.Register(pyOnlyCap{})
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{code: 0})
+	defer eng.Close()
+
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[package]"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	asset, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: dir, Sensitivity: "private"})
+
+	res, _ := eng.ScanProject(ctx, proj.ID)
+	if enqueuedHas(res, "py-checker") {
+		t.Fatal("py-checker should be skipped before tagging (rust repo, no python markers)")
+	}
+
+	// Operator tags the repo python — detection under-read it.
+	if _, err := db.SetAssetEcosystems(ctx, asset.ID, []string{"Python"}); err != nil {
+		t.Fatal(err)
+	}
+	res2, _ := eng.ScanProject(ctx, proj.ID)
+	if !enqueuedHas(res2, "py-checker") {
+		t.Fatal("py-checker should run after the manual python tag")
+	}
+}
+
 // ScanProject fans every applicable capability across a source_repo asset, skips a language-specific one
 // whose ecosystem isn't detected, and never fires a capability that opts out (no AppliesTo).
 func TestScanProjectFansOutApplicableCapabilities(t *testing.T) {

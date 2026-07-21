@@ -43,6 +43,7 @@ export interface Asset {
   type: string
   location: string
   sensitivity: string
+  ecosystems?: string[]
   created_at: string
   updated_at: string
 }
@@ -827,6 +828,10 @@ export const api = {
   listAssets: (appId: string) => request<Asset[]>('GET', `/v1/applications/${appId}/assets`),
   createAsset: (appId: string, type: string, location: string, sensitivity: string) =>
     request<Asset>('POST', `/v1/applications/${appId}/assets`, { type, location, sensitivity }),
+  getAssetEcosystems: (assetId: string) =>
+    request<{ detected: string[] | null; tags: string[] | null }>('GET', `/v1/assets/${assetId}/ecosystems`),
+  setAssetEcosystems: (assetId: string, ecosystems: string[]) =>
+    request<Asset>('PUT', `/v1/assets/${assetId}/ecosystems`, { ecosystems }),
   updateAssetSensitivity: (assetId: string, sensitivity: string) =>
     request<Asset>('PUT', `/v1/assets/${assetId}`, { sensitivity }),
 
