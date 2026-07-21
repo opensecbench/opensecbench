@@ -1125,6 +1125,17 @@ function AssetsTab({
     }
   }
 
+  // Editing an existing asset's sensitivity auto-saves on change — it gates external AI egress, so
+  // operators need to correct it without deleting and re-adding the asset.
+  async function changeAssetSensitivity(assetId: string, sensitivity: string) {
+    try {
+      await api.updateAssetSensitivity(assetId, sensitivity)
+      await reload()
+    } catch (err) {
+      onError((err as Error).message)
+    }
+  }
+
   return (
     <div>
       <form className="create-row" onSubmit={addApp}>
@@ -1146,7 +1157,16 @@ function AssetsTab({
                 {assets.map((as) => (
                   <li key={as.id} className="row-item">
                     <span className="badge">{as.type}</span>
-                    <span className={`sens sens-${as.sensitivity}`}>{as.sensitivity}</span>
+                    <select
+                      className={`sens sens-${as.sensitivity}`}
+                      value={as.sensitivity}
+                      disabled={!online}
+                      title="Data sensitivity — gates whether this asset may reach an external AI provider"
+                      onChange={(e) => changeAssetSensitivity(as.id, e.target.value)}
+                    >
+                      <option value="private">private</option>
+                      <option value="open_source">open_source</option>
+                    </select>
                     <span className="mono">{as.location}</span>
                   </li>
                 ))}

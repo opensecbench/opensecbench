@@ -14,8 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -460,6 +460,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/applications/{id}/assets", s.listAssets)
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
+	s.mux.HandleFunc("PATCH /v1/assets/{id}", s.updateAsset)
 	// Source viewer (ADR-0050): read a source_repo asset's tree/files for the in-app code viewer and
 	// click-to-file from findings. Reads are path-confined to the asset root (pkg/srcfile).
 	s.mux.HandleFunc("GET /v1/assets/{id}/source", s.getAssetSource)
@@ -1568,9 +1569,9 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name           string  `json:"name"`
-		OrganizationID *string `json:"organization_id"`
-		GroupID        *string `json:"group_id"`
+		Name           string   `json:"name"`
+		OrganizationID *string  `json:"organization_id"`
+		GroupID        *string  `json:"group_id"`
 		TargetIDs      []string `json:"target_ids"`
 		// Optional engagement record + scope, so the setup modal creates a project with its properties in
 		// one call (ADR-0051). Applied to the new project's database after creation; best-effort so a
@@ -1837,6 +1838,27 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, asset)
+}
+
+// updateAsset edits an existing asset's sensitivity in place (ADR-0011: sensitivity gates external
+// egress, so an operator must be able to correct it after create without deleting and re-adding).
+func (s *Server) updateAsset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Sensitivity string `json:"sensitivity"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	asset, err := s.pdb(r).UpdateAssetSensitivity(r.Context(), r.PathValue("id"), req.Sensitivity)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "asset not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, asset)

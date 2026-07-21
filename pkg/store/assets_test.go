@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -69,5 +70,36 @@ func TestCreateAssetRejectsBadType(t *testing.T) {
 	app, _ := db.CreateApplication(ctx, proj.ID, "a")
 	if _, err := db.CreateAsset(ctx, NewAsset{ApplicationID: app.ID, Type: "bogus", Location: "/x"}); err == nil {
 		t.Fatal("expected error for invalid asset type")
+	}
+}
+
+func TestUpdateAssetSensitivity(t *testing.T) {
+	db := migratedDB(t)
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, NewProject{Name: "e"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "a")
+	// Location under /oss/ infers open_source; correct it to private.
+	as, err := db.CreateAsset(ctx, NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/oss/thing"})
+	if err != nil || as.Sensitivity != model.SensitivityOpenSource {
+		t.Fatalf("setup: %+v err=%v", as, err)
+	}
+
+	upd, err := db.UpdateAssetSensitivity(ctx, as.ID, model.SensitivityPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upd.Sensitivity != model.SensitivityPrivate {
+		t.Fatalf("sensitivity = %q, want private", upd.Sensitivity)
+	}
+	got, _ := db.GetAsset(ctx, as.ID)
+	if got.Sensitivity != model.SensitivityPrivate {
+		t.Fatal("update did not persist")
+	}
+
+	if _, err := db.UpdateAssetSensitivity(ctx, as.ID, "bogus"); err == nil {
+		t.Fatal("expected error for invalid sensitivity")
+	}
+	if _, err := db.UpdateAssetSensitivity(ctx, "no-such-id", model.SensitivityPrivate); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("want ErrNotFound for missing asset, got %v", err)
 	}
 }
