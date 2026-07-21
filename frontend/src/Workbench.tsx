@@ -28,7 +28,7 @@ import {
   TreeEntry,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
-import { LocationChip, OpenCode, parseLoc } from './CodeLink'
+import { LocationChip, OpenCode } from './CodeLink'
 import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
 import { ActivityMenu } from './ActivityMenu'
@@ -357,6 +357,7 @@ function WorkbenchExplorer({
   selectedRouteId,
   onSelectRoute,
   onOpenCode,
+  onOpenFinding,
 }: {
   tab: Tab | null
   project: Project
@@ -371,9 +372,19 @@ function WorkbenchExplorer({
   selectedRouteId: string | null
   onSelectRoute: (id: string) => void
   onOpenCode: OpenCode
+  onOpenFinding: (f: Finding) => void
 }) {
-  // Observations that carry a source location — the input to the "findings in files" view.
-  const located = observations.filter((o) => o.asset_id && o.location)
+  // "Findings in files": each finding's located observations, so the Explorer lists findings-by-file (not
+  // raw observations). Clicking a row opens the finding's detail — its info — with the source file one more
+  // click away via the ↦ jumps inside. Observations not promoted to a finding belong under Investigations,
+  // so they deliberately don't appear here.
+  const obsById = new Map(observations.map((o) => [o.id, o]))
+  const findingLocs = findings.flatMap((f) =>
+    f.observation_ids
+      .map((id) => obsById.get(id))
+      .filter((o): o is Observation => !!o && !!o.asset_id && !!o.location)
+      .map((o) => ({ finding: f, obs: o })),
+  )
   return (
     <aside className="wb-explorer">
       <div className="wb-exp-head">
@@ -428,7 +439,7 @@ function WorkbenchExplorer({
             <div className="wb-exp-empty">Open a file to browse its repo.</div>
           )
         ) : tab === 'findings' ? (
-          findings.length === 0 && located.length === 0 ? (
+          findings.length === 0 ? (
             <div className="wb-exp-empty">No findings yet.</div>
           ) : (
             <>
@@ -442,23 +453,20 @@ function WorkbenchExplorer({
                   </div>
                 )
               })}
-              {located.length > 0 && (
+              {findingLocs.length > 0 && (
                 <>
-                  <div className="wb-exp-row grp" style={{ marginTop: 8 }}>In files ({located.length})</div>
-                  {located.map((o) => {
-                    const { path, line } = parseLoc(o.location!)
-                    return (
-                      <div
-                        key={o.id}
-                        className="wb-exp-row file"
-                        title={`${o.title} — ${o.location}`}
-                        onClick={() => onOpenCode(o.asset_id!, path, line)}
-                      >
-                        <span className={`dot sev-${o.severity}`} />
-                        <span className="lbl">{o.location}</span>
-                      </div>
-                    )
-                  })}
+                  <div className="wb-exp-row grp" style={{ marginTop: 8 }}>In files ({findingLocs.length})</div>
+                  {findingLocs.map(({ finding, obs }) => (
+                    <div
+                      key={finding.id + ':' + obs.id}
+                      className="wb-exp-row file"
+                      title={`${finding.title} — ${obs.location} · open finding details`}
+                      onClick={() => onOpenFinding(finding)}
+                    >
+                      <span className={`dot sev-${finding.severity}`} />
+                      <span className="lbl">{obs.location}</span>
+                    </div>
+                  ))}
                 </>
               )}
             </>
@@ -910,6 +918,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             observations={observations}
             onOpenCode={openCodeFile}
             onOpenFinding={openFinding}
+            onJump={(t) => activateSurface(t)}
             reload={loadAll}
             onError={setError}
             focusId={focus?.surface === 'findings' ? focus.id : undefined}
@@ -917,7 +926,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
           />
         )
       case 'investigations':
-        return <InvestigationsTab project={project} online={online} observations={observations} onOpenCode={openCodeFile} onError={setError} />
+        return <InvestigationsTab project={project} online={online} observations={observations} onOpenCode={openCodeFile} onJump={(t) => activateSurface(t as Tab)} onError={setError} />
       case 'reports':
         return <ReportsTab project={project} online={online} onError={setError} />
       case 'routes':
@@ -1033,6 +1042,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
               selectedRouteId={selectedRouteId}
               onSelectRoute={setSelectedRouteId}
               onOpenCode={openCodeFile}
+              onOpenFinding={openFinding}
             />
           </SurfaceBoundary>
         )}
@@ -2052,6 +2062,7 @@ function FindingsTab({
   observations,
   onOpenCode,
   onOpenFinding,
+  onJump,
   reload,
   onError,
   focusId,
@@ -2063,6 +2074,7 @@ function FindingsTab({
   observations: Observation[]
   onOpenCode: OpenCode
   onOpenFinding: (f: Finding) => void
+  onJump: (t: Tab) => void
   reload: () => Promise<void>
   onError: (m: string) => void
   focusId?: string
@@ -2084,7 +2096,16 @@ function FindingsTab({
     return () => clearTimeout(t)
   }, [focusId, focusNonce])
   return (
-    <section className="panel">
+    <div className="content">
+      <div className="hero">
+        <h1>Findings</h1>
+        <p>
+          Confirmed, triaged vulnerabilities — the report-worthy set, promoted from observations. Click a finding to
+          open its detail. Uncertain signals still awaiting validation live in{' '}
+          <button className="link" onClick={() => onJump('investigations')}>Investigations</button>.
+        </p>
+      </div>
+      <section className="panel">
       <div className="panel-head">Findings ({findings.length})</div>
       {findings.length === 0 ? (
         <div className="empty">No findings yet. Run a scan and promote confirmed observations.</div>
@@ -2151,7 +2172,8 @@ function FindingsTab({
           })}
         </ul>
       )}
-    </section>
+      </section>
+    </div>
   )
 }
 

@@ -2452,6 +2452,10 @@ select option {
 .row-main.clickable:hover { background: var(--bg3); }
 .row-main.clickable:focus-visible { outline: 1px solid var(--acc); outline-offset: 1px; }
 
+/* Inline cross-links in a hero paragraph (Findings ⇄ Investigations) read as links, not plain text. */
+.hero p .link { color: var(--acc); font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.hero p .link:hover { opacity: 0.85; }
+
 /* Finding detail — the info page opened from a finding row (ADR-0050 sibling of the code viewer). */
 .fd { padding: 20px 22px; max-width: 900px; }
 .fd-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 16px; }
