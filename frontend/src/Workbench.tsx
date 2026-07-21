@@ -30,6 +30,7 @@ import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
 import { GraphTab } from './GraphTab'
 import { RoutesTab } from './RoutesTab'
+import { FindingReachability } from './FindingReachability'
 import { IntegrationsTab } from './IntegrationsTab'
 import { InvestigationsTab } from './InvestigationsTab'
 import { KnowledgeTab } from './KnowledgeTab'
@@ -793,6 +794,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'findings':
         return (
           <FindingsTab
+            projectId={project.id}
+            online={online}
             findings={findings}
             observations={observations}
             onOpenCode={openCodeFile}
@@ -1842,6 +1845,8 @@ function PlaybooksTab({
 const FINDING_STATUSES = ['open', 'confirmed', 'remediated', 'accepted', 'false_positive']
 
 function FindingsTab({
+  projectId,
+  online,
   findings,
   observations,
   onOpenCode,
@@ -1850,6 +1855,8 @@ function FindingsTab({
   focusId,
   focusNonce,
 }: {
+  projectId: string
+  online: boolean
   findings: Finding[]
   observations: Observation[]
   onOpenCode: OpenCode
@@ -1922,6 +1929,7 @@ function FindingsTab({
                     ))}
                   </div>
                 )}
+                {obs.length > 0 && <FindingReachability projectId={projectId} subject={obs[0].id} online={online} onError={onError} />}
               </li>
             )
           })}

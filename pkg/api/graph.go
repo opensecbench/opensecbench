@@ -25,6 +25,9 @@ type graphNode struct {
 	// Outdated/Latest overlay the deps.dev currency signal: the component is behind its latest release.
 	Outdated bool   `json:"outdated,omitempty"`
 	Latest   string `json:"latest,omitempty"`
+	// ReachConfidence is the confidence of the reachable verdict (proven/high/medium/low), from the
+	// aggregated reachability facts — so the graph shows how sure we are, not just a flag.
+	ReachConfidence string `json:"reach_confidence,omitempty"`
 }
 type graphEdge struct {
 	From string `json:"from"`
@@ -276,13 +279,17 @@ func (s *Server) dependencyGraph(r *http.Request, projectID string) (graphResp, 
 				matches = append(matches, o)
 			}
 		}
-		if worst, reachable := summarizeVulns(matches); len(matches) > 0 {
+		if worst, reachable, conf := summarizeVulns(matches); len(matches) > 0 {
 			n.Group = worst
 			n.Vulns = len(matches)
 			n.Reachable = reachable
+			n.ReachConfidence = conf
 			n.Meta = c.Version + " · " + strconv.Itoa(len(matches)) + " vuln" + plural(len(matches))
 			if reachable {
 				n.Meta += " · reachable"
+				if conf != "" {
+					n.Meta += " (" + conf + ")"
+				}
 			}
 		}
 		if latest, ok := outdated[strings.ToLower(c.Name)]; ok {
@@ -348,8 +355,10 @@ func isPkgChar(b byte) bool {
 
 var sevOrder = map[string]int{"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
-// summarizeVulns returns the worst severity across the matched observations and whether any is reachable.
-func summarizeVulns(obs []model.Observation) (worst string, reachable bool) {
+// summarizeVulns returns the worst severity across the matched observations, whether any is reachable, and
+// the confidence of that reachable verdict (from the aggregated reachability facts, folded onto the
+// observation as reachable_confidence).
+func summarizeVulns(obs []model.Observation) (worst string, reachable bool, confidence string) {
 	best := -1
 	for _, o := range obs {
 		if r, ok := sevOrder[o.Severity]; ok && r > best {
@@ -357,10 +366,17 @@ func summarizeVulns(obs []model.Observation) (worst string, reachable bool) {
 		}
 		if o.Attributes["reachable"] == "true" {
 			reachable = true
+			if c := o.Attributes["reachable_confidence"]; reachConfRank(c) > reachConfRank(confidence) {
+				confidence = c
+			}
 		}
 	}
-	return worst, reachable
+	return worst, reachable, confidence
 }
+
+var reachConfOrder = map[string]int{"low": 1, "medium": 2, "high": 3, "proven": 4}
+
+func reachConfRank(c string) int { return reachConfOrder[c] }
 
 func plural(n int) string {
 	if n == 1 {
