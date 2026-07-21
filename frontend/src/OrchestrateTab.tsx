@@ -142,72 +142,15 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
     }
   }
 
-  return (
-    <div className="orch-tab">
-      <div className="orch-left">
-        <div className="orch-section-h orch-ph">
-          <span>Playbooks</span>
-        </div>
-        {playbooks.length === 0 && <div className="orch-empty">No playbooks yet — build one in the Library.</div>}
-        {playbooks.map((pb) => (
-          <div key={pb.id} className="orch-pb">
-            <div className="orch-pb-h">
-              <b>{pb.name}</b>
-              {!pb.builtin && <span className="orch-saved">saved</span>}
-              <span className="grow" />
-              <button disabled={!online || !!busy} onClick={() => run(pb)}>{busy === pb.id ? '…' : '▷ Run'}</button>
-            </div>
-            <div className="orch-pb-d">{pb.description}</div>
-            <div className="orch-pb-steps">
-              {(pb.steps ?? []).map((s, i) => (
-                <span key={s.key} className="orch-pb-step">
-                  {i > 0 && <span className="orch-arrow">→</span>}
-                  <span className={`orch-chip ${s.gate ? 'gate' : ''}`}>{s.gate ? '⏸ gate' : s.profile}</span>
-                </span>
-              ))}
-            </div>
-            <div className="orch-sched-add">
-              <span>Schedule</span>
-              <button disabled={!online} onClick={() => schedule(pb, DAY)}>Daily</button>
-              <button disabled={!online} onClick={() => schedule(pb, WEEK)}>Weekly</button>
-            </div>
-          </div>
-        ))}
-
-        {schedules.length > 0 && (
-          <>
-            <div className="orch-section-h">Schedules</div>
-            {schedules.map((sc) => (
-              <div key={sc.id} className={`orch-sched ${sc.enabled ? '' : 'off'}`}>
-                <span className="orch-sched-name">{playbookName(sc.playbook_id)}</span>
-                <span className="orch-sched-cadence">{cadence(sc.interval_seconds)}</span>
-                <span className="grow" />
-                <button className="orch-sched-btn" onClick={() => toggleSchedule(sc)} title={sc.enabled ? 'Pause' : 'Resume'}>
-                  {sc.enabled ? '⏸' : '▷'}
-                </button>
-                <button className="orch-del" onClick={() => removeSchedule(sc.id)} title="Delete schedule">×</button>
-              </div>
-            ))}
-          </>
-        )}
-
-        <div className="orch-section-h">Runs</div>
-        {plans.length === 0 && <div className="orch-empty">No runs yet — trigger a playbook above.</div>}
-        {plans.map((p) => (
-          <button key={p.id} className={`orch-run ${selected?.id === p.id ? 'on' : ''}`} onClick={() => openPlan(p)}>
-            <span className={`orch-dot s-${p.status}`} />
-            <span className="orch-run-name">{p.playbook_id}</span>
-            <span className="orch-run-time">{new Date(p.created_at).toLocaleTimeString()}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="orch-right">
-        {!selected ? (
-          <div className="empty">Run a playbook, or pick a run to watch its plan.</div>
-        ) : (
+  // A selected/running plan takes over the whole tab (focus mode); otherwise the tab browses playbooks,
+  // schedules, and prior runs at full width. Running a playbook sets `selected`, so it auto-focuses.
+  if (selected) {
+    return (
+      <div className="orch-tab">
+        <div className="orch-focus">
           <div className="plan-view">
             <div className="plan-h">
+              <button className="orch-back" onClick={() => setSelected(null)} title="Back to playbooks">← Playbooks</button>
               <span className={`orch-dot s-${selected.status}`} />
               <b>{selected.playbook_id}</b>
               <span className="plan-goal">{selected.goal}</span>
@@ -236,7 +179,75 @@ export function OrchestrateTab({ project, online, onError }: { project: Project;
               </div>
             ))}
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="orch-tab">
+      <div className="orch-browse">
+        <div className="orch-section-h orch-ph">
+          <span>Playbooks</span>
+        </div>
+        {playbooks.length === 0 && <div className="orch-empty">No playbooks yet — build one in the Library.</div>}
+        <div className="orch-pb-grid">
+          {playbooks.map((pb) => (
+            <div key={pb.id} className="orch-pb">
+              <div className="orch-pb-h">
+                <b>{pb.name}</b>
+                {!pb.builtin && <span className="orch-saved">saved</span>}
+                <span className="grow" />
+                <button disabled={!online || !!busy} onClick={() => run(pb)}>{busy === pb.id ? '…' : '▷ Run'}</button>
+              </div>
+              <div className="orch-pb-d">{pb.description}</div>
+              <div className="orch-pb-steps">
+                {(pb.steps ?? []).map((s, i) => (
+                  <span key={s.key} className="orch-pb-step">
+                    {i > 0 && <span className="orch-arrow">→</span>}
+                    <span className={`orch-chip ${s.gate ? 'gate' : ''}`}>{s.gate ? '⏸ gate' : s.profile}</span>
+                  </span>
+                ))}
+              </div>
+              <div className="orch-sched-add">
+                <span>Schedule</span>
+                <button disabled={!online} onClick={() => schedule(pb, DAY)}>Daily</button>
+                <button disabled={!online} onClick={() => schedule(pb, WEEK)}>Weekly</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {schedules.length > 0 && (
+          <>
+            <div className="orch-section-h">Schedules</div>
+            <div className="orch-sched-grid">
+              {schedules.map((sc) => (
+                <div key={sc.id} className={`orch-sched ${sc.enabled ? '' : 'off'}`}>
+                  <span className="orch-sched-name">{playbookName(sc.playbook_id)}</span>
+                  <span className="orch-sched-cadence">{cadence(sc.interval_seconds)}</span>
+                  <span className="grow" />
+                  <button className="orch-sched-btn" onClick={() => toggleSchedule(sc)} title={sc.enabled ? 'Pause' : 'Resume'}>
+                    {sc.enabled ? '⏸' : '▷'}
+                  </button>
+                  <button className="orch-del" onClick={() => removeSchedule(sc.id)} title="Delete schedule">×</button>
+                </div>
+              ))}
+            </div>
+          </>
         )}
+
+        <div className="orch-section-h">Runs</div>
+        {plans.length === 0 && <div className="orch-empty">No runs yet — trigger a playbook above.</div>}
+        <div className="orch-runs-grid">
+          {plans.map((p) => (
+            <button key={p.id} className="orch-run" onClick={() => openPlan(p)}>
+              <span className={`orch-dot s-${p.status}`} />
+              <span className="orch-run-name">{p.playbook_id}</span>
+              <span className="orch-run-time">{new Date(p.created_at).toLocaleTimeString()}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
