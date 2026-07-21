@@ -10,28 +10,34 @@ type Profile struct {
 	// AllowExternalForPrivate: may capability output / content for a PRIVATE asset be sent to an
 	// external (non-local) LLM provider? false = block (corporate/strict).
 	AllowExternalForPrivate bool `json:"allow_external_for_private"`
+	// AllowExternalForInternal: may an INTERNAL asset (the middle tier — ours, not public, but not
+	// confidential) be sent to an external provider? personal + corporate allow it; strict blocks it.
+	// open_source is always allowed; there is no flag for it.
+	AllowExternalForInternal bool `json:"allow_external_for_internal"`
 	// AgentSeesPrivate: may the Analyst read private-tagged data into context at all?
 	AgentSeesPrivate bool `json:"agent_sees_private"`
 }
 
-// Built-in profiles (the plan's personal / corporate / strict postures).
+// Built-in profiles (the plan's personal / corporate / strict postures). Egress ceiling by tier:
+// personal → private, corporate → internal, strict → open_source only.
 var builtIns = map[string]Profile{
 	"personal": {
-		Name: "personal", Description: "Solo/personal use: private data may go to any configured provider.",
-		AllowExternalForPrivate: true, AgentSeesPrivate: true,
+		Name: "personal", Description: "Solo/personal use (default): any asset may go to any configured provider.",
+		AllowExternalForPrivate: true, AllowExternalForInternal: true, AgentSeesPrivate: true,
 	},
 	"corporate": {
-		Name: "corporate", Description: "Corporate default: private data never leaves to a public provider; the agent may still read it locally.",
-		AllowExternalForPrivate: false, AgentSeesPrivate: true,
+		Name: "corporate", Description: "Corporate: private data never leaves to an external provider; internal data may. The agent still reads everything locally.",
+		AllowExternalForPrivate: false, AllowExternalForInternal: true, AgentSeesPrivate: true,
 	},
 	"strict": {
-		Name: "strict", Description: "Strict: private data never reaches an external provider and is withheld from the agent entirely.",
-		AllowExternalForPrivate: false, AgentSeesPrivate: false,
+		Name: "strict", Description: "Strict: nothing but open-source reaches an external provider, and private data is withheld from the agent entirely.",
+		AllowExternalForPrivate: false, AllowExternalForInternal: false, AgentSeesPrivate: false,
 	},
 }
 
-// Default is the conservative default profile name.
-const Default = "corporate"
+// Default is the default profile name. Personal suits the solo/local operator this tool is built for;
+// teams handling third-party data switch to corporate or strict.
+const Default = "personal"
 
 // Get returns a profile by name, falling back to the default.
 func Get(name string) Profile {

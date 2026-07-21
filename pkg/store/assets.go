@@ -119,6 +119,7 @@ func (db *DB) CreateAsset(ctx context.Context, na NewAsset) (model.Asset, error)
 
 var validSensitivities = map[string]bool{
 	model.SensitivityPrivate:    true,
+	model.SensitivityInternal:   true,
 	model.SensitivityOpenSource: true,
 }
 

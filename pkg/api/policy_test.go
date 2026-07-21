@@ -17,15 +17,18 @@ func TestPolicyProfileFlow(t *testing.T) {
 		t.Fatalf("profiles = %d, want 3", len(profiles))
 	}
 
-	// Default active profile is the conservative one.
+	// Default active profile is personal (permissive: every tier may egress).
 	var active policy.Profile
 	postGet(t, srv.URL+"/v1/policy/active", &active)
-	if active.Name != policy.Default || active.AllowExternalForPrivate {
-		t.Fatalf("default active = %+v, want %s (no external-for-private)", active, policy.Default)
+	if active.Name != policy.Default || !active.AllowExternalForPrivate {
+		t.Fatalf("default active = %+v, want personal (external allowed)", active)
+	}
+	if policy.Default != "personal" {
+		t.Fatalf("policy.Default = %q, want personal", policy.Default)
 	}
 
-	// Switch to personal (permissive) via PUT.
-	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/v1/policy/active", strings.NewReader(`{"profile":"personal"}`))
+	// Switch to corporate (restrictive) via PUT: private blocked, internal still allowed.
+	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/v1/policy/active", strings.NewReader(`{"profile":"corporate"}`))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -36,8 +39,8 @@ func TestPolicyProfileFlow(t *testing.T) {
 		t.Fatalf("set profile = %d", resp.StatusCode)
 	}
 	postGet(t, srv.URL+"/v1/policy/active", &active)
-	if active.Name != "personal" || !active.AllowExternalForPrivate {
-		t.Fatalf("active after set = %+v, want personal (external allowed)", active)
+	if active.Name != "corporate" || active.AllowExternalForPrivate || !active.AllowExternalForInternal {
+		t.Fatalf("active after set = %+v, want corporate (private blocked, internal allowed)", active)
 	}
 
 	// Unknown profile rejected.

@@ -97,7 +97,7 @@ func TestReadContextEgressBlocked(t *testing.T) {
 	ctx := context.Background()
 	db, blobs, projectID, itemID := seedContext(t, "client email thread")
 
-	svc := &Service{mgr: store.NewCombinedManager(db), casr: cas.Fixed(blobs), egressStrict: true}
+	svc := &Service{mgr: store.NewCombinedManager(db), casr: cas.Fixed(blobs), egressAllowInternal: false, egressAllowPrivate: false}
 	// Strict egress + external provider: ingested corpus content does not leave to the external model.
 	if _, err := svc.executeFor(projectID, &llm.AnthropicProvider{})(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("read_context should be egress-blocked on an external provider, got %v", err)
