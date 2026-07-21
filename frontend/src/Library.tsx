@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { PlaybookLibrary } from './PlaybookLibrary'
 import { CustomAgents } from './CustomAgents'
+import { MethodologyCatalog } from './MethodologyCatalog'
 
 // Library is the global "build & reuse" surface (IA declutter): reusable definitions you build once and
 // use across projects — agent playbooks, custom agents, and (added incrementally) the methodology catalog
@@ -8,6 +9,7 @@ import { CustomAgents } from './CustomAgents'
 const SECTIONS: { id: string; title: string; icon: string; group: string }[] = [
   { id: 'playbooks', title: 'Playbooks', icon: '🧩', group: 'Build & reuse' },
   { id: 'agents', title: 'Custom agents', icon: '🤖', group: 'Build & reuse' },
+  { id: 'methodology', title: 'Methodology', icon: '✓', group: 'Build & reuse' },
 ]
 
 export function Library({ online }: { online: boolean }) {
@@ -31,6 +33,7 @@ export function Library({ online }: { online: boolean }) {
       <div className="settings-body">
         {active === 'playbooks' && <PlaybookLibrary online={online} />}
         {active === 'agents' && <CustomAgents online={online} />}
+        {active === 'methodology' && <MethodologyCatalog online={online} />}
       </div>
     </div>
   )
