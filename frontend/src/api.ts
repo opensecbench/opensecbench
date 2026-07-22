@@ -1073,6 +1073,10 @@ export const api = {
   // observations & findings
   reviewObservation: (id: string, state: string) =>
     request<void>('POST', `/v1/observations/${id}/review`, { state }),
+  // Triage actions on a raw observation: promote to a finding, or open an investigation. Dismiss/restore
+  // use reviewObservation (rejected / unreviewed).
+  promoteObservation: (id: string) => request<Finding>('POST', `/v1/observations/${id}/promote`),
+  investigateObservation: (id: string) => request<Investigation>('POST', `/v1/observations/${id}/investigate`),
   listFindings: () => request<Finding[]>('GET', '/v1/findings'),
   setFindingStatus: (id: string, status: string) =>
     request<Finding>('POST', `/v1/findings/${id}/status`, { status }),

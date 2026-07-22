@@ -12,6 +12,7 @@ import {
   Engagement,
   Finding,
   HTTPExchange,
+  Investigation,
   Observation,
   Playbook,
   Report,
@@ -67,6 +68,7 @@ type Tab =
   | 'playbooks'
   | 'orchestrate'
   | 'tasks'
+  | 'observations'
   | 'findings'
   | 'investigations'
   | 'routes'
@@ -104,6 +106,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
   { key: 'intercept', icon: '✋', label: 'Intcpt' },
   { key: 'terminal', icon: '▤', label: 'Term' },
   { key: 'scan', icon: '▷', label: 'Scan' },
+  { key: 'observations', icon: '🧪', label: 'Observe' },
   { key: 'findings', icon: '⚑', label: 'Find', explorer: true },
   { key: 'investigations', icon: '🔎', label: 'Invest' },
   { key: 'routes', icon: '🎯', label: 'Surface', explorer: true },
@@ -126,7 +129,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
 const SURFACE_GROUPS: { label: string; keys: Tab[] }[] = [
   { label: 'Evidence', keys: ['assets', 'context', 'knowledge'] },
   { label: 'Testing', keys: ['replay', 'proxy', 'intercept', 'terminal', 'scan'] },
-  { label: 'Analysis', keys: ['findings', 'investigations', 'routes', 'graph'] },
+  { label: 'Analysis', keys: ['observations', 'findings', 'investigations', 'routes', 'graph'] },
   { label: 'Coverage', keys: ['methodology', 'scope'] },
   { label: 'Run', keys: ['orchestrate', 'playbooks', 'tasks'] },
   { label: 'Deliver', keys: ['reports'] },
@@ -965,6 +968,18 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             onError={setError}
             focusId={focus?.surface === 'findings' ? focus.id : undefined}
             focusNonce={focus?.n ?? 0}
+          />
+        )
+      case 'observations':
+        return (
+          <ObservationsTab
+            projectId={project.id}
+            observations={observations}
+            online={online}
+            onOpenCode={openCodeFile}
+            onJump={(t) => activateSurface(t as Tab)}
+            reload={loadAll}
+            onError={setError}
           />
         )
       case 'investigations':
@@ -2215,6 +2230,131 @@ function PlaybooksTab({
 }
 
 const FINDING_STATUSES = ['open', 'confirmed', 'remediated', 'accepted', 'false_positive']
+
+// ObservationsTab is the human triage queue: every raw signal the scanners/agents produced, with the actions
+// that move it forward — promote to a finding, open an investigation, or dismiss. It's the "agent + human
+// driven" seam: scanners route observations automatically, but a human decides what becomes a finding.
+function ObservationsTab({
+  projectId,
+  observations,
+  online,
+  onOpenCode,
+  onJump,
+  reload,
+  onError,
+}: {
+  projectId: string
+  observations: Observation[]
+  online: boolean
+  onOpenCode: OpenCode
+  onJump: (t: Tab) => void
+  reload: () => Promise<void>
+  onError: (m: string) => void
+}) {
+  const [filter, setFilter] = useState('triage')
+  const [busy, setBusy] = useState('')
+  // Which observations already have an investigation, so they leave the "needs triage" bucket for their own.
+  const [investigating, setInvestigating] = useState<Set<string>>(new Set())
+
+  async function loadInvestigating() {
+    const inv = (await api.listInvestigations(projectId)) ?? []
+    setInvestigating(new Set(inv.map((i: Investigation) => i.observation_id)))
+  }
+  useEffect(() => {
+    if (online) void loadInvestigating().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, projectId, observations])
+
+  const FILTERS: { key: string; label: string; match: (o: Observation) => boolean }[] = [
+    { key: 'triage', label: 'Needs triage', match: (o) => o.review_state === 'unreviewed' && !investigating.has(o.id) },
+    { key: 'investigating', label: 'Investigating', match: (o) => investigating.has(o.id) },
+    { key: 'confirmed', label: 'Promoted', match: (o) => o.review_state === 'confirmed' },
+    { key: 'dismissed', label: 'Dismissed', match: (o) => o.review_state === 'rejected' },
+    { key: 'all', label: 'All', match: () => true },
+  ]
+  const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0]
+  const rows = observations.filter(active.match)
+
+  async function act(id: string, fn: () => Promise<unknown>) {
+    setBusy(id)
+    try {
+      await fn()
+      await reload()
+      await loadInvestigating()
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <div className="content">
+      <div className="hero">
+        <h1>Observations</h1>
+        <p>
+          Every raw signal the scanners and agents produced — the triage queue. Promote the real ones to a{' '}
+          <button className="link" onClick={() => onJump('findings')}>Finding</button>, send the uncertain ones to an{' '}
+          <button className="link" onClick={() => onJump('investigations')}>Investigation</button>, or dismiss the noise.
+        </p>
+      </div>
+
+      <div className="obs-filters">
+        {FILTERS.map((f) => {
+          const n = observations.filter(f.match).length
+          return (
+            <button key={f.key} className={`chip ${filter === f.key ? 'on' : ''}`} onClick={() => setFilter(f.key)}>
+              {f.label} <span className="n">{n}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <section className="panel">
+        <div className="panel-head">{active.label} ({rows.length})</div>
+        {rows.length === 0 ? (
+          <div className="empty">{filter === 'triage' ? 'Nothing left to triage. 🎉' : 'Nothing here.'}</div>
+        ) : (
+          <ul className="rows">
+            {rows.map((o) => {
+              const inFlight = busy === o.id
+              return (
+                <li key={o.id} className="row-item col">
+                  <div className="row-main">
+                    <span className={`sev sev-${o.severity}`}>{o.severity}</span>
+                    <span className="row-title">{o.title}</span>
+                    {o.rule_id && <span className="muted mono">{o.rule_id}</span>}
+                    <span className="grow" />
+                    {o.review_state === 'unreviewed' && !investigating.has(o.id) ? (
+                      <>
+                        <button className="mini ok" disabled={!online || inFlight} title="Confirm as a real vulnerability and create a finding" onClick={() => void act(o.id, () => api.promoteObservation(o.id))}>⚑ Promote</button>
+                        <button className="mini" disabled={!online || inFlight} title="Open an investigation to validate" onClick={() => void act(o.id, () => api.investigateObservation(o.id))}>🔎 Investigate</button>
+                        <button className="mini no" disabled={!online || inFlight} title="Dismiss as noise / false positive" onClick={() => void act(o.id, () => api.reviewObservation(o.id, 'rejected'))}>Dismiss</button>
+                      </>
+                    ) : investigating.has(o.id) ? (
+                      <button className="mini" onClick={() => onJump('investigations')} title="Open the Investigations queue">🔎 investigating →</button>
+                    ) : (
+                      <>
+                        <span className={`badge ${o.review_state}`}>{o.review_state === 'confirmed' ? 'promoted' : 'dismissed'}</span>
+                        <button className="mini" disabled={!online || inFlight} title="Return to the triage queue" onClick={() => void act(o.id, () => api.reviewObservation(o.id, 'unreviewed'))}>↺ Restore</button>
+                      </>
+                    )}
+                  </div>
+                  {o.location && (
+                    <div className="loc-row">
+                      <LocationChip obs={o} onOpenCode={onOpenCode} />
+                    </div>
+                  )}
+                  {o.detail && <div className="obs-detail muted">{o.detail}</div>}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
+    </div>
+  )
+}
 
 function FindingsTab({
   projectId,

@@ -505,6 +505,10 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /v1/tasks/{id}/observations", s.getTaskObservations)
 	s.mux.HandleFunc("POST /v1/observations/{id}/review", s.reviewObservation)
+	// Human triage actions on a raw observation (Observations surface): promote to a finding, or open an
+	// investigation. Dismiss/restore reuse the review endpoint above (rejected / unreviewed).
+	s.mux.HandleFunc("POST /v1/observations/{id}/promote", s.promoteObservation)
+	s.mux.HandleFunc("POST /v1/observations/{id}/investigate", s.investigateObservation)
 
 	s.mux.HandleFunc("GET /v1/findings", s.listFindings)
 	s.mux.HandleFunc("POST /v1/findings", s.createFinding)

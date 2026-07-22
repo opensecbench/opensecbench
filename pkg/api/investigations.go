@@ -78,6 +78,81 @@ func (s *Server) listProjectObservations(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, obs)
 }
 
+// observationApp resolves the application an observation belongs to (via its producing task), for linking a
+// promoted finding or a manual investigation to the right app. Nil when the observation has no task/app.
+func (s *Server) observationApp(r *http.Request, obs model.Observation) *string {
+	if obs.TaskID == nil {
+		return nil
+	}
+	t, err := s.pdb(r).GetTask(r.Context(), *obs.TaskID)
+	if err != nil {
+		return nil
+	}
+	return t.ApplicationID
+}
+
+// promoteObservation is the human triage action "this is a real vulnerability": it confirms the observation
+// and creates a finding from it (title/severity/detail carried over). A finding requires confirmed
+// observations, so the confirm and create happen together here rather than as two client round-trips.
+func (s *Server) promoteObservation(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	obs, err := s.pdb(r).GetObservation(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "observation not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.pdb(r).ReviewObservation(r.Context(), id, model.ReviewConfirmed); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	f, err := s.pdb(r).CreateFinding(r.Context(), store.NewFinding{
+		ApplicationID:  s.observationApp(r, obs),
+		Title:          obs.Title,
+		Severity:       obs.Severity,
+		Description:    obs.Detail,
+		CWE:            obs.Attributes["cwe"],
+		ObservationIDs: []string{id},
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "observation.promote", id, map[string]string{"finding": f.ID})
+	writeJSON(w, http.StatusCreated, f)
+}
+
+// investigateObservation is the human triage action "worth a closer look": it opens an investigation for the
+// observation (idempotent — an existing one is returned). The observation stays unreviewed until validation
+// confirms or dismisses it.
+func (s *Server) investigateObservation(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	obs, err := s.pdb(r).GetObservation(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "observation not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	inv, err := s.pdb(r).CreateInvestigation(r.Context(), model.Investigation{
+		ProjectID:     projectFromReq(r),
+		ApplicationID: s.observationApp(r, obs),
+		ObservationID: id,
+		Title:         obs.Title,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "observation.investigate", id, map[string]string{"investigation": inv.ID})
+	writeJSON(w, http.StatusCreated, inv)
+}
+
 // listInvestigations returns a project's investigations (ADR-0028).
 func (s *Server) listInvestigations(w http.ResponseWriter, r *http.Request) {
 	inv, err := s.pdb(r).ListInvestigationsByProject(r.Context(), r.PathValue("id"))
