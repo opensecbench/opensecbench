@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/disposition"
@@ -151,6 +152,31 @@ func (s *Server) investigateObservation(w http.ResponseWriter, r *http.Request) 
 	}
 	s.record(r.Context(), actorOf(r), "observation.investigate", id, map[string]string{"investigation": inv.ID})
 	writeJSON(w, http.StatusCreated, inv)
+}
+
+// startTriage kicks off a background batch-triage agent over the given observations (or all untriaged when
+// none are given). Returns immediately with the count handed to the agent; effects land as it works.
+func (s *Server) startTriage(w http.ResponseWriter, r *http.Request) {
+	if s.llmProvider() == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured")
+		return
+	}
+	var req struct {
+		ObservationIDs []string `json:"observation_ids"`
+	}
+	// Body is optional (empty → triage all untriaged); tolerate a missing/blank body.
+	if r.ContentLength != 0 {
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+	}
+	n, err := s.analystService().StartTriage(projectFromReq(r), req.ObservationIDs)
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "observations.triage", "", map[string]string{"count": strconv.Itoa(n)})
+	writeJSON(w, http.StatusAccepted, map[string]int{"queued": n})
 }
 
 // listInvestigations returns a project's investigations (ADR-0028).

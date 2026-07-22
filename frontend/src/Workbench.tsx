@@ -2218,7 +2218,12 @@ const OBS_SIGNALS: { key: string; label: string }[] = [
   { key: 'verified', label: 'verified' },
   { key: 'outdated', label: 'outdated' },
 ]
-const obsSignals = (o: Observation): string[] => OBS_SIGNALS.filter((s) => (o.attributes ?? {})[s.key] === 'true').map((s) => s.label)
+const obsSignals = (o: Observation): string[] => {
+  const a = o.attributes ?? {}
+  const out = OBS_SIGNALS.filter((s) => a[s.key] === 'true').map((s) => s.label)
+  if (a.triage_flag === 'true') out.unshift('🤖 flagged') // agent flagged for a human
+  return out
+}
 const STATE_LABEL: Record<string, string> = { unreviewed: 'new', confirmed: 'promoted', rejected: 'dismissed' }
 
 // ObservationsTab is the human triage queue: a compact, spreadsheet-style table of every raw signal the
@@ -2249,6 +2254,8 @@ function ObservationsTab({
   const [detailId, setDetailId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [investigating, setInvestigating] = useState<Set<string>>(new Set())
+  const [triageNote, setTriageNote] = useState<string | null>(null)
+  const pollRef = useRef<number | null>(null)
 
   async function loadInvestigating() {
     const inv = (await api.listInvestigations(projectId)) ?? []
@@ -2258,6 +2265,38 @@ function ObservationsTab({
     if (online) void loadInvestigating().catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, projectId, observations])
+  // Stop polling when the tab unmounts.
+  useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current) }, [])
+
+  // While a background triage runs, poll so its dismissals/flags/findings appear live. Auto-stops after a
+  // few minutes (the agent's bounded run); the human can also just switch filters to refresh.
+  function pollForTriage() {
+    if (pollRef.current) window.clearInterval(pollRef.current)
+    const stopAt = Date.now() + 4 * 60 * 1000
+    pollRef.current = window.setInterval(() => {
+      if (Date.now() > stopAt) {
+        if (pollRef.current) window.clearInterval(pollRef.current)
+        pollRef.current = null
+        return
+      }
+      void reload().catch(() => {})
+      void loadInvestigating().catch(() => {})
+    }, 5000)
+  }
+  async function aiTriage(idsArg: string[] | null) {
+    setBusy(true)
+    try {
+      const res = await api.startTriage(projectId, idsArg ?? undefined)
+      setTriageNote(`🤖 AI triage running on ${res.queued} observation${res.queued === 1 ? '' : 's'} — dismissals, flags, and proposed findings will appear as it works.`)
+      setSelected(new Set())
+      setDetailId(null)
+      pollForTriage()
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   // Under-investigation observations belong to the Investigations tab, not the triage queue.
   const visible = useMemo(() => observations.filter((o) => !investigating.has(o.id)), [observations, investigating])
@@ -2324,11 +2363,19 @@ function ObservationsTab({
       <div className="hero compact">
         <h1>Observations</h1>
         <p>
-          The raw triage queue. Select rows for bulk actions, or click one to inspect it. Promote to a{' '}
-          <button className="link" onClick={() => onJump('findings')}>Finding</button>, send to an{' '}
-          <button className="link" onClick={() => onJump('investigations')}>Investigation</button>, or dismiss. Items already under investigation live on the Investigations tab.
+          The raw triage queue. Let <b>🤖 AI triage</b> trawl it (dismisses noise by reachability, flags the real
+          ones, proposes findings for your approval), or work rows yourself — promote to a{' '}
+          <button className="link" onClick={() => onJump('findings')}>Finding</button> or dismiss. Click a row to inspect it.
         </p>
       </div>
+
+      {triageNote && (
+        <div className="banner">
+          {triageNote}
+          <button className="link" style={{ marginLeft: 10 }} onClick={() => void reload()}>Refresh</button>
+          <button className="link" onClick={() => setTriageNote(null)}>dismiss</button>
+        </div>
+      )}
 
       <div className="table-toolbar">
         <input className="tt-search" placeholder="Search title, rule, location…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -2344,6 +2391,17 @@ function ObservationsTab({
           ))}
         </div>
         <span className="grow" />
+        <button
+          className="ghost-btn"
+          disabled={!online || busy}
+          title="Run the AI triage agent over every untriaged observation"
+          onClick={() => {
+            const n = visible.filter((o) => o.review_state === 'unreviewed').length
+            if (n > 0 && window.confirm(`Run AI triage on all ${n} untriaged observations? One agent works through them; you approve any findings it proposes.`)) void aiTriage(null)
+          }}
+        >
+          🤖 Triage all
+        </button>
         <span className="muted tt-count">{rows.length} shown</span>
       </div>
 
@@ -2351,7 +2409,7 @@ function ObservationsTab({
         <div className="bulk-bar">
           <span><b>{selected.size}</b> selected</span>
           <button className="mini ok" disabled={!online || busy} onClick={() => void runBulk((id) => api.promoteObservation(id), ids)}>⚑ Promote</button>
-          <button className="mini" disabled={!online || busy} onClick={() => void runBulk((id) => api.investigateObservation(id), ids)}>🔎 Investigate</button>
+          <button className="mini" disabled={!online || busy} title="Hand these to the AI triage agent" onClick={() => void aiTriage(ids)}>🤖 AI triage</button>
           <button className="mini no" disabled={!online || busy} onClick={() => void runBulk((id) => api.reviewObservation(id, 'rejected'), ids)}>Dismiss</button>
           <button className="mini" disabled={busy} onClick={() => setSelected(new Set())}>clear</button>
           {busy && <span className="muted">working…</span>}
@@ -2378,6 +2436,7 @@ function ObservationsTab({
             onClose={() => setDetailId(null)}
             onOpenCode={onOpenCode}
             onAction={(fn) => void runOne(fn, detail.id)}
+            onTriage={() => void aiTriage([detail.id])}
           />
         )}
       </div>
@@ -2394,6 +2453,7 @@ function ObservationDetailPanel({
   onClose,
   onOpenCode,
   onAction,
+  onTriage,
 }: {
   obs: Observation
   online: boolean
@@ -2401,8 +2461,11 @@ function ObservationDetailPanel({
   onClose: () => void
   onOpenCode: OpenCode
   onAction: (fn: (id: string) => Promise<unknown>) => void
+  onTriage: () => void
 }) {
-  const attrs = Object.entries(obs.attributes ?? {})
+  // Show the AI's triage rationale prominently; keep it out of the raw attribute dump below.
+  const rationale = obs.attributes?.triage_rationale
+  const attrs = Object.entries(obs.attributes ?? {}).filter(([k]) => k !== 'triage_rationale' && k !== 'triaged_by' && k !== 'triage_flag')
   return (
     <aside className="detail-panel">
       <div className="dp-head">
@@ -2415,6 +2478,12 @@ function ObservationDetailPanel({
           <span className={`badge ${obs.review_state}`}>{STATE_LABEL[obs.review_state] ?? obs.review_state}</span>
           <span className="muted">origin: {obs.origin}</span>
         </div>
+        {rationale && (
+          <div className="dp-triage">
+            <span className="dp-k">{obs.attributes?.triaged_by === 'agent' ? '🤖 AI triage' : 'Triage'}</span>
+            <span>{rationale}</span>
+          </div>
+        )}
         {obs.rule_id && <div className="dp-row"><span className="dp-k">Rule</span><span className="mono">{obs.rule_id}</span></div>}
         {obs.location && <div className="dp-row"><span className="dp-k">Location</span><LocationChip obs={obs} onOpenCode={onOpenCode} /></div>}
         {obs.detail && <p className="dp-detail">{obs.detail}</p>}
@@ -2427,8 +2496,8 @@ function ObservationDetailPanel({
       <div className="dp-actions">
         {obs.review_state === 'unreviewed' ? (
           <>
-            <button className="mini ok" disabled={!online || busy} onClick={() => onAction((id) => api.promoteObservation(id))}>⚑ Promote to finding</button>
-            <button className="mini" disabled={!online || busy} onClick={() => onAction((id) => api.investigateObservation(id))}>🔎 Investigate</button>
+            <button className="mini ok" disabled={!online || busy} onClick={() => onAction((id) => api.promoteObservation(id))}>⚑ Promote</button>
+            <button className="mini" disabled={!online || busy} title="Hand this observation to the AI triage agent" onClick={onTriage}>🤖 AI triage</button>
             <button className="mini no" disabled={!online || busy} onClick={() => onAction((id) => api.reviewObservation(id, 'rejected'))}>Dismiss</button>
           </>
         ) : (

@@ -2511,6 +2511,8 @@ select option {
 .dp-row { display: flex; gap: 8px; margin-bottom: 8px; font-size: 12px; align-items: baseline; }
 .dp-k { flex: 0 0 62px; color: var(--tx3); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
 .dp-detail { font-size: 12.5px; line-height: 1.6; color: var(--tx2); margin: 10px 0; white-space: pre-wrap; }
+.dp-triage { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; padding: 8px 10px; background: color-mix(in srgb, var(--acc) 10%, var(--bg3)); border: 1px solid var(--line2); border-radius: 8px; font-size: 12px; line-height: 1.5; color: var(--tx); }
+.dp-triage .dp-k { flex: none; }
 .dp-attrs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
 .dp-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
 

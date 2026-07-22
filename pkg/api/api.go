@@ -509,6 +509,9 @@ func (s *Server) routes() {
 	// investigation. Dismiss/restore reuse the review endpoint above (rejected / unreviewed).
 	s.mux.HandleFunc("POST /v1/observations/{id}/promote", s.promoteObservation)
 	s.mux.HandleFunc("POST /v1/observations/{id}/investigate", s.investigateObservation)
+	// Batch AI triage: one agent works down the given observations (or all untriaged), dismissing noise and
+	// flagging real ones — the LLM first pass over the queue.
+	s.mux.HandleFunc("POST /v1/projects/{id}/triage", s.startTriage)
 
 	s.mux.HandleFunc("GET /v1/findings", s.listFindings)
 	s.mux.HandleFunc("POST /v1/findings", s.createFinding)

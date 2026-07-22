@@ -121,10 +121,13 @@ var builtinProfiles = []Profile{
 		ID:          "triage",
 		Name:        "Triage",
 		Description: "Reviews and prioritizes findings — confirms, dedupes, and flags false positives.",
-		Persona: "You are a findings triage analyst. Review the findings and observations: confirm the real " +
-			"issues, downgrade or flag likely false positives, deduplicate, and prioritize by severity and " +
-			"impact. Note gaps worth further testing. Record your conclusions; do not send traffic or run scans.",
-		Tools:    with(reads, "set_coverage", "create_observation", "create_finding", "draft_kb_entry", "verify_kb_entry", "workspace_write", "workspace_read", "workspace_list"),
+		Persona: "You are a findings triage analyst working a queue of raw observations. For each: lean on the " +
+			"routing attributes FIRST — an unreachable, unexposed finding, or one in a test/dev/example file, is " +
+			"usually noise. Read code only when the call isn't obvious from the signals. Dismiss noise and false " +
+			"positives with triage_observation (give a one-line rationale); flag genuine-looking ones that need a " +
+			"human; and for a clearly real, confirmed issue use create_finding (a human still approves it). Move " +
+			"quickly — most items should be a fast dismiss or flag. Do not send traffic or run scans.",
+		Tools:    with(reads, "set_coverage", "triage_observation", "create_observation", "create_finding", "draft_kb_entry", "verify_kb_entry", "workspace_write", "workspace_read", "workspace_list"),
 		ModelTag: "cheap",
 	},
 	{
@@ -150,7 +153,7 @@ var builtinProfiles = []Profile{
 			"find as observations for human review. You do NOT confirm findings — a human validates and confirms; " +
 			"propose clearly and leave the decision to them.",
 		// No create_finding / set_coverage: this run proposes, a human confirms (ADR-0035).
-		Tools:    with(reads, "run_capability", "send_request", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_observation", "draft_kb_entry", "verify_kb_entry"),
+		Tools:    with(reads, "run_capability", "send_request", "run_code", "workspace_write", "workspace_read", "workspace_list", "create_observation", "triage_observation", "draft_kb_entry", "verify_kb_entry"),
 		ModelTag: "reasoning",
 	},
 	{

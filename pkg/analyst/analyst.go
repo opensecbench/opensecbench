@@ -86,6 +86,11 @@ func Tools() []agent.Tool {
 			{Name: "detail", Type: agent.TypeString, Description: "what was observed and why it matters"},
 			{Name: "location", Type: agent.TypeString, Description: "where (file:line, url, component)"},
 		}},
+		{Name: "triage_observation", Description: "Triage a raw observation once you've judged it (batch triage): 'dismiss' a false positive or noise (e.g. unreachable CVE, dev-only/test file, placeholder/example value) or 'flag' a genuine-looking one that needs a human's decision. Always give a one-line rationale. Both are reversible. Lean on reachability/exposure first — an unreachable, unexposed finding is usually dismissable. To promote a confirmed real issue to a finding instead, use create_finding (that stays human-gated).", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "observation id (from list_observations)"},
+			{Name: "disposition", Type: agent.TypeEnum, Required: true, Description: "dismiss a false positive/noise, or flag a real-looking one for the human", Enum: []string{"dismiss", "flag"}},
+			{Name: "rationale", Type: agent.TypeString, Required: true, Description: "one-line reason for the disposition"},
+		}},
 		{Name: "record_reachability", Description: "Record a reachability determination for a finding or CVE — your verdict on whether the vulnerable code is actually reachable, with your reasoning. Use this when you've traced reachability the static tools couldn't (e.g. dynamic dispatch, framework routing). It's aggregated with the tool verdicts; give the evidence in 'rationale'.", Params: []agent.Param{
 			{Name: "subject_type", Type: agent.TypeEnum, Required: true, Description: "what the verdict is about", Enum: []string{"observation", "cve"}},
 			{Name: "subject", Type: agent.TypeString, Required: true, Description: "the observation id (from list_observations) or the CVE/GHSA id"},
@@ -305,6 +310,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return generateReport(ctx, deps, call)
 		case "create_observation":
 			return createObservation(ctx, deps, call)
+		case "triage_observation":
+			return triageObservation(ctx, deps, call)
 		case "record_reachability":
 			return recordReachability(ctx, deps, call)
 		case "read_file":
@@ -663,6 +670,22 @@ func createObservation(ctx context.Context, deps ExecDeps, call agent.ToolCall) 
 		o.ProjectID = &deps.ProjectID
 	}
 	return jsonify(deps.p().CreateObservation(ctx, o))
+}
+
+// triageObservation applies the agent's triage disposition to a raw observation — dismiss (noise/false
+// positive) or flag (needs a human) — with a rationale, both reversible. Promotions to findings go through
+// the gated create_finding, not here.
+func triageObservation(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	id := stringArg(call, "id")
+	disposition := stringArg(call, "disposition")
+	rationale := stringArg(call, "rationale")
+	if id == "" || disposition == "" {
+		return "", errors.New("triage_observation requires 'id' and 'disposition'")
+	}
+	if err := deps.p().TriageObservation(ctx, id, disposition, rationale, "agent"); err != nil {
+		return "", err
+	}
+	return jsonify(map[string]string{"id": id, "disposition": disposition, "rationale": rationale}, nil)
 }
 
 // recordReachability adds an LLM-sourced reachability fact — the agent's verdict on whether a finding/CVE
