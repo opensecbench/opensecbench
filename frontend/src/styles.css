@@ -2469,11 +2469,16 @@ select option {
 .bulk-bar { display: flex; align-items: center; gap: 10px; padding: 7px 12px; margin-bottom: 8px; background: color-mix(in srgb, var(--acc) 14%, var(--bg2)); border: 1px solid var(--acc); border-radius: 8px; font-size: 12.5px; }
 .bulk-bar b { font-variant-numeric: tabular-nums; }
 
-/* The split: table grows, detail panel takes a fixed column when open. */
-.obs-split { display: flex; gap: 12px; align-items: flex-start; min-height: 0; }
-.obs-split .data-table-wrap { flex: 1; min-width: 0; }
+/* Full-height page: header/toolbar fixed, the split fills the rest. The table scrolls inside its own pane
+   (email-client style) so the detail panel stays in view no matter how far down you click. */
+.table-page { display: flex; flex-direction: column; height: 100%; min-height: 0; max-width: none; }
+.table-split { display: flex; gap: 12px; min-height: 0; flex: 1; }
+.table-split .data-table-wrap { flex: 1; min-width: 0; max-height: 100%; overflow: auto; }
+/* A table page with no detail panel (Findings): the table pane fills the remaining height on its own. */
+.table-page > .data-table-wrap { flex: 1; min-height: 0; }
+.data-table tr.flash { animation: row-flash 1.6s ease-out; }
 
-.data-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }
+.data-table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }
 .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .data-table thead th { position: sticky; top: 0; z-index: 1; text-align: left; padding: 7px 10px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tx3); background: var(--bg3); border-bottom: 1px solid var(--line2); white-space: nowrap; }
 .data-table th.sortable { cursor: pointer; user-select: none; }
@@ -2496,7 +2501,7 @@ select option {
 .sig-chip { font-size: 10px; color: var(--tx2); background: var(--bg3); border: 1px solid var(--line2); border-radius: 9px; padding: 0 6px; line-height: 16px; white-space: nowrap; }
 
 /* Detail side panel (row click) — reusable across surfaces. */
-.detail-panel { flex: 0 0 360px; position: sticky; top: 8px; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; max-height: calc(100vh - 130px); }
+.detail-panel { flex: 0 0 360px; align-self: stretch; max-height: 100%; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; }
 .dp-head { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .dp-title { font-weight: 600; color: var(--tx); font-size: 13.5px; line-height: 1.35; flex: 1; }
 .dp-close { background: none; border: none; color: var(--tx3); cursor: pointer; font-size: 14px; padding: 2px 4px; }
