@@ -28,7 +28,7 @@ import {
   TreeEntry,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
-import { LocationChip, OpenCode } from './CodeLink'
+import { LocationChip, OpenCode, parseLoc } from './CodeLink'
 import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
 import { ActivityMenu } from './ActivityMenu'
@@ -376,10 +376,7 @@ function WorkbenchExplorer({
   onOpenFinding: (f: Finding) => void
   onOpenContextItem: (c: ContextItem) => void
 }) {
-  // "Findings in files": each finding's located observations, so the Explorer lists findings-by-file (not
-  // raw observations). Clicking a row opens the finding's detail — its info — with the source file one more
-  // click away via the ↦ jumps inside. Observations not promoted to a finding belong under Investigations,
-  // so they deliberately don't appear here.
+  // "Findings in files": each finding's located observations — clicking opens the finding's detail.
   const obsById = new Map(observations.map((o) => [o.id, o]))
   const findingLocs = findings.flatMap((f) =>
     f.observation_ids
@@ -387,6 +384,9 @@ function WorkbenchExplorer({
       .filter((o): o is Observation => !!o && !!o.asset_id && !!o.location)
       .map((o) => ({ finding: f, obs: o })),
   )
+  // Every located observation the scanners produced — the raw hits, most of which are not (yet) promoted to
+  // findings. The human needs to see and triage these, so they get their own list regardless of finding count.
+  const located = observations.filter((o) => o.asset_id && o.location)
   return (
     <aside className="wb-explorer">
       <div className="wb-exp-head">
@@ -441,8 +441,8 @@ function WorkbenchExplorer({
             <div className="wb-exp-empty">Open a file to browse its repo.</div>
           )
         ) : tab === 'findings' ? (
-          findings.length === 0 ? (
-            <div className="wb-exp-empty">No findings yet.</div>
+          findings.length === 0 && located.length === 0 ? (
+            <div className="wb-exp-empty">No findings or observations yet.</div>
           ) : (
             <>
               {SEVERITIES.map((sev) => {
@@ -457,7 +457,7 @@ function WorkbenchExplorer({
               })}
               {findingLocs.length > 0 && (
                 <>
-                  <div className="wb-exp-row grp" style={{ marginTop: 8 }}>In files ({findingLocs.length})</div>
+                  <div className="wb-exp-row grp" style={{ marginTop: 8 }}>Findings in files ({findingLocs.length})</div>
                   {findingLocs.map(({ finding, obs }) => (
                     <div
                       key={finding.id + ':' + obs.id}
@@ -469,6 +469,25 @@ function WorkbenchExplorer({
                       <span className="lbl">{obs.location}</span>
                     </div>
                   ))}
+                </>
+              )}
+              {located.length > 0 && (
+                <>
+                  <div className="wb-exp-row grp" style={{ marginTop: 8 }} title="Every scanner hit — click to open the file. Triage in the center panel.">Observations ({located.length})</div>
+                  {located.map((o) => {
+                    const { path, line } = parseLoc(o.location!)
+                    return (
+                      <div
+                        key={o.id}
+                        className="wb-exp-row file"
+                        title={`${o.title} — ${o.location}`}
+                        onClick={() => onOpenCode(o.asset_id!, path, line)}
+                      >
+                        <span className={`dot sev-${o.severity}`} />
+                        <span className="lbl">{o.location}</span>
+                      </div>
+                    )
+                  })}
                 </>
               )}
             </>
