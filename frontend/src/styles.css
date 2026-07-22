@@ -2453,9 +2453,61 @@ select option {
 .row-main.clickable:focus-visible { outline: 1px solid var(--acc); outline-offset: 1px; }
 
 /* Observations triage: filter chips + per-row detail. */
-.obs-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
-.obs-filters .chip .n { opacity: 0.7; margin-left: 3px; font-variant-numeric: tabular-nums; }
-.obs-detail { font-size: 12px; line-height: 1.5; margin-top: 6px; white-space: pre-wrap; }
+/* ── Reusable spreadsheet interface (DataTable + toolbar + bulk bar + detail panel) ────────────────── */
+.hero.compact { margin-bottom: 10px; }
+.hero.compact h1 { margin-bottom: 4px; }
+.hero.compact p { font-size: 12.5px; }
+
+.table-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.tt-search { flex: 0 1 260px; min-width: 160px; padding: 6px 10px; font-size: 12.5px; background: var(--bg3); border: 1px solid var(--line2); border-radius: 7px; color: var(--tx); }
+.tt-search:focus { outline: none; border-color: var(--acc); }
+.table-toolbar select { padding: 6px 8px; font-size: 12px; background: var(--bg3); border: 1px solid var(--line2); border-radius: 7px; color: var(--tx); }
+.tt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tt-chips .chip .n { opacity: 0.65; margin-left: 3px; font-variant-numeric: tabular-nums; }
+.tt-count { font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.bulk-bar { display: flex; align-items: center; gap: 10px; padding: 7px 12px; margin-bottom: 8px; background: color-mix(in srgb, var(--acc) 14%, var(--bg2)); border: 1px solid var(--acc); border-radius: 8px; font-size: 12.5px; }
+.bulk-bar b { font-variant-numeric: tabular-nums; }
+
+/* The split: table grows, detail panel takes a fixed column when open. */
+.obs-split { display: flex; gap: 12px; align-items: flex-start; min-height: 0; }
+.obs-split .data-table-wrap { flex: 1; min-width: 0; }
+
+.data-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.data-table thead th { position: sticky; top: 0; z-index: 1; text-align: left; padding: 7px 10px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tx3); background: var(--bg3); border-bottom: 1px solid var(--line2); white-space: nowrap; }
+.data-table th.sortable { cursor: pointer; user-select: none; }
+.data-table th.sortable:hover { color: var(--tx); }
+.data-table th.sorted { color: var(--tx); }
+.data-table .dt-arrow { display: inline-block; width: 10px; font-size: 9px; color: var(--acc); }
+.data-table tbody td { padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; color: var(--tx2); }
+.data-table tbody tr:last-child td { border-bottom: 0; }
+.data-table tbody tr.clickable { cursor: pointer; }
+.data-table tbody tr.clickable:hover { background: var(--bg3); }
+.data-table tbody tr.active { background: color-mix(in srgb, var(--acc) 16%, transparent); }
+.data-table td.dt-check, .data-table th.dt-check { width: 30px; text-align: center; padding-left: 8px; padding-right: 4px; }
+.data-table .dt-check input { cursor: pointer; }
+.data-table .dt-title { color: var(--tx); }
+.data-table .dt-ellip { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.data-table td.mono, .data-table .mono { font-family: var(--mono); font-size: 11px; }
+.data-table .dt-empty { text-align: center; color: var(--tx3); padding: 28px 10px; }
+.data-table .dt-signals { display: flex; flex-wrap: wrap; gap: 3px; }
+
+.sig-chip { font-size: 10px; color: var(--tx2); background: var(--bg3); border: 1px solid var(--line2); border-radius: 9px; padding: 0 6px; line-height: 16px; white-space: nowrap; }
+
+/* Detail side panel (row click) — reusable across surfaces. */
+.detail-panel { flex: 0 0 360px; position: sticky; top: 8px; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; max-height: calc(100vh - 130px); }
+.dp-head { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.dp-title { font-weight: 600; color: var(--tx); font-size: 13.5px; line-height: 1.35; flex: 1; }
+.dp-close { background: none; border: none; color: var(--tx3); cursor: pointer; font-size: 14px; padding: 2px 4px; }
+.dp-close:hover { color: var(--tx); }
+.dp-body { padding: 12px 14px; overflow-y: auto; flex: 1; }
+.dp-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 12px; }
+.dp-row { display: flex; gap: 8px; margin-bottom: 8px; font-size: 12px; align-items: baseline; }
+.dp-k { flex: 0 0 62px; color: var(--tx3); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+.dp-detail { font-size: 12.5px; line-height: 1.6; color: var(--tx2); margin: 10px 0; white-space: pre-wrap; }
+.dp-attrs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.dp-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
 
 /* Inline cross-links in a hero paragraph (Findings ⇄ Investigations) read as links, not plain text. */
 .hero p .link { color: var(--acc); font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }

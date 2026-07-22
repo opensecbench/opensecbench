@@ -30,6 +30,7 @@ import {
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
 import { LocationChip, OpenCode } from './CodeLink'
+import { DataTable, Column } from './DataTable'
 import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
 import { ActivityMenu } from './ActivityMenu'
@@ -2210,9 +2211,23 @@ function PlaybooksTab({
 
 const FINDING_STATUSES = ['open', 'confirmed', 'remediated', 'accepted', 'false_positive']
 
-// ObservationsTab is the human triage queue: every raw signal the scanners/agents produced, with the actions
-// that move it forward — promote to a finding, open an investigation, or dismiss. It's the "agent + human
-// driven" seam: scanners route observations automatically, but a human decides what becomes a finding.
+const SEV_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 }
+// Attribute keys worth surfacing as compact signal chips in the table, most-exploitable first.
+const OBS_SIGNALS: { key: string; label: string }[] = [
+  { key: 'reachable_confirmed', label: 'reachable✓' },
+  { key: 'route_reachable', label: 'route→sink' },
+  { key: 'reachable', label: 'reachable' },
+  { key: 'exposed', label: 'exposed' },
+  { key: 'verified', label: 'verified' },
+  { key: 'outdated', label: 'outdated' },
+]
+const obsSignals = (o: Observation): string[] => OBS_SIGNALS.filter((s) => (o.attributes ?? {})[s.key] === 'true').map((s) => s.label)
+const STATE_LABEL: Record<string, string> = { unreviewed: 'new', confirmed: 'promoted', rejected: 'dismissed' }
+
+// ObservationsTab is the human triage queue: a compact, spreadsheet-style table of every raw signal the
+// scanners/agents produced. Search/sort/filter to find what matters, select rows for bulk promote/investigate/
+// dismiss, or click a row to inspect it in the side panel. Items already under investigation live on the
+// Investigations tab, so they're excluded here.
 function ObservationsTab({
   projectId,
   observations,
@@ -2230,9 +2245,12 @@ function ObservationsTab({
   reload: () => Promise<void>
   onError: (m: string) => void
 }) {
-  const [filter, setFilter] = useState('triage')
-  const [busy, setBusy] = useState('')
-  // Which observations already have an investigation, so they leave the "needs triage" bucket for their own.
+  const [status, setStatus] = useState('triage')
+  const [search, setSearch] = useState('')
+  const [sevFilter, setSevFilter] = useState('all')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [detailId, setDetailId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const [investigating, setInvestigating] = useState<Set<string>>(new Set())
 
   async function loadInvestigating() {
@@ -2244,94 +2262,183 @@ function ObservationsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, projectId, observations])
 
-  const FILTERS: { key: string; label: string; match: (o: Observation) => boolean }[] = [
-    { key: 'triage', label: 'Needs triage', match: (o) => o.review_state === 'unreviewed' && !investigating.has(o.id) },
-    { key: 'investigating', label: 'Investigating', match: (o) => investigating.has(o.id) },
+  // Under-investigation observations belong to the Investigations tab, not the triage queue.
+  const visible = useMemo(() => observations.filter((o) => !investigating.has(o.id)), [observations, investigating])
+  const STATUS: { key: string; label: string; match: (o: Observation) => boolean }[] = [
+    { key: 'triage', label: 'Needs triage', match: (o) => o.review_state === 'unreviewed' },
     { key: 'confirmed', label: 'Promoted', match: (o) => o.review_state === 'confirmed' },
     { key: 'dismissed', label: 'Dismissed', match: (o) => o.review_state === 'rejected' },
     { key: 'all', label: 'All', match: () => true },
   ]
-  const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0]
-  const rows = observations.filter(active.match)
+  const activeStatus = STATUS.find((s) => s.key === status) ?? STATUS[0]
+  const q = search.trim().toLowerCase()
+  const rows = useMemo(
+    () =>
+      visible.filter((o) => {
+        if (!activeStatus.match(o)) return false
+        if (sevFilter !== 'all' && o.severity !== sevFilter) return false
+        if (q && !`${o.title} ${o.rule_id ?? ''} ${o.location ?? ''} ${o.detail ?? ''}`.toLowerCase().includes(q)) return false
+        return true
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visible, status, sevFilter, q],
+  )
+  const detail = detailId ? observations.find((o) => o.id === detailId) ?? null : null
 
-  async function act(id: string, fn: () => Promise<unknown>) {
-    setBusy(id)
+  async function runBulk(fn: (id: string) => Promise<unknown>, ids: string[]) {
+    setBusy(true)
     try {
-      await fn()
+      for (const id of ids) await fn(id)
       await reload()
       await loadInvestigating()
+      setSelected(new Set())
     } catch (e) {
       onError((e as Error).message)
     } finally {
-      setBusy('')
+      setBusy(false)
+    }
+  }
+  async function runOne(fn: (id: string) => Promise<unknown>, id: string) {
+    setBusy(true)
+    try {
+      await fn(id)
+      await reload()
+      await loadInvestigating()
+      setDetailId(null)
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 
+  const columns: Column<Observation>[] = [
+    { key: 'severity', header: 'Sev', width: '72px', sortable: true, sortValue: (o) => SEV_RANK[o.severity] ?? -1, render: (o) => <span className={`sev sev-${o.severity}`}>{o.severity}</span> },
+    { key: 'title', header: 'Title', sortable: true, sortValue: (o) => o.title.toLowerCase(), render: (o) => <span className="dt-title">{o.title}</span> },
+    { key: 'rule', header: 'Rule', className: 'mono', width: '150px', sortable: true, sortValue: (o) => o.rule_id ?? '', render: (o) => <span className="muted dt-ellip">{o.rule_id}</span> },
+    { key: 'location', header: 'Location', className: 'mono', width: '190px', sortable: true, sortValue: (o) => o.location ?? '', render: (o) => <span className="muted dt-ellip">{o.location}</span> },
+    { key: 'signals', header: 'Signals', width: '150px', render: (o) => <span className="dt-signals">{obsSignals(o).map((s) => <span key={s} className="sig-chip">{s}</span>)}</span> },
+    { key: 'state', header: 'State', width: '92px', sortable: true, sortValue: (o) => o.review_state, render: (o) => <span className={`badge ${o.review_state}`}>{STATE_LABEL[o.review_state] ?? o.review_state}</span> },
+  ]
+
+  const ids = [...selected]
   return (
-    <div className="content">
-      <div className="hero">
+    <div className="content obs-page">
+      <div className="hero compact">
         <h1>Observations</h1>
         <p>
-          Every raw signal the scanners and agents produced — the triage queue. Promote the real ones to a{' '}
-          <button className="link" onClick={() => onJump('findings')}>Finding</button>, send the uncertain ones to an{' '}
-          <button className="link" onClick={() => onJump('investigations')}>Investigation</button>, or dismiss the noise.
+          The raw triage queue. Select rows for bulk actions, or click one to inspect it. Promote to a{' '}
+          <button className="link" onClick={() => onJump('findings')}>Finding</button>, send to an{' '}
+          <button className="link" onClick={() => onJump('investigations')}>Investigation</button>, or dismiss. Items already under investigation live on the Investigations tab.
         </p>
       </div>
 
-      <div className="obs-filters">
-        {FILTERS.map((f) => {
-          const n = observations.filter(f.match).length
-          return (
-            <button key={f.key} className={`chip ${filter === f.key ? 'on' : ''}`} onClick={() => setFilter(f.key)}>
-              {f.label} <span className="n">{n}</span>
+      <div className="table-toolbar">
+        <input className="tt-search" placeholder="Search title, rule, location…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={sevFilter} onChange={(e) => setSevFilter(e.target.value)}>
+          <option value="all">All severities</option>
+          {['critical', 'high', 'medium', 'low', 'info'].map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <div className="tt-chips">
+          {STATUS.map((s) => (
+            <button key={s.key} className={`chip ${status === s.key ? 'on' : ''}`} onClick={() => setStatus(s.key)}>
+              {s.label} <span className="n">{visible.filter(s.match).length}</span>
             </button>
-          )
-        })}
+          ))}
+        </div>
+        <span className="grow" />
+        <span className="muted tt-count">{rows.length} shown</span>
       </div>
 
-      <section className="panel">
-        <div className="panel-head">{active.label} ({rows.length})</div>
-        {rows.length === 0 ? (
-          <div className="empty">{filter === 'triage' ? 'Nothing left to triage. 🎉' : 'Nothing here.'}</div>
-        ) : (
-          <ul className="rows">
-            {rows.map((o) => {
-              const inFlight = busy === o.id
-              return (
-                <li key={o.id} className="row-item col">
-                  <div className="row-main">
-                    <span className={`sev sev-${o.severity}`}>{o.severity}</span>
-                    <span className="row-title">{o.title}</span>
-                    {o.rule_id && <span className="muted mono">{o.rule_id}</span>}
-                    <span className="grow" />
-                    {o.review_state === 'unreviewed' && !investigating.has(o.id) ? (
-                      <>
-                        <button className="mini ok" disabled={!online || inFlight} title="Confirm as a real vulnerability and create a finding" onClick={() => void act(o.id, () => api.promoteObservation(o.id))}>⚑ Promote</button>
-                        <button className="mini" disabled={!online || inFlight} title="Open an investigation to validate" onClick={() => void act(o.id, () => api.investigateObservation(o.id))}>🔎 Investigate</button>
-                        <button className="mini no" disabled={!online || inFlight} title="Dismiss as noise / false positive" onClick={() => void act(o.id, () => api.reviewObservation(o.id, 'rejected'))}>Dismiss</button>
-                      </>
-                    ) : investigating.has(o.id) ? (
-                      <button className="mini" onClick={() => onJump('investigations')} title="Open the Investigations queue">🔎 investigating →</button>
-                    ) : (
-                      <>
-                        <span className={`badge ${o.review_state}`}>{o.review_state === 'confirmed' ? 'promoted' : 'dismissed'}</span>
-                        <button className="mini" disabled={!online || inFlight} title="Return to the triage queue" onClick={() => void act(o.id, () => api.reviewObservation(o.id, 'unreviewed'))}>↺ Restore</button>
-                      </>
-                    )}
-                  </div>
-                  {o.location && (
-                    <div className="loc-row">
-                      <LocationChip obs={o} onOpenCode={onOpenCode} />
-                    </div>
-                  )}
-                  {o.detail && <div className="obs-detail muted">{o.detail}</div>}
-                </li>
-              )
-            })}
-          </ul>
+      {selected.size > 0 && (
+        <div className="bulk-bar">
+          <span><b>{selected.size}</b> selected</span>
+          <button className="mini ok" disabled={!online || busy} onClick={() => void runBulk((id) => api.promoteObservation(id), ids)}>⚑ Promote</button>
+          <button className="mini" disabled={!online || busy} onClick={() => void runBulk((id) => api.investigateObservation(id), ids)}>🔎 Investigate</button>
+          <button className="mini no" disabled={!online || busy} onClick={() => void runBulk((id) => api.reviewObservation(id, 'rejected'), ids)}>Dismiss</button>
+          <button className="mini" disabled={busy} onClick={() => setSelected(new Set())}>clear</button>
+          {busy && <span className="muted">working…</span>}
+        </div>
+      )}
+
+      <div className="obs-split">
+        <DataTable
+          rows={rows}
+          columns={columns}
+          selectable
+          selected={selected}
+          onSelectChange={setSelected}
+          onRowClick={(o) => setDetailId(o.id)}
+          activeId={detail?.id}
+          defaultSort={{ key: 'severity', dir: 'desc' }}
+          empty={status === 'triage' ? 'Nothing left to triage. 🎉' : 'No observations match.'}
+        />
+        {detail && (
+          <ObservationDetailPanel
+            obs={detail}
+            online={online}
+            busy={busy}
+            onClose={() => setDetailId(null)}
+            onOpenCode={onOpenCode}
+            onAction={(fn) => void runOne(fn, detail.id)}
+          />
         )}
-      </section>
+      </div>
     </div>
+  )
+}
+
+// ObservationDetailPanel is the side panel shown when a table row is clicked: the full observation plus the
+// same triage actions, so you can inspect before acting without leaving the table.
+function ObservationDetailPanel({
+  obs,
+  online,
+  busy,
+  onClose,
+  onOpenCode,
+  onAction,
+}: {
+  obs: Observation
+  online: boolean
+  busy: boolean
+  onClose: () => void
+  onOpenCode: OpenCode
+  onAction: (fn: (id: string) => Promise<unknown>) => void
+}) {
+  const attrs = Object.entries(obs.attributes ?? {})
+  return (
+    <aside className="detail-panel">
+      <div className="dp-head">
+        <span className={`sev sev-${obs.severity}`}>{obs.severity}</span>
+        <span className="dp-title">{obs.title}</span>
+        <button className="dp-close" onClick={onClose} aria-label="Close">✕</button>
+      </div>
+      <div className="dp-body">
+        <div className="dp-meta">
+          <span className={`badge ${obs.review_state}`}>{STATE_LABEL[obs.review_state] ?? obs.review_state}</span>
+          <span className="muted">origin: {obs.origin}</span>
+        </div>
+        {obs.rule_id && <div className="dp-row"><span className="dp-k">Rule</span><span className="mono">{obs.rule_id}</span></div>}
+        {obs.location && <div className="dp-row"><span className="dp-k">Location</span><LocationChip obs={obs} onOpenCode={onOpenCode} /></div>}
+        {obs.detail && <p className="dp-detail">{obs.detail}</p>}
+        {attrs.length > 0 && (
+          <div className="dp-attrs">
+            {attrs.map(([k, v]) => <span key={k} className="sig-chip mono">{k}={v}</span>)}
+          </div>
+        )}
+      </div>
+      <div className="dp-actions">
+        {obs.review_state === 'unreviewed' ? (
+          <>
+            <button className="mini ok" disabled={!online || busy} onClick={() => onAction((id) => api.promoteObservation(id))}>⚑ Promote to finding</button>
+            <button className="mini" disabled={!online || busy} onClick={() => onAction((id) => api.investigateObservation(id))}>🔎 Investigate</button>
+            <button className="mini no" disabled={!online || busy} onClick={() => onAction((id) => api.reviewObservation(id, 'rejected'))}>Dismiss</button>
+          </>
+        ) : (
+          <button className="mini" disabled={!online || busy} onClick={() => onAction((id) => api.reviewObservation(id, 'unreviewed'))}>↺ Restore to triage</button>
+        )}
+      </div>
+    </aside>
   )
 }
 
