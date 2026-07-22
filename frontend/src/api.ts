@@ -1077,6 +1077,10 @@ export const api = {
   // use reviewObservation (rejected / unreviewed).
   promoteObservation: (id: string) => request<Finding>('POST', `/v1/observations/${id}/promote`),
   investigateObservation: (id: string) => request<Investigation>('POST', `/v1/observations/${id}/investigate`),
+  // Kick off a background batch-triage agent over the given observations (empty → all untriaged). Returns
+  // the count handed to the agent; effects (dismissals, flags, proposed findings) land as it works.
+  startTriage: (projectId: string, observationIds?: string[]) =>
+    request<{ queued: number }>('POST', `/v1/projects/${projectId}/triage`, { observation_ids: observationIds ?? [] }),
   listFindings: () => request<Finding[]>('GET', '/v1/findings'),
   setFindingStatus: (id: string, status: string) =>
     request<Finding>('POST', `/v1/findings/${id}/status`, { status }),

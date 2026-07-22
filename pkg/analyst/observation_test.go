@@ -51,6 +51,32 @@ func TestCreateObservation(t *testing.T) {
 	}
 }
 
+// TestTriageObservation proves the batch-triage tool applies a dismissal with a rationale: the observation
+// becomes rejected and the reason is recorded on it (auditable + visible to the human), reversibly.
+func TestTriageObservation(t *testing.T) {
+	ctx := context.Background()
+	db := migratedStore(t)
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	o, _ := db.CreateObservation(ctx, model.Observation{ProjectID: &proj.ID, Origin: model.OriginTool, Title: "CVE in test dep", Severity: "high", Attributes: map[string]string{"reachable": "false"}})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: proj.ID})
+
+	if _, err := exec(ctx, agent.ToolCall{Tool: "triage_observation", Args: map[string]any{
+		"id": o.ID, "disposition": "dismiss", "rationale": "unreachable — govulncheck proved uncalled",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetObservation(ctx, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ReviewState != model.ReviewRejected {
+		t.Fatalf("review state = %q, want rejected", got.ReviewState)
+	}
+	if got.Attributes["triage_rationale"] == "" || got.Attributes["triaged_by"] != "agent" {
+		t.Fatalf("rationale/actor not recorded: %#v", got.Attributes)
+	}
+}
+
 // TestCreateObservationDedups proves an agent-recorded observation flows through the engine's shared ingest:
 // recording the same finding twice fingerprint-dedups to a single row (same as a scanner re-run), so agent
 // and scanner output stay one dataset rather than piling up duplicates.

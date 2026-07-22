@@ -206,6 +206,42 @@ func (db *DB) ReviewObservation(ctx context.Context, id, state string) error {
 	return nil
 }
 
+// TriageObservation records an agent (or human) triage disposition on an observation: it sets the review
+// state and merges triage metadata — a rationale and the actor — into the observation's attributes so the
+// decision is auditable and visible in the UI. `dismiss` marks it rejected; `flag` leaves it unreviewed but
+// tags it for human attention. Both are reversible (restore to unreviewed clears nothing but the state).
+func (db *DB) TriageObservation(ctx context.Context, id, disposition, rationale, actor string) error {
+	o, err := db.GetObservation(ctx, id)
+	if err != nil {
+		return err
+	}
+	attrs := o.Attributes
+	if attrs == nil {
+		attrs = map[string]string{}
+	}
+	attrs["triage_rationale"] = rationale
+	attrs["triaged_by"] = actor
+	state := model.ReviewUnreviewed
+	switch disposition {
+	case "dismiss":
+		state = model.ReviewRejected
+		delete(attrs, "triage_flag")
+	case "flag":
+		attrs["triage_flag"] = "true" // needs a human look
+	default:
+		return fmt.Errorf("store: invalid triage disposition %q (want dismiss|flag)", disposition)
+	}
+	b, _ := json.Marshal(attrs)
+	res, err := db.ExecContext(ctx, `UPDATE observations SET review_state = ?, attributes = ? WHERE id = ?`, state, string(b), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // --- Findings ---
 
 // NewFinding is the input for creating a finding from confirmed observations.
