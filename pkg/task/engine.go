@@ -699,46 +699,18 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	for _, o := range interpreted {
 		o.TaskID = &task.ID
 		o.ArtifactID = &art.ID
-		// Content-fingerprint dedup (ADR-0029): if we've already recorded this finding in the project,
-		// skip it — no duplicate observation and no repeated disposition (which would re-open an
-		// investigation / re-seed an agent thread and burn tokens on a finding we've already seen).
-		if projectID != "" {
-			o.ProjectID = &projectID
-			o.Fingerprint = interpret.Fingerprint(o) // computed before enrichment; excludes attributes anyway
-			if exposedAttr != "" {
-				if o.Attributes == nil {
-					o.Attributes = map[string]string{}
-				}
-				o.Attributes["exposed"] = exposedAttr
+		// The exposure signal is derived once per run above; hand it to the shared ingest so it isn't
+		// re-queried per observation. IngestObservation does the dedup, cross-tool merge, and enrichment
+		// (ADR-0029/0037) — the same path the agent's create_observation uses, so both feed one dataset.
+		if projectID != "" && exposedAttr != "" {
+			if o.Attributes == nil {
+				o.Attributes = map[string]string{}
 			}
-			e.correlateReachability(ctx, projectID, &o)
-			e.correlateExposedRoute(ctx, projectID, exposedAttr, &o)
-			// Dedup (ADR-0029): a finding we've already recorded is not re-created or re-dispositioned. But
-			// refresh its interpreter-derived fields (ADR-0037) so a corrected severity or changed signal
-			// lands, without re-firing dispositions or disturbing human triage.
-			if existingID, dup := e.p(pidOf(task)).ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
-				_ = e.p(pidOf(task)).RefreshObservation(ctx, existingID, o.Severity, o.Detail, o.Attributes)
-				continue
-			}
-			// Cross-tool merge (ADR-0037): the same vulnerability reported by a second tool under a different
-			// advisory id (grype→GHSA, osv-scanner→CVE, govulncheck→GO id) merges into the first observation
-			// rather than creating a duplicate — one observation, annotated with every tool that corroborates.
-			if ids := vulnIDs(&o); len(ids) > 0 {
-				if existingID, dup := e.p(pidOf(task)).ObservationForVuln(ctx, projectID, ids); dup {
-					e.mergeVulnObservation(ctx, projectID, existingID, &o, ids)
-					continue
-				}
-			}
+			o.Attributes["exposed"] = exposedAttr
 		}
-		if saved, err := e.p(pidOf(task)).CreateObservation(ctx, o); err == nil {
+		// Only newly-created observations are dispositioned; a deduped/merged one keeps its existing triage.
+		if saved, isNew, err := e.IngestObservation(ctx, projectID, o); err == nil && isNew {
 			created = append(created, saved)
-			// Claim this observation's advisory ids so a later tool's report of the same vuln merges here.
-			if projectID != "" {
-				if ids := vulnIDs(&saved); len(ids) > 0 {
-					_ = e.p(pidOf(task)).RecordObservationVulns(ctx, projectID, saved.ID, ids)
-				}
-				e.recordReachabilityFacts(ctx, projectID, &saved)
-			}
 		}
 	}
 	// Route new observations to a post-run disposition (ADR-0028): auto-finding, investigate, or review.
@@ -775,6 +747,66 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 		return e.outcome(ctx, pidOf(task), task.ID), err
 	}
 	return e.outcome(ctx, pidOf(task), task.ID), nil
+}
+
+// IngestObservation records one observation into a project's unified dataset with the enrichment and dedup
+// every source shares, so scanner output and agent-authored observations land in the *same* pool: exposure/
+// reachability correlation, content-fingerprint dedup (an existing match is refreshed, not duplicated), and
+// cross-tool vuln merge (the same CVE from a second source folds into the first). It deliberately does NOT
+// run dispositions — routing is the caller's choice: the scanner auto-routes new observations, an agent's
+// judgment goes to the human triage queue. Returns the saved observation and whether it was newly created
+// (false = deduped or merged into an existing one). With no project scope it stores the row as-is.
+//
+// This is the single ingest path; callers must not re-implement dedup/merge/enrichment, or the human and
+// agent views drift apart.
+func (e *Engine) IngestObservation(ctx context.Context, projectID string, o model.Observation) (model.Observation, bool, error) {
+	db := e.p(projectID)
+	if projectID == "" {
+		saved, err := db.CreateObservation(ctx, o)
+		return saved, err == nil, err
+	}
+	o.ProjectID = &projectID
+	o.Fingerprint = interpret.Fingerprint(o) // computed before enrichment; Fingerprint excludes attributes
+	// Exposure signal: reuse a caller-provided value (the scanner derives it once per run), else derive it.
+	exposedAttr := ""
+	if o.Attributes != nil {
+		exposedAttr = o.Attributes["exposed"]
+	}
+	if exposedAttr == "" {
+		if exp, err := db.ProjectExposure(ctx, projectID); err == nil {
+			exposedAttr = strconv.FormatBool(exp.Exposed)
+			if o.Attributes == nil {
+				o.Attributes = map[string]string{}
+			}
+			o.Attributes["exposed"] = exposedAttr
+		}
+	}
+	e.correlateReachability(ctx, projectID, &o)
+	e.correlateExposedRoute(ctx, projectID, exposedAttr, &o)
+
+	// Content-fingerprint dedup (ADR-0029): an already-recorded finding is refreshed, not duplicated.
+	if existingID, dup := db.ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
+		_ = db.RefreshObservation(ctx, existingID, o.Severity, o.Detail, o.Attributes)
+		existing, err := db.GetObservation(ctx, existingID)
+		return existing, false, err
+	}
+	// Cross-tool merge (ADR-0037): the same vulnerability under a different advisory id folds into the first.
+	if ids := vulnIDs(&o); len(ids) > 0 {
+		if existingID, dup := db.ObservationForVuln(ctx, projectID, ids); dup {
+			e.mergeVulnObservation(ctx, projectID, existingID, &o, ids)
+			existing, err := db.GetObservation(ctx, existingID)
+			return existing, false, err
+		}
+	}
+	saved, err := db.CreateObservation(ctx, o)
+	if err != nil {
+		return model.Observation{}, false, err
+	}
+	if ids := vulnIDs(&saved); len(ids) > 0 {
+		_ = db.RecordObservationVulns(ctx, projectID, saved.ID, ids)
+	}
+	e.recordReachabilityFacts(ctx, projectID, &saved)
+	return saved, true, nil
 }
 
 // mergeVulnObservation folds a second tool's report of a vulnerability into the observation that already

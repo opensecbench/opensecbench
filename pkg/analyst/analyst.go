@@ -304,7 +304,7 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		case "generate_report":
 			return generateReport(ctx, deps, call)
 		case "create_observation":
-			return createObservation(ctx, deps.p(), deps.ProjectID, call)
+			return createObservation(ctx, deps, call)
 		case "record_reachability":
 			return recordReachability(ctx, deps, call)
 		case "read_file":
@@ -633,7 +633,7 @@ func draftKBEntry(ctx context.Context, deps ExecDeps, call agent.ToolCall) (stri
 
 // createObservation records an unreviewed, Analyst-origin observation from the agent's own analysis
 // (the "LLM interpreter", origin=thread — ADR-0005/P3). It must be human-confirmed to back a finding.
-func createObservation(ctx context.Context, st *store.DB, projectID string, call agent.ToolCall) (string, error) {
+func createObservation(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
 	title := stringArg(call, "title")
 	if title == "" {
 		return "", errors.New("create_observation requires 'title'")
@@ -650,13 +650,19 @@ func createObservation(ctx context.Context, st *store.DB, projectID string, call
 		Severity:    sev,
 		Location:    stringArg(call, "location"),
 	}
-	// Stamp the thread's project so the row lands in the same project-scoped queue the human's Observations
-	// tab and the agent's own list_observations read — otherwise an agent-recorded observation is orphaned
-	// (project_id NULL) and invisible to both. This is what keeps human and agent on one dataset.
-	if projectID != "" {
-		o.ProjectID = &projectID
+	// Route through the engine's shared ingest (ADR-0029/0037) so an agent-recorded observation gets the same
+	// project stamp, fingerprint dedup, cross-tool merge, and reachability/exposure enrichment as a scanner
+	// hit — one unified dataset for human and agent. Dispositions are NOT run: the agent's judgment stays an
+	// unreviewed candidate for the human triage queue, not auto-routed back into another agent. When no engine
+	// is wired (a bare tool loop), fall back to a plain project-stamped insert.
+	if deps.Engine != nil && deps.ProjectID != "" {
+		saved, _, err := deps.Engine.IngestObservation(ctx, deps.ProjectID, o)
+		return jsonify(saved, err)
 	}
-	return jsonify(st.CreateObservation(ctx, o))
+	if deps.ProjectID != "" {
+		o.ProjectID = &deps.ProjectID
+	}
+	return jsonify(deps.p().CreateObservation(ctx, o))
 }
 
 // recordReachability adds an LLM-sourced reachability fact — the agent's verdict on whether a finding/CVE

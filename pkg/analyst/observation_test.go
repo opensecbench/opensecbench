@@ -3,11 +3,16 @@ package analyst
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
+	"github.com/opensecbench/opensecbench/pkg/capability"
+	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
 func TestCreateObservation(t *testing.T) {
@@ -43,5 +48,37 @@ func TestCreateObservation(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != o.ID {
 		t.Fatalf("agent observation not visible in the project-scoped list: %+v", got)
+	}
+}
+
+// TestCreateObservationDedups proves an agent-recorded observation flows through the engine's shared ingest:
+// recording the same finding twice fingerprint-dedups to a single row (same as a scanner re-run), so agent
+// and scanner output stay one dataset rather than piling up duplicates.
+func TestCreateObservationDedups(t *testing.T) {
+	ctx := context.Background()
+	db := migratedStore(t)
+	blobs, err := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := store.NewCombinedManager(db)
+	engine := task.NewEngine(mgr, cas.Fixed(blobs), capability.BuiltIns(), runner.LocalRunner{})
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	exec := Executor(ExecDeps{Mgr: mgr, Engine: engine, ProjectID: proj.ID})
+
+	args := map[string]any{"title": "Hardcoded API key", "severity": "high", "detail": "in config", "location": "config.go:12"}
+	if _, err := exec(ctx, agent.ToolCall{Tool: "create_observation", Args: args}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec(ctx, agent.ToolCall{Tool: "create_observation", Args: args}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.ListObservationsByProject(ctx, proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("recording the same observation twice created %d rows, want 1 (dedup)", len(got))
 	}
 }
