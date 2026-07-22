@@ -13,7 +13,8 @@ import (
 func TestCreateObservation(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
-	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db)})
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: proj.ID})
 
 	out, err := exec(ctx, agent.ToolCall{Tool: "create_observation", Args: map[string]any{
 		"title": "Hardcoded API key", "severity": "high", "detail": "in config", "location": "config.go:12",
@@ -31,5 +32,16 @@ func TestCreateObservation(t *testing.T) {
 	}
 	if o.Severity != "high" || o.Title != "Hardcoded API key" || o.Location != "config.go:12" {
 		t.Fatalf("observation = %+v", o)
+	}
+
+	// The invariant that keeps human and agent on one dataset: an agent-recorded observation must appear in
+	// the project-scoped list the human's Observations tab and the agent's own list_observations both read.
+	// (Regression guard: without project_id, the row is orphaned and invisible to both.)
+	got, err := db.ListObservationsByProject(ctx, proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != o.ID {
+		t.Fatalf("agent observation not visible in the project-scoped list: %+v", got)
 	}
 }
