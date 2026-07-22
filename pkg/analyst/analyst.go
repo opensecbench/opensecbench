@@ -304,7 +304,7 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		case "generate_report":
 			return generateReport(ctx, deps, call)
 		case "create_observation":
-			return createObservation(ctx, deps.p(), call)
+			return createObservation(ctx, deps.p(), deps.ProjectID, call)
 		case "record_reachability":
 			return recordReachability(ctx, deps, call)
 		case "read_file":
@@ -633,7 +633,7 @@ func draftKBEntry(ctx context.Context, deps ExecDeps, call agent.ToolCall) (stri
 
 // createObservation records an unreviewed, Analyst-origin observation from the agent's own analysis
 // (the "LLM interpreter", origin=thread — ADR-0005/P3). It must be human-confirmed to back a finding.
-func createObservation(ctx context.Context, st *store.DB, call agent.ToolCall) (string, error) {
+func createObservation(ctx context.Context, st *store.DB, projectID string, call agent.ToolCall) (string, error) {
 	title := stringArg(call, "title")
 	if title == "" {
 		return "", errors.New("create_observation requires 'title'")
@@ -642,14 +642,21 @@ func createObservation(ctx context.Context, st *store.DB, call agent.ToolCall) (
 	if sev == "" {
 		sev = "info"
 	}
-	return jsonify(st.CreateObservation(ctx, model.Observation{
+	o := model.Observation{
 		Origin:      model.OriginThread,
 		ReviewState: model.ReviewUnreviewed,
 		Title:       title,
 		Detail:      stringArg(call, "detail"),
 		Severity:    sev,
 		Location:    stringArg(call, "location"),
-	}))
+	}
+	// Stamp the thread's project so the row lands in the same project-scoped queue the human's Observations
+	// tab and the agent's own list_observations read — otherwise an agent-recorded observation is orphaned
+	// (project_id NULL) and invisible to both. This is what keeps human and agent on one dataset.
+	if projectID != "" {
+		o.ProjectID = &projectID
+	}
+	return jsonify(st.CreateObservation(ctx, o))
 }
 
 // recordReachability adds an LLM-sourced reachability fact — the agent's verdict on whether a finding/CVE
