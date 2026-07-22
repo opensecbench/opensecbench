@@ -29,7 +29,7 @@ import {
   TreeEntry,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
-import { LocationChip, OpenCode, parseLoc } from './CodeLink'
+import { LocationChip, OpenCode } from './CodeLink'
 import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
 import { ActivityMenu } from './ActivityMenu'
@@ -379,7 +379,8 @@ function WorkbenchExplorer({
   onOpenFinding: (f: Finding) => void
   onOpenContextItem: (c: ContextItem) => void
 }) {
-  // "Findings in files": each finding's located observations — clicking opens the finding's detail.
+  // "Findings in files": each finding's located observations — clicking opens the finding's detail. Raw
+  // (un-promoted) observations do NOT appear here — they live on the Observations surface, their single home.
   const obsById = new Map(observations.map((o) => [o.id, o]))
   const findingLocs = findings.flatMap((f) =>
     f.observation_ids
@@ -387,9 +388,6 @@ function WorkbenchExplorer({
       .filter((o): o is Observation => !!o && !!o.asset_id && !!o.location)
       .map((o) => ({ finding: f, obs: o })),
   )
-  // Every located observation the scanners produced — the raw hits, most of which are not (yet) promoted to
-  // findings. The human needs to see and triage these, so they get their own list regardless of finding count.
-  const located = observations.filter((o) => o.asset_id && o.location)
   return (
     <aside className="wb-explorer">
       <div className="wb-exp-head">
@@ -444,8 +442,8 @@ function WorkbenchExplorer({
             <div className="wb-exp-empty">Open a file to browse its repo.</div>
           )
         ) : tab === 'findings' ? (
-          findings.length === 0 && located.length === 0 ? (
-            <div className="wb-exp-empty">No findings or observations yet.</div>
+          findings.length === 0 ? (
+            <div className="wb-exp-empty">No findings yet. Scanner results land in the Observations tab — promote the real ones there.</div>
           ) : (
             <>
               {SEVERITIES.map((sev) => {
@@ -472,25 +470,6 @@ function WorkbenchExplorer({
                       <span className="lbl">{obs.location}</span>
                     </div>
                   ))}
-                </>
-              )}
-              {located.length > 0 && (
-                <>
-                  <div className="wb-exp-row grp" style={{ marginTop: 8 }} title="Every scanner hit — click to open the file. Triage in the center panel.">Observations ({located.length})</div>
-                  {located.map((o) => {
-                    const { path, line } = parseLoc(o.location!)
-                    return (
-                      <div
-                        key={o.id}
-                        className="wb-exp-row file"
-                        title={`${o.title} — ${o.location}`}
-                        onClick={() => onOpenCode(o.asset_id!, path, line)}
-                      >
-                        <span className={`dot sev-${o.severity}`} />
-                        <span className="lbl">{o.location}</span>
-                      </div>
-                    )
-                  })}
                 </>
               )}
             </>
@@ -2401,15 +2380,16 @@ function FindingsTab({
       <div className="hero">
         <h1>Findings</h1>
         <p>
-          Confirmed, triaged vulnerabilities — the report-worthy set, promoted from observations. Click a finding to
-          open its detail. Uncertain signals still awaiting validation live in{' '}
-          <button className="link" onClick={() => onJump('investigations')}>Investigations</button>.
+          Confirmed, report-worthy vulnerabilities. Nothing lands here on its own — you promote it from{' '}
+          <button className="link" onClick={() => onJump('observations')}>Observations</button> (the raw scanner
+          queue) or confirm it in{' '}
+          <button className="link" onClick={() => onJump('investigations')}>Investigations</button>. Click a finding to open its detail.
         </p>
       </div>
       <section className="panel">
       <div className="panel-head">Findings ({findings.length})</div>
       {findings.length === 0 ? (
-        <div className="empty">No findings yet. Run a scan and promote confirmed observations.</div>
+        <div className="empty">No findings yet. Triage scanner results in the Observations tab and promote the real ones here.</div>
       ) : (
         <ul className="rows">
           {findings.map((f) => {
