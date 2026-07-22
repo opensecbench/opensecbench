@@ -937,11 +937,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'findings':
         return (
           <FindingsTab
-            projectId={project.id}
-            online={online}
             findings={findings}
             observations={observations}
-            onOpenCode={openCodeFile}
             onOpenFinding={openFinding}
             onJump={(t) => activateSurface(t)}
             reload={loadAll}
@@ -2323,7 +2320,7 @@ function ObservationsTab({
 
   const ids = [...selected]
   return (
-    <div className="content obs-page">
+    <div className="table-page">
       <div className="hero compact">
         <h1>Observations</h1>
         <p>
@@ -2361,7 +2358,7 @@ function ObservationsTab({
         </div>
       )}
 
-      <div className="obs-split">
+      <div className="table-split">
         <DataTable
           rows={rows}
           columns={columns}
@@ -2443,11 +2440,8 @@ function ObservationDetailPanel({
 }
 
 function FindingsTab({
-  projectId,
-  online,
   findings,
   observations,
-  onOpenCode,
   onOpenFinding,
   onJump,
   reload,
@@ -2455,11 +2449,8 @@ function FindingsTab({
   focusId,
   focusNonce,
 }: {
-  projectId: string
-  online: boolean
   findings: Finding[]
   observations: Observation[]
-  onOpenCode: OpenCode
   onOpenFinding: (f: Finding) => void
   onJump: (t: Tab) => void
   reload: () => Promise<void>
@@ -2467,100 +2458,94 @@ function FindingsTab({
   focusId?: string
   focusNonce?: number
 }) {
-  // Index observations by id so each finding can show its supporting locations (findings carry no location
-  // of their own — it lives on the observations they were promoted from, ADR-0050).
+  // Index observations by id so each finding can show its supporting location (findings carry no location of
+  // their own — it lives on the observations they were promoted from, ADR-0050).
   const byId = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
-  // Deep-link: when asked to focus a finding (e.g. from omni-search), scroll it into view and flash it.
-  const rowRefs = useRef(new Map<string, HTMLLIElement>())
+  const firstLoc = (f: Finding): string => {
+    for (const id of f.observation_ids) {
+      const o = byId.get(id)
+      if (o?.location) return o.location
+    }
+    return ''
+  }
+  // Deep-link from omni-search: briefly flash the focused finding row.
   const [flash, setFlash] = useState<string | null>(null)
   useEffect(() => {
     if (!focusId) return
-    const row = rowRefs.current.get(focusId)
-    if (!row) return
-    row.scrollIntoView({ block: 'center', behavior: 'smooth' })
     setFlash(focusId)
     const t = setTimeout(() => setFlash(null), 1600)
     return () => clearTimeout(t)
   }, [focusId, focusNonce])
+
+  const [search, setSearch] = useState('')
+  const [sevFilter, setSevFilter] = useState('all')
+  const q = search.trim().toLowerCase()
+  const rows = useMemo(
+    () =>
+      findings.filter((f) => {
+        if (sevFilter !== 'all' && f.severity !== sevFilter) return false
+        if (q && !`${f.title} ${f.cwe ?? ''} ${firstLoc(f)}`.toLowerCase().includes(q)) return false
+        return true
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [findings, sevFilter, q, byId],
+  )
+
+  const columns: Column<Finding>[] = [
+    { key: 'severity', header: 'Sev', width: '72px', sortable: true, sortValue: (f) => SEV_RANK[f.severity] ?? -1, render: (f) => <span className={`sev sev-${f.severity}`}>{f.severity}</span> },
+    { key: 'title', header: 'Title', sortable: true, sortValue: (f) => f.title.toLowerCase(), render: (f) => <span className="dt-title">{f.title}</span> },
+    { key: 'cwe', header: 'CWE', width: '104px', sortable: true, sortValue: (f) => f.cwe ?? '', render: (f) => <span className="muted mono">{f.cwe}</span> },
+    { key: 'location', header: 'Location', className: 'mono', width: '190px', render: (f) => <span className="muted dt-ellip">{firstLoc(f)}</span> },
+    {
+      key: 'status', header: 'Status', width: '148px', sortable: true, sortValue: (f) => f.status,
+      render: (f) => (
+        <select
+          className={`finding-status badge ${f.status}`}
+          value={f.status}
+          title="Finding status"
+          onClick={(e) => e.stopPropagation()}
+          onChange={async (e) => {
+            try {
+              await api.setFindingStatus(f.id, e.target.value)
+              await reload()
+            } catch (err) {
+              onError((err as Error).message)
+            }
+          }}
+        >
+          {FINDING_STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+        </select>
+      ),
+    },
+  ]
+
   return (
-    <div className="content">
-      <div className="hero">
+    <div className="table-page">
+      <div className="hero compact">
         <h1>Findings</h1>
         <p>
           Confirmed, report-worthy vulnerabilities. Nothing lands here on its own — you promote it from{' '}
-          <button className="link" onClick={() => onJump('observations')}>Observations</button> (the raw scanner
-          queue) or confirm it in{' '}
+          <button className="link" onClick={() => onJump('observations')}>Observations</button> or confirm it in{' '}
           <button className="link" onClick={() => onJump('investigations')}>Investigations</button>. Click a finding to open its detail.
         </p>
       </div>
-      <section className="panel">
-      <div className="panel-head">Findings ({findings.length})</div>
-      {findings.length === 0 ? (
-        <div className="empty">No findings yet. Triage scanner results in the Observations tab and promote the real ones here.</div>
-      ) : (
-        <ul className="rows">
-          {findings.map((f) => {
-            const obs = f.observation_ids.map((id) => byId.get(id)).filter((o): o is Observation => !!o)
-            const located = obs.filter((o) => o.location)
-            return (
-              <li
-                key={f.id}
-                ref={(el) => {
-                  if (el) rowRefs.current.set(f.id, el)
-                  else rowRefs.current.delete(f.id)
-                }}
-                className={`row-item col${flash === f.id ? ' flash' : ''}`}
-              >
-                <div
-                  className="row-main clickable"
-                  role="button"
-                  tabIndex={0}
-                  title="Open finding details"
-                  onClick={() => onOpenFinding(f)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onOpenFinding(f)
-                    }
-                  }}
-                >
-                  <span className={`sev sev-${f.severity}`}>{f.severity}</span>
-                  <span className="row-title">{f.title}</span>
-                  {f.cwe && <span className="muted">{f.cwe}</span>}
-                  <span className="grow" />
-                  <select
-                    className={`finding-status badge ${f.status}`}
-                    value={f.status}
-                    title="Finding status"
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={async (e) => {
-                      try {
-                        await api.setFindingStatus(f.id, e.target.value)
-                        await reload()
-                      } catch (err) {
-                        onError((err as Error).message)
-                      }
-                    }}
-                  >
-                    {FINDING_STATUSES.map((s) => (
-                      <option key={s} value={s}>{s.replace('_', ' ')}</option>
-                    ))}
-                  </select>
-                </div>
-                {located.length > 0 && (
-                  <div className="loc-row">
-                    {located.map((o) => (
-                      <LocationChip key={o.id} obs={o} onOpenCode={onOpenCode} />
-                    ))}
-                  </div>
-                )}
-                {obs.length > 0 && <FindingReachability projectId={projectId} subject={obs[0].id} online={online} onError={onError} />}
-              </li>
-            )
-          })}
-        </ul>
-      )}
-      </section>
+      <div className="table-toolbar">
+        <input className="tt-search" placeholder="Search title, CWE, location…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select value={sevFilter} onChange={(e) => setSevFilter(e.target.value)}>
+          <option value="all">All severities</option>
+          {['critical', 'high', 'medium', 'low', 'info'].map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <span className="grow" />
+        <span className="muted tt-count">{rows.length} of {findings.length}</span>
+      </div>
+      <DataTable
+        rows={rows}
+        columns={columns}
+        onRowClick={(f) => onOpenFinding(f)}
+        getRowClass={(f) => (flash === f.id ? 'flash' : '')}
+        defaultSort={{ key: 'severity', dir: 'desc' }}
+        empty="No findings yet. Triage scanner results in the Observations tab and promote the real ones here."
+      />
     </div>
   )
 }
