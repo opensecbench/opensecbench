@@ -6,10 +6,9 @@
   --line: #242c3a;
   --line2: #2f3a4d;
   --tx: #c7d0de;
-  --tx2: #929db1;
-  /* tertiary/muted body text — kept a step below --tx2 but light enough to read as data
-     (Rule/Location columns, counts): ~5.4:1 on --bg2, was #6d7789 (~4:1, too dim). */
-  --tx3: #828ca0;
+  /* secondary/muted text — lifted for dark-mode legibility (was #929db1 / #6d7789) */
+  --tx2: #aab4c6;
+  --tx3: #8d97aa;
   --acc: #4aa8ff;
   --acc2: #7c5cff;
   --green: #46c07a;
