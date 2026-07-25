@@ -7,7 +7,7 @@ const AGENT_LABELS: Record<string, string> = { triage: 'AI triage' }
 // ActivityMenu is the top-bar "what's running" indicator: a live count of in-flight capability tasks and
 // agent plans across the workbench, expandable to a list. Polls while online so it reflects a scan you
 // just kicked off.
-export function ActivityMenu({ online, onOpen }: { online: boolean; onOpen?: (kind: 'task' | 'plan', projectId?: string) => void }) {
+export function ActivityMenu({ online, onOpen }: { online: boolean; onOpen?: (kind: 'task' | 'plan' | 'agent', projectId?: string) => void }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
   const [agents, setAgents] = useState<AgentRun[]>([])
@@ -23,6 +23,16 @@ export function ActivityMenu({ online, onOpen }: { online: boolean; onOpen?: (ki
     } catch {
       /* offline; leave as-is */
     }
+  }
+
+  async function stop(id: string) {
+    setAgents((prev) => prev.filter((a) => a.id !== id)) // optimistic; reload confirms
+    try {
+      await api.cancelAgentRun(id)
+    } catch {
+      /* it may have already finished */
+    }
+    void reload()
   }
 
   useEffect(() => {
@@ -89,10 +99,16 @@ export function ActivityMenu({ online, onOpen }: { online: boolean; onOpen?: (ki
                   <div className="activity-group">Agents ({agents.length})</div>
                   <ul>
                     {agents.map((a) => (
-                      <li key={a.id}>
+                      <li key={a.id} className={onOpen ? 'clickable' : ''} onClick={() => { onOpen?.('agent', a.project_id); setOpen(false) }}>
                         <span className="act-dot s-running" />
                         <span className="act-name">{AGENT_LABELS[a.profile] ?? a.label}</span>
-                        <span className="act-status">running</span>
+                        <button
+                          className="act-stop"
+                          title="Stop this run"
+                          onClick={(e) => { e.stopPropagation(); void stop(a.id) }}
+                        >
+                          ⏹ stop
+                        </button>
                       </li>
                     ))}
                   </ul>

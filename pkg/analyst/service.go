@@ -60,11 +60,12 @@ type Service struct {
 
 // ActiveRun is one in-flight background agent run, surfaced in the "Running now" activity view.
 type ActiveRun struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	Profile   string    `json:"profile"`
-	Label     string    `json:"label"`
-	StartedAt time.Time `json:"started_at"`
+	ID        string             `json:"id"`
+	ProjectID string             `json:"project_id"`
+	Profile   string             `json:"profile"`
+	Label     string             `json:"label"`
+	StartedAt time.Time          `json:"started_at"`
+	cancel    context.CancelFunc `json:"-"` // stops the run when the human cancels it
 }
 
 // RunRegistry is a process-wide record of in-flight background agent runs, shared across the
@@ -77,20 +78,46 @@ type RunRegistry struct {
 // NewRunRegistry creates an empty registry.
 func NewRunRegistry() *RunRegistry { return &RunRegistry{runs: map[string]ActiveRun{}} }
 
+// List returns the in-flight runs newest first.
+func (r *RunRegistry) List() []ActiveRun {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]ActiveRun, 0, len(r.runs))
+	for _, run := range r.runs {
+		out = append(out, run)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
+	return out
+}
+
+// Cancel stops the run with the given id, returning whether it was found.
+func (r *RunRegistry) Cancel(id string) bool {
+	r.mu.Lock()
+	run, ok := r.runs[id]
+	r.mu.Unlock()
+	if ok && run.cancel != nil {
+		run.cancel()
+	}
+	return ok
+}
+
 // SetRunRegistry injects the shared registry so this Service reports into the same store the activity
 // endpoint reads.
 func (svc *Service) SetRunRegistry(r *RunRegistry) { svc.runs = r }
 
-// trackRun registers a background agent run and returns a closure that deregisters it on completion.
-func (svc *Service) trackRun(projectID, profile, label string) func() {
+// trackRun registers a background agent run, returning a cancelable context for it and a closure that
+// deregisters it on completion. Cancel (via the registry) cancels that context, so the run stops.
+func (svc *Service) trackRun(parent context.Context, projectID, profile, label string) (context.Context, func()) {
 	if svc.runs == nil {
-		return func() {}
+		return parent, func() {}
 	}
+	ctx, cancel := context.WithCancel(parent)
 	id := uuid.NewString()
 	svc.runs.mu.Lock()
-	svc.runs.runs[id] = ActiveRun{ID: id, ProjectID: projectID, Profile: profile, Label: label, StartedAt: time.Now()}
+	svc.runs.runs[id] = ActiveRun{ID: id, ProjectID: projectID, Profile: profile, Label: label, StartedAt: time.Now(), cancel: cancel}
 	svc.runs.mu.Unlock()
-	return func() {
+	return ctx, func() {
+		cancel()
 		svc.runs.mu.Lock()
 		delete(svc.runs.runs, id)
 		svc.runs.mu.Unlock()
@@ -102,14 +129,7 @@ func (svc *Service) ActiveRuns() []ActiveRun {
 	if svc.runs == nil {
 		return nil
 	}
-	svc.runs.mu.Lock()
-	defer svc.runs.mu.Unlock()
-	out := make([]ActiveRun, 0, len(svc.runs.runs))
-	for _, r := range svc.runs.runs {
-		out = append(out, r)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
-	return out
+	return svc.runs.List()
 }
 
 // SetEgressSender injects the runner-aware HTTP sender used by the send_request tool (ADR-0025). Without

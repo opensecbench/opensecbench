@@ -1048,6 +1048,7 @@ export const api = {
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
   listTasks: () => request<Task[]>('GET', '/v1/tasks'),
   activity: () => request<{ tasks: Task[] | null; plans: Plan[] | null; agents: AgentRun[] | null }>('GET', '/v1/activity'),
+  cancelAgentRun: (id: string) => request<void>('POST', `/v1/activity/agents/${id}/cancel`, {}),
   // The unified Activity history: scanner tasks, agent threads, agent plans, and playbook runs merged
   // newest-first across every project (durable — an agent transcript stays here after a restart).
   activityFeed: () => request<ActivityItem[]>('GET', '/v1/activity/feed'),
