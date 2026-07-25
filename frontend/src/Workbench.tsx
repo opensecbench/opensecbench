@@ -123,16 +123,17 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
   { key: 'audit', icon: '📜', label: 'Audit', meta: true },
 ]
 
-// The activity bar's primary surfaces, grouped by what they're for (ADR-0015 declutter) — so the rail
-// scans as a workflow (evidence → testing → analysis → coverage → run → deliver) instead of a wall of
-// icons. Meta surfaces (Settings/Integrations/Audit) still sit below a divider; global config/library
-// moves out of the project entirely in a later step.
+// The activity bar's primary surfaces, grouped by what they're for (ADR-0015 declutter). The rail is
+// ordered by how often each group is reached day-to-day (evidence → analysis → testing → run → coverage
+// → deliver): the evidence you set up and the triage you live in sit up top, the testing tools drop to
+// mid-list, and end-of-engagement coverage/deliver sit last. Meta surfaces (Settings/Integrations/Audit)
+// still sit below a divider; global config/library moves out of the project entirely in a later step.
 const SURFACE_GROUPS: { label: string; keys: Tab[] }[] = [
   { label: 'Evidence', keys: ['assets', 'context', 'knowledge'] },
-  { label: 'Testing', keys: ['replay', 'proxy', 'intercept', 'terminal', 'scan'] },
   { label: 'Analysis', keys: ['observations', 'findings', 'investigations', 'routes', 'graph'] },
-  { label: 'Coverage', keys: ['methodology', 'scope'] },
+  { label: 'Testing', keys: ['replay', 'proxy', 'intercept', 'terminal', 'scan'] },
   { label: 'Run', keys: ['orchestrate', 'playbooks', 'tasks'] },
+  { label: 'Coverage', keys: ['methodology', 'scope'] },
   { label: 'Deliver', keys: ['reports'] },
 ]
 const surfaceByKey = (k: Tab) => SURFACES.find((s) => s.key === k)!
