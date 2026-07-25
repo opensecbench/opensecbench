@@ -7,7 +7,9 @@
   --line2: #2f3a4d;
   --tx: #c7d0de;
   --tx2: #929db1;
-  --tx3: #6d7789;
+  /* tertiary/muted body text — kept a step below --tx2 but light enough to read as data
+     (Rule/Location columns, counts): ~5.4:1 on --bg2, was #6d7789 (~4:1, too dim). */
+  --tx3: #828ca0;
   --acc: #4aa8ff;
   --acc2: #7c5cff;
   --green: #46c07a;
@@ -2463,6 +2465,9 @@ select option {
 .tt-search:focus { outline: none; border-color: var(--acc); }
 .table-toolbar select { padding: 6px 8px; font-size: 12px; background: var(--bg3); border: 1px solid var(--line2); border-radius: 7px; color: var(--tx); }
 .tt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tt-chips .chip { border: 1px solid var(--line2); background: var(--bg3); color: var(--tx2); border-radius: 13px; padding: 3px 12px; font-size: 12px; cursor: pointer; }
+.tt-chips .chip:hover { border-color: var(--tx3); color: var(--tx); }
+.tt-chips .chip.on { background: var(--bg4); color: var(--tx); border-color: var(--acc); }
 .tt-chips .chip .n { opacity: 0.65; margin-left: 3px; font-variant-numeric: tabular-nums; }
 .tt-count { font-size: 12px; font-variant-numeric: tabular-nums; }
 
