@@ -2,16 +2,20 @@ package analyst
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
+	"sort"
 	"strings"
 
+	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
-// triageSignalKeys are the routing attributes worth putting in front of the triage agent, most-exploitable
-// first — these are what let it fast-dismiss (an unreachable, unexposed finding is usually noise).
+// triageSignalKeys are the routing attributes worth putting in front of the triage model, most-exploitable
+// first — these let it fast-dismiss (an unreachable, unexposed finding is usually noise).
 var triageSignalKeys = []string{"reachable_confirmed", "route_reachable", "reachable", "exposed", "verified", "outdated"}
 
 func triageSignals(a map[string]string) string {
@@ -30,12 +34,17 @@ func triageSignals(a map[string]string) string {
 	return strings.Join(s, ",")
 }
 
-// StartTriage launches a background batch-triage run: ONE triage agent works down the given observations (or
-// all still-unreviewed ones when ids is empty), leaning on reachability/exposure signals to dismiss noise
-// fast (reversible, with a rationale), flag the genuinely-uncertain for a human, and propose findings
-// (human-gated) for clear issues. It returns immediately with the count handed to the agent; the run
-// proceeds on a detached context and its effects land on the observations the human is watching. A single
-// shared-context agent — not one thread per item — keeps this cheap at scale.
+// Chunk-size bounds for batch triage (env-tunable per language/setup). Observations are grouped by file
+// and packed into chunks within these bounds, so each model call judges a coherent, bounded set.
+func triageChunkMin() int { return envInt("OSB_TRIAGE_CHUNK_MIN", 8) }
+func triageChunkMax() int { return envInt("OSB_TRIAGE_CHUNK_MAX", 25) }
+
+// StartTriage launches a background batch triage: it groups the target observations (or all still-unreviewed
+// ones when ids is empty) by file, and feeds each coherent chunk to the model in ONE focused call that
+// returns a JSON verdict per observation — dismiss noise, flag the genuine ones for a human. The loop lives
+// here in Go, not in the model, so coverage is guaranteed regardless of any agent step budget and a verbose
+// reply can't derail it. It returns immediately with the count; effects and a summary notification land as
+// it works. Findings stay human-gated — triage never creates them.
 func (svc *Service) StartTriage(projectID string, ids []string) (int, error) {
 	if svc.provider == nil {
 		return 0, errors.New("no LLM provider configured")
@@ -63,13 +72,106 @@ func (svc *Service) StartTriage(projectID string, ids []string) (int, error) {
 	if len(picked) == 0 {
 		return 0, nil
 	}
+	go svc.runBatchTriage(projectID, picked)
+	return len(picked), nil
+}
 
+// runBatchTriage chunks the observations, judges each chunk with one model call, applies the verdicts, and
+// raises a summary notification when it settles — the only durable trace of a run that outlives its request.
+func (svc *Service) runBatchTriage(projectID string, picked []model.Observation) {
+	ctx := context.Background()
+	done := svc.trackRun(projectID, "triage", "AI triage")
+	defer done()
+
+	chunks := chunkObservations(picked, triageChunkMin(), triageChunkMax())
+	tgt := svc.targetForTag(ctx, svc.resolveProfile(ctx, "triage").ModelTag)
+
+	dismissed, flagged, failed := 0, 0, 0
+	for i, chunk := range chunks {
+		d, f, err := svc.triageChunk(ctx, projectID, tgt, chunk)
+		if err != nil {
+			failed += len(chunk)
+			log.Printf("triage: project %s chunk %d/%d failed: %v", projectID, i+1, len(chunks), err)
+			continue
+		}
+		dismissed += d
+		flagged += f
+	}
+
+	pid := projectID
+	title := "AI triage complete"
+	if dismissed == 0 && flagged == 0 {
+		title = "AI triage made no changes"
+	}
+	body := fmt.Sprintf("Dismissed %d, flagged %d for your review, across %d observation(s).", dismissed, flagged, len(picked))
+	if failed > 0 {
+		body += fmt.Sprintf(" %d couldn’t be processed.", failed)
+	}
+	_, _ = svc.p(projectID).CreateNotification(ctx, model.Notification{
+		Kind: model.NotifyInfo, Title: title, Body: body, ProjectID: &pid, Link: "observations",
+	})
+}
+
+// triageChunk judges one chunk with a single completion, parses the JSON verdicts, and applies dismiss/flag
+// to the observations it names (ignoring any id not in the chunk). Returns how many it dismissed/flagged.
+func (svc *Service) triageChunk(ctx context.Context, projectID string, tgt runTarget, chunk []model.Observation) (dismissed, flagged int, err error) {
+	if tgt.Provider == nil {
+		return 0, 0, errors.New("no provider")
+	}
+	resp, err := tgt.Provider.Complete(ctx, llm.CompletionRequest{
+		Messages:  []llm.Message{{Role: llm.RoleSystem, Content: triageSystemPrompt}, {Role: llm.RoleUser, Content: triageChunkPrompt(chunk)}},
+		Model:     tgt.SessionModel,
+		MaxTokens: 4096,
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	svc.recordDelegateUsage(ctx, projectID, "triage", tgt, resp.InputTokens, resp.OutputTokens)
+
+	decisions, err := parseTriageDecisions(resp.Text)
+	if err != nil {
+		return 0, 0, err
+	}
+	inChunk := make(map[string]bool, len(chunk))
+	for _, o := range chunk {
+		inChunk[o.ID] = true
+	}
+	for _, d := range decisions {
+		if !inChunk[d.ID] {
+			continue // ignore an id the model invented or copied from another chunk
+		}
+		switch d.Disposition {
+		case "dismiss":
+			if svc.p(projectID).TriageObservation(ctx, d.ID, "dismiss", d.Rationale, "agent") == nil {
+				dismissed++
+			}
+		case "flag":
+			if svc.p(projectID).TriageObservation(ctx, d.ID, "flag", d.Rationale, "agent") == nil {
+				flagged++
+			}
+		// "keep" or anything else: leave it for manual triage.
+		}
+	}
+	return dismissed, flagged, nil
+}
+
+const triageSystemPrompt = "You are a security findings triage analyst. You judge raw scanner observations, " +
+	"deciding for each whether it is noise/false-positive (dismiss) or a genuine issue a human should review " +
+	"(flag). Lean on the reachability/exposure signals first — an unreachable, unexposed finding is usually " +
+	"dismissable; a test/example/placeholder or dev-only match usually is too. Be conservative: when you " +
+	"cannot tell, keep it for manual triage rather than dismiss. You never create findings — a human promotes " +
+	"the flagged ones. Each batch is drawn from the same file/area, so judge them together."
+
+// triageChunkPrompt renders a chunk into the request: the observations to judge and the exact JSON reply
+// format. The strict "array only" instruction keeps a verbose backend (e.g. claude-cli) parseable.
+func triageChunkPrompt(chunk []model.Observation) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Triage these %d raw observations. Decide each quickly using the signals — dismiss noise and "+
-		"false positives with triage_observation (one-line rationale each), flag genuine-looking ones that need a "+
-		"human's decision, and use create_finding only for a clearly real issue (a human still approves it). Lean on "+
-		"reachability/exposure first; read code only when the call isn't obvious. Work through the whole list.\n\n", len(picked))
-	for _, o := range picked {
+	b.WriteString("Triage these observations. Respond with ONLY a JSON array — no prose, no code fences — ")
+	b.WriteString("one object per observation:\n")
+	b.WriteString(`[{"id":"<id>","disposition":"dismiss|flag|keep","rationale":"<=12 words"}]` + "\n\n")
+	b.WriteString("dismiss = false positive or noise; flag = genuine, needs a human; keep = you can't tell.\n")
+	b.WriteString("Judge every observation below.\n\n")
+	for _, o := range chunk {
 		fmt.Fprintf(&b, "- id=%s [%s] %s", o.ID, o.Severity, o.Title)
 		if o.RuleID != "" {
 			fmt.Fprintf(&b, " rule=%s", o.RuleID)
@@ -82,72 +184,98 @@ func (svc *Service) StartTriage(projectID string, ids []string) (int, error) {
 		}
 		b.WriteByte('\n')
 	}
-	seed := b.String()
-
-	profile := svc.resolveProfile(ctx, "triage")
-	tools := profileToolNames(profile)
-	pickedIDs := make([]string, len(picked))
-	for i, o := range picked {
-		pickedIDs[i] = o.ID
-	}
-	go svc.runBatchTriage(projectID, seed, tools, pickedIDs)
-	return len(picked), nil
+	return b.String()
 }
 
-// runBatchTriage drives the detached triage agent and, when it settles, raises a notification so the
-// human knows what happened — the run outlives the HTTP request that started it, so this is the only
-// durable signal it produced. On failure it says so (previously silent, log-only).
-func (svc *Service) runBatchTriage(projectID, seed string, tools, pickedIDs []string) {
-	ctx := context.Background()
-	pid := projectID
-	findingsBefore := 0
-	if fs, err := svc.p(projectID).ListFindings(ctx); err == nil {
-		findingsBefore = len(fs)
+type triageDecision struct {
+	ID          string `json:"id"`
+	Disposition string `json:"disposition"`
+	Rationale   string `json:"rationale"`
+}
+
+// parseTriageDecisions pulls the outermost JSON array out of a reply, tolerating surrounding prose or code
+// fences a text backend may add.
+func parseTriageDecisions(text string) ([]triageDecision, error) {
+	i := strings.IndexByte(text, '[')
+	j := strings.LastIndexByte(text, ']')
+	if i < 0 || j <= i {
+		return nil, fmt.Errorf("no JSON array in triage reply")
+	}
+	var out []triageDecision
+	if err := json.Unmarshal([]byte(text[i:j+1]), &out); err != nil {
+		return nil, fmt.Errorf("unparseable triage reply: %w", err)
+	}
+	return out, nil
+}
+
+var triageLineSuffix = regexp.MustCompile(`(:\d+)+$`)
+
+// fileKey groups an observation by the file it points at (location minus any :line[:col]); observations
+// with no location bucket by rule instead, so they still cluster with their own kind.
+func fileKey(o model.Observation) string {
+	if o.Location == "" {
+		return "\x00rule:" + o.RuleID
+	}
+	return triageLineSuffix.ReplaceAllString(o.Location, "")
+}
+
+// chunkObservations groups observations by file, keeps same-rule items adjacent, splits a file bigger than
+// max into class-adjacent slices, and packs everything (in path order, so neighbouring files stay together)
+// into chunks of at most max — pulling a too-small tail into its predecessor to respect min where it fits.
+func chunkObservations(obs []model.Observation, min, max int) [][]model.Observation {
+	if max < 1 {
+		max = 1
+	}
+	if min < 1 {
+		min = 1
+	}
+	if min > max {
+		min = max
 	}
 
-	if _, err := svc.Delegate(ctx, projectID, "triage", seed, tools); err != nil {
-		log.Printf("triage: batch run for project %s failed: %v", projectID, err)
-		_, _ = svc.p(projectID).CreateNotification(ctx, model.Notification{
-			Kind:      model.NotifyInfo,
-			Title:     "AI triage didn’t finish",
-			Body:      "The run stopped before completing: " + err.Error(),
-			ProjectID: &pid,
-			Link:      "observations",
+	buckets := map[string][]model.Observation{}
+	var order []string
+	for _, o := range obs {
+		k := fileKey(o)
+		if _, ok := buckets[k]; !ok {
+			order = append(order, k)
+		}
+		buckets[k] = append(buckets[k], o)
+	}
+	sort.Strings(order)
+
+	// Per file: sort by rule then location (same class adjacent), then slice into <=max units.
+	var units [][]model.Observation
+	for _, k := range order {
+		b := buckets[k]
+		sort.SliceStable(b, func(i, j int) bool {
+			if b[i].RuleID != b[j].RuleID {
+				return b[i].RuleID < b[j].RuleID
+			}
+			return b[i].Location < b[j].Location
 		})
-		return
+		for i := 0; i < len(b); i += max {
+			end := i + max
+			if end > len(b) {
+				end = len(b)
+			}
+			units = append(units, b[i:end])
+		}
 	}
 
-	dismissed, flagged, untouched := 0, 0, 0
-	all, _ := svc.p(projectID).ListObservationsByProject(ctx, projectID)
-	byID := make(map[string]model.Observation, len(all))
-	for _, o := range all {
-		byID[o.ID] = o
-	}
-	for _, id := range pickedIDs {
-		o, ok := byID[id]
-		if !ok {
-			continue
-		}
-		switch {
-		case o.ReviewState == model.ReviewRejected:
-			dismissed++
-		case o.Attributes["triage_flag"] == "true":
-			flagged++
-		default:
-			untouched++
+	// Pack units first-fit into the current chunk, filling toward max.
+	var chunks [][]model.Observation
+	for _, u := range units {
+		if n := len(chunks); n > 0 && len(chunks[n-1])+len(u) <= max {
+			chunks[n-1] = append(chunks[n-1], u...)
+		} else {
+			chunks = append(chunks, append([]model.Observation{}, u...))
 		}
 	}
-	proposed := 0
-	if fs, err := svc.p(projectID).ListFindings(ctx); err == nil {
-		if d := len(fs) - findingsBefore; d > 0 {
-			proposed = d
-		}
+	// Fold a too-small final chunk back into its predecessor when it still fits.
+	if n := len(chunks); n >= 2 && len(chunks[n-1]) < min && len(chunks[n-2])+len(chunks[n-1]) <= max {
+		chunks[n-2] = append(chunks[n-2], chunks[n-1]...)
+		chunks = chunks[:n-1]
 	}
-	_, _ = svc.p(projectID).CreateNotification(ctx, model.Notification{
-		Kind:      model.NotifyInfo,
-		Title:     "AI triage complete",
-		Body:      fmt.Sprintf("Dismissed %d, flagged %d for your review, proposed %d finding(s); %d left untouched.", dismissed, flagged, proposed, untouched),
-		ProjectID: &pid,
-		Link:      "observations",
-	})
+	return chunks
 }
