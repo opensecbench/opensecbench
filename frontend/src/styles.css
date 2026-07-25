@@ -468,6 +468,7 @@ a.link,
 .link {
   background: none;
   border: none;
+  color: var(--acc);
   cursor: pointer;
   padding: 0;
 }
