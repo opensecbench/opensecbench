@@ -2301,6 +2301,10 @@ function ObservationsTab({
 
   // Under-investigation observations belong to the Investigations tab, not the triage queue.
   const visible = useMemo(() => observations.filter((o) => !investigating.has(o.id)), [observations, investigating])
+  function triageAll() {
+    const n = visible.filter((o) => o.review_state === 'unreviewed').length
+    if (n > 0 && window.confirm(`Run AI triage on all ${n} untriaged observations? One agent works through them; you approve any findings it proposes.`)) void aiTriage(null)
+  }
   const STATUS: { key: string; label: string; match: (o: Observation) => boolean }[] = [
     { key: 'triage', label: 'Needs triage', match: (o) => o.review_state === 'unreviewed' },
     { key: 'confirmed', label: 'Promoted', match: (o) => o.review_state === 'confirmed' },
@@ -2364,8 +2368,10 @@ function ObservationsTab({
       <div className="hero compact">
         <h1>Observations</h1>
         <p>
-          The raw triage queue. Let <b>🤖 AI triage</b> trawl it (dismisses noise by reachability, flags the real
-          ones, proposes findings for your approval), or work rows yourself — promote to a{' '}
+          The raw triage queue. Let{' '}
+          <button className="link" disabled={!online || busy} onClick={triageAll}><b>🤖 AI triage</b></button>{' '}
+          trawl it (dismisses noise by reachability, flags the real ones, proposes findings for your approval), or
+          work rows yourself — promote to a{' '}
           <button className="link" onClick={() => onJump('findings')}>Finding</button> or dismiss. Click a row to inspect it.
         </p>
       </div>
@@ -2396,10 +2402,7 @@ function ObservationsTab({
           className="ghost-btn"
           disabled={!online || busy}
           title="Run the AI triage agent over every untriaged observation"
-          onClick={() => {
-            const n = visible.filter((o) => o.review_state === 'unreviewed').length
-            if (n > 0 && window.confirm(`Run AI triage on all ${n} untriaged observations? One agent works through them; you approve any findings it proposes.`)) void aiTriage(null)
-          }}
+          onClick={triageAll}
         >
           🤖 Triage all
         </button>
