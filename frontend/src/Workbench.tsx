@@ -2288,7 +2288,7 @@ function ObservationsTab({
     setBusy(true)
     try {
       const res = await api.startTriage(projectId, idsArg ?? undefined)
-      setTriageNote(`🤖 AI triage running on ${res.queued} observation${res.queued === 1 ? '' : 's'} — dismissals, flags, and proposed findings will appear as it works.`)
+      setTriageNote(`🤖 AI triage running on ${res.queued} observation${res.queued === 1 ? '' : 's'} — dismissals, flags, and proposed findings appear as it works (this list refreshes live). You'll get a 🔔 notification with a summary when it finishes.`)
       setSelected(new Set())
       setDetailId(null)
       pollForTriage()
@@ -2307,6 +2307,7 @@ function ObservationsTab({
   }
   const STATUS: { key: string; label: string; match: (o: Observation) => boolean }[] = [
     { key: 'triage', label: 'Needs triage', match: (o) => o.review_state === 'unreviewed' },
+    { key: 'flagged', label: '🤖 Flagged', match: (o) => o.review_state === 'unreviewed' && o.attributes?.triage_flag === 'true' },
     { key: 'confirmed', label: 'Promoted', match: (o) => o.review_state === 'confirmed' },
     { key: 'dismissed', label: 'Dismissed', match: (o) => o.review_state === 'rejected' },
     { key: 'all', label: 'All', match: () => true },
