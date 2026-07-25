@@ -21,9 +21,9 @@ func newAgentSem() chan struct{} {
 }
 
 // subAgentMaxSteps is the tool-turn budget for a delegated sub-agent (ADR-0047). A sub-agent runs a whole
-// sub-task to completion, so it needs more room than an interactive turn — a real recon/scan step easily
-// exceeds a handful of tool calls. OSB_AGENT_MAX_STEPS overrides it.
-func subAgentMaxSteps() int { return envInt("OSB_AGENT_MAX_STEPS", 16) }
+// sub-task to completion, so it needs real room — a recon/scan/analysis task routinely runs dozens of
+// tool turns, so the earlier cap of 16 starved legitimate work. OSB_AGENT_MAX_STEPS overrides it.
+func subAgentMaxSteps() int { return envInt("OSB_AGENT_MAX_STEPS", 60) }
 
 // maxDelegationDepth bounds how deep delegation may nest (ADR-0047): the Lead delegates to a specialist,
 // which may itself delegate, and so on, up to this many levels. Bounded depth × the concurrency cap keeps
