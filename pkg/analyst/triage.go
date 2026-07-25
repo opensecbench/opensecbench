@@ -86,11 +86,68 @@ func (svc *Service) StartTriage(projectID string, ids []string) (int, error) {
 
 	profile := svc.resolveProfile(ctx, "triage")
 	tools := profileToolNames(profile)
-	go func() {
-		// Detached context: the HTTP request that kicked this off is long gone; the run outlives it.
-		if _, err := svc.Delegate(context.Background(), projectID, "triage", seed, tools); err != nil {
-			log.Printf("triage: batch run for project %s failed: %v", projectID, err)
-		}
-	}()
+	pickedIDs := make([]string, len(picked))
+	for i, o := range picked {
+		pickedIDs[i] = o.ID
+	}
+	go svc.runBatchTriage(projectID, seed, tools, pickedIDs)
 	return len(picked), nil
+}
+
+// runBatchTriage drives the detached triage agent and, when it settles, raises a notification so the
+// human knows what happened — the run outlives the HTTP request that started it, so this is the only
+// durable signal it produced. On failure it says so (previously silent, log-only).
+func (svc *Service) runBatchTriage(projectID, seed string, tools, pickedIDs []string) {
+	ctx := context.Background()
+	pid := projectID
+	findingsBefore := 0
+	if fs, err := svc.p(projectID).ListFindings(ctx); err == nil {
+		findingsBefore = len(fs)
+	}
+
+	if _, err := svc.Delegate(ctx, projectID, "triage", seed, tools); err != nil {
+		log.Printf("triage: batch run for project %s failed: %v", projectID, err)
+		_, _ = svc.p(projectID).CreateNotification(ctx, model.Notification{
+			Kind:      model.NotifyInfo,
+			Title:     "AI triage didn’t finish",
+			Body:      "The run stopped before completing: " + err.Error(),
+			ProjectID: &pid,
+			Link:      "observations",
+		})
+		return
+	}
+
+	dismissed, flagged, untouched := 0, 0, 0
+	all, _ := svc.p(projectID).ListObservationsByProject(ctx, projectID)
+	byID := make(map[string]model.Observation, len(all))
+	for _, o := range all {
+		byID[o.ID] = o
+	}
+	for _, id := range pickedIDs {
+		o, ok := byID[id]
+		if !ok {
+			continue
+		}
+		switch {
+		case o.ReviewState == model.ReviewRejected:
+			dismissed++
+		case o.Attributes["triage_flag"] == "true":
+			flagged++
+		default:
+			untouched++
+		}
+	}
+	proposed := 0
+	if fs, err := svc.p(projectID).ListFindings(ctx); err == nil {
+		if d := len(fs) - findingsBefore; d > 0 {
+			proposed = d
+		}
+	}
+	_, _ = svc.p(projectID).CreateNotification(ctx, model.Notification{
+		Kind:      model.NotifyInfo,
+		Title:     "AI triage complete",
+		Body:      fmt.Sprintf("Dismissed %d, flagged %d for your review, proposed %d finding(s); %d left untouched.", dismissed, flagged, proposed, untouched),
+		ProjectID: &pid,
+		Link:      "observations",
+	})
 }
