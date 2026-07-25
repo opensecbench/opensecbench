@@ -1069,6 +1069,8 @@ select option {
 .activity-panel .act-dot.s-waiting{background:var(--amber)}
 .activity-panel .act-name{color:var(--tx2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .activity-panel .act-status{font-size:10.5px;color:var(--tx3);text-transform:uppercase;letter-spacing:.04em}
+.activity-panel .act-stop{flex:none;border:1px solid var(--line2);background:var(--bg3);color:var(--tx2);border-radius:5px;padding:2px 8px;font-size:10.5px;cursor:pointer}
+.activity-panel .act-stop:hover{border-color:var(--red);color:var(--red)}
 .bell{position:relative;margin-right:14px}
 .bell-btn{background:none;border:none;cursor:pointer;font-size:16px;position:relative;padding:4px;line-height:1}
 .bell-badge{position:absolute;top:-2px;right:-4px;background:var(--red);color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;min-width:14px;text-align:center}

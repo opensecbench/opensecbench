@@ -86,7 +86,8 @@ export function App() {
             onOpen={async (kind, projectId) => {
               if (!projectId) return
               const p = (await api.listProjects().catch(() => []))?.find((x) => x.id === projectId)
-              if (p) openProject(p, { surface: kind === 'plan' ? 'orchestrate' : 'tasks' })
+              const surface = kind === 'plan' ? 'orchestrate' : kind === 'agent' ? 'observations' : 'tasks'
+              if (p) openProject(p, { surface })
             }}
           />
           <NotificationBell online={conn === 'online'} />

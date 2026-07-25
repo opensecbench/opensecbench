@@ -116,12 +116,13 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 		OnActivity:   progressSink(ctx),
 		MaxSteps:     subAgentMaxSteps(),
 	}
-	// Surface the run in "Running now" for its lifetime — a delegated agent is neither a task nor a plan.
-	done := svc.trackRun(projectID, profile.ID, profile.ID)
+	// Surface the run in "Running now" for its lifetime (and make it cancelable) — a delegated agent is
+	// neither a task nor a plan.
+	runCtx, done := svc.trackRun(ctx, projectID, profile.ID, profile.ID)
 	defer done()
 
 	// Run the sub-agent one level deeper, so any `delegate` it issues is bounded by maxDelegationDepth.
-	res, err := loop.Run(withDelegationDepth(ctx, delegationDepth(ctx)+1), task)
+	res, err := loop.Run(withDelegationDepth(runCtx, delegationDepth(runCtx)+1), task)
 	if err != nil {
 		return DelegationResult{}, err
 	}

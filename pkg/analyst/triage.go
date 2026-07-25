@@ -79,31 +79,46 @@ func (svc *Service) StartTriage(projectID string, ids []string) (int, error) {
 // runBatchTriage chunks the observations, judges each chunk with one model call, applies the verdicts, and
 // raises a summary notification when it settles — the only durable trace of a run that outlives its request.
 func (svc *Service) runBatchTriage(projectID string, picked []model.Observation) {
-	ctx := context.Background()
-	done := svc.trackRun(projectID, "triage", "AI triage")
+	ctx, done := svc.trackRun(context.Background(), projectID, "triage", "AI triage")
 	defer done()
 
 	chunks := chunkObservations(picked, triageChunkMin(), triageChunkMax())
 	tgt := svc.targetForTag(ctx, svc.resolveProfile(ctx, "triage").ModelTag)
 
-	dismissed, flagged, failed := 0, 0, 0
+	dismissed, flagged, failed, processed := 0, 0, 0, 0
+	stopped := false
 	for i, chunk := range chunks {
+		if ctx.Err() != nil { // the human stopped the run
+			stopped = true
+			break
+		}
 		d, f, err := svc.triageChunk(ctx, projectID, tgt, chunk)
 		if err != nil {
+			if ctx.Err() != nil {
+				stopped = true
+				break
+			}
 			failed += len(chunk)
 			log.Printf("triage: project %s chunk %d/%d failed: %v", projectID, i+1, len(chunks), err)
 			continue
 		}
 		dismissed += d
 		flagged += f
+		processed += len(chunk)
 	}
 
 	pid := projectID
 	title := "AI triage complete"
-	if dismissed == 0 && flagged == 0 {
+	if stopped {
+		title = "AI triage stopped"
+	} else if dismissed == 0 && flagged == 0 {
 		title = "AI triage made no changes"
 	}
-	body := fmt.Sprintf("Dismissed %d, flagged %d for your review, across %d observation(s).", dismissed, flagged, len(picked))
+	scope := fmt.Sprintf("across %d observation(s)", len(picked))
+	if stopped {
+		scope = fmt.Sprintf("before stopping (%d of %d processed)", processed, len(picked))
+	}
+	body := fmt.Sprintf("Dismissed %d, flagged %d for your review, %s.", dismissed, flagged, scope)
 	if failed > 0 {
 		body += fmt.Sprintf(" %d couldn’t be processed.", failed)
 	}

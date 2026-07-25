@@ -481,6 +481,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
 	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)
 	s.mux.HandleFunc("GET /v1/activity", s.activity)
+	s.mux.HandleFunc("POST /v1/activity/agents/{id}/cancel", s.cancelAgentRun)
 	s.mux.HandleFunc("GET /v1/activity/feed", s.getActivity)
 	s.mux.HandleFunc("POST /v1/tasks", s.runTask)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scan", s.scanProject)
@@ -2649,8 +2650,19 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	plans, _ := s.mgr.ListAllRunningPlans(r.Context())
-	agents := s.analystService().ActiveRuns()
+	agents := s.runReg.List()
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": running, "plans": plans, "agents": agents})
+}
+
+// cancelAgentRun stops an in-flight background agent run (e.g. batch triage) by id.
+func (s *Server) cancelAgentRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !s.runReg.Cancel(id) {
+		writeErr(w, http.StatusNotFound, "no such running agent")
+		return
+	}
+	s.record(r.Context(), "human", "analyst.agent.cancelled", id, nil)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
