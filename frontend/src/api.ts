@@ -767,6 +767,15 @@ export interface Plan {
   updated_at: string
 }
 
+// An in-flight background agent run (delegated sub-agent, e.g. batch triage) reported by GET /v1/activity.
+export interface AgentRun {
+  id: string
+  project_id: string
+  profile: string
+  label: string
+  started_at: string
+}
+
 export interface Msg {
   id: string
   thread_id: string
@@ -1038,7 +1047,7 @@ export const api = {
   // capabilities & tasks
   listCapabilities: () => request<CapabilityManifest[]>('GET', '/v1/capabilities'),
   listTasks: () => request<Task[]>('GET', '/v1/tasks'),
-  activity: () => request<{ tasks: Task[] | null; plans: Plan[] | null }>('GET', '/v1/activity'),
+  activity: () => request<{ tasks: Task[] | null; plans: Plan[] | null; agents: AgentRun[] | null }>('GET', '/v1/activity'),
   // The unified Activity history: scanner tasks, agent threads, agent plans, and playbook runs merged
   // newest-first across every project (durable — an agent transcript stays here after a restart).
   activityFeed: () => request<ActivityItem[]>('GET', '/v1/activity/feed'),

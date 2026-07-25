@@ -93,6 +93,7 @@ type Server struct {
 	hubCli         *hub.Client
 	sched          *analyst.Scheduler
 	schedCancel    context.CancelFunc
+	runReg         *analyst.RunRegistry // shared record of in-flight background agent runs
 
 	extMu sync.Mutex
 	exts  []extension.Loaded
@@ -253,6 +254,7 @@ func New(deps Deps) *Server {
 		sessions:     make(map[string]*liveSession),
 		proxies:      make(map[string]*liveProxy),
 		matchReplace: make(map[string]*ruleEngine),
+		runReg:       analyst.NewRunRegistry(),
 	}
 	if s.methods == nil {
 		s.methods = methodology.BuiltIns()
@@ -558,6 +560,7 @@ func (s *Server) routes() {
 
 func (s *Server) analystService() *analyst.Service {
 	svc := analyst.NewService(s.mgr, s.engine, s.casr, s.workspaceDir, s.guardedProvider())
+	svc.SetRunRegistry(s.runReg)
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}
@@ -2646,7 +2649,8 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	plans, _ := s.mgr.ListAllRunningPlans(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": running, "plans": plans})
+	agents := s.analystService().ActiveRuns()
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": running, "plans": plans, "agents": agents})
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {

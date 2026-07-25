@@ -6,7 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/cas"
@@ -45,6 +50,66 @@ type Service struct {
 
 	// Audit, if set, records agent loop events (tool calls, gate decisions, answers).
 	Audit func(action, detail string)
+
+	// runs tracks in-flight background agent runs (delegated sub-agents like batch triage) so the
+	// "Running now" surface can report them — they're neither capability tasks nor plans. It's shared
+	// (injected via SetRunRegistry), because the API rebuilds a Service per request; a per-instance map
+	// wouldn't be seen by the activity handler.
+	runs *RunRegistry
+}
+
+// ActiveRun is one in-flight background agent run, surfaced in the "Running now" activity view.
+type ActiveRun struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	Profile   string    `json:"profile"`
+	Label     string    `json:"label"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+// RunRegistry is a process-wide record of in-flight background agent runs, shared across the
+// per-request Service instances the API builds.
+type RunRegistry struct {
+	mu   sync.Mutex
+	runs map[string]ActiveRun
+}
+
+// NewRunRegistry creates an empty registry.
+func NewRunRegistry() *RunRegistry { return &RunRegistry{runs: map[string]ActiveRun{}} }
+
+// SetRunRegistry injects the shared registry so this Service reports into the same store the activity
+// endpoint reads.
+func (svc *Service) SetRunRegistry(r *RunRegistry) { svc.runs = r }
+
+// trackRun registers a background agent run and returns a closure that deregisters it on completion.
+func (svc *Service) trackRun(projectID, profile, label string) func() {
+	if svc.runs == nil {
+		return func() {}
+	}
+	id := uuid.NewString()
+	svc.runs.mu.Lock()
+	svc.runs.runs[id] = ActiveRun{ID: id, ProjectID: projectID, Profile: profile, Label: label, StartedAt: time.Now()}
+	svc.runs.mu.Unlock()
+	return func() {
+		svc.runs.mu.Lock()
+		delete(svc.runs.runs, id)
+		svc.runs.mu.Unlock()
+	}
+}
+
+// ActiveRuns returns the currently in-flight background agent runs, newest first.
+func (svc *Service) ActiveRuns() []ActiveRun {
+	if svc.runs == nil {
+		return nil
+	}
+	svc.runs.mu.Lock()
+	defer svc.runs.mu.Unlock()
+	out := make([]ActiveRun, 0, len(svc.runs.runs))
+	for _, r := range svc.runs.runs {
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
+	return out
 }
 
 // SetEgressSender injects the runner-aware HTTP sender used by the send_request tool (ADR-0025). Without
