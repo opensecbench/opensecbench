@@ -2380,7 +2380,7 @@ function ObservationsTab({
         <div className="banner">
           {triageNote}
           <button className="link" style={{ marginLeft: 10 }} onClick={() => void reload()}>Refresh</button>
-          <button className="link" onClick={() => setTriageNote(null)}>dismiss</button>
+          <button className="link" style={{ marginLeft: 10 }} onClick={() => setTriageNote(null)}>dismiss</button>
         </div>
       )}
 
