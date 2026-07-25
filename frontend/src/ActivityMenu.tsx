@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, Plan, Task } from './api'
+import { api, AgentRun, Plan, Task } from './api'
+
+// Friendly names for the agent profiles that surface as background runs.
+const AGENT_LABELS: Record<string, string> = { triage: 'AI triage' }
 
 // ActivityMenu is the top-bar "what's running" indicator: a live count of in-flight capability tasks and
 // agent plans across the workbench, expandable to a list. Polls while online so it reflects a scan you
@@ -7,6 +10,7 @@ import { api, Plan, Task } from './api'
 export function ActivityMenu({ online, onOpen }: { online: boolean; onOpen?: (kind: 'task' | 'plan', projectId?: string) => void }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
+  const [agents, setAgents] = useState<AgentRun[]>([])
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -15,6 +19,7 @@ export function ActivityMenu({ online, onOpen }: { online: boolean; onOpen?: (ki
       const a = await api.activity()
       setTasks(a.tasks ?? [])
       setPlans(a.plans ?? [])
+      setAgents(a.agents ?? [])
     } catch {
       /* offline; leave as-is */
     }
@@ -36,7 +41,7 @@ export function ActivityMenu({ online, onOpen }: { online: boolean; onOpen?: (ki
     return () => document.removeEventListener('mousedown', onClick)
   }, [])
 
-  const total = tasks.length + plans.length
+  const total = tasks.length + plans.length + agents.length
   const running = total > 0
   return (
     <div className="activity" ref={ref}>
@@ -67,13 +72,27 @@ export function ActivityMenu({ online, onOpen }: { online: boolean; onOpen?: (ki
               )}
               {plans.length > 0 && (
                 <>
-                  <div className="activity-group">Agents ({plans.length})</div>
+                  <div className="activity-group">Plans ({plans.length})</div>
                   <ul>
                     {plans.map((p) => (
                       <li key={p.id} className={onOpen ? 'clickable' : ''} onClick={() => { onOpen?.('plan', p.project_id); setOpen(false) }}>
                         <span className={`act-dot s-${p.status}`} />
                         <span className="act-name mono">{p.playbook_id}</span>
                         <span className="act-status">{p.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {agents.length > 0 && (
+                <>
+                  <div className="activity-group">Agents ({agents.length})</div>
+                  <ul>
+                    {agents.map((a) => (
+                      <li key={a.id}>
+                        <span className="act-dot s-running" />
+                        <span className="act-name">{AGENT_LABELS[a.profile] ?? a.label}</span>
+                        <span className="act-status">running</span>
                       </li>
                     ))}
                   </ul>
