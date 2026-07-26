@@ -27,9 +27,10 @@ import {
   Task,
   TaskOutcome,
   TreeEntry,
+  UICommand,
 } from './api'
 import { AnalystPanel } from './AnalystPanel'
-import { LocationChip, OpenCode } from './CodeLink'
+import { LocationChip, OpenCode, parseLoc } from './CodeLink'
 import { DataTable, Column } from './DataTable'
 import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
@@ -702,6 +703,23 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const [methodReload, setMethodReload] = useState(0) // bump to make Methodology docs re-fetch
   const [approvals, setApprovals] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // Co-driving (the Analyst "show" tool): when the human enables Drive, the agent's navigation commands
+  // move this workbench. Off by default — the human hands over the wheel explicitly, and takes it back by
+  // toggling off (their own clicks always win). Persisted so the choice survives a reload.
+  const [drive, setDrive] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('osb.analyst.drive') === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('osb.analyst.drive', drive ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [drive])
 
   // Generic scroll-stuck fix for the mounted-and-toggled document frame. Each doc stays mounted with its
   // display toggled; a hidden doc keeps its scrollTop, and when it is re-shown — or its content shrank
@@ -859,6 +877,48 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
     const key = `finding:${f.id}`
     focusOrAdd({ key, surface: 'finding', title: f.title, finding: { id: f.id } })
   }
+  // applyUICommand takes the workbench to a piece of evidence named by the Analyst (the "show" tool, or a
+  // click on an osb:// reference in a reply), reusing the exact handlers a human's own click uses. Read-only;
+  // an unknown target is a no-op. Used both by agent-driven navigation (gated by Drive) and human clicks.
+  function applyUICommand(cmd: UICommand) {
+    switch (cmd.kind) {
+      case 'surface':
+        if (cmd.id) activateSurface(cmd.id as Tab)
+        break
+      case 'finding': {
+        const f = findings.find((x) => x.id === cmd.id)
+        if (f) openFinding(f) // richer: open the finding's detail document
+        else if (cmd.id) navigateTo('findings', cmd.id) // fallback: surface + scroll to the row
+        break
+      }
+      case 'observation':
+        if (cmd.id) navigateTo('observations', cmd.id)
+        break
+      case 'route':
+        if (cmd.id) navigateTo('routes', cmd.id)
+        break
+      case 'code':
+        if (cmd.id && cmd.location) {
+          const { path, line } = parseLoc(cmd.location)
+          openCodeFile(cmd.id, path, line)
+        }
+        break
+    }
+  }
+  // Agent-driven navigation over the project event stream. Keep the latest dispatcher + Drive state in refs
+  // so the subscription need not resubscribe on every render (findings change as data loads; Drive toggles).
+  const applyRef = useRef(applyUICommand)
+  applyRef.current = applyUICommand
+  const driveRef = useRef(drive)
+  driveRef.current = drive
+  useEffect(() => {
+    if (!online) return
+    return api.subscribeProjectEvents(project.id, {
+      ui: (cmd) => {
+        if (driveRef.current) applyRef.current(cmd)
+      },
+    })
+  }, [online, project.id])
   // Open a context item (note/file) in an in-app detail+editor document. A separate document per item, kept
   // under the Context surface so the left list stays visible; the row data is looked up live by id.
   function openContextItem(ci: ContextItem) {
@@ -1117,7 +1177,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         </div>
 
         <SurfaceBoundary>
-          <AnalystPanel project={project} online={online} initialThread={initial?.thread} />
+          <AnalystPanel project={project} online={online} initialThread={initial?.thread} drive={drive} onDriveChange={setDrive} />
         </SurfaceBoundary>
       </div>
 
