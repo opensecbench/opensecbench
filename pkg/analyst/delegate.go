@@ -25,6 +25,11 @@ func newAgentSem() chan struct{} {
 // tool turns, so the earlier cap of 16 starved legitimate work. OSB_AGENT_MAX_STEPS overrides it.
 func subAgentMaxSteps() int { return envInt("OSB_AGENT_MAX_STEPS", 60) }
 
+// interactiveMaxSteps is the tool-turn budget for one interactive chat turn. A multi-part ask ("dig into
+// each finding one at a time") needs a get_finding plus several reads per item, so the original cap of 8
+// stopped real investigation short — mid-turn, with no answer. OSB_ANALYST_MAX_STEPS overrides it.
+func interactiveMaxSteps() int { return envInt("OSB_ANALYST_MAX_STEPS", 40) }
+
 // maxDelegationDepth bounds how deep delegation may nest (ADR-0047): the Lead delegates to a specialist,
 // which may itself delegate, and so on, up to this many levels. Bounded depth × the concurrency cap keeps
 // the delegation tree finite — no runaway. OSB_AGENT_MAX_DEPTH overrides it.

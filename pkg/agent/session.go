@@ -94,7 +94,10 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 	}
 
 	out.Done = true
-	out.Answer = "(stopped: reached the step limit without a final answer)"
+	out.Answer = "(Stopped: I reached my step limit for this turn before finishing. Ask me to continue and I'll pick up where I left off.)"
+	// Persist the notice as a real assistant turn. Otherwise the last message is a tool result and the UI
+	// shows nothing — a completed-but-capped run looks identical to a hang.
+	out.Messages = append(out.Messages, llm.Message{Role: llm.RoleAssistant, Content: out.Answer})
 	return out, nil
 }
 
