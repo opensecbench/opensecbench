@@ -754,6 +754,9 @@ a.link,
 /* the agent's narration that accompanies a tool step, and the step chip itself (ADR-0053 live walkthrough) */
 .msg.propose .propose-note { color: var(--tx); margin-bottom: 3px; }
 .msg.propose .propose-tool { color: var(--amber); }
+/* the live-typing cursor while the answer streams in token by token (ADR-0053) */
+.stream-caret { color: var(--acc); font-weight: 700; animation: blink 1s step-start infinite; }
+@keyframes blink { 50% { opacity: 0; } }
 .approval-card {
   margin: 0 14px 10px;
   border: 1px solid var(--amber);

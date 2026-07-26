@@ -39,6 +39,13 @@ export interface StreamMessage {
   tool_error?: boolean
 }
 
+// StreamDelta is a chunk of assistant text as the answer types out (ADR-0053 token streaming). Accumulated
+// into a live bubble until the completed StreamMessage for that turn arrives.
+export interface StreamDelta {
+  thread_id: string
+  text: string
+}
+
 // --- types (mirror pkg/model JSON) ---
 
 export interface Project {
@@ -1010,6 +1017,7 @@ export const api = {
       resolved?: (id: string) => void
       ui?: (cmd: UICommand) => void
       analystMessage?: (m: StreamMessage) => void
+      analystDelta?: (d: StreamDelta) => void
     },
   ): (() => void) => {
     const es = new EventSource(`${baseURL}/v1/projects/${projectId}/events`)
@@ -1028,6 +1036,7 @@ export const api = {
     if (handlers.resolved) on('intercept.resolved', (p) => handlers.resolved!((p as { id: string }).id))
     if (handlers.ui) on('ui.command', (p) => handlers.ui!(p as UICommand))
     if (handlers.analystMessage) on('analyst.message', (p) => handlers.analystMessage!(p as StreamMessage))
+    if (handlers.analystDelta) on('analyst.delta', (p) => handlers.analystDelta!(p as StreamDelta))
     return () => es.close()
   },
 

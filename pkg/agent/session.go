@@ -30,6 +30,9 @@ type Session struct {
 	// it is produced during a turn — so a caller can stream the run's steps live instead of only seeing the
 	// batch at the end. Fired in-loop, so keep it non-blocking.
 	OnMessage func(m llm.Message)
+	// OnDelta, if set, receives assistant text token-by-token as it is generated (real streaming), before
+	// the completed OnMessage for that turn. Providers that can't stream deliver the whole text as one delta.
+	OnDelta func(text string)
 }
 
 // Outcome is the result of an Advance/Resume. Exactly one of Done/Pending is meaningful.
@@ -57,7 +60,13 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 	out := Outcome{Messages: messages}
 
 	for step := 0; step < maxSteps; step++ {
-		resp, err := provider.Complete(ctx, llm.CompletionRequest{Messages: out.Messages, Model: s.Model, MaxTokens: s.MaxTokens, Tools: s.Tools})
+		// Stream text deltas to OnDelta as they generate (real token streaming where the provider supports
+		// it; a single whole-text delta otherwise). The full response still drives the tool loop below.
+		var onDelta llm.StreamHandler
+		if s.OnDelta != nil {
+			onDelta = func(d string) { s.OnDelta(d) }
+		}
+		resp, err := llm.Stream(ctx, provider, llm.CompletionRequest{Messages: out.Messages, Model: s.Model, MaxTokens: s.MaxTokens, Tools: s.Tools}, onDelta)
 		if err != nil {
 			return out, err
 		}

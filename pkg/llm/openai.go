@@ -52,10 +52,11 @@ func (p *OpenAIProvider) setAuth(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+p.APIKey)
 }
 
-// Complete calls the chat/completions endpoint.
-func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
+// buildRequest assembles the chat/completions HTTP request (payload + auth). stream adds "stream": true and
+// asks for usage in the final chunk, so the same builder serves Complete and CompleteStream.
+func (p *OpenAIProvider) buildRequest(ctx context.Context, req CompletionRequest, stream bool) (*http.Request, error) {
 	if p.BaseURL == "" {
-		return CompletionResponse{}, errors.New("llm openai: base URL not set")
+		return nil, errors.New("llm openai: base URL not set")
 	}
 	model := req.Model
 	if model == "" {
@@ -75,24 +76,40 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	if req.MaxTokens > 0 {
 		payload["max_tokens"] = req.MaxTokens
 	}
+	if stream {
+		payload["stream"] = true
+		// Ask for usage in the terminal chunk so streamed calls still report tokens (OpenAI + most compat
+		// servers honor this; a server that ignores it just yields usage 0, which degrades accounting, not the run).
+		payload["stream_options"] = map[string]any{"include_usage": true}
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return CompletionResponse{}, err
+		return nil, err
 	}
-
 	endpoint := strings.TrimRight(p.BaseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return CompletionResponse{}, err
+		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	p.setAuth(httpReq)
+	return httpReq, nil
+}
 
-	client := p.HTTP
-	if client == nil {
-		client = http.DefaultClient
+func (p *OpenAIProvider) client() *http.Client {
+	if p.HTTP != nil {
+		return p.HTTP
 	}
-	resp, err := client.Do(httpReq)
+	return http.DefaultClient
+}
+
+// Complete calls the chat/completions endpoint.
+func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
+	httpReq, err := p.buildRequest(ctx, req, false)
+	if err != nil {
+		return CompletionResponse{}, err
+	}
+	resp, err := p.client().Do(httpReq)
 	if err != nil {
 		return CompletionResponse{}, err
 	}
@@ -132,4 +149,101 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		OutputTokens: out.Usage.CompletionTokens,
 		Model:        out.Model,
 	}, nil
+}
+
+// CompleteStream calls chat/completions with streaming on, firing onDelta for each content chunk and
+// assembling the same full CompletionResponse. Tool calls arrive as fragments (id/name first, arguments in
+// pieces) keyed by index; they're accumulated and parsed once the stream ends.
+func (p *OpenAIProvider) CompleteStream(ctx context.Context, req CompletionRequest, onDelta StreamHandler) (CompletionResponse, error) {
+	httpReq, err := p.buildRequest(ctx, req, true)
+	if err != nil {
+		return CompletionResponse{}, err
+	}
+	resp, err := p.client().Do(httpReq)
+	if err != nil {
+		return CompletionResponse{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusBadRequest {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return CompletionResponse{}, fmt.Errorf("llm %s: %s: %s", p.Name(), resp.Status, string(b))
+	}
+
+	type partial struct {
+		id, name string
+		args     strings.Builder
+	}
+	calls := map[int]*partial{}
+	var order []int
+	var out CompletionResponse
+
+	err = sseData(resp.Body, func(data string) bool {
+		if data == "[DONE]" {
+			return false
+		}
+		var ev struct {
+			Model   string `json:"model"`
+			Choices []struct {
+				Delta struct {
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if json.Unmarshal([]byte(data), &ev) != nil {
+			return true // skip a malformed frame
+		}
+		if ev.Model != "" {
+			out.Model = ev.Model
+		}
+		if ev.Usage != nil {
+			out.InputTokens = ev.Usage.PromptTokens
+			out.OutputTokens = ev.Usage.CompletionTokens
+		}
+		for _, ch := range ev.Choices {
+			if ch.Delta.Content != "" {
+				out.Text += ch.Delta.Content
+				onDelta(ch.Delta.Content)
+			}
+			for _, t := range ch.Delta.ToolCalls {
+				c := calls[t.Index]
+				if c == nil {
+					c = &partial{}
+					calls[t.Index] = c
+					order = append(order, t.Index)
+				}
+				if t.ID != "" {
+					c.id = t.ID
+				}
+				if t.Function.Name != "" {
+					c.name = t.Function.Name
+				}
+				c.args.WriteString(t.Function.Arguments)
+			}
+		}
+		return true
+	})
+	if err != nil {
+		return out, err
+	}
+	for _, idx := range order {
+		c := calls[idx]
+		args, derr := decodeArgs(c.args.String())
+		if derr != nil {
+			return out, fmt.Errorf("llm %s: tool %q arguments: %w", p.Name(), c.name, derr)
+		}
+		out.ToolCalls = append(out.ToolCalls, ToolCall{ID: c.id, Tool: c.name, Args: args})
+	}
+	return out, nil
 }

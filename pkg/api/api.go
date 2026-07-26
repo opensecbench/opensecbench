@@ -582,6 +582,13 @@ func (s *Server) analystService() *analyst.Service {
 			"tool_error":   m.ToolError,
 		}})
 	})
+	// Token streaming (ADR-0053): assistant text types out live as it generates.
+	svc.SetDeltaPublisher(func(projectID, threadID, text string) {
+		s.events.Publish(events.Event{Type: "analyst.delta", ProjectID: projectID, Payload: map[string]any{
+			"thread_id": threadID,
+			"text":      text,
+		}})
+	})
 	// The active policy profile governs data egress (ADR-0006).
 	ap := s.activePolicy()
 	svc.SetEgressPolicy(ap.AllowExternalForInternal, ap.AllowExternalForPrivate)

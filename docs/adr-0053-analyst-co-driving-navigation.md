@@ -16,6 +16,15 @@ flight, reconciling against the authoritative `refresh()` at turn end. The gener
 the agent to `show` evidence as it explains and to walk multi-part questions one item at a time. The
 interactive step budget was also raised (8 → 40, `OSB_ANALYST_MAX_STEPS`) since real investigation needs it.
 
+**Token streaming (added to phase 1).** The answer now types out token by token, not per-message. This is a
+provider-layer capability, done generically: `llm.StreamingProvider` (optional interface) + `llm.Stream()`,
+which streams real deltas when the provider implements it and otherwise falls back to `Complete` + one
+whole-text delta — so it works across *every* provider. `AnthropicProvider` and `OpenAIProvider` (covering
+OpenAI/DeepSeek/Grok/Ollama/Azure) implement it by parsing their SSE wire formats via a shared `sseData`
+reader; Bedrock, the prompted wrapper, and the mock fall back cleanly. `Session.OnDelta` → `analyst.delta`
+SSE → `AnalystPanel` accumulates into a live-typing bubble that finalizes when the turn's `analyst.message`
+arrives. (Fall-through chains via `FallbackProvider` don't stream yet — they use the whole-text fallback.)
+
 ## Context
 
 The Analyst is a docked chat (`AnalystPanel`, ADR-0015) with a governed toolset (ADR-0017) that reads the

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -116,8 +117,9 @@ func (a *AnthropicProvider) setAuth(req *http.Request) error {
 // NativeTools reports whether this provider handles tools natively (ToolAware).
 func (a *AnthropicProvider) NativeTools() bool { return a.UseNativeTools }
 
-// Complete calls the Messages API.
-func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
+// buildRequest assembles the Messages API HTTP request (payload + auth). stream adds "stream": true so the
+// same builder serves Complete and CompleteStream.
+func (a *AnthropicProvider) buildRequest(ctx context.Context, req CompletionRequest, stream bool) (*http.Request, error) {
 	base := a.BaseURL
 	if base == "" {
 		base = "https://api.anthropic.com"
@@ -134,6 +136,9 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": maxTokens,
+	}
+	if stream {
+		payload["stream"] = true
 	}
 	var system string
 	if a.UseNativeTools {
@@ -173,23 +178,33 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return CompletionResponse{}, err
+		return nil, err
 	}
-
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/messages", bytes.NewReader(body))
 	if err != nil {
-		return CompletionResponse{}, err
+		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	if err := a.setAuth(httpReq); err != nil {
+		return nil, err
+	}
+	return httpReq, nil
+}
+
+func (a *AnthropicProvider) client() *http.Client {
+	if a.HTTP != nil {
+		return a.HTTP
+	}
+	return http.DefaultClient
+}
+
+// Complete calls the Messages API.
+func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
+	httpReq, err := a.buildRequest(ctx, req, false)
+	if err != nil {
 		return CompletionResponse{}, err
 	}
-
-	client := a.HTTP
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(httpReq)
+	resp, err := a.client().Do(httpReq)
 	if err != nil {
 		return CompletionResponse{}, err
 	}
@@ -212,4 +227,103 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	}
 	text, calls := parseAnthropicContent(out.Content)
 	return CompletionResponse{Text: text, ToolCalls: calls, InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, Model: out.Model}, nil
+}
+
+// CompleteStream calls the Messages API with streaming on, firing onDelta for each text chunk and assembling
+// the same full CompletionResponse (text + tool calls + usage) the non-streaming path returns.
+func (a *AnthropicProvider) CompleteStream(ctx context.Context, req CompletionRequest, onDelta StreamHandler) (CompletionResponse, error) {
+	httpReq, err := a.buildRequest(ctx, req, true)
+	if err != nil {
+		return CompletionResponse{}, err
+	}
+	resp, err := a.client().Do(httpReq)
+	if err != nil {
+		return CompletionResponse{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusBadRequest {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return CompletionResponse{}, fmt.Errorf("llm anthropic: %s: %s", resp.Status, string(b))
+	}
+
+	// Content blocks arrive by index: a text block streams text_delta; a tool_use block streams its input as
+	// input_json_delta fragments we accumulate and parse at the end.
+	type block struct {
+		typ, id, name string
+		jsonBuf       strings.Builder
+	}
+	blocks := map[int]*block{}
+	var order []int
+	var out CompletionResponse
+
+	err = sseData(resp.Body, func(data string) bool {
+		var ev struct {
+			Type    string `json:"type"`
+			Index   int    `json:"index"`
+			Message struct {
+				Model string `json:"model"`
+				Usage struct {
+					InputTokens  int `json:"input_tokens"`
+					OutputTokens int `json:"output_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
+			ContentBlock struct {
+				Type string `json:"type"`
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"content_block"`
+			Delta struct {
+				Type        string `json:"type"`
+				Text        string `json:"text"`
+				PartialJSON string `json:"partial_json"`
+			} `json:"delta"`
+			Usage struct {
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+		}
+		if json.Unmarshal([]byte(data), &ev) != nil {
+			return true // skip a malformed frame rather than abort the stream
+		}
+		switch ev.Type {
+		case "message_start":
+			out.Model = ev.Message.Model
+			out.InputTokens = ev.Message.Usage.InputTokens
+		case "content_block_start":
+			b := &block{typ: ev.ContentBlock.Type, id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
+			blocks[ev.Index] = b
+			order = append(order, ev.Index)
+		case "content_block_delta":
+			b := blocks[ev.Index]
+			if b == nil {
+				return true
+			}
+			switch ev.Delta.Type {
+			case "text_delta":
+				out.Text += ev.Delta.Text
+				onDelta(ev.Delta.Text)
+			case "input_json_delta":
+				b.jsonBuf.WriteString(ev.Delta.PartialJSON)
+			}
+		case "message_delta":
+			out.OutputTokens = ev.Usage.OutputTokens
+		case "message_stop":
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		return out, err
+	}
+	for _, idx := range order {
+		b := blocks[idx]
+		if b.typ != "tool_use" {
+			continue
+		}
+		args := map[string]any{}
+		if s := strings.TrimSpace(b.jsonBuf.String()); s != "" {
+			_ = json.Unmarshal([]byte(s), &args)
+		}
+		out.ToolCalls = append(out.ToolCalls, ToolCall{ID: b.id, Tool: b.name, Args: args})
+	}
+	return out, nil
 }
