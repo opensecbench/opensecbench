@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -596,7 +597,7 @@ type SendResult struct {
 
 // Send appends a user message to a thread and advances the run until an answer or a gated tool
 // call (which pauses, creating a pending approval).
-func (svc *Service) Send(ctx context.Context, projectID, threadID, userMessage string) (SendResult, error) {
+func (svc *Service) Send(ctx context.Context, projectID, threadID, userMessage, viewContext string) (SendResult, error) {
 	if svc.provider == nil {
 		return SendResult{}, errors.New("no LLM provider configured")
 	}
@@ -625,6 +626,15 @@ func (svc *Service) Send(ctx context.Context, projectID, threadID, userMessage s
 	prior, err := svc.loadMessages(ctx, projectID, threadID)
 	if err != nil {
 		return SendResult{}, err
+	}
+	// Awareness (ADR-0053): annotate this turn's user message with what's on screen so "explain this" or
+	// "is this exploitable?" resolves to the finding/code/surface the human is looking at. The annotation is
+	// LLM-context only — prior is a fresh copy, so the persisted user message stays clean.
+	if vc := strings.TrimSpace(viewContext); vc != "" && len(prior) > 0 {
+		last := &prior[len(prior)-1]
+		if last.Role == llm.RoleUser {
+			last.Content = "(On screen right now: " + vc + ". If I say \"this\" finding/route/file, I mean what's on screen.)\n\n" + last.Content
+		}
 	}
 	out, err := sess.Advance(ctx, prior)
 	if err != nil {

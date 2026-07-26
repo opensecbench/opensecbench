@@ -679,7 +679,7 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	res, err := s.analystService().Send(r.Context(), routing, th.ID, req.Message)
+	res, err := s.analystService().Send(r.Context(), routing, th.ID, req.Message, "")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1228,6 +1228,9 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Message string `json:"message"`
+		// ViewContext is a short description of what the human is looking at right now (the finding/code/
+		// surface on screen), so "explain this" resolves to it (ADR-0053 awareness). Optional.
+		ViewContext string `json:"view_context"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -1236,7 +1239,7 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "message is required")
 		return
 	}
-	res, err := s.analystService().Send(r.Context(), projectFromReq(r), r.PathValue("id"), req.Message)
+	res, err := s.analystService().Send(r.Context(), projectFromReq(r), r.PathValue("id"), req.Message, req.ViewContext)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "thread not found")
 		return

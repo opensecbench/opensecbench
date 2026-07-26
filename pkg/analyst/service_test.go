@@ -33,7 +33,7 @@ func TestServiceGatedToolPausesThenDenies(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := svc.Send(ctx, projectOf(th), th.ID, "scan the payments repo")
+	res, err := svc.Send(ctx, projectOf(th), th.ID, "scan the payments repo", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestServiceApproveRunsCapability(t *testing.T) {
 	svc := NewService(store.NewCombinedManager(db), engine, nil, "", mock)
 
 	th, _ := db.CreateThread(ctx, store.NewThread{})
-	res, err := svc.Send(ctx, projectOf(th), th.ID, "inventory it")
+	res, err := svc.Send(ctx, projectOf(th), th.ID, "inventory it", "")
 	if err != nil {
 		t.Fatal(err)
 	}

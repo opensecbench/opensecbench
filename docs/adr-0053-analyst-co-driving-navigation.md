@@ -55,8 +55,12 @@ so the toggle *is* the authorization — no approval card per hop. The human's o
 off takes back the wheel instantly. This is deliberately lighter than the ADR-0019 trust curve, which stays the
 governor for **mutations**.
 
-**4. Awareness is deferred, not folded in here.** Passing "what's on screen" into the message (so "this finding"
-resolves) is a natural companion but a separate change to the message path; tracked as follow-up.
+**4. Awareness (landed).** Each chat message now carries a short `view_context` describing what's on screen —
+the active document decides it (`Workbench.describeView`: the open finding/observation/code/surface, e.g.
+`the finding "Zip Bomb DoS" (id …)`). `Send` prepends it to that turn's user message as an LLM-only annotation
+(the fresh `prior` copy is edited; the persisted user turn stays clean), so "explain this" / "is this
+exploitable?" resolves to the on-screen subject without the agent enumerating everything. Coarse for list
+surfaces (no per-row selection yet); precise for a finding/code document.
 
 ## Consequences
 
