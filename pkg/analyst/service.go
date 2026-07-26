@@ -59,6 +59,10 @@ type Service struct {
 	// Injected by the API layer; nil in headless runs (the turn still persists normally).
 	msgPublish func(projectID, threadID string, m llm.Message)
 
+	// deltaPublish, if set, streams assistant text token-by-token over the event stream as it generates, so
+	// the final answer types out live. Injected by the API layer; nil ⇒ the answer just arrives per-message.
+	deltaPublish func(projectID, threadID, text string)
+
 	// Audit, if set, records agent loop events (tool calls, gate decisions, answers).
 	Audit func(action, detail string)
 
@@ -167,6 +171,12 @@ func (svc *Service) SetUIPublisher(fn func(projectID string, cmd UICommand)) { s
 // produced. Without it, messages only appear when the whole turn finishes and the UI refreshes.
 func (svc *Service) SetMessagePublisher(fn func(projectID, threadID string, m llm.Message)) {
 	svc.msgPublish = fn
+}
+
+// SetDeltaPublisher injects the sink that streams assistant text token-by-token as it generates, so the
+// answer types out live. Without it, text arrives whole with its message.
+func (svc *Service) SetDeltaPublisher(fn func(projectID, threadID, text string)) {
+	svc.deltaPublish = fn
 }
 
 // runShow handles the "show" tool: it publishes a navigation command to the project's UI stream so the
@@ -479,6 +489,9 @@ func (svc *Service) session(projectID, threadID string, profile Profile, policy 
 	// as it works instead of dumping at the end. Best-effort; the turn still persists normally in finish().
 	if svc.msgPublish != nil && threadID != "" {
 		sess.OnMessage = func(m llm.Message) { svc.msgPublish(projectID, threadID, m) }
+	}
+	if svc.deltaPublish != nil && threadID != "" {
+		sess.OnDelta = func(text string) { svc.deltaPublish(projectID, threadID, text) }
 	}
 	return sess
 }

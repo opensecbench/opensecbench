@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, StreamMessage, Thread } from './api'
+import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, StreamDelta, StreamMessage, Thread } from './api'
 import { Markdown } from './Markdown'
 
 export function AnalystPanel({
@@ -40,11 +40,20 @@ export function AnalystPanel({
   currentRef.current = current
   const streamingRef = useRef(false)
   const streamKey = useRef(0)
+  // streamingText is the assistant's answer as it types out (token deltas). Rendered as a transient bubble
+  // until the completed message for that turn arrives, which finalizes it into a real message and clears this.
+  const [streamingText, setStreamingText] = useState('')
   useEffect(() => {
     if (!online) return
     return api.subscribeProjectEvents(project.id, {
+      analystDelta: (d: StreamDelta) => {
+        if (!streamingRef.current || d.thread_id !== currentRef.current?.id) return
+        setStreamingText((t) => t + d.text)
+      },
       analystMessage: (m: StreamMessage) => {
         if (!streamingRef.current || m.thread_id !== currentRef.current?.id) return
+        // This turn's text is now a finalized message — drop the live-typing bubble it was building.
+        if (m.role === 'assistant') setStreamingText('')
         setMessages((ms) => [
           ...ms,
           {
@@ -145,6 +154,7 @@ export function AnalystPanel({
     setInput('')
     setBusy(true)
     streamingRef.current = true
+    setStreamingText('')
     try {
       await api.sendMessage(current.id, text, getView?.())
     } catch (e) {
@@ -158,6 +168,7 @@ export function AnalystPanel({
       } catch (e) {
         setError((e as Error).message)
       }
+      setStreamingText('')
       setBusy(false)
     }
   }
@@ -166,6 +177,7 @@ export function AnalystPanel({
     if (!pending || !current) return
     setBusy(true)
     streamingRef.current = true
+    setStreamingText('')
     try {
       await api.decideApproval(pending.id, decision)
     } catch (e) {
@@ -178,6 +190,7 @@ export function AnalystPanel({
       } catch (e) {
         setError((e as Error).message)
       }
+      setStreamingText('')
       setBusy(false)
     }
   }
@@ -260,6 +273,15 @@ export function AnalystPanel({
             {(messages ?? []).filter((m) => m.role !== 'system').map((m) => (
               <Message key={m.id} m={m} />
             ))}
+            {streamingText && (
+              <div className="msg analyst streaming">
+                <b>Analyst</b>
+                <div>
+                  <Markdown source={streamingText} />
+                  <span className="stream-caret">▍</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {pending && (
