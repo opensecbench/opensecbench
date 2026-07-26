@@ -32,6 +32,20 @@ export function AnalystPanel({
   const [error, setError] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<AgentProfile[]>([])
   const [profileId, setProfileId] = useState('generalist')
+  // Autonomy envelope (ADR-0054): how much the Analyst does without asking. The control surface for the
+  // consequence-tier governance — a global setting, surfaced here as a quick header control.
+  const [autonomy, setAutonomyState] = useState('cautious')
+  useEffect(() => {
+    if (online) void api.getApprovalPolicy().then((p) => setAutonomyState(p.autonomy ?? 'cautious')).catch(() => {})
+  }, [online])
+  async function changeAutonomy(v: string) {
+    setAutonomyState(v) // optimistic
+    try {
+      await api.setAutonomy(v)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   // Live turns (ADR-0053): while a turn runs, its steps stream in over the event bus. Refs keep the SSE
   // handler current without resubscribing — it only appends while a send is in flight (streaming) and only
@@ -258,6 +272,16 @@ export function AnalystPanel({
             🕹 {drive ? 'Driving' : 'Drive'}
           </button>
         )}
+        <select
+          className={`wb-an-autonomy ${autonomy}`}
+          value={autonomy}
+          onChange={(e) => changeAutonomy(e.target.value)}
+          disabled={!online}
+          title="Autonomy — how much the Analyst does without asking. Cautious: it confirms outbound requests and running code/scanners. Trusted: it runs those freely too. Reversible actions always run; scope and data-egress limits always apply."
+        >
+          <option value="cautious">🛡 Cautious</option>
+          <option value="trusted">⚡ Trusted</option>
+        </select>
         {profiles.length > 0 && (
           <select
             className="wb-an-profile"

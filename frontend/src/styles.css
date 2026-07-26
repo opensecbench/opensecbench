@@ -1725,7 +1725,7 @@ select option {
   font-size: 11px;
   cursor: pointer;
 }
-.wb-an-profile {
+.wb-an-profile, .wb-an-autonomy {
   border: 1px solid var(--line2);
   background: var(--bg4);
   color: var(--tx2);
@@ -1737,6 +1737,8 @@ select option {
   max-width: 130px;
   cursor: pointer;
 }
+/* Trusted envelope reads as elevated — the agent runs outbound/execute without asking (ADR-0054) */
+.wb-an-autonomy.trusted { border-color: var(--amber); color: var(--amber); }
 /* co-driving toggle: when on, the Analyst may move the workbench for you (ADR-0053) */
 .wb-an-drive { white-space: nowrap; }
 .wb-an-drive.on {
