@@ -102,3 +102,28 @@ func TestServicePolicyFromSettingsDrivesTheGate(t *testing.T) {
 		t.Fatal("run_code should still be gated")
 	}
 }
+
+// The autonomy setting (the header selector's control surface) flips the gate end to end.
+func TestServiceAutonomyFromSettingsDrivesTheGate(t *testing.T) {
+	ctx := context.Background()
+	db := migratedStore(t)
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{})
+
+	// Default (cautious): send_request and run_code both pause.
+	if !svc.loadPolicy(ctx).NeedsApproval("send_request", "pentester") || !svc.loadPolicy(ctx).NeedsApproval("run_code", "pentester") {
+		t.Fatal("cautious should gate external + execute")
+	}
+
+	// Human raises the envelope to trusted.
+	if err := db.SetSetting(ctx, AutonomySetting, string(AutonomyTrusted)); err != nil {
+		t.Fatal(err)
+	}
+	p := svc.loadPolicy(ctx)
+	if p.NeedsApproval("send_request", "pentester") || p.NeedsApproval("run_code", "pentester") {
+		t.Fatal("trusted should let external + execute run free")
+	}
+	// Reversible always ran free regardless.
+	if p.NeedsApproval("set_finding_status", "pentester") {
+		t.Fatal("reversible should never gate")
+	}
+}

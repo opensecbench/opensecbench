@@ -1236,9 +1236,14 @@ export const api = {
   getHome: () => request<HomeData>('GET', '/v1/home'),
 
   getApprovalPolicy: () =>
-    request<{ sensitive_tools: string[]; rules: ApprovalRule[] }>('GET', '/v1/analyst/approval-policy'),
+    request<{ sensitive_tools: string[]; rules: ApprovalRule[]; autonomy?: string; consequences?: Record<string, string> }>(
+      'GET',
+      '/v1/analyst/approval-policy',
+    ),
   setApprovalPolicy: (rules: ApprovalRule[]) =>
     request<{ rules: ApprovalRule[] }>('PUT', '/v1/analyst/approval-policy', { rules }),
+  // The autonomy envelope (ADR-0054): the Analyst header's quick control — set it without touching rules.
+  setAutonomy: (autonomy: string) => request<{ autonomy: string }>('PUT', '/v1/analyst/autonomy', { autonomy }),
 
   listAgentPlaybooks: () =>
     request<{ playbooks: AgentPlaybook[] }>('GET', '/v1/analyst/playbooks').then((r) => r.playbooks ?? []),

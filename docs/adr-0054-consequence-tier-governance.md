@@ -61,6 +61,9 @@ envelope. Precedence: explicit rule > autonomy envelope over consequence tier.
   gate removes a prompt, never a wall. `web_fetch` keeps its preapproved-source bypass (ADR-0038).
 - **API stable.** `Decide` / `NeedsApproval` / `NewPolicy` / `DefaultPolicy` / `SensitiveTools` keep their
   shapes (`SensitiveTools` now = the above-Reversible tools); `ToolConsequences()` exposes the tiers for the UI.
-- **Follow-ups:** a visible autonomy selector in the Analyst header (next to Drive) — the setting exists and is
-  wired, the UI knob is not built yet; an activity feed + one-click undo for the reversible tier (the promised
-  post-hoc oversight); revisit whether `Destructive` needs its own concrete actions (none classified yet).
+- **Autonomy selector (landed).** A Cautious/Trusted dropdown in the Analyst header (next to Drive), backed by
+  `PUT /v1/analyst/autonomy` (which sets only the envelope, leaving the override rules untouched). Trusted
+  reads as elevated (amber). The setting drives `loadPolicy` end to end.
+- **Follow-ups:** an activity feed + one-click undo for the reversible tier (the promised post-hoc oversight);
+  revisit whether `Destructive` needs its own concrete actions (none classified yet); optionally scope the
+  envelope per-project rather than global.

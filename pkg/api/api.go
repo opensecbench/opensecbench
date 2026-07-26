@@ -386,6 +386,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/connections/{id}/models/refresh", s.refreshConnectionModelsHandler)
 	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
+	s.mux.HandleFunc("PUT /v1/analyst/autonomy", s.setAutonomy)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)
 	s.mux.HandleFunc("POST /v1/analyst/playbooks", s.createSavedPlaybook)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks/{id}", s.getAgentPlaybook)
@@ -1074,6 +1075,26 @@ func (s *Server) setApprovalPolicy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"rules": req.Rules, "autonomy": req.Autonomy})
+}
+
+// setAutonomy updates just the consent envelope (ADR-0054) — the Analyst header's quick control — without
+// touching the override rules.
+func (s *Server) setAutonomy(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Autonomy string `json:"autonomy"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Autonomy != string(analyst.AutonomyCautious) && req.Autonomy != string(analyst.AutonomyTrusted) {
+		writeErr(w, http.StatusBadRequest, "autonomy must be 'cautious' or 'trusted'")
+		return
+	}
+	if err := s.global().SetSetting(r.Context(), analyst.AutonomySetting, req.Autonomy); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"autonomy": req.Autonomy})
 }
 
 // listAgentProfiles returns the agent profiles — built-ins plus user-defined ones (ADR-0019). Used by
