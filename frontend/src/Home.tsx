@@ -242,6 +242,24 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
                   </ul>
                 </div>
               )}
+              {(usage.top_projects?.length ?? 0) > 0 && (
+                <div className="spend-group">
+                  <div className="spend-cap">By project</div>
+                  <ul className="spend-bars">
+                    {usage.top_projects.map((p) => {
+                      const tot = p.input_tokens + p.output_tokens
+                      const top = usage.top_projects[0].input_tokens + usage.top_projects[0].output_tokens
+                      return (
+                        <li key={p.project_id} className="spend-bar clickable" onClick={() => open(p.project_id)}>
+                          <span className="spend-model">{p.name || p.project_id.slice(0, 8)}</span>
+                          <span className="spend-track"><span className="spend-val project" style={{ width: `${top > 0 ? (tot * 100) / top : 0}%` }} /></span>
+                          <span className="muted spend-amt">{fmtTokens(tot)}</span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </section>

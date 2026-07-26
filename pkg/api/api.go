@@ -1394,6 +1394,9 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	usage, _ := s.mgr.AggregateUsage(ctx, monthStart, 6)
+	for i := range usage.TopProjects {
+		usage.TopProjects[i].Name = name[usage.TopProjects[i].ProjectID]
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"approvals": approvals,

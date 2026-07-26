@@ -679,6 +679,7 @@ export interface HomeData {
     all_output: number
     top_models: { provider: string; model: string; runs: number; input_tokens: number; output_tokens: number }[]
     top_agents: { agent_type: string; runs: number; input_tokens: number; output_tokens: number }[]
+    top_projects: { project_id: string; name: string; input_tokens: number; output_tokens: number }[]
   }
   schedules: {
     id: string
