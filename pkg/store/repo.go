@@ -71,6 +71,72 @@ func (db *DB) ListOrganizations(ctx context.Context) ([]model.Organization, erro
 	return out, rows.Err()
 }
 
+// GetOrganization returns one organization by id.
+func (db *DB) GetOrganization(ctx context.Context, id string) (model.Organization, error) {
+	var o model.Organization
+	var created, updated string
+	err := db.QueryRowContext(ctx,
+		`SELECT id, name, created_at, updated_at FROM organizations WHERE id = ?`, id).
+		Scan(&o.ID, &o.Name, &created, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Organization{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Organization{}, err
+	}
+	o.CreatedAt, o.UpdatedAt = parseTime(created), parseTime(updated)
+	return o, nil
+}
+
+// --- Groups (teams within an organization) ---
+
+// CreateGroup inserts a team/group under an organization.
+func (db *DB) CreateGroup(ctx context.Context, organizationID, name string) (model.Group, error) {
+	if name == "" {
+		return model.Group{}, errors.New("store: group name required")
+	}
+	if organizationID == "" {
+		return model.Group{}, errors.New("store: group requires an organization")
+	}
+	g := model.Group{ID: uuid.NewString(), OrganizationID: organizationID, Name: name}
+	ts := nowString()
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO "groups" (id, organization_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		g.ID, g.OrganizationID, g.Name, ts, ts); err != nil {
+		return model.Group{}, err
+	}
+	g.CreatedAt, g.UpdatedAt = parseTime(ts), parseTime(ts)
+	return g, nil
+}
+
+// ListGroups returns groups (optionally scoped to one organization) ordered by name.
+func (db *DB) ListGroups(ctx context.Context, organizationID string) ([]model.Group, error) {
+	q := `SELECT id, organization_id, name, created_at, updated_at FROM "groups"`
+	var args []any
+	if organizationID != "" {
+		q += ` WHERE organization_id = ?`
+		args = append(args, organizationID)
+	}
+	q += ` ORDER BY name`
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []model.Group
+	for rows.Next() {
+		var g model.Group
+		var created, updated string
+		if err := rows.Scan(&g.ID, &g.OrganizationID, &g.Name, &created, &updated); err != nil {
+			return nil, err
+		}
+		g.CreatedAt, g.UpdatedAt = parseTime(created), parseTime(updated)
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
 // --- Targets ---
 
 // CreateTarget inserts a durable target, optionally under an organization.

@@ -2712,6 +2712,12 @@ select option {
 
 .em-field { margin-bottom: 12px; }
 .em-field > label { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--tx2); margin-bottom: 6px; }
+/* org + team picker row: existing select, a "new" input, and an Add button */
+.em-orggroup { display: flex; gap: 6px; align-items: center; }
+.em-orggroup + .em-orggroup { margin-top: 6px; }
+.em-orggroup .em-in { flex: 1; min-width: 0; width: auto; }
+.em-add { border: 1px solid var(--line2); background: var(--bg4); color: var(--tx2); border-radius: 8px; padding: 0 12px; font-size: 12px; cursor: pointer; align-self: stretch; }
+.em-add:disabled { opacity: 0.5; cursor: default; }
 .em-in {
   width: 100%; background: var(--bg); border: 1px solid var(--line2); border-radius: 8px;
   padding: 8px 11px; color: var(--tx); font-size: 13px; font-family: inherit; outline: none;
