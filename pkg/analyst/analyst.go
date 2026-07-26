@@ -228,7 +228,9 @@ func Approver(allow []string) func(context.Context, agent.ToolCall) (bool, error
 		if call.Tool == "web_fetch" {
 			return isPreapprovedSource(stringArg(call, "url")), nil
 		}
-		if sensitiveTools[call.Tool] {
+		// A non-reversible action (external / execute) runs only if explicitly authorized for this ask;
+		// reversible actions auto-approve — capability parity, oversight is undo/audit (ADR-0053/0054).
+		if consequenceOf(call.Tool) != Reversible {
 			return allowed[call.Tool], nil
 		}
 		return true, nil

@@ -499,18 +499,24 @@ func (svc *Service) session(projectID, threadID string, profile Profile, policy 
 // ApprovalPolicySetting is the settings key holding the trust-curve override rules as a JSON array (ADR-0019 §5).
 const ApprovalPolicySetting = "analyst_approval_rules"
 
-// loadPolicy reads the configured approval policy; an unset or unparseable setting yields the
-// conservative default (every sensitive tool asks).
+// AutonomySetting is the settings key holding the autonomy envelope — the control surface (ADR-0054):
+// "cautious" (default) or "trusted". It shifts the confirm line across consequence tiers.
+const AutonomySetting = "analyst_autonomy"
+
+// loadPolicy reads the configured governance policy: the consequence-tier base under the human's autonomy
+// envelope, plus any trust-curve override rules. Unset/unparseable settings yield the conservative default.
 func (svc *Service) loadPolicy(ctx context.Context) Policy {
-	raw, err := svc.g().GetSetting(ctx, ApprovalPolicySetting)
-	if err != nil || raw == "" {
-		return DefaultPolicy()
+	p := DefaultPolicy()
+	if raw, err := svc.g().GetSetting(ctx, ApprovalPolicySetting); err == nil && raw != "" {
+		var rules []Rule
+		if json.Unmarshal([]byte(raw), &rules) == nil {
+			p = NewPolicy(rules)
+		}
 	}
-	var rules []Rule
-	if err := json.Unmarshal([]byte(raw), &rules); err != nil {
-		return DefaultPolicy()
+	if a, err := svc.g().GetSetting(ctx, AutonomySetting); err == nil && a != "" {
+		p = p.WithAutonomy(Autonomy(a))
 	}
-	return NewPolicy(rules)
+	return p
 }
 
 // executeFor builds the tool executor for a thread's project, wrapped with the data-egress policy:

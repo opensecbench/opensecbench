@@ -75,7 +75,7 @@ func TestShowToolIsInCatalogAndAutoApproved(t *testing.T) {
 	if !found {
 		t.Fatal("show tool missing from catalog")
 	}
-	if sensitiveTools["show"] {
+	if DefaultPolicy().NeedsApproval("show", "generalist") {
 		t.Fatal("show must be auto-approved (read-only navigation), not gated")
 	}
 }
