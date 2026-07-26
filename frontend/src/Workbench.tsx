@@ -385,7 +385,7 @@ function WorkbenchExplorer({
   // (un-promoted) observations do NOT appear here — they live on the Observations surface, their single home.
   const obsById = new Map(observations.map((o) => [o.id, o]))
   const findingLocs = findings.flatMap((f) =>
-    f.observation_ids
+    (f.observation_ids ?? [])
       .map((id) => obsById.get(id))
       .filter((o): o is Observation => !!o && !!o.asset_id && !!o.location)
       .map((o) => ({ finding: f, obs: o })),
@@ -2537,7 +2537,7 @@ function FindingsTab({
   // their own — it lives on the observations they were promoted from, ADR-0050).
   const byId = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
   const firstLoc = (f: Finding): string => {
-    for (const id of f.observation_ids) {
+    for (const id of f.observation_ids ?? []) {
       const o = byId.get(id)
       if (o?.location) return o.location
     }
@@ -2649,7 +2649,7 @@ function FindingDetail({
 }) {
   const byId = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
   if (!finding) return <div className="empty">This finding is no longer available.</div>
-  const obs = finding.observation_ids.map((id) => byId.get(id)).filter((o): o is Observation => !!o)
+  const obs = (finding.observation_ids ?? []).map((id) => byId.get(id)).filter((o): o is Observation => !!o)
   // Facts worth surfacing on an observation, minus the ones already shown structurally (locations/flow).
   const signalKeys = (o: Observation) =>
     Object.keys(o.attributes ?? {}).filter((k) => k !== 'dataflow_source' && k !== 'dataflow_path')

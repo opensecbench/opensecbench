@@ -377,6 +377,7 @@ func (db *DB) ListFindings(ctx context.Context) ([]model.Finding, error) {
 	defer func() { _ = rows.Close() }()
 
 	var out []model.Finding
+	idx := map[string]int{}
 	for rows.Next() {
 		var f model.Finding
 		var app sql.NullString
@@ -386,9 +387,32 @@ func (db *DB) ListFindings(ctx context.Context) ([]model.Finding, error) {
 		}
 		f.ApplicationID = ptr(app)
 		f.CreatedAt, f.UpdatedAt = parseTime(created), parseTime(updated)
+		f.ObservationIDs = []string{} // never nil, so the JSON is [] not null (the UI maps over it)
+		idx[f.ID] = len(out)
 		out = append(out, f)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	_ = rows.Close() // done reading findings; free the connection before the next query
+
+	// Attach supporting observations in one pass (findings carry their location via these, ADR-0050).
+	orows, err := db.QueryContext(ctx,
+		`SELECT finding_id, observation_id FROM finding_observations ORDER BY finding_id, observation_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = orows.Close() }()
+	for orows.Next() {
+		var fid, oid string
+		if err := orows.Scan(&fid, &oid); err != nil {
+			return nil, err
+		}
+		if i, ok := idx[fid]; ok {
+			out[i].ObservationIDs = append(out[i].ObservationIDs, oid)
+		}
+	}
+	return out, orows.Err()
 }
 
 // FindingCount is a per-project findings tally.
