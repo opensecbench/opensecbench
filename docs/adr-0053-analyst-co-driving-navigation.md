@@ -64,6 +64,16 @@ so the toggle *is* the authorization — no approval card per hop. The human's o
 off takes back the wheel instantly. This is deliberately lighter than the ADR-0019 trust curve, which stays the
 governor for **mutations**.
 
+**5. Capability parity (landed).** Principle: the agent and the human share the same actions — a hardcoded
+"only a human can do X" breaks it. The agent had *no* tool for a finding's status, so it punted ("you'll have
+to close it manually"). Fixed with `set_finding_status` (open/confirmed/remediated/accepted/false_positive +
+note), the same control the finding page's dropdown gives a human. It is NOT gated by default — like
+`triage_observation` (which already dispositions observations directly), not like `create_finding`. Governance
+is a *separate, configurable* layer: the trust-curve approval policy (ADR-0019) can gate it if the human wants
+oversight — parity of capability, with a tunable governor, never a wall. (Whether the other still-gated
+mutations — create_finding, send_request — should also default to parity is an open question; send_request's
+gate guards outbound/egress, a real safety reason, so it's not purely symmetric.)
+
 **4. Awareness (landed).** Each chat message now carries a short `view_context` describing what's on screen —
 the active document decides it (`Workbench.describeView`: the open finding/observation/code/surface, e.g.
 `the finding "Zip Bomb DoS" (id …)`). `Send` prepends it to that turn's user message as an LLM-only annotation
