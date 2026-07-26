@@ -8,6 +8,7 @@ export function AnalystPanel({
   initialThread,
   drive,
   onDriveChange,
+  getView,
 }: {
   project: Project
   online: boolean
@@ -16,6 +17,9 @@ export function AnalystPanel({
   // the Workbench (which applies the navigation); this panel just renders the toggle.
   drive?: boolean
   onDriveChange?: (v: boolean) => void
+  // getView returns a short description of what's on screen right now, sent with each message so the Analyst
+  // can resolve "explain this" to the on-screen finding/code/surface (ADR-0053 awareness).
+  getView?: () => string
 }) {
   const [threads, setThreads] = useState<Thread[]>([])
   const [current, setCurrent] = useState<Thread | null>(null)
@@ -142,7 +146,7 @@ export function AnalystPanel({
     setBusy(true)
     streamingRef.current = true
     try {
-      await api.sendMessage(current.id, text)
+      await api.sendMessage(current.id, text, getView?.())
     } catch (e) {
       setError((e as Error).message)
     } finally {

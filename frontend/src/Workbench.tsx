@@ -905,6 +905,39 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         break
     }
   }
+  // describeView renders what the human is looking at right now as a short phrase, sent with each chat
+  // message so the Analyst can resolve "explain this" / "is this exploitable?" to the on-screen subject
+  // (ADR-0053 awareness). The active document decides it; a plain surface gives coarser context.
+  function describeView(): string {
+    const doc = openDocs.find((d) => d.key === activeKey)
+    if (!doc) return ''
+    if (doc.finding) {
+      const f = findings.find((x) => x.id === doc.finding!.id)
+      return f ? `the finding "${f.title}" (id ${f.id}, severity ${f.severity})` : `a finding (id ${doc.finding.id})`
+    }
+    if (doc.code) {
+      const loc = doc.code.line ? `${doc.code.path}:${doc.code.line}` : doc.code.path
+      return `the source file ${loc} (asset ${doc.code.assetId})`
+    }
+    if (doc.ctx) return `a context item (id ${doc.ctx.id})`
+    switch (doc.surface) {
+      case 'findings':
+        return 'the Findings list'
+      case 'observations':
+        return 'the Observations (triage) list'
+      case 'investigations':
+        return 'the Investigations list'
+      case 'routes': {
+        const r = routes.find((x) => x.id === selectedRouteId)
+        return r ? `the route ${r.method} ${r.path} on the Routes surface` : 'the Routes (attack-surface) list'
+      }
+      case 'overview':
+        return 'the project Overview'
+      default:
+        return `the ${surfaceTitle(doc.surface)} view`
+    }
+  }
+
   // Agent-driven navigation over the project event stream. Keep the latest dispatcher + Drive state in refs
   // so the subscription need not resubscribe on every render (findings change as data loads; Drive toggles).
   const applyRef = useRef(applyUICommand)
@@ -1177,7 +1210,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         </div>
 
         <SurfaceBoundary>
-          <AnalystPanel project={project} online={online} initialThread={initial?.thread} drive={drive} onDriveChange={setDrive} />
+          <AnalystPanel project={project} online={online} initialThread={initial?.thread} drive={drive} onDriveChange={setDrive} getView={describeView} />
         </SurfaceBoundary>
       </div>
 

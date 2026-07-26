@@ -1267,8 +1267,8 @@ export const api = {
   createThread: (projectId?: string, title?: string, agentType?: string) =>
     request<Thread>('POST', '/v1/threads', { project_id: projectId, title, agent_type: agentType }),
   getThread: (id: string) => request<{ thread: Thread; messages: Msg[] }>('GET', '/v1/threads/' + id),
-  sendMessage: (id: string, message: string) =>
-    request<SendResult>('POST', `/v1/threads/${id}/messages`, { message }),
+  sendMessage: (id: string, message: string, viewContext?: string) =>
+    request<SendResult>('POST', `/v1/threads/${id}/messages`, { message, view_context: viewContext }),
   listApprovals: () => request<Approval[]>('GET', '/v1/approvals'),
   decideApproval: (id: string, decision: 'approve' | 'deny') =>
     request<SendResult>('POST', `/v1/approvals/${id}/decide`, { decision }),

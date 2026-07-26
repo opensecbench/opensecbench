@@ -252,7 +252,7 @@ func (s *Server) runInvestigation(w http.ResponseWriter, r *http.Request) {
 			"If it is a false positive or example/placeholder value, explain why.",
 		obs.RuleID, obs.Severity, obs.Location, obs.Detail, describeSignals(obs.Attributes))
 
-	res, err := s.analystService().Send(r.Context(), projectFromReq(r), th.ID, seed)
+	res, err := s.analystService().Send(r.Context(), projectFromReq(r), th.ID, seed, "")
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "start investigation: "+err.Error())
 		return
