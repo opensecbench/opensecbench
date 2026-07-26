@@ -56,11 +56,6 @@ func Tools() []agent.Tool {
 		{Name: "get_finding", Description: "Get one finding by id, including its supporting observation ids.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "finding id"},
 		}},
-		{Name: "show", Description: "Take the human's workbench to a specific piece of evidence — open a finding, observation, route, or source file, or switch to a surface — so you can walk them through what you're discussing. Read-only: it never changes data, and it only moves their view when they've enabled Analyst navigation, so it is always safe to call. Prefer it over describing a location the human then has to find by hand.", Params: []agent.Param{
-			{Name: "kind", Type: agent.TypeEnum, Required: true, Description: "what to show", Enum: []string{"finding", "observation", "route", "code", "surface"}},
-			{Name: "id", Type: agent.TypeString, Description: "what to open: a finding/observation/route id; the source_repo asset id when kind=code; or the surface key when kind=surface (e.g. findings, observations, investigations, routes, graph)"},
-			{Name: "location", Type: agent.TypeString, Description: "kind=code only: the file path within the asset, optionally with a line — 'path' or 'path:line'"},
-		}},
 		{Name: "list_observations", Description: "List the current project's observations (tool findings + AI/investigation candidates) with their routing attributes — reachable, exposed, exposed_route, route_reachable (a proven dataflow path from an HTTP route to the sink — the strongest exploitability signal), dataflow_source, security_severity, verified — for triage. Prioritize route_reachable, then reachable + exposed/exposed_route items.", Params: []agent.Param{
 			{Name: "unreviewed_only", Type: agent.TypeBoolean, Description: "only observations still awaiting triage (review_state=unreviewed)"},
 		}},
