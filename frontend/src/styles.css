@@ -1715,14 +1715,6 @@ select option {
   max-width: 130px;
   cursor: pointer;
 }
-/* co-driving toggle: when on, the Analyst may move the workbench for you (ADR-0053) */
-.wb-an-drive { white-space: nowrap; }
-.wb-an-drive.on {
-  background: var(--acc);
-  border-color: var(--acc);
-  color: #fff;
-  font-weight: 700;
-}
 .wb-an-collapsed {
   flex: 1;
   display: flex;
@@ -2752,8 +2744,8 @@ select.em-in { cursor: pointer; }
 .pbuild-gatelbl { font-size: 12px; color: var(--amber); font-weight: 600; }
 .pbuild-gate { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--tx3); cursor: pointer; }
 .pbuild-gate input { accent-color: var(--amber); }
-.orch-edit, .orch-copy { border: 0; background: transparent; color: var(--tx3); font-size: 11px; padding: 0 6px; cursor: pointer; }
-.orch-edit:hover, .orch-copy:hover { color: var(--acc); }
+.orch-edit { border: 0; background: transparent; color: var(--tx3); font-size: 11px; padding: 0 6px; cursor: pointer; }
+.orch-edit:hover { color: var(--acc); }
 .orch-chip.gate { color: var(--amber); border-color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
 
 /* Finding status control + methodology remove (2026-07-20 review fixes) */

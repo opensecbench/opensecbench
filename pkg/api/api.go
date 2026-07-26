@@ -565,11 +565,6 @@ func (s *Server) analystService() *analyst.Service {
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}
-	// Co-driving (the "show" tool): deliver the Analyst's navigation commands to the workbench over the
-	// project event stream. The frontend applies them only when the human has enabled Analyst navigation.
-	svc.SetUIPublisher(func(projectID string, cmd analyst.UICommand) {
-		s.events.Publish(events.Event{Type: "ui.command", ProjectID: projectID, Payload: cmd})
-	})
 	// The active policy profile governs data egress (ADR-0006).
 	ap := s.activePolicy()
 	svc.SetEgressPolicy(ap.AllowExternalForInternal, ap.AllowExternalForPrivate)

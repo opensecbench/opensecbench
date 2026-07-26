@@ -2,21 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, Thread } from './api'
 import { Markdown } from './Markdown'
 
-export function AnalystPanel({
-  project,
-  online,
-  initialThread,
-  drive,
-  onDriveChange,
-}: {
-  project: Project
-  online: boolean
-  initialThread?: string
-  // Co-driving: when Drive is on, the Analyst's "show" tool moves the workbench for you (ADR-0053). Owned by
-  // the Workbench (which applies the navigation); this panel just renders the toggle.
-  drive?: boolean
-  onDriveChange?: (v: boolean) => void
-}) {
+export function AnalystPanel({ project, online, initialThread }: { project: Project; online: boolean; initialThread?: string }) {
   const [threads, setThreads] = useState<Thread[]>([])
   const [current, setCurrent] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Msg[]>([])
@@ -149,20 +135,6 @@ export function AnalystPanel({
       <div className="wb-an-head">
         <span className="title">◆ Analyst</span>
         <span className="grow" />
-        {onDriveChange && (
-          <button
-            className={`wb-an-drive ${drive ? 'on' : ''}`}
-            onClick={() => onDriveChange(!drive)}
-            aria-pressed={!!drive}
-            title={
-              drive
-                ? 'Analyst can move your view to show you evidence — click to take back the wheel'
-                : 'Let the Analyst navigate the workbench for you (it opens findings/code as it explains). Your clicks always win.'
-            }
-          >
-            🕹 {drive ? 'Driving' : 'Drive'}
-          </button>
-        )}
         {profiles.length > 0 && (
           <select
             className="wb-an-profile"
