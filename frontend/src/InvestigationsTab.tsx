@@ -94,7 +94,7 @@ export function InvestigationsTab({
 
   const columns: Column<Investigation>[] = [
     { key: 'severity', header: 'Sev', width: '72px', sortable: true, sortValue: (i) => SEV_RANK[obsById.get(i.observation_id)?.severity ?? ''] ?? -1, render: (i) => { const s = obsById.get(i.observation_id)?.severity; return s ? <span className={`sev sev-${s}`}>{s}</span> : <span className="muted">—</span> } },
-    { key: 'title', header: 'Title', sortable: true, sortValue: (i) => i.title.toLowerCase(), render: (i) => <span className="dt-title">{i.title}</span> },
+    { key: 'title', header: 'Title', width: '45%', sortable: true, sortValue: (i) => i.title.toLowerCase(), render: (i) => <span className="dt-title dt-ellip">{i.title}</span> },
     { key: 'location', header: 'Location', className: 'mono', width: '200px', render: (i) => <span className="muted dt-ellip">{obsById.get(i.observation_id)?.location}</span> },
     { key: 'status', header: 'Status', width: '104px', sortable: true, sortValue: (i) => i.status, render: (i) => <span className={`badge ${i.status}`}>{INV_STATE[i.status] ?? i.status}</span> },
   ]
