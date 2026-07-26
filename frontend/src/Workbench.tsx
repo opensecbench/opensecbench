@@ -2356,12 +2356,12 @@ function ObservationsTab({
   }
 
   const columns: Column<Observation>[] = [
-    { key: 'severity', header: 'Sev', width: '72px', sortable: true, sortValue: (o) => SEV_RANK[o.severity] ?? -1, render: (o) => <span className={`sev sev-${o.severity}`}>{o.severity}</span> },
-    { key: 'title', header: 'Title', sortable: true, sortValue: (o) => o.title.toLowerCase(), render: (o) => <span className="dt-title">{o.title}</span> },
-    { key: 'rule', header: 'Rule', className: 'mono', width: '150px', sortable: true, sortValue: (o) => o.rule_id ?? '', render: (o) => <span className="muted dt-ellip">{o.rule_id}</span> },
-    { key: 'location', header: 'Location', className: 'mono', width: '190px', sortable: true, sortValue: (o) => o.location ?? '', render: (o) => <span className="muted dt-ellip">{o.location}</span> },
-    { key: 'signals', header: 'Signals', width: '150px', render: (o) => <span className="dt-signals">{obsSignals(o).map((s) => <span key={s} className="sig-chip">{s}</span>)}</span> },
-    { key: 'state', header: 'State', width: '92px', sortable: true, sortValue: (o) => o.review_state, render: (o) => <span className={`badge ${o.review_state}`}>{STATE_LABEL[o.review_state] ?? o.review_state}</span> },
+    { key: 'severity', header: 'Sev', width: '64px', sortable: true, sortValue: (o) => SEV_RANK[o.severity] ?? -1, render: (o) => <span className={`sev sev-${o.severity}`}>{o.severity}</span> },
+    { key: 'title', header: 'Title', width: '40%', sortable: true, sortValue: (o) => o.title.toLowerCase(), render: (o) => <span className="dt-title dt-ellip">{o.title}</span> },
+    { key: 'rule', header: 'Rule', className: 'mono', width: '140px', sortable: true, sortValue: (o) => o.rule_id ?? '', render: (o) => <span className="muted dt-ellip">{o.rule_id}</span> },
+    { key: 'location', header: 'Location', className: 'mono', width: '160px', sortable: true, sortValue: (o) => o.location ?? '', render: (o) => <span className="muted dt-ellip">{o.location}</span> },
+    { key: 'signals', header: 'Signals', width: '130px', render: (o) => <span className="dt-signals">{obsSignals(o).map((s) => <span key={s} className="sig-chip">{s}</span>)}</span> },
+    { key: 'state', header: 'State', width: '88px', sortable: true, sortValue: (o) => o.review_state, render: (o) => <span className={`badge ${o.review_state}`}>{STATE_LABEL[o.review_state] ?? o.review_state}</span> },
   ]
 
   const ids = [...selected]
@@ -2568,7 +2568,7 @@ function FindingsTab({
 
   const columns: Column<Finding>[] = [
     { key: 'severity', header: 'Sev', width: '72px', sortable: true, sortValue: (f) => SEV_RANK[f.severity] ?? -1, render: (f) => <span className={`sev sev-${f.severity}`}>{f.severity}</span> },
-    { key: 'title', header: 'Title', sortable: true, sortValue: (f) => f.title.toLowerCase(), render: (f) => <span className="dt-title">{f.title}</span> },
+    { key: 'title', header: 'Title', width: '40%', sortable: true, sortValue: (f) => f.title.toLowerCase(), render: (f) => <span className="dt-title dt-ellip">{f.title}</span> },
     { key: 'cwe', header: 'CWE', width: '104px', sortable: true, sortValue: (f) => f.cwe ?? '', render: (f) => <span className="muted mono">{f.cwe}</span> },
     { key: 'location', header: 'Location', className: 'mono', width: '190px', render: (f) => <span className="muted dt-ellip">{firstLoc(f)}</span> },
     {
