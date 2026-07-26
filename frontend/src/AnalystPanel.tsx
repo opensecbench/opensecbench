@@ -231,6 +231,16 @@ function Message({ m }: { m: Msg }) {
         </div>
       )
     }
+    // An assistant turn with neither prose nor a tool call — the model returned an empty completion. Show a
+    // clear placeholder rather than a silent blank bubble that reads as a hang.
+    if (!m.content.trim()) {
+      return (
+        <div className="msg analyst empty">
+          <b>Analyst</b>
+          <div className="muted">(no response — ask again or rephrase)</div>
+        </div>
+      )
+    }
     return (
       <div className="msg analyst">
         <b>Analyst</b>

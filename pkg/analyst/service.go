@@ -406,7 +406,7 @@ func (svc *Service) session(projectID string, profile Profile, policy Policy, pr
 			return policy.NeedsApproval(c.Tool, profile.ID)
 		},
 		Execute:     svc.executeFor(projectID, prov),
-		MaxSteps:    8,
+		MaxSteps:    interactiveMaxSteps(),
 		TokenBudget: svc.tokenBudget,
 		Audit:       svc.Audit,
 	}
