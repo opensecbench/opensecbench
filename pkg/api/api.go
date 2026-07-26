@@ -672,8 +672,12 @@ func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// listThreads returns the active project's chat threads (per the X-Project-Id header). Scoping matters:
+// a thread lives in its project's DB (ADR-0049), so listing every project's threads here would then 404
+// on open (the flat threads/{id} route resolves via the active project's DB). No active project → the
+// global assistant's threads.
 func (s *Server) listThreads(w http.ResponseWriter, r *http.Request) {
-	ts, err := s.mgr.ListAllThreads(r.Context())
+	ts, err := s.pdb(r).ListThreads(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
