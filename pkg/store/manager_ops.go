@@ -337,19 +337,34 @@ func (m *Manager) AggregateUsage(ctx context.Context, monthStart time.Time, topN
 		}
 	}
 	if gs, err := m.global.UsageSummary(ctx, monthStart, topN); err == nil {
-		add(gs)
+		add(gs) // project-less runs; folded into totals but not a per-project row
 	}
-	err := m.eachProject(ctx, func(pdb *DB) error {
-		if s, e := pdb.UsageSummary(ctx, monthStart, topN); e == nil {
-			add(s)
+	ids, err := m.activeProjectIDs(ctx)
+	if err != nil {
+		return agg, err
+	}
+	for _, id := range ids {
+		pdb, e := m.Project(id)
+		if e != nil {
+			continue
 		}
-		return nil
-	})
+		s, e := pdb.UsageSummary(ctx, monthStart, topN)
+		if e != nil {
+			continue
+		}
+		add(s)
+		if s.AllInput+s.AllOutput > 0 {
+			agg.TopProjects = append(agg.TopProjects, model.UsageByProject{ProjectID: id, InputTokens: s.AllInput, OutputTokens: s.AllOutput})
+		}
+	}
 	sort.Slice(agg.TopModels, func(i, j int) bool {
 		return agg.TopModels[i].InputTokens+agg.TopModels[i].OutputTokens > agg.TopModels[j].InputTokens+agg.TopModels[j].OutputTokens
 	})
 	sort.Slice(agg.TopAgents, func(i, j int) bool {
 		return agg.TopAgents[i].InputTokens+agg.TopAgents[i].OutputTokens > agg.TopAgents[j].InputTokens+agg.TopAgents[j].OutputTokens
+	})
+	sort.Slice(agg.TopProjects, func(i, j int) bool {
+		return agg.TopProjects[i].InputTokens+agg.TopProjects[i].OutputTokens > agg.TopProjects[j].InputTokens+agg.TopProjects[j].OutputTokens
 	})
 	if len(agg.TopModels) > topN {
 		agg.TopModels = agg.TopModels[:topN]
@@ -357,7 +372,10 @@ func (m *Manager) AggregateUsage(ctx context.Context, monthStart time.Time, topN
 	if len(agg.TopAgents) > topN {
 		agg.TopAgents = agg.TopAgents[:topN]
 	}
-	return agg, err
+	if len(agg.TopProjects) > topN {
+		agg.TopProjects = agg.TopProjects[:topN]
+	}
+	return agg, nil
 }
 
 // ListAllPlaybookRuns returns up to limit playbook runs across every project.

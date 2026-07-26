@@ -2429,6 +2429,9 @@ select option {
 .spend-track { height: 6px; border-radius: 4px; background: var(--bg4); overflow: hidden; }
 .spend-val { display: block; height: 100%; border-radius: 4px; background: var(--acc); }
 .spend-val.agent { background: color-mix(in srgb, var(--acc) 55%, var(--green)); }
+.spend-val.project { background: var(--acc2); }
+.spend-bar.clickable { cursor: pointer; }
+.spend-bar.clickable:hover .spend-model { color: var(--tx); }
 .spend-amt { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Methodology coverage ring on a project card */
