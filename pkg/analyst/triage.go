@@ -64,8 +64,14 @@ func (svc *Service) StartTriage(projectID string, ids []string) (int, error) {
 			if !want[o.ID] {
 				continue
 			}
-		} else if o.ReviewState != model.ReviewUnreviewed {
-			continue // default: only the untriaged backlog
+		} else {
+			// Default (all-untriaged): skip anything already dispositioned. Dismissed/promoted have left
+			// the unreviewed pool; an already-flagged one is still unreviewed but the AI has judged it and
+			// it's awaiting a human — re-triaging would waste tokens and could flip its flag. An explicit
+			// id list overrides this (the human can force a re-triage of specific rows).
+			if o.ReviewState != model.ReviewUnreviewed || o.Attributes["triage_flag"] == "true" {
+				continue
+			}
 		}
 		picked = append(picked, o)
 	}
