@@ -95,12 +95,15 @@ function renderBlocks(src: string): ReactNode[] {
 const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(_[^_\s][^_]*_)|(\[[^\]]+\]\([^)]+\))/g
 
 function renderInline(text: string): ReactNode[] {
+  // renderInline recurses (bold/italic render their inner text), and INLINE is a shared global regex with
+  // stateful lastIndex — a recursive call would clobber the outer loop's position and re-match the same
+  // token forever (a hard hang). Give every call its own regex instance so the state can't collide.
+  const re = new RegExp(INLINE.source, 'g')
   const out: ReactNode[] = []
   let last = 0
   let m: RegExpExecArray | null
-  INLINE.lastIndex = 0
   let k = 0
-  while ((m = INLINE.exec(text)) !== null) {
+  while ((m = re.exec(text)) !== null) {
     if (m.index > last) out.push(text.slice(last, m.index))
     const tok = m[0]
     if (tok.startsWith('`')) {
