@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, StreamDelta, StreamMessage, Thread } from './api'
 import { Markdown } from './Markdown'
 
@@ -43,6 +43,34 @@ export function AnalystPanel({
   // streamingText is the assistant's answer as it types out (token deltas). Rendered as a transient bubble
   // until the completed message for that turn arrives, which finalizes it into a real message and clears this.
   const [streamingText, setStreamingText] = useState('')
+
+  // Resizable panel: drag the left edge to widen for reading a verbose answer, shrink back to reclaim the
+  // workbench — so the chat never has to take over the screen. Persisted.
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    const v = Number(localStorage.getItem('osb.analyst.width'))
+    return v >= 320 && v <= 900 ? v : 400
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('osb.analyst.width', String(panelWidth))
+    } catch {
+      /* ignore */
+    }
+  }, [panelWidth])
+  function startResize(e: ReactMouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = panelWidth
+    const onMove = (ev: MouseEvent) => setPanelWidth(Math.min(900, Math.max(320, startW + (startX - ev.clientX))))
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.userSelect = ''
+    }
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
   useEffect(() => {
     if (!online) return
     return api.subscribeProjectEvents(project.id, {
@@ -211,7 +239,8 @@ export function AnalystPanel({
   const modelLabel = provider ? provider.model || provider.type : '…'
 
   return (
-    <aside className="wb-analyst">
+    <aside className="wb-analyst" style={{ width: panelWidth, minWidth: panelWidth }}>
+      <div className="wb-an-resize" onMouseDown={startResize} title="Drag to resize the Analyst" />
       <div className="wb-an-head">
         <span className="title">◆ Analyst</span>
         <span className="grow" />
