@@ -188,6 +188,11 @@ func Tools() []agent.Tool {
 			{Name: "cwe", Type: agent.TypeString, Description: "optional CWE id, e.g. CWE-89"},
 			{Name: "observations", Type: agent.TypeArray, Description: "supporting observation ids (must be confirmed)"},
 		}},
+		{Name: "set_finding_status", Description: "Set a finding's status/disposition — the same control a human has on the finding page. Use 'false_positive' when it isn't a real issue (e.g. already mitigated), 'accepted' for real-but-accepted risk, 'remediated' once fixed, 'confirmed' to affirm a real one, 'open' to reopen. Always record a note with your rationale; the change is reversible and audited.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "finding id (from get_finding / list_findings)"},
+			{Name: "status", Type: agent.TypeEnum, Required: true, Description: "the new status", Enum: []string{"open", "confirmed", "remediated", "accepted", "false_positive"}},
+			{Name: "note", Type: agent.TypeString, Description: "one-line rationale for the disposition (recorded with the change)"},
+		}},
 		{Name: "run_code", Description: "Run a shell command in a sandbox (with network) with the project workspace mounted at /work — to build and run a test case or PoC over files you staged there. GATED.", Params: []agent.Param{
 			{Name: "command", Type: agent.TypeString, Required: true, Description: "shell command, run via sh -c in /work"},
 			{Name: "image", Type: agent.TypeString, Description: "container image (default alpine:3; override for python/node/etc.)"},
@@ -357,6 +362,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return setCoverage(ctx, deps, call)
 		case "create_finding":
 			return createFinding(ctx, deps, call)
+		case "set_finding_status":
+			return setFindingStatus(ctx, deps, call)
 		case "list_capabilities":
 			if engine == nil {
 				return "", errors.New("capability engine unavailable")
@@ -597,6 +604,20 @@ func createFinding(ctx context.Context, deps ExecDeps, call agent.ToolCall) (str
 		ObservationIDs: stringsArg(call, "observations"),
 	}
 	return jsonify(deps.p().CreateFinding(ctx, nf))
+}
+
+// setFindingStatus changes a finding's disposition — the same control a human has on the finding page
+// (ADR-0053 capability parity: agent and human share the same actions). Reversible; audited via the agent
+// loop. Governance, if wanted, is layered on via the approval policy, not hardcoded here.
+func setFindingStatus(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	id, status := stringArg(call, "id"), stringArg(call, "status")
+	if id == "" || status == "" {
+		return "", errors.New("set_finding_status requires 'id' and 'status'")
+	}
+	if err := deps.p().SetFindingStatus(ctx, id, status); err != nil {
+		return "", err
+	}
+	return jsonify(map[string]string{"id": id, "status": status, "note": stringArg(call, "note")}, nil)
 }
 
 // draftKBEntry writes an unreviewed, agent-origin knowledge-base entry (ADR-0010). It only records
