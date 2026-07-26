@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -296,6 +297,67 @@ func (m *Manager) ListAllTasks(ctx context.Context, limit int) ([]model.Task, er
 		return nil
 	})
 	return out, err
+}
+
+// AggregateUsage sums token usage across the global database and every project database, so the
+// cross-project cockpit reflects usage that's recorded into per-project DBs (ADR-0049). Top-model and
+// top-agent breakdowns are merged by key and re-sorted to topN.
+func (m *Manager) AggregateUsage(ctx context.Context, monthStart time.Time, topN int) (model.UsageSummary, error) {
+	if m.combined {
+		return m.global.UsageSummary(ctx, monthStart, topN)
+	}
+	var agg model.UsageSummary
+	modelIdx := map[string]int{}
+	agentIdx := map[string]int{}
+	add := func(s model.UsageSummary) {
+		agg.AllInput += s.AllInput
+		agg.AllOutput += s.AllOutput
+		agg.MonthInput += s.MonthInput
+		agg.MonthOutput += s.MonthOutput
+		for _, u := range s.TopModels {
+			k := u.Provider + "\x00" + u.Model
+			if i, ok := modelIdx[k]; ok {
+				agg.TopModels[i].Runs += u.Runs
+				agg.TopModels[i].InputTokens += u.InputTokens
+				agg.TopModels[i].OutputTokens += u.OutputTokens
+			} else {
+				modelIdx[k] = len(agg.TopModels)
+				agg.TopModels = append(agg.TopModels, u)
+			}
+		}
+		for _, a := range s.TopAgents {
+			if i, ok := agentIdx[a.AgentType]; ok {
+				agg.TopAgents[i].Runs += a.Runs
+				agg.TopAgents[i].InputTokens += a.InputTokens
+				agg.TopAgents[i].OutputTokens += a.OutputTokens
+			} else {
+				agentIdx[a.AgentType] = len(agg.TopAgents)
+				agg.TopAgents = append(agg.TopAgents, a)
+			}
+		}
+	}
+	if gs, err := m.global.UsageSummary(ctx, monthStart, topN); err == nil {
+		add(gs)
+	}
+	err := m.eachProject(ctx, func(pdb *DB) error {
+		if s, e := pdb.UsageSummary(ctx, monthStart, topN); e == nil {
+			add(s)
+		}
+		return nil
+	})
+	sort.Slice(agg.TopModels, func(i, j int) bool {
+		return agg.TopModels[i].InputTokens+agg.TopModels[i].OutputTokens > agg.TopModels[j].InputTokens+agg.TopModels[j].OutputTokens
+	})
+	sort.Slice(agg.TopAgents, func(i, j int) bool {
+		return agg.TopAgents[i].InputTokens+agg.TopAgents[i].OutputTokens > agg.TopAgents[j].InputTokens+agg.TopAgents[j].OutputTokens
+	})
+	if len(agg.TopModels) > topN {
+		agg.TopModels = agg.TopModels[:topN]
+	}
+	if len(agg.TopAgents) > topN {
+		agg.TopAgents = agg.TopAgents[:topN]
+	}
+	return agg, err
 }
 
 // ListAllPlaybookRuns returns up to limit playbook runs across every project.

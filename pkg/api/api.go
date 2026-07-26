@@ -1389,10 +1389,11 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 		pvs = append(pvs, pv)
 	}
 
-	// Spend: workbench-wide token usage this month + all-time (informational, no cap).
+	// Spend: workbench-wide token usage this month + all-time (informational, no cap). Aggregated across
+	// every project DB + global, since usage is recorded into the owning project's DB (ADR-0049).
 	now := time.Now().UTC()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	usage, _ := s.pdb(r).UsageSummary(ctx, monthStart, 6)
+	usage, _ := s.mgr.AggregateUsage(ctx, monthStart, 6)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"approvals": approvals,
