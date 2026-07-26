@@ -32,14 +32,14 @@ function relTime(iso: string): string {
   return `${Math.round(h / 24)}d`
 }
 
-export function ActivityTab({ online, onError }: { online: boolean; onError: (m: string) => void }) {
+export function ActivityTab({ online, projectId, onError }: { online: boolean; projectId?: string; onError: (m: string) => void }) {
   const [items, setItems] = useState<ActivityItem[]>([])
   const [selected, setSelected] = useState<ActivityItem | null>(null)
   const [kindFilter, setKindFilter] = useState<'all' | ActivityItem['kind']>('all')
 
   async function load() {
     try {
-      setItems((await api.activityFeed()) ?? [])
+      setItems((await api.activityFeed(projectId)) ?? [])
     } catch (e) {
       onError((e as Error).message)
     }
@@ -51,7 +51,7 @@ export function ActivityTab({ online, onError }: { online: boolean; onError: (m:
     const timer = setInterval(load, 3000) // poll so a running item advances to its terminal status
     return () => clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online])
+  }, [online, projectId])
 
   const shown = kindFilter === 'all' ? items : items.filter((i) => i.kind === kindFilter)
 
