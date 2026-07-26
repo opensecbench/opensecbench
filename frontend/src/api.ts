@@ -27,6 +27,18 @@ export interface UICommand {
   location?: string // kind=code: "path" or "path:line" within the asset
 }
 
+// StreamMessage is one agent message pushed live over the event stream as a turn runs (ADR-0053), so the
+// chat paints each step (tool call, tool result, explanation) as it happens instead of only at the end.
+// Shape mirrors Msg minus the DB-assigned id/seq/created_at, which the client synthesizes for rendering.
+export interface StreamMessage {
+  thread_id: string
+  role: string
+  content: string
+  tool_calls?: ToolCall[]
+  tool_call_id?: string
+  tool_error?: boolean
+}
+
 // --- types (mirror pkg/model JSON) ---
 
 export interface Project {
@@ -997,6 +1009,7 @@ export const api = {
       held?: (h: HeldItem) => void
       resolved?: (id: string) => void
       ui?: (cmd: UICommand) => void
+      analystMessage?: (m: StreamMessage) => void
     },
   ): (() => void) => {
     const es = new EventSource(`${baseURL}/v1/projects/${projectId}/events`)
@@ -1014,6 +1027,7 @@ export const api = {
     if (handlers.held) on('intercept.held', (p) => handlers.held!(p as HeldItem))
     if (handlers.resolved) on('intercept.resolved', (p) => handlers.resolved!((p as { id: string }).id))
     if (handlers.ui) on('ui.command', (p) => handlers.ui!(p as UICommand))
+    if (handlers.analystMessage) on('analyst.message', (p) => handlers.analystMessage!(p as StreamMessage))
     return () => es.close()
   },
 

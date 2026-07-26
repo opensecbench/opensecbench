@@ -751,6 +751,9 @@ a.link,
   color: var(--amber);
   font-size: 12.5px;
 }
+/* the agent's narration that accompanies a tool step, and the step chip itself (ADR-0053 live walkthrough) */
+.msg.propose .propose-note { color: var(--tx); margin-bottom: 3px; }
+.msg.propose .propose-tool { color: var(--amber); }
 .approval-card {
   margin: 0 14px 10px;
   border: 1px solid var(--amber);

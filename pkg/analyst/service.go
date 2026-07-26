@@ -53,6 +53,11 @@ type Service struct {
 	// Injected by the API layer, which owns the event bus; nil in headless runs, where "show" is a no-op.
 	uiPublish func(projectID string, cmd UICommand)
 
+	// msgPublish, if set, streams each agent message (assistant turn, tool result, stop notice) over the
+	// project event stream as a turn runs, so the chat paints steps live instead of only at the end.
+	// Injected by the API layer; nil in headless runs (the turn still persists normally).
+	msgPublish func(projectID, threadID string, m llm.Message)
+
 	// Audit, if set, records agent loop events (tool calls, gate decisions, answers).
 	Audit func(action, detail string)
 
@@ -156,6 +161,12 @@ type UICommand struct {
 // SetUIPublisher injects the sink that delivers the Analyst's navigation commands ("show" tool) to the
 // workbench. Without it, "show" still succeeds (the agent keeps explaining) but moves nothing.
 func (svc *Service) SetUIPublisher(fn func(projectID string, cmd UICommand)) { svc.uiPublish = fn }
+
+// SetMessagePublisher injects the sink that streams a turn's messages live to the chat as they are
+// produced. Without it, messages only appear when the whole turn finishes and the UI refreshes.
+func (svc *Service) SetMessagePublisher(fn func(projectID, threadID string, m llm.Message)) {
+	svc.msgPublish = fn
+}
 
 // runShow handles the "show" tool: it publishes a navigation command to the project's UI stream so the
 // workbench takes the human to the named evidence. It changes no data (auto-approved); the frontend applies
@@ -446,8 +457,8 @@ func (svc *Service) providerModelForTag(ctx context.Context, tag string) (llm.Pr
 	return t.Provider, t.SessionModel
 }
 
-func (svc *Service) session(projectID string, profile Profile, policy Policy, prov llm.Provider, modelID string) *agent.Session {
-	return &agent.Session{
+func (svc *Service) session(projectID, threadID string, profile Profile, policy Policy, prov llm.Provider, modelID string) *agent.Session {
+	sess := &agent.Session{
 		Provider: prov,
 		Model:    modelID,
 		Tools:    profile.ToolSet(),
@@ -463,6 +474,12 @@ func (svc *Service) session(projectID string, profile Profile, policy Policy, pr
 		TokenBudget: svc.tokenBudget,
 		Audit:       svc.Audit,
 	}
+	// Stream each step to the chat live as it is produced (ADR-0053) — so a multi-step investigation paints
+	// as it works instead of dumping at the end. Best-effort; the turn still persists normally in finish().
+	if svc.msgPublish != nil && threadID != "" {
+		sess.OnMessage = func(m llm.Message) { svc.msgPublish(projectID, threadID, m) }
+	}
+	return sess
 }
 
 // ApprovalPolicySetting is the settings key holding the trust-curve override rules as a JSON array (ADR-0019 §5).
@@ -589,7 +606,7 @@ func (svc *Service) Send(ctx context.Context, projectID, threadID, userMessage s
 	}
 	profile := svc.resolveProfile(ctx, th.AgentType)
 	tgt := svc.targetForTag(ctx, profile.ModelTag)
-	sess := svc.session(projectOf(th), profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel)
+	sess := svc.session(projectOf(th), threadID, profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel)
 
 	existing, err := svc.p(projectID).ListMessages(ctx, threadID)
 	if err != nil {
@@ -649,7 +666,7 @@ func (svc *Service) Decide(ctx context.Context, projectID, approvalID, decision 
 	call := agent.ToolCall{Tool: ap.Tool, Args: args}
 
 	tgt := svc.targetForTag(ctx, profile.ModelTag)
-	out, err := svc.session(projectOf(th), profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel).Resume(ctx, prior, call, approved)
+	out, err := svc.session(projectOf(th), ap.ThreadID, profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel).Resume(ctx, prior, call, approved)
 	if err != nil {
 		_ = svc.p(projectID).UpdateThreadStatus(ctx, ap.ThreadID, model.ThreadError)
 		return SendResult{}, err

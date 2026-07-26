@@ -570,6 +570,18 @@ func (s *Server) analystService() *analyst.Service {
 	svc.SetUIPublisher(func(projectID string, cmd analyst.UICommand) {
 		s.events.Publish(events.Event{Type: "ui.command", ProjectID: projectID, Payload: cmd})
 	})
+	// Live turns (ADR-0053): stream each agent message to the chat as it is produced, over the same event
+	// stream, so a multi-step investigation paints step by step instead of dumping at the end.
+	svc.SetMessagePublisher(func(projectID, threadID string, m llm.Message) {
+		s.events.Publish(events.Event{Type: "analyst.message", ProjectID: projectID, Payload: map[string]any{
+			"thread_id":    threadID,
+			"role":         m.Role,
+			"content":      m.Content,
+			"tool_calls":   m.ToolCalls,
+			"tool_call_id": m.ToolCallID,
+			"tool_error":   m.ToolError,
+		}})
+	})
 	// The active policy profile governs data egress (ADR-0006).
 	ap := s.activePolicy()
 	svc.SetEgressPolicy(ap.AllowExternalForInternal, ap.AllowExternalForPrivate)
