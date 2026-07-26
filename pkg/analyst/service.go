@@ -48,6 +48,11 @@ type Service struct {
 	// egressSender, if set, routes the send_request tool through a chosen runner's vantage (ADR-0025).
 	egressSender func(context.Context, string, replay.Request) (replay.Response, error)
 
+	// uiPublish, if set, delivers a UICommand from the "show" tool to the project's UI event stream (SSE),
+	// letting a running agent take the human's workbench to the evidence it is discussing (co-driving).
+	// Injected by the API layer, which owns the event bus; nil in headless runs, where "show" is a no-op.
+	uiPublish func(projectID string, cmd UICommand)
+
 	// Audit, if set, records agent loop events (tool calls, gate decisions, answers).
 	Audit func(action, detail string)
 
@@ -136,6 +141,54 @@ func (svc *Service) ActiveRuns() []ActiveRun {
 // it, agent sends go out from the local host.
 func (svc *Service) SetEgressSender(fn func(context.Context, string, replay.Request) (replay.Response, error)) {
 	svc.egressSender = fn
+}
+
+// UICommand is a navigation instruction the Analyst sends to the workbench over the project event stream
+// (SSE) so a running agent can take the human's screen to the evidence it is discussing — the "show" tool.
+// The frontend applies it only when the human has enabled Analyst navigation; it never mutates data.
+type UICommand struct {
+	Action   string `json:"action"` // "show" (the only action today)
+	Kind     string `json:"kind"`   // finding | observation | route | code | surface
+	ID       string `json:"id,omitempty"`
+	Location string `json:"location,omitempty"` // kind=code: "path" or "path:line" within the asset
+}
+
+// SetUIPublisher injects the sink that delivers the Analyst's navigation commands ("show" tool) to the
+// workbench. Without it, "show" still succeeds (the agent keeps explaining) but moves nothing.
+func (svc *Service) SetUIPublisher(fn func(projectID string, cmd UICommand)) { svc.uiPublish = fn }
+
+// runShow handles the "show" tool: it publishes a navigation command to the project's UI stream so the
+// workbench takes the human to the named evidence. It changes no data (auto-approved); the frontend applies
+// it only if the human enabled Analyst navigation, so it is safe whether or not they're letting it drive.
+func (svc *Service) runShow(projectID string, call agent.ToolCall) (string, error) {
+	kind, _ := call.Args["kind"].(string)
+	if kind == "" {
+		return "", errors.New("show requires 'kind'")
+	}
+	id, _ := call.Args["id"].(string)
+	loc, _ := call.Args["location"].(string)
+	switch kind {
+	case "code":
+		if id == "" || loc == "" {
+			return "", errors.New("show kind=code requires 'id' (the source asset) and 'location' (path or path:line)")
+		}
+	case "surface":
+		if id == "" {
+			return "", errors.New("show kind=surface requires 'id' (the surface key, e.g. findings)")
+		}
+	default:
+		if id == "" {
+			return "", fmt.Errorf("show kind=%s requires 'id'", kind)
+		}
+	}
+	if svc.uiPublish != nil {
+		svc.uiPublish(projectID, UICommand{Action: "show", Kind: kind, ID: id, Location: loc})
+	}
+	target := kind
+	if id != "" {
+		target += " " + id
+	}
+	return fmt.Sprintf("Requested the workbench to show %s. If the human has enabled Analyst navigation their screen is now there; otherwise tell them where to look.", target), nil
 }
 
 // NewService wires the Analyst service. Egress policy and budget are read from OSB_EGRESS_POLICY
@@ -457,6 +510,11 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context
 		// not the pure tool Executor.
 		if call.Tool == "delegate" {
 			return svc.runDelegate(ctx, projectID, call)
+		}
+		// show drives the human's workbench over the event bus — a service-level side effect, not a store
+		// operation, so it lives here rather than in the pure Executor. It touches no assets (no egress guard).
+		if call.Tool == "show" {
+			return svc.runShow(projectID, call)
 		}
 		if external {
 			// Reading an asset's contents into an external model is data egress (ADR-0011/0020), gated by
