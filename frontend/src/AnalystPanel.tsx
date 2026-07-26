@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, Thread } from './api'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, StreamMessage, Thread } from './api'
 import { Markdown } from './Markdown'
 
 export function AnalystPanel({
@@ -28,6 +28,36 @@ export function AnalystPanel({
   const [error, setError] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<AgentProfile[]>([])
   const [profileId, setProfileId] = useState('generalist')
+
+  // Live turns (ADR-0053): while a turn runs, its steps stream in over the event bus. Refs keep the SSE
+  // handler current without resubscribing — it only appends while a send is in flight (streaming) and only
+  // for the open thread; the authoritative refresh() at turn end replaces these temp-keyed messages.
+  const currentRef = useRef<Thread | null>(null)
+  currentRef.current = current
+  const streamingRef = useRef(false)
+  const streamKey = useRef(0)
+  useEffect(() => {
+    if (!online) return
+    return api.subscribeProjectEvents(project.id, {
+      analystMessage: (m: StreamMessage) => {
+        if (!streamingRef.current || m.thread_id !== currentRef.current?.id) return
+        setMessages((ms) => [
+          ...ms,
+          {
+            id: `stream:${streamKey.current++}`,
+            thread_id: m.thread_id,
+            seq: ms.length,
+            role: m.role,
+            content: m.content,
+            tool_calls: m.tool_calls,
+            tool_call_id: m.tool_call_id,
+            tool_error: m.tool_error,
+            created_at: '',
+          },
+        ])
+      },
+    })
+  }, [online, project.id])
 
   useEffect(() => {
     if (online) void api.listAgentProfiles().then(setProfiles).catch(() => {})
@@ -102,15 +132,28 @@ export function AnalystPanel({
   async function send(e: FormEvent) {
     e.preventDefault()
     if (!current || !input.trim()) return
+    const text = input.trim()
+    // Optimistically show the user's message and start streaming the reply's steps as they arrive.
+    setMessages((ms) => [
+      ...ms,
+      { id: `stream:${streamKey.current++}`, thread_id: current.id, seq: ms.length, role: 'user', content: text, created_at: '' },
+    ])
+    setInput('')
     setBusy(true)
+    streamingRef.current = true
     try {
-      await api.sendMessage(current.id, input.trim())
-      setInput('')
-      await refresh(current)
-      await loadThreads()
+      await api.sendMessage(current.id, text)
     } catch (e) {
       setError((e as Error).message)
     } finally {
+      // Stop live appends before the authoritative refresh so a late frame can't duplicate a row.
+      streamingRef.current = false
+      try {
+        await refresh(current)
+        await loadThreads()
+      } catch (e) {
+        setError((e as Error).message)
+      }
       setBusy(false)
     }
   }
@@ -118,13 +161,19 @@ export function AnalystPanel({
   async function decide(decision: 'approve' | 'deny') {
     if (!pending || !current) return
     setBusy(true)
+    streamingRef.current = true
     try {
       await api.decideApproval(pending.id, decision)
-      await refresh(current)
-      await loadThreads()
     } catch (e) {
       setError((e as Error).message)
     } finally {
+      streamingRef.current = false
+      try {
+        await refresh(current)
+        await loadThreads()
+      } catch (e) {
+        setError((e as Error).message)
+      }
       setBusy(false)
     }
   }
@@ -243,6 +292,17 @@ export function AnalystPanel({
   )
 }
 
+// showLabel renders a `show` (navigation) tool call as a human phrase — "opened finding <id>", "opened
+// <path:line>", "opened <surface>" — for the live walkthrough trail.
+function showLabel(args: Record<string, unknown>): string {
+  const kind = String(args?.kind ?? '')
+  const id = String(args?.id ?? '')
+  const loc = String(args?.location ?? '')
+  if (kind === 'code') return `opened ${loc || id}`
+  if (kind === 'surface') return `opened the ${id} view`
+  return `opened ${kind}${id ? ` ${id}` : ''}`
+}
+
 function Message({ m }: { m: Msg }) {
   // A tool-result turn (canonical, ADR-0017): its content is the tool's output or an error.
   if (m.role === 'tool') {
@@ -250,12 +310,15 @@ function Message({ m }: { m: Msg }) {
     return <div className={'msg tool' + (m.tool_error ? ' error' : '')}>🔧 {label}</div>
   }
   if (m.role === 'assistant') {
-    // An assistant turn that requested a tool carries structured tool_calls (no prose).
+    // An assistant turn that requested a tool. It may also carry prose — the agent narrating what it's about
+    // to do ("let me open the finding") — which we show so the walkthrough reads as an explanation, not just
+    // a mechanical tool trace. A `show` call is navigation, so it reads as "opened X", not "wants to run".
     if (m.tool_calls && m.tool_calls.length > 0) {
       const c = m.tool_calls[0]
       return (
         <div className="msg propose">
-          ⚙ wants to run <b>{c.tool}</b>
+          {m.content.trim() && <div className="propose-note"><Markdown source={m.content} /></div>}
+          <div className="propose-tool">{c.tool === 'show' ? `📂 ${showLabel(c.args)}` : <>⚙ wants to run <b>{c.tool}</b></>}</div>
         </div>
       )
     }

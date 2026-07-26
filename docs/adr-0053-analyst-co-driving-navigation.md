@@ -2,9 +2,19 @@
 
 Status: Accepted — building (phased). The Analyst can take the human's workbench to a piece of evidence — open
 a finding/observation/route/source file, or switch surfaces — through a read-only `show` tool, so a human and
-the agent can walk through an assessment together over one shared view. Phase 1 (this ADR): navigation only,
-gated by an explicit **Drive** toggle. Mutating the UI (dismiss/promote/run) stays out of scope here and, when
-added, keeps the existing approval gate.
+the agent can walk through an assessment together over one shared view, **with the turn painting live** as it
+works. Phase 1 (this ADR): navigation (the `show` tool, gated by a **Drive** toggle) **plus live-streaming
+turns** — each step (tool call, navigation, explanation) appears in the chat as it happens instead of dumping
+at the end. Mutating the UI (dismiss/promote/run) stays out of scope here and, when added, keeps the existing
+approval gate.
+
+**Live turns (added to phase 1).** The whole point — "take me to the finding and explain it" — falls flat if
+the chat only paints when the entire multi-step turn finishes (a long investigation looked like a hang). So
+`agent.Session` gained an `OnMessage` hook, fired as each message is produced; the analyst service publishes
+those over the same SSE bus (`analyst.message`), and `AnalystPanel` appends them live while a send is in
+flight, reconciling against the authoritative `refresh()` at turn end. The generalist persona now instructs
+the agent to `show` evidence as it explains and to walk multi-part questions one item at a time. The
+interactive step budget was also raised (8 → 40, `OSB_ANALYST_MAX_STEPS`) since real investigation needs it.
 
 ## Context
 

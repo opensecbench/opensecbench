@@ -26,6 +26,10 @@ type Session struct {
 	MaxTokens int
 	// TokenBudget caps cumulative tokens for this advance; 0 means unlimited.
 	TokenBudget int
+	// OnMessage, if set, is called with each message (assistant turn, tool result, stop notice) the moment
+	// it is produced during a turn — so a caller can stream the run's steps live instead of only seeing the
+	// batch at the end. Fired in-loop, so keep it non-blocking.
+	OnMessage func(m llm.Message)
 }
 
 // Outcome is the result of an Advance/Resume. Exactly one of Done/Pending is meaningful.
@@ -59,7 +63,9 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 		}
 		out.InputTokens += resp.InputTokens
 		out.OutputTokens += resp.OutputTokens
-		out.Messages = append(out.Messages, llm.Message{Role: llm.RoleAssistant, Content: resp.Text, ToolCalls: resp.ToolCalls})
+		am := llm.Message{Role: llm.RoleAssistant, Content: resp.Text, ToolCalls: resp.ToolCalls}
+		out.Messages = append(out.Messages, am)
+		s.emit(am)
 
 		if s.TokenBudget > 0 && out.InputTokens+out.OutputTokens >= s.TokenBudget {
 			s.audit("agent.budget.exceeded", "")
@@ -80,7 +86,9 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 		// Validate arguments against the tool schema before gating or executing (ADR-0017).
 		if verr := validateCall(s.Tools, call); verr != nil {
 			s.audit("agent.tool.invalid", call.Tool)
-			out.Messages = append(out.Messages, toolResult(call, fmt.Sprintf("Tool %q arguments were invalid: %s. Fix the arguments and call it again, or give your final answer.", call.Tool, verr.Error()), true))
+			inv := toolResult(call, fmt.Sprintf("Tool %q arguments were invalid: %s. Fix the arguments and call it again, or give your final answer.", call.Tool, verr.Error()), true)
+			out.Messages = append(out.Messages, inv)
+			s.emit(inv)
 			continue
 		}
 
@@ -97,7 +105,9 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 	out.Answer = "(Stopped: I reached my step limit for this turn before finishing. Ask me to continue and I'll pick up where I left off.)"
 	// Persist the notice as a real assistant turn. Otherwise the last message is a tool result and the UI
 	// shows nothing — a completed-but-capped run looks identical to a hang.
-	out.Messages = append(out.Messages, llm.Message{Role: llm.RoleAssistant, Content: out.Answer})
+	stop := llm.Message{Role: llm.RoleAssistant, Content: out.Answer}
+	out.Messages = append(out.Messages, stop)
+	s.emit(stop)
 	return out, nil
 }
 
@@ -105,7 +115,9 @@ func (s *Session) Advance(ctx context.Context, messages []llm.Message) (Outcome,
 func (s *Session) Resume(ctx context.Context, messages []llm.Message, call ToolCall, approved bool) (Outcome, error) {
 	if !approved {
 		s.audit("agent.tool.denied", call.Tool)
-		messages = append(messages, toolResult(call, fmt.Sprintf("Tool %q was denied by the human. Do not retry it; continue or give your final answer.", call.Tool), true))
+		den := toolResult(call, fmt.Sprintf("Tool %q was denied by the human. Do not retry it; continue or give your final answer.", call.Tool), true)
+		s.emit(den)
+		messages = append(messages, den)
 		return s.Advance(ctx, messages)
 	}
 	messages = s.runTool(ctx, messages, call)
@@ -115,12 +127,23 @@ func (s *Session) Resume(ctx context.Context, messages []llm.Message, call ToolC
 // runTool executes a call and appends its canonical result (or error) turn to the conversation.
 func (s *Session) runTool(ctx context.Context, messages []llm.Message, call ToolCall) []llm.Message {
 	out, err := s.Execute(ctx, call)
+	var res llm.Message
 	if err != nil {
 		s.audit("agent.tool.error", call.Tool)
-		return append(messages, toolResult(call, fmt.Sprintf("Tool %q errored: %s", call.Tool, err.Error()), true))
+		res = toolResult(call, fmt.Sprintf("Tool %q errored: %s", call.Tool, err.Error()), true)
+	} else {
+		s.audit("agent.tool.executed", call.Tool)
+		res = toolResult(call, out, false)
 	}
-	s.audit("agent.tool.executed", call.Tool)
-	return append(messages, toolResult(call, out, false))
+	s.emit(res)
+	return append(messages, res)
+}
+
+// emit streams one message to the live listener (OnMessage), if set.
+func (s *Session) emit(m llm.Message) {
+	if s.OnMessage != nil {
+		s.OnMessage(m)
+	}
 }
 
 // toolResult builds the canonical RoleTool turn answering a call (ADR-0017): Content is the tool's
