@@ -2486,7 +2486,9 @@ select option {
 .data-table tr.flash { animation: row-flash 1.6s ease-out; }
 
 .data-table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }
-.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+/* fixed layout: column widths come from the th widths (not row content), so the one width-less column
+   (the title) absorbs the remaining space — stable whether there are 2 rows or 200. */
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
 .data-table thead th { position: sticky; top: 0; z-index: 1; text-align: left; padding: 7px 10px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tx3); background: var(--bg3); border-bottom: 1px solid var(--line2); white-space: nowrap; }
 .data-table th.sortable { cursor: pointer; user-select: none; }
 .data-table th.sortable:hover { color: var(--tx); }
