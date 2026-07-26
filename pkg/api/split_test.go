@@ -118,6 +118,16 @@ func TestSplitModeEndToEnd(t *testing.T) {
 		t.Errorf("thread project_id = %q, want %q (routed but not stamped)", stamped, pA.ID)
 	}
 
+	// Listing threads is scoped to the active project: A sees its thread, B does not (else opening it
+	// would 404 under B's database).
+	var aThreads, bThreads []map[string]any
+	if code := do("GET", "/v1/threads", pA.ID, nil, &aThreads); code != http.StatusOK || len(aThreads) != 1 {
+		t.Fatalf("threads for A = %d/%d, want 200/1", code, len(aThreads))
+	}
+	if code := do("GET", "/v1/threads", pB.ID, nil, &bThreads); code != http.StatusOK || len(bThreads) != 0 {
+		t.Fatalf("threads for B = %d/%d, want 200/0 (A's thread must not leak)", code, len(bThreads))
+	}
+
 	// The global project index lists both projects.
 	rows, err := mgr.Global().ListProjectIndex(t.Context())
 	if err != nil || len(rows) != 2 {
