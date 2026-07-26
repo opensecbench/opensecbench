@@ -2302,11 +2302,12 @@ function ObservationsTab({
   // Under-investigation observations belong to the Investigations tab, not the triage queue.
   const visible = useMemo(() => observations.filter((o) => !investigating.has(o.id)), [observations, investigating])
   function triageAll() {
-    const n = visible.filter((o) => o.review_state === 'unreviewed').length
-    if (n > 0 && window.confirm(`Run AI triage on all ${n} untriaged observations? One agent works through them; you approve any findings it proposes.`)) void aiTriage(null)
+    // Match the backend's default selection: unreviewed AND not already AI-flagged (those await a human).
+    const n = visible.filter((o) => o.review_state === 'unreviewed' && o.attributes?.triage_flag !== 'true').length
+    if (n > 0 && window.confirm(`Run AI triage on all ${n} untriaged observations? Dismissals and flags land as it works; you decide the flagged ones.`)) void aiTriage(null)
   }
   const STATUS: { key: string; label: string; match: (o: Observation) => boolean }[] = [
-    { key: 'triage', label: 'Needs triage', match: (o) => o.review_state === 'unreviewed' },
+    { key: 'triage', label: 'Needs triage', match: (o) => o.review_state === 'unreviewed' && o.attributes?.triage_flag !== 'true' },
     { key: 'flagged', label: '🤖 Flagged', match: (o) => o.review_state === 'unreviewed' && o.attributes?.triage_flag === 'true' },
     { key: 'confirmed', label: 'Promoted', match: (o) => o.review_state === 'confirmed' },
     { key: 'dismissed', label: 'Dismissed', match: (o) => o.review_state === 'rejected' },
