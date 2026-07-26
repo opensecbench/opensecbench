@@ -17,6 +17,16 @@ export function wsURL(path: string): string {
   return baseURL.replace(/^http/, 'ws') + path
 }
 
+// UICommand is a navigation instruction the Analyst emits (the backend "show" tool) so a running agent can
+// take the human's workbench to the evidence it's discussing. Delivered on the project event stream; applied
+// by the workbench only when the human has enabled Analyst navigation. Read-only — it never changes data.
+export interface UICommand {
+  action: string // "show"
+  kind: 'finding' | 'observation' | 'route' | 'code' | 'surface'
+  id?: string
+  location?: string // kind=code: "path" or "path:line" within the asset
+}
+
 // --- types (mirror pkg/model JSON) ---
 
 export interface Project {
@@ -986,6 +996,7 @@ export const api = {
       interceptState?: (st: InterceptState) => void
       held?: (h: HeldItem) => void
       resolved?: (id: string) => void
+      ui?: (cmd: UICommand) => void
     },
   ): (() => void) => {
     const es = new EventSource(`${baseURL}/v1/projects/${projectId}/events`)
@@ -1002,6 +1013,7 @@ export const api = {
     if (handlers.interceptState) on('intercept', (p) => handlers.interceptState!(p as InterceptState))
     if (handlers.held) on('intercept.held', (p) => handlers.held!(p as HeldItem))
     if (handlers.resolved) on('intercept.resolved', (p) => handlers.resolved!((p as { id: string }).id))
+    if (handlers.ui) on('ui.command', (p) => handlers.ui!(p as UICommand))
     return () => es.close()
   },
 
