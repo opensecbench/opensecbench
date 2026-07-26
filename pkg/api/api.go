@@ -339,6 +339,8 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /v1/organizations", s.listOrganizations)
 	s.mux.HandleFunc("POST /v1/organizations", s.createOrganization)
+	s.mux.HandleFunc("GET /v1/groups", s.listGroups)
+	s.mux.HandleFunc("POST /v1/groups", s.createGroup)
 
 	s.mux.HandleFunc("GET /v1/targets", s.listTargets)
 	s.mux.HandleFunc("POST /v1/targets", s.createTarget)
@@ -1629,6 +1631,41 @@ func (s *Server) createOrganization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, org)
+}
+
+// --- groups (teams within an organization) ---
+
+func (s *Server) listGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.global().ListGroups(r.Context(), r.URL.Query().Get("organization_id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
+}
+
+func (s *Server) createGroup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OrganizationID string `json:"organization_id"`
+		Name           string `json:"name"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Name == "" || req.OrganizationID == "" {
+		writeErr(w, http.StatusBadRequest, "name and organization_id are required")
+		return
+	}
+	if _, err := s.global().GetOrganization(r.Context(), req.OrganizationID); err != nil {
+		writeErr(w, http.StatusBadRequest, "unknown organization: "+req.OrganizationID)
+		return
+	}
+	g, err := s.global().CreateGroup(r.Context(), req.OrganizationID, req.Name)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, g)
 }
 
 // --- targets ---

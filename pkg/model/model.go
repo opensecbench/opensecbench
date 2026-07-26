@@ -16,6 +16,16 @@ type Organization struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Group is a team within an organization — a mid-level grouping so a team's projects can share knowledge
+// (the KB group scope, ADR-0041). organization_id is required (the schema references organizations).
+type Group struct {
+	ID             string    `json:"id"`
+	OrganizationID string    `json:"organization_id"`
+	Name           string    `json:"name"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 // Target is a durable real-world system that survives across engagements and anchors the
 // knowledge base and prior coverage.
 type Target struct {
@@ -751,11 +761,11 @@ func InferSensitivity(location string) string {
 
 // Asset is a scoped item under an application (a repo, cloud deployment, doc, ...).
 type Asset struct {
-	ID            string    `json:"id"`
-	ApplicationID string    `json:"application_id"`
-	Type          string    `json:"type"`
-	Location      string    `json:"location"`
-	Sensitivity   string    `json:"sensitivity"`
+	ID            string `json:"id"`
+	ApplicationID string `json:"application_id"`
+	Type          string `json:"type"`
+	Location      string `json:"location"`
+	Sensitivity   string `json:"sensitivity"`
 	// Ecosystems are the asset's manual technology/ecosystem tags (python, go, rust, node, …). The scan
 	// auto-run gate unions these with what it detects from the repo, so an operator can correct detection.
 	Ecosystems []string  `json:"ecosystems,omitempty"`

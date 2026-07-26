@@ -53,9 +53,22 @@ export interface Project {
   name: string
   status: string
   organization_id?: string
+  group_id?: string
   target_ids: string[] | null
   created_at: string
   updated_at: string
+}
+
+// Organization (top-level) and Group (a team within an org). A project's org/group drive KB inheritance
+// (ADR-0041): a team's projects share the group's + org's knowledge.
+export interface Organization {
+  id: string
+  name: string
+}
+export interface Group {
+  id: string
+  organization_id: string
+  name: string
 }
 
 export interface Application {
@@ -906,8 +919,21 @@ export const api = {
   // projects & templates
   listProjects: () => request<Project[]>('GET', '/v1/projects'),
   // Create a project with its engagement record + scope in one call (ADR-0051).
-  createEngagement: (payload: { name: string; target_ids?: string[]; engagement?: Engagement; scope?: ScopeSeed[] }) =>
-    request<Project>('POST', '/v1/projects', payload),
+  createEngagement: (payload: {
+    name: string
+    organization_id?: string | null
+    group_id?: string | null
+    target_ids?: string[]
+    engagement?: Engagement
+    scope?: ScopeSeed[]
+  }) => request<Project>('POST', '/v1/projects', payload),
+  // Organizations & groups (teams) — the association that drives KB inheritance (ADR-0041).
+  listOrganizations: () => request<Organization[]>('GET', '/v1/organizations'),
+  createOrganization: (name: string) => request<Organization>('POST', '/v1/organizations', { name }),
+  listGroups: (organizationId?: string) =>
+    request<Group[]>('GET', `/v1/groups${organizationId ? `?organization_id=${encodeURIComponent(organizationId)}` : ''}`),
+  createGroup: (organizationId: string, name: string) =>
+    request<Group>('POST', '/v1/groups', { organization_id: organizationId, name }),
   getEngagement: (projectId: string) => request<Engagement>('GET', `/v1/projects/${projectId}/engagement`),
   setEngagement: (projectId: string, engagement: Engagement) =>
     request<Engagement>('PUT', `/v1/projects/${projectId}/engagement`, engagement),

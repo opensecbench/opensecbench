@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { api, Engagement, EngagementContact, EngagementTestAccount, Methodology, Project, ScopeSeed } from './api'
+import { api, Engagement, EngagementContact, EngagementTestAccount, Group, Methodology, Organization, Project, ScopeSeed } from './api'
 import { hasNativePickers, pickDirectory } from './native'
 
 // The engagement setup modal (ADR-0051): create a project with its properties in one place instead of a bare
@@ -68,6 +68,13 @@ export function EngagementModal({
   onCreated: (p: Project) => void
 }) {
   const [name, setName] = useState('')
+  // Organization + team the project belongs to — drives KB inheritance (ADR-0041). Both optional.
+  const [orgs, setOrgs] = useState<Organization[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
+  const [orgId, setOrgId] = useState('')
+  const [groupId, setGroupId] = useState('')
+  const [newOrg, setNewOrg] = useState('')
+  const [newGroup, setNewGroup] = useState('')
   const [kinds, setKinds] = useState<string[]>([])
   const [objective, setObjective] = useState('')
   const [reference, setReference] = useState('')
@@ -108,6 +115,17 @@ export function EngagementModal({
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online])
+  useEffect(() => {
+    if (online) api.listOrganizations().then((o) => setOrgs(o ?? [])).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online])
+  // Reload the org's teams (and reset the selection) whenever the chosen org changes.
+  useEffect(() => {
+    setGroupId('')
+    if (online && orgId) api.listGroups(orgId).then((g) => setGroups(g ?? [])).catch(() => setGroups([]))
+    else setGroups([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, orgId])
 
   // The assessment type drives the form: active types reveal network scope + rules of engagement, and their
   // methodology packs are suggested for adoption. No separate archetype picker.
@@ -136,7 +154,7 @@ export function EngagementModal({
         contacts: contacts.filter((c) => c.name || c.email),
         test_accounts: testAccounts.filter((a) => a.username || a.role),
       }
-      const project = await api.createEngagement({ name: name.trim(), engagement, scope: hasActive ? scopeSeeds : [] })
+      const project = await api.createEngagement({ name: name.trim(), organization_id: orgId || null, group_id: groupId || null, engagement, scope: hasActive ? scopeSeeds : [] })
       // Kickstart (best-effort — never block the created project on a seed failure).
       try {
         for (const id of adopt) await api.adoptMethodology(project.id, id)
@@ -154,6 +172,30 @@ export function EngagementModal({
 
   const addContact = () => setContacts([...contacts, { role: 'technical', name: '' }])
   const addAccount = () => setTestAccounts([...testAccounts, { role: 'user', username: '' }])
+  async function addOrg() {
+    const n = newOrg.trim()
+    if (!n) return
+    try {
+      const o = await api.createOrganization(n)
+      setOrgs((os) => [...os, o])
+      setOrgId(o.id)
+      setNewOrg('')
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  async function addGroup() {
+    const n = newGroup.trim()
+    if (!n || !orgId) return
+    try {
+      const g = await api.createGroup(orgId, n)
+      setGroups((gs) => [...gs, g])
+      setGroupId(g.id)
+      setNewGroup('')
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   return (
     <div className="em-backdrop" onClick={onClose}>
@@ -173,6 +215,39 @@ export function EngagementModal({
             <div className="em-field">
               <label>Engagement name</label>
               <input ref={nameRef} className="em-in" value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Storefront — Q3 Web + API Assessment" />
+            </div>
+            <div className="em-field">
+              <label>Organization &amp; team <span className="em-opt">shares knowledge across the team's projects</span></label>
+              <div className="em-orggroup">
+                <select className="em-in" value={orgId} onChange={(e) => setOrgId(e.target.value)}>
+                  <option value="">— No organization —</option>
+                  {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+                <input
+                  className="em-in"
+                  value={newOrg}
+                  onChange={(e) => setNewOrg(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addOrg() } }}
+                  placeholder="＋ new organization"
+                />
+                <button type="button" className="em-add" onClick={() => void addOrg()} disabled={!newOrg.trim()}>Add</button>
+              </div>
+              {orgId && (
+                <div className="em-orggroup">
+                  <select className="em-in" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+                    <option value="">— No team —</option>
+                    {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </select>
+                  <input
+                    className="em-in"
+                    value={newGroup}
+                    onChange={(e) => setNewGroup(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addGroup() } }}
+                    placeholder="＋ new team"
+                  />
+                  <button type="button" className="em-add" onClick={() => void addGroup()} disabled={!newGroup.trim()}>Add</button>
+                </div>
+              )}
             </div>
             <div className="em-field">
               <label>Assessment type</label>
