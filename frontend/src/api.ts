@@ -1051,7 +1051,7 @@ export const api = {
   cancelAgentRun: (id: string) => request<void>('POST', `/v1/activity/agents/${id}/cancel`, {}),
   // The unified Activity history: scanner tasks, agent threads, agent plans, and playbook runs merged
   // newest-first across every project (durable — an agent transcript stays here after a restart).
-  activityFeed: () => request<ActivityItem[]>('GET', '/v1/activity/feed'),
+  activityFeed: (projectId?: string) => request<ActivityItem[]>('GET', `/v1/activity/feed${projectId ? `?project=${encodeURIComponent(projectId)}` : ''}`),
   // Fan out every applicable capability across the project's assets (deterministic, no agent). Returns
   // the enqueued tasks + any skips; poll listTasks to watch them run and auto-triage.
   scanProject: (projectId: string) =>

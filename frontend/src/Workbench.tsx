@@ -934,7 +934,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'orchestrate':
         return <OrchestrateTab project={project} online={online} onError={setError} />
       case 'tasks':
-        return <ActivityTab online={online} onError={setError} />
+        return <ActivityTab online={online} projectId={project.id} onError={setError} />
       case 'findings':
         return (
           <FindingsTab

@@ -2700,6 +2700,10 @@ func (s *Server) getActivity(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
+	// project, when set, scopes the feed to one project's runs (the workbench passes it). Without it the
+	// feed spans every project. Scoping also keeps flat-route detail fetches (a thread/task detail resolves
+	// via the active project's DB, ADR-0049) from hitting a "not found" for another project's item.
+	projectFilter := r.URL.Query().Get("project")
 
 	projects, _ := s.mgr.ListProjects(ctx)
 	name := map[string]string{}
@@ -2772,10 +2776,28 @@ func (s *Server) getActivity(w http.ResponseWriter, r *http.Request) {
 			Kind: "playbook", ID: pr.ID, Title: pr.PlaybookID, Subtitle: "playbook",
 			Status: pr.Status, Actor: pr.Actor, Timestamp: latest(&pr.CreatedAt, pr.FinishedAt),
 		}
+		// A playbook run links to a project only via its asset; resolve it against the scoped project's DB
+		// when filtering (so it isn't silently dropped from a project's feed).
+		if projectFilter != "" && pr.AssetID != nil {
+			if a, err := s.pdbID(projectFilter).GetAsset(ctx, *pr.AssetID); err == nil {
+				if app, err := s.pdbID(projectFilter).GetApplication(ctx, a.ApplicationID); err == nil {
+					withProject(&it, app.ProjectID)
+				}
+			}
+		}
 		items = append(items, it)
 	}
 
 	sort.Slice(items, func(i, j int) bool { return items[i].Timestamp.After(items[j].Timestamp) })
+	if projectFilter != "" {
+		kept := items[:0]
+		for _, it := range items {
+			if it.ProjectID == projectFilter {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
+	}
 	if len(items) > limit {
 		items = items[:limit]
 	}
