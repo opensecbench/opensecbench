@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, Thread } from './api'
+import { Markdown } from './Markdown'
 
 export function AnalystPanel({ project, online, initialThread }: { project: Project; online: boolean; initialThread?: string }) {
   const [threads, setThreads] = useState<Thread[]>([])
@@ -233,7 +234,7 @@ function Message({ m }: { m: Msg }) {
     return (
       <div className="msg analyst">
         <b>Analyst</b>
-        <div>{m.content}</div>
+        <div><Markdown source={m.content} /></div>
       </div>
     )
   }
