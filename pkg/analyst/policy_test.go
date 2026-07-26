@@ -9,19 +9,41 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
-func TestPolicyBaseIsConservative(t *testing.T) {
-	p := DefaultPolicy()
-	// Sensitive tools ask for approval by default...
-	for _, tool := range []string{"send_request", "run_code", "run_capability", "create_finding"} {
+func TestPolicyBaseIsConsequenceTier(t *testing.T) {
+	p := DefaultPolicy() // Cautious envelope
+	// External + Execute actions confirm by default — you can't un-send a request or un-run code.
+	for _, tool := range []string{"send_request", "web_fetch", "run_code", "run_capability", "run_playbook", "delegate"} {
 		if !p.NeedsApproval(tool, "pentester") {
-			t.Errorf("%s should require approval by default", tool)
+			t.Errorf("%s (external/execute) should require approval by default", tool)
 		}
 	}
-	// ...reads run automatically.
+	// Reversible writes run freely — capability parity with the human, oversight is undo/audit (ADR-0053/0054).
+	for _, tool := range []string{"create_finding", "set_coverage", "set_finding_status", "triage_observation", "draft_kb_entry", "workspace_write", "show"} {
+		if p.NeedsApproval(tool, "pentester") {
+			t.Errorf("%s (reversible) should run without approval by default", tool)
+		}
+	}
+	// ...as do reads.
 	for _, tool := range []string{"read_file", "get_finding", "list_context", "read_context"} {
 		if p.NeedsApproval(tool, "generalist") {
 			t.Errorf("%s should be auto by default", tool)
 		}
+	}
+}
+
+// The autonomy envelope (control surface) shifts the confirm line without touching the capability set.
+func TestPolicyAutonomyEnvelope(t *testing.T) {
+	trusted := DefaultPolicy().WithAutonomy(AutonomyTrusted)
+	// Trusted lets external/execute run free...
+	for _, tool := range []string{"send_request", "run_code", "delegate"} {
+		if trusted.NeedsApproval(tool, "pentester") {
+			t.Errorf("%s should run free under the Trusted envelope", tool)
+		}
+	}
+	// ...but a per-tool override still wins (fine-grained trust curve on top).
+	pinned := NewPolicy([]Rule{{Tool: "run_code", Decision: DecisionApprove}}).WithAutonomy(AutonomyTrusted)
+	if !pinned.NeedsApproval("run_code", "pentester") {
+		t.Error("an explicit approve rule must override the Trusted envelope for run_code")
 	}
 }
 

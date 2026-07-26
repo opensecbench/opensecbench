@@ -1022,13 +1022,24 @@ func (s *Server) getApprovalPolicy(w http.ResponseWriter, r *http.Request) {
 	if raw != "" {
 		_ = json.Unmarshal([]byte(raw), &rules)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sensitive_tools": analyst.SensitiveTools(), "rules": rules})
+	autonomy, _ := s.global().GetSetting(r.Context(), analyst.AutonomySetting)
+	if autonomy == "" {
+		autonomy = string(analyst.AutonomyCautious)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sensitive_tools": analyst.SensitiveTools(), // tools that confirm by default (above Reversible)
+		"consequences":    analyst.ToolConsequences(),
+		"autonomy":        autonomy, // the consent envelope (ADR-0054): cautious | trusted
+		"rules":           rules,
+	})
 }
 
-// setApprovalPolicy replaces the override rules. Scope and DLP are enforced separately and unaffected.
+// setApprovalPolicy replaces the override rules and (optionally) the autonomy envelope. Scope and DLP are
+// enforced separately and unaffected.
 func (s *Server) setApprovalPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Rules []analyst.Rule `json:"rules"`
+		Rules    []analyst.Rule `json:"rules"`
+		Autonomy string         `json:"autonomy"` // optional: cautious | trusted (the consent envelope, ADR-0054)
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -1043,6 +1054,10 @@ func (s *Server) setApprovalPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if req.Autonomy != "" && req.Autonomy != string(analyst.AutonomyCautious) && req.Autonomy != string(analyst.AutonomyTrusted) {
+		writeErr(w, http.StatusBadRequest, "autonomy must be 'cautious' or 'trusted'")
+		return
+	}
 	b, err := json.Marshal(req.Rules)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -1052,7 +1067,13 @@ func (s *Server) setApprovalPolicy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"rules": req.Rules})
+	if req.Autonomy != "" {
+		if err := s.global().SetSetting(r.Context(), analyst.AutonomySetting, req.Autonomy); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rules": req.Rules, "autonomy": req.Autonomy})
 }
 
 // listAgentProfiles returns the agent profiles — built-ins plus user-defined ones (ADR-0019). Used by

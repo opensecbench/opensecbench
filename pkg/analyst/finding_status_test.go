@@ -24,7 +24,7 @@ func TestSetFindingStatusInCatalogAndNotGated(t *testing.T) {
 	if !hasEnum {
 		t.Fatal("set_finding_status needs a status enum")
 	}
-	if sensitiveTools["set_finding_status"] {
-		t.Fatal("set_finding_status should not be gated by default (capability parity with the human dropdown)")
+	if consequenceOf("set_finding_status") != Reversible || DefaultPolicy().NeedsApproval("set_finding_status", "generalist") {
+		t.Fatal("set_finding_status should be reversible and run without approval (parity with the human dropdown)")
 	}
 }
