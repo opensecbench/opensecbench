@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { api, KBEntry, Project } from './api'
+import { Markdown } from './Markdown'
 
 const KINDS = [
   'architecture',
@@ -337,7 +338,7 @@ export function KnowledgeTab({
                                   {e.origin === 'thread' && <span className="badge ai">AI</span>}
                                   <span className="kb-title">{e.title}</span>
                                 </div>
-                                {e.body && <div className="kb-body">{e.body}</div>}
+                                {e.body && <div className="kb-body"><Markdown source={e.body} /></div>}
                                 {e.tags && <div className="mitem-std">{e.tags}</div>}
                               </div>
                               <div className="kb-actions">
