@@ -69,7 +69,7 @@ var builtinPlaybooks = []Playbook{
 				Instruction: "Compile what onboarding discovered into DURABLE knowledge. From the inventory and " +
 					"surface analysis in the workspace (and the observations/corpus), distill the stable facts " +
 					"about how this target is set up — its architecture, auth model, technology stack, " +
-					"environment, data flows, and conventions — into knowledge-base drafts (draft_kb_entry). " +
+					"environment, data flows, and conventions — into knowledge-base entries (add_kb_entry). " +
 					"Check the existing KB first (list_kb) and update rather than duplicate. These become durable " +
 					"knowledge a human confirms and future engagements inherit.",
 				DependsOn: []string{"surface"},
@@ -90,7 +90,7 @@ var builtinPlaybooks = []Playbook{
 					"(search_corpus), and the existing knowledge base (list_kb — always check first). Distill the " +
 					"DURABLE facts about how the target is set up — architecture, authentication/authorization, " +
 					"technology stack, environment/deployment, data flows, team conventions, and recurring " +
-					"gotchas — into knowledge-base drafts (draft_kb_entry), one per distinct fact, using the right " +
+					"gotchas — into knowledge-base entries (add_kb_entry), one per distinct fact, using the right " +
 					"kind and anchored to the target. Update or extend existing entries instead of duplicating. " +
 					"Capture stable how-it-works knowledge, not transient vulnerabilities.",
 			},

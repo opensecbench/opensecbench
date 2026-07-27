@@ -3,6 +3,7 @@ package analyst
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
@@ -41,6 +42,79 @@ func (deps ExecDeps) projectOrg(ctx context.Context, targetID string) string {
 		}
 	}
 	return ""
+}
+
+// projectGroup resolves the team/group to anchor group-scoped knowledge to (ADR-0041): the current project's
+// group. Returns "" if the project belongs to no team.
+func (deps ExecDeps) projectGroup(ctx context.Context) string {
+	if deps.ProjectID != "" {
+		if p, err := deps.Mgr.GetProject(ctx, deps.ProjectID); err == nil && p.GroupID != nil && *p.GroupID != "" {
+			return *p.GroupID
+		}
+	}
+	return ""
+}
+
+// updateKBEntryTool edits an existing entry's title/body directly — parity with the human's edit
+// (ADR-0053). Tags are preserved; best-effort re-index for semantic retrieval.
+func updateKBEntryTool(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	id, title, body := stringArg(call, "id"), stringArg(call, "title"), stringArg(call, "body")
+	if id == "" || title == "" {
+		return "", errors.New("update_kb_entry requires 'id' and 'title'")
+	}
+	existing, err := deps.g().GetKBEntry(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if err := deps.g().UpdateKBEntry(ctx, id, title, body, existing.Tags); err != nil {
+		return "", err
+	}
+	e, err := deps.g().GetKBEntry(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if deps.ProjectID != "" && deps.Indexer != nil && deps.Indexer.Available() {
+		_ = deps.Indexer.IndexKBEntry(ctx, deps.ProjectID, e)
+	}
+	return jsonify(e, nil)
+}
+
+// searchKB keyword-matches the project's inherited KB (title + body) — a quick lookup that complements the
+// semantic search_corpus.
+func searchKB(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+	projectID, err := requireProject(deps, "search_kb")
+	if err != nil {
+		return "", err
+	}
+	q := strings.ToLower(strings.TrimSpace(stringArg(call, "q")))
+	if q == "" {
+		return "", errors.New("search_kb requires 'q'")
+	}
+	limit := intArg(call, "limit")
+	if limit <= 0 {
+		limit = 15
+	}
+	entries, err := deps.Mgr.ListKBForProject(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	type row struct {
+		ID    string `json:"id"`
+		Kind  string `json:"kind"`
+		Scope string `json:"scope"`
+		Title string `json:"title"`
+		Body  string `json:"body,omitempty"`
+	}
+	out := make([]row, 0, limit)
+	for _, e := range entries {
+		if strings.Contains(strings.ToLower(e.Title+" "+e.Body), q) {
+			out = append(out, row{e.ID, e.Kind, e.Scope, e.Title, truncate(e.Body, 400)})
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	return jsonify(out, nil)
 }
 
 // listKB returns the current project's knowledge-base entries so the agent can see what durable knowledge

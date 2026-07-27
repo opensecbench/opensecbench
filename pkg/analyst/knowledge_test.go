@@ -2,6 +2,7 @@ package analyst
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -9,6 +10,56 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
+
+// add_kb_entry now writes DIRECTLY (ADR-0053/0054 parity): confirmed on creation, origin still records AI
+// authorship. Group scope anchors to the project's team; update_kb_entry edits; search_kb finds by keyword.
+func TestDirectKBWriteEditSearch(t *testing.T) {
+	db := migratedStore(t)
+	ctx := context.Background()
+	org, _ := db.CreateOrganization(ctx, "Acme")
+	grp, _ := db.CreateGroup(ctx, org.ID, "Platform")
+	tgt, _ := db.CreateTarget(ctx, "acme-web", "", &org.ID)
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p", OrganizationID: &org.ID, GroupID: &grp.ID, TargetIDs: []string{tgt.ID}})
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: proj.ID})
+
+	out, err := exec(ctx, agent.ToolCall{Tool: "add_kb_entry", Args: map[string]any{
+		"kind": "auth", "title": "Login is Okta SSO", "body": "SAML via Okta", "scope": "target", "target": tgt.ID,
+	}})
+	if err != nil {
+		t.Fatalf("add_kb_entry: %v", err)
+	}
+	var added model.KBEntry
+	_ = json.Unmarshal([]byte(out), &added)
+	if added.ReviewState != model.ReviewConfirmed {
+		t.Fatalf("agent add should be confirmed (direct), got %q", added.ReviewState)
+	}
+	if added.Origin != model.OriginThread {
+		t.Fatalf("origin should record AI authorship, got %q", added.Origin)
+	}
+
+	// Group scope anchors to the project's team.
+	if _, err := exec(ctx, agent.ToolCall{Tool: "add_kb_entry", Args: map[string]any{
+		"kind": "convention", "title": "Team logging standard", "body": "structured JSON", "scope": "group",
+	}}); err != nil {
+		t.Fatalf("group add: %v", err)
+	}
+
+	// Edit the body.
+	if _, err := exec(ctx, agent.ToolCall{Tool: "update_kb_entry", Args: map[string]any{
+		"id": added.ID, "title": added.Title, "body": "SAML via Okta, SCIM provisioning",
+	}}); err != nil {
+		t.Fatalf("update_kb_entry: %v", err)
+	}
+
+	// search_kb finds it by keyword.
+	found, err := exec(ctx, agent.ToolCall{Tool: "search_kb", Args: map[string]any{"q": "okta"}})
+	if err != nil {
+		t.Fatalf("search_kb: %v", err)
+	}
+	if !strings.Contains(found, "Login is Okta SSO") || !strings.Contains(found, "SCIM") {
+		t.Fatalf("search_kb should find the edited entry: %s", found)
+	}
+}
 
 // list_kb surfaces the project's target-anchored KB entries (so the scribe can dedupe), filterable by kind.
 func TestListKB(t *testing.T) {
@@ -37,7 +88,7 @@ func TestListKB(t *testing.T) {
 	}
 }
 
-// draft_kb_entry at org scope resolves the organization from the project and anchors the entry there, so it
+// add_kb_entry at org scope resolves the organization from the project and anchors the entry there, so it
 // carries across all the org's apps (ADR-0041). Target scope still requires a target.
 func TestDraftKBOrgScope(t *testing.T) {
 	db := migratedStore(t)
@@ -48,7 +99,7 @@ func TestDraftKBOrgScope(t *testing.T) {
 	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: proj.ID})
 
 	// Org-scoped draft anchors to the project's organization (no target needed).
-	out, err := exec(ctx, agent.ToolCall{Tool: "draft_kb_entry", Args: map[string]any{
+	out, err := exec(ctx, agent.ToolCall{Tool: "add_kb_entry", Args: map[string]any{
 		"kind": "auth", "title": "Org standardizes on Keycloak", "body": "All apps use the shared Keycloak realm.", "scope": "org",
 	}})
 	if err != nil {
@@ -65,7 +116,7 @@ func TestDraftKBOrgScope(t *testing.T) {
 		t.Fatalf("org draft should anchor to the org: %+v", entries)
 	}
 	// Target scope without a target errors.
-	if _, err := exec(ctx, agent.ToolCall{Tool: "draft_kb_entry", Args: map[string]any{"kind": "endpoint", "title": "x", "scope": "target"}}); err == nil {
+	if _, err := exec(ctx, agent.ToolCall{Tool: "add_kb_entry", Args: map[string]any{"kind": "endpoint", "title": "x", "scope": "target"}}); err == nil {
 		t.Fatal("target-scoped draft without a target should error")
 	}
 }
@@ -78,7 +129,7 @@ func TestKnowledgeScribeProfileAndPlaybooks(t *testing.T) {
 	for _, tn := range p.Tools {
 		tools[tn] = true
 	}
-	if !tools["draft_kb_entry"] || !tools["list_kb"] {
+	if !tools["add_kb_entry"] || !tools["list_kb"] {
 		t.Fatal("scribe must be able to read + draft KB")
 	}
 	for _, deny := range []string{"create_finding", "run_capability", "send_request", "web_fetch", "run_code"} {
