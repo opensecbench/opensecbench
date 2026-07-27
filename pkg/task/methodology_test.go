@@ -54,3 +54,22 @@ func TestRunMethodologyChecksAttributesAndFiresHook(t *testing.T) {
 		t.Fatalf("unknown capability should be skipped, got %+v", res2)
 	}
 }
+
+// A capability that opts out of auto-scan (empty AppliesTo, e.g. semgrep) must still run when an operator
+// names it explicitly as a methodology check, against source repos (ADR-0056 P3.1).
+func TestRunMethodologyChecksRunsOptOutCapability(t *testing.T) {
+	db, blobs := openStore(t)
+	ctx := context.Background()
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakeRunner{out: []byte("x"), code: 0})
+	defer eng.Close()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	seedRepoAsset(t, db, proj.ID, "app.py", "print(1)\n") // a source_repo asset
+
+	res, err := eng.RunMethodologyChecks(ctx, proj.ID, "r", []MethodologyCheck{{ItemID: "x/y", CapabilityID: "semgrep"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Enqueued) != 1 || res.Enqueued[0].CapabilityID != "semgrep" {
+		t.Fatalf("opt-out capability not run as an explicit check: enqueued=%d skipped=%v", len(res.Enqueued), res.Skipped)
+	}
+}
