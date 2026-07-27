@@ -223,6 +223,21 @@ func (db *DB) ForkThread(ctx context.Context, id string, atSeq int) (model.Threa
 	return child, nil
 }
 
+// DeleteThread removes a thread and its messages/approvals (FK ON DELETE CASCADE). Forked children and
+// dispositions that reference it survive with their link nulled (ON DELETE SET NULL). Usage records are
+// kept as historical accounting (no FK). Returns ErrNotFound if the thread does not exist.
+func (db *DB) DeleteThread(ctx context.Context, id string) error {
+	res, err := db.ExecContext(ctx, `DELETE FROM threads WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // --- approvals ---
 
 // CreateApproval records a pending gated tool call.

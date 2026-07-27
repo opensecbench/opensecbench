@@ -665,6 +665,11 @@ func (c *Client) GetThread(ctx context.Context, id string) (ThreadDetail, error)
 	return out, c.do(ctx, http.MethodGet, "/v1/threads/"+id, nil, &out)
 }
 
+// DeleteThread removes a thread and its messages/approvals.
+func (c *Client) DeleteThread(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/threads/"+id, nil, nil)
+}
+
 // SendMessage sends a message to an existing thread.
 func (c *Client) SendMessage(ctx context.Context, threadID, message string) (SendResult, error) {
 	var out SendResult
