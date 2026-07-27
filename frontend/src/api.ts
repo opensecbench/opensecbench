@@ -254,7 +254,15 @@ export interface CoverageView {
     id: string
     title: string
     tech: string
-    items: { item: MethodologyItem; status: string; note?: string; evidence_count?: number; run_state?: string }[]
+    items: {
+      item: MethodologyItem
+      status: string
+      note?: string
+      evidence_count?: number
+      run_state?: string
+      finding_count?: number
+      finding_severity?: string
+    }[]
   }[]
   summary: {
     total: number

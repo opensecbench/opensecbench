@@ -1127,6 +1127,13 @@ select option {
 .mitem-runstate{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;padding:1px 7px;border-radius:20px}
 .mitem-runstate.running{color:var(--amber);background:color-mix(in srgb,var(--amber) 15%,transparent)}
 .mitem-runstate.queued{color:var(--tx3);background:var(--bg3)}
+.mitem-note{font-size:11px;color:var(--tx3);font-style:italic}
+.mitem-find{font-size:11px;font-family:var(--mono);white-space:nowrap;font-weight:600}
+.mitem-find.sev-critical{color:#e5484d}
+.mitem-find.sev-high{color:#e5484d}
+.mitem-find.sev-medium{color:var(--amber)}
+.mitem-find.sev-low{color:var(--tx2)}
+.mitem-find.sev-info{color:var(--tx3)}
 .mitems{list-style:none;margin:0;padding:0}
 .mitem{display:flex;align-items:flex-start;gap:12px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;border-left:3px solid var(--tx3)}
 .mitem.status-covered{border-left-color:var(--green)}

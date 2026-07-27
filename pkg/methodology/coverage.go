@@ -23,6 +23,10 @@ type ItemCoverage struct {
 	// RunState is transient live state while a methodology run is in flight: "queued" or "running" (ADR-0056).
 	// Set by the API from active tasks, not persisted; empty when nothing is running for the item.
 	RunState string `json:"run_state,omitempty"`
+	// FindingCount / FindingSeverity are the "what we found" signal — findings linked to this item through its
+	// evidence, and the worst severity among them (ADR-0056). Separate from coverage: tested ≠ clean.
+	FindingCount    int    `json:"finding_count,omitempty"`
+	FindingSeverity string `json:"finding_severity,omitempty"`
 }
 
 // PackCoverage is an adopted methodology and its items' statuses.

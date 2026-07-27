@@ -399,11 +399,17 @@ func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) 
 	for id, st := range s.methAgents.states(projectID) { // agent checks aren't tasks; overlay their liveness
 		active[id] = st
 	}
+	// Findings linked to each item (the "what we found" signal, separate from coverage) — ADR-0056 P3.
+	findings, _ := s.pdb(r).FindingsByMethodologyItem(r.Context(), projectID)
 	for pi := range view.Packs {
 		for ii := range view.Packs[pi].Items {
 			id := view.Packs[pi].Items[ii].Item.ID
 			view.Packs[pi].Items[ii].EvidenceCount = evidence[id]
 			view.Packs[pi].Items[ii].RunState = active[id]
+			if f, ok := findings[id]; ok {
+				view.Packs[pi].Items[ii].FindingCount = f.Count
+				view.Packs[pi].Items[ii].FindingSeverity = f.WorstSeverity
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, view)
