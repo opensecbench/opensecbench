@@ -1217,6 +1217,10 @@ export const api = {
   // Authoring the catalog (ADR-0055) — built-ins are read-only, so create/update/delete only apply to
   // user-authored packs. Create/update send the full pack; the backend fills derived ids and defaults.
   createMethodology: (m: MethodologyInput) => request<Methodology>('POST', '/v1/methodologies', m),
+  // Convert pasted free-form checklist text into a draft pack via the LLM (ADR-0055). Returns an unsaved
+  // draft the editor opens for review; nothing is persisted until the user saves it through createMethodology.
+  draftMethodologyFromText: (text: string, title?: string) =>
+    request<Methodology>('POST', '/v1/methodologies/draft', { text, title }),
   updateMethodology: (id: string, m: MethodologyInput) => request<Methodology>('PUT', '/v1/methodologies/' + id, m),
   deleteMethodology: (id: string) => request<void>('DELETE', '/v1/methodologies/' + id),
   getMethodologyCoverage: (projectId: string) =>
