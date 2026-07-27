@@ -1904,24 +1904,24 @@ select option {
   color: var(--acc);
   border-style: dashed;
 }
-/* Per-thread delete affordance: faint until you hover the chip, then reachable. */
-.wb-an-chip .tdel {
+/* Per-thread archive affordance: faint until you hover the chip, then reachable. Archive is the default
+   (Shift-click purges) so the hover tint is neutral, not delete-red. */
+.wb-an-chip .tarch {
   margin-left: 1px;
   margin-right: -3px;
   font-size: 10px;
   line-height: 1;
-  color: var(--tx3);
   opacity: 0;
-  border-radius: 50%;
+  filter: grayscale(1);
+  border-radius: 4px;
   padding: 2px 3px;
 }
-.wb-an-chip:hover .tdel,
-.wb-an-chip.on .tdel {
-  opacity: 0.7;
+.wb-an-chip:hover .tarch,
+.wb-an-chip.on .tarch {
+  opacity: 0.55;
 }
-.wb-an-chip .tdel:hover {
+.wb-an-chip .tarch:hover {
   opacity: 1;
-  color: var(--red);
   background: var(--bg2);
 }
 .wb-analyst .messages {

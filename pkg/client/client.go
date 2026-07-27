@@ -665,7 +665,12 @@ func (c *Client) GetThread(ctx context.Context, id string) (ThreadDetail, error)
 	return out, c.do(ctx, http.MethodGet, "/v1/threads/"+id, nil, &out)
 }
 
-// DeleteThread removes a thread and its messages/approvals.
+// ArchiveThread soft-archives a thread (retained for audit, hidden from the active list).
+func (c *Client) ArchiveThread(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/v1/threads/"+id+"/archive", nil, nil)
+}
+
+// DeleteThread permanently purges a thread and its messages/approvals.
 func (c *Client) DeleteThread(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/threads/"+id, nil, nil)
 }

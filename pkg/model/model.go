@@ -514,6 +514,9 @@ type Thread struct {
 	AgentType      string    `json:"agent_type"` // the driving agent profile (ADR-0019); default "generalist"
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	// ArchivedAt soft-archives the thread (auditability): non-nil means it's retained in the project record
+	// but hidden from the active list. Deletion is a separate, deliberate purge.
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 }
 
 // Message is one turn in a thread. ToolCalls (on an assistant turn) and ToolCallID/ToolError (on a
