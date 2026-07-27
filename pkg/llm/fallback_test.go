@@ -15,8 +15,8 @@ type stubProvider struct {
 	called bool
 }
 
-func (s *stubProvider) Name() string        { return s.name }
-func (s *stubProvider) NativeTools() bool    { return s.native }
+func (s *stubProvider) Name() string      { return s.name }
+func (s *stubProvider) NativeTools() bool { return s.native }
 func (s *stubProvider) Complete(_ context.Context, req CompletionRequest) (CompletionResponse, error) {
 	s.called = true
 	if s.err != nil {

@@ -170,7 +170,7 @@ func (svc *Service) triageChunk(ctx context.Context, projectID string, tgt runTa
 			if svc.p(projectID).TriageObservation(ctx, d.ID, "flag", d.Rationale, "agent") == nil {
 				flagged++
 			}
-		// "keep" or anything else: leave it for manual triage.
+			// "keep" or anything else: leave it for manual triage.
 		}
 	}
 	return dismissed, flagged, nil
