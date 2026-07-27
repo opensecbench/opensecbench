@@ -33,6 +33,34 @@ func (db *DB) UnadoptMethodology(ctx context.Context, projectID, methodologyID s
 	return err
 }
 
+// ActiveMethodologyItemStates returns, per methodology item id, its live run state in the project — "running"
+// if any task for that item is executing, else "queued" if one is pending (ADR-0056). Feeds the coverage
+// view's transient RunState so the control panel shows items in flight.
+func (db *DB) ActiveMethodologyItemStates(ctx context.Context, projectID string) (map[string]string, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT methodology_item_id, status FROM tasks
+		 WHERE project_id = ? AND methodology_item_id IS NOT NULL AND status IN ('pending','running')`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]string{}
+	for rows.Next() {
+		var item, status string
+		if err := rows.Scan(&item, &status); err != nil {
+			return nil, err
+		}
+		if status == "running" || out[item] == "" {
+			if status == "running" {
+				out[item] = "running"
+			} else if out[item] == "" {
+				out[item] = "queued"
+			}
+		}
+	}
+	return out, rows.Err()
+}
+
 // DeleteCoverageForItems removes coverage and linked-observation rows for the given methodology item ids in a
 // project. Used when a methodology pack is deleted so its per-item coverage doesn't dangle (ADR-0055). A
 // nil/empty itemIDs is a no-op.
