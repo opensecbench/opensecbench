@@ -33,6 +33,67 @@ func (db *DB) UnadoptMethodology(ctx context.Context, projectID, methodologyID s
 	return err
 }
 
+// MethodologyItemFindings is the "what we found" signal for a methodology item: how many findings are linked
+// to it through its evidence observations, and the worst severity among them (ADR-0056 P3).
+type MethodologyItemFindings struct {
+	Count         int
+	WorstSeverity string
+}
+
+func severityRank(s string) int {
+	switch s {
+	case "critical":
+		return 5
+	case "high":
+		return 4
+	case "medium":
+		return 3
+	case "low":
+		return 2
+	case "info":
+		return 1
+	}
+	return 0
+}
+
+// FindingsByMethodologyItem counts the non-false-positive findings linked to each methodology item through its
+// evidence observations, with the worst severity per item (ADR-0056 P3). Coverage tracks "tested"; this is the
+// separate "what we found" signal shown alongside it, so an item can be fully tested and still carry a finding.
+func (db *DB) FindingsByMethodologyItem(ctx context.Context, projectID string) (map[string]MethodologyItemFindings, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT DISTINCT co.item_id, f.id, f.severity
+		FROM coverage_observations co
+		JOIN finding_observations fo ON fo.observation_id = co.observation_id
+		JOIN findings f ON f.id = fo.finding_id
+		WHERE co.project_id = ? AND f.status != 'false_positive'`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	perItem := map[string]map[string]string{} // item id -> finding id -> severity (dedup findings per item)
+	for rows.Next() {
+		var item, findingID, sev string
+		if err := rows.Scan(&item, &findingID, &sev); err != nil {
+			return nil, err
+		}
+		if perItem[item] == nil {
+			perItem[item] = map[string]string{}
+		}
+		perItem[item][findingID] = sev
+	}
+	out := make(map[string]MethodologyItemFindings, len(perItem))
+	for item, fs := range perItem {
+		worst := ""
+		for _, sev := range fs {
+			if severityRank(sev) > severityRank(worst) {
+				worst = sev
+			}
+		}
+		out[item] = MethodologyItemFindings{Count: len(fs), WorstSeverity: worst}
+	}
+	return out, rows.Err()
+}
+
 // ActiveMethodologyItemStates returns, per methodology item id, its live run state in the project — "running"
 // if any task for that item is executing, else "queued" if one is pending (ADR-0056). Feeds the coverage
 // view's transient RunState so the control panel shows items in flight.

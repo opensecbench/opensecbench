@@ -181,10 +181,21 @@ func rankOf(sev string) int {
 }
 
 // Builder assembles report Data from a Source.
-type Builder struct{ src Source }
+type Builder struct {
+	src     Source
+	methods *methodology.Registry // live catalog (built-ins + user/extension packs); nil ⇒ built-ins only
+}
 
 // NewBuilder returns a Builder over src.
 func NewBuilder(src Source) *Builder { return &Builder{src: src} }
+
+// WithMethodology sets the live methodology registry the report reads coverage against (ADR-0056), so
+// coverage on user-authored or extension packs appears in reports instead of being silently dropped. Passing
+// nil (or never calling this) falls back to the built-in packs. Returns the builder for chaining.
+func (b *Builder) WithMethodology(r *methodology.Registry) *Builder {
+	b.methods = r
+	return b
+}
 
 // Build gathers the report snapshot for a project. Only findings that are not false positives and
 // carry at least one supporting observation (traceable evidence) are included (ADR-0005, ADR-0008).
@@ -288,7 +299,11 @@ func (b *Builder) methodologyCoverage(ctx context.Context, projectID string) met
 	for _, e := range entries {
 		states[e.ItemID] = methodology.State{Status: e.Status, Note: e.Note}
 	}
-	return methodology.BuildCoverage(methodology.BuiltIns(), adopted, states)
+	reg := b.methods
+	if reg == nil {
+		reg = methodology.BuiltIns()
+	}
+	return methodology.BuildCoverage(reg, adopted, states)
 }
 
 // coverageHeatmap builds a severity × status matrix over the reportable findings as an SVG figure.

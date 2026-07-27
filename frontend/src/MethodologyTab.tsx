@@ -3,7 +3,13 @@ import { api, CoverageView, Methodology, MethodologyCheck, MethodologySuggestion
 
 const STATUSES = ['not_started', 'in_progress', 'covered', 'not_applicable']
 
-// checkSummary collapses an item's checks into short chips: capability ids, and a count of agent/manual checks.
+// isManualItem is true when nothing runs automatically for the item — no capability or agent check — so its
+// only path to covered is a human sign-off (ADR-0056 P3).
+function isManualItem(checks?: MethodologyCheck[]): boolean {
+  return !(checks ?? []).some((c) => c.kind === 'capability' || c.kind === 'agent')
+}
+
+// checkChips collapses an item's checks into short chips: capability ids, agent profiles, or a manual marker.
 function checkChips(checks?: MethodologyCheck[]): { cls: string; label: string }[] {
   if (!checks || checks.length === 0) return [{ cls: 'manual', label: 'manual' }]
   return checks.map((c) =>
@@ -131,6 +137,18 @@ export function MethodologyTab({
     }
   }
 
+  // Manual items have no automation — a human signs them off with an optional note (ADR-0056 P3).
+  async function signOff(itemId: string) {
+    const note = window.prompt('Sign-off note (optional) — what you verified:')
+    if (note === null) return // canceled
+    try {
+      await api.setCoverage(project.id, itemId, 'covered', note)
+      await reload()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
   const s = view?.summary
   const packs = view?.packs ?? [] // Go serializes an empty slice as null
 
@@ -205,13 +223,22 @@ export function MethodologyTab({
                   {ic.item.standards && ic.item.standards.length > 0 && (
                     <span className="mitem-std">{ic.item.standards.join(' · ')}</span>
                   )}
+                  {ic.note && <span className="mitem-note">{ic.note}</span>}
                 </div>
                 <div className="mitem-actions">
                   {ic.run_state && (
                     <span className={`mitem-runstate ${ic.run_state}`}>{ic.run_state === 'running' ? '● running' : '◦ queued'}</span>
                   )}
+                  {(ic.finding_count ?? 0) > 0 && (
+                    <span className={`mitem-find sev-${ic.finding_severity || 'info'}`} title="findings linked to this item (separate from coverage)">
+                      ▲ {ic.finding_count}{ic.finding_severity ? ` ${ic.finding_severity}` : ''}
+                    </span>
+                  )}
                   {(ic.evidence_count ?? 0) > 0 && (
                     <span className="mitem-ev" title="evidence attached to this item">🔬 {ic.evidence_count}</span>
+                  )}
+                  {isManualItem(ic.item.checks) && ic.status !== 'covered' && (
+                    <button className="ghost-btn" title="Manually sign off this item" onClick={() => void signOff(ic.item.id)}>✓ Sign off</button>
                   )}
                   {onTestItem && (
                     <button className="ghost-btn" title="Open a Replay bound to this test item" onClick={() => onTestItem(ic.item.id, ic.item.title)}>

@@ -39,7 +39,7 @@ func generateReport(ctx context.Context, deps ExecDeps, call agent.ToolCall) (st
 		format = report.FormatMarkdown // agent-safe default: no browser dependency
 	}
 
-	data, err := report.NewBuilder(deps.p()).Build(ctx, projectID, time.Now())
+	data, err := report.NewBuilder(deps.p()).WithMethodology(deps.Methods).Build(ctx, projectID, time.Now())
 	if err != nil {
 		return "", errors.New("generate_report: build: " + err.Error())
 	}
