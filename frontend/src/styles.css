@@ -1769,6 +1769,9 @@ select option {
   padding: 3px 8px;
   font-size: 11px;
   cursor: pointer;
+  /* Buttons (＋ Thread, Collapse) never shrink so the header can't push the
+     collapse control off the panel's right edge when the row is crowded. */
+  flex-shrink: 0;
 }
 .wb-an-profile, .wb-an-autonomy {
   border: 1px solid var(--line2);
@@ -1780,6 +1783,9 @@ select option {
   text-transform: none;
   letter-spacing: 0;
   max-width: 130px;
+  /* The selects give up space first (min-width:0 lets them shrink below their
+     content) so the always-visible action buttons stay on screen. */
+  min-width: 0;
   cursor: pointer;
 }
 /* Trusted envelope reads as elevated — the agent runs outbound/execute without asking (ADR-0054) */
@@ -1897,6 +1903,26 @@ select option {
 .wb-an-chip.new {
   color: var(--acc);
   border-style: dashed;
+}
+/* Per-thread delete affordance: faint until you hover the chip, then reachable. */
+.wb-an-chip .tdel {
+  margin-left: 1px;
+  margin-right: -3px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--tx3);
+  opacity: 0;
+  border-radius: 50%;
+  padding: 2px 3px;
+}
+.wb-an-chip:hover .tdel,
+.wb-an-chip.on .tdel {
+  opacity: 0.7;
+}
+.wb-an-chip .tdel:hover {
+  opacity: 1;
+  color: var(--red);
+  background: var(--bg2);
 }
 .wb-analyst .messages {
   flex: 1;

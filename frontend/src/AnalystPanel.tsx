@@ -184,6 +184,25 @@ export function AnalystPanel({
     }
   }
 
+  // Delete a thread and its transcript. The ✕ lives on the chip (a span, not a nested button — the chip is
+  // itself a button); stopPropagation keeps the click off the chip's open handler. If we deleted the open
+  // thread, drop back to the no-thread state so the panel doesn't render a phantom transcript.
+  async function removeThread(t: Thread, e: ReactMouseEvent) {
+    e.stopPropagation()
+    if (!window.confirm(`Delete thread "${t.title || 'Analyst'}"? Its messages can't be recovered.`)) return
+    try {
+      await api.deleteThread(t.id)
+      if (current?.id === t.id) {
+        setCurrent(null)
+        setMessages([])
+        setPending(null)
+      }
+      await loadThreads()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   async function send(e: FormEvent) {
     e.preventDefault()
     if (!current || !input.trim()) return
@@ -310,6 +329,7 @@ export function AnalystPanel({
           <button key={t.id} className={`wb-an-chip ${current?.id === t.id ? 'on' : ''}`} onClick={() => open(t)}>
             <span className={`tstatus tstatus-${t.status}`} />
             <span className="tname">{t.title || 'Analyst'}</span>
+            <span className="tdel" title="Delete thread" onClick={(e) => removeThread(t, e)}>✕</span>
           </button>
         ))}
         {threads.length === 0 && (
