@@ -92,7 +92,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 		format = report.FormatHTML
 	}
 
-	data, err := report.NewBuilder(s.global()).WithMethodology(s.methods).Build(r.Context(), projectID, time.Now())
+	data, err := report.NewBuilder(s.pdb(r)).WithMethodology(s.methods).Build(r.Context(), projectID, time.Now())
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "build report: "+err.Error())
 		return
