@@ -1,6 +1,7 @@
 # ADR-0056 — Executable methodologies
 
-Status: Accepted — building (P1). A methodology should drive test execution, not just sit as a checklist a
+Status: Accepted — built (P1+P2+P3) and smoke-tested live against the headless daemon: the capability, agent,
+and manual paths all drive coverage, and the built-in packs were made runnable (P3.1). A methodology should drive test execution, not just sit as a checklist a
 human ticks by hand. Adopting a pack (ADR-0009 / ADR-0055) already records which checks a project intends to
 run; this makes those checks *runnable*: each item declares how it's tested, "Run" fans the tests out through
 the engine that already scans and triages (ADR-0035 / scan-everything), and results flow back onto the item as
@@ -69,9 +70,18 @@ Full loop (capability + agent + manual), delivered so each slice is usable as it
   completion the API flips coverage (covered, or in_progress if the run errored/stopped). Agent-check liveness
   isn't in the tasks table, so a small in-memory per-project tracker feeds the coverage view's RunState.
   Covers the items scanners can't (IDOR, authz, business logic).
-- **P3 — Manual sign-off & polish.** Explicit human sign-off (with note) for manual items; the run surfaces
-  what's waiting on a person; re-runs reconcile against prior results; report coverage reads the live registry
-  (fixing the current `report.go` use of `BuiltIns()`, which drops user-authored-pack coverage from reports).
+- **P3 — Manual sign-off & polish. _(done)_** Manual items (no capability/agent check) get a "✓ Sign off"
+  action that sets covered with an optional note; item notes are shown. A per-item findings signal
+  (`store.FindingsByMethodologyItem`) surfaces the count + worst severity of findings linked to an item
+  through its evidence — the "what we found" separate from "tested." Report coverage now reads the live
+  registry via `report.Builder.WithMethodology`, so user-authored-pack coverage appears in reports (was
+  hardcoded to `BuiltIns()`). Re-runs reconcile inherently: `LinkCoverageObservation` is idempotent and
+  coverage re-flips rather than duplicating.
+- **P3.1 — built-in packs runnable _(done, from the live smoke test)_.** The shipped packs named
+  `trufflehog` (not a registered capability) and `semgrep` (opts out of auto-scan via empty `AppliesTo`), so
+  "Run" on a built-in pack produced only skips. Repointed the SAST items to `opengrep` (the registered
+  first-party SAST), and made `RunMethodologyChecks` run an *explicitly named* opt-out capability against
+  source repos — an explicit methodology check overrides the auto-scan opt-out.
 
 ## Consequences
 
