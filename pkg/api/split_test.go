@@ -134,6 +134,18 @@ func TestSplitModeEndToEnd(t *testing.T) {
 		t.Fatalf("project index = %v (err %v), want 2", rows, err)
 	}
 
+	// Generating a report must read from the project's own database. Under the split backing the
+	// projects/applications/findings tables live only in project.db — building from the global handle
+	// fails with "no such table: projects" (regression guard). A project with no evidence-backed
+	// findings still produces a valid (empty) report, so success here proves the store is routed right.
+	var rep struct {
+		ID string `json:"id"`
+	}
+	if code := do("POST", "/v1/projects/"+pA.ID+"/reports", pA.ID,
+		map[string]string{"template": "executive", "format": "md"}, &rep); code != http.StatusCreated {
+		t.Fatalf("generate report = %d, want 201 (split-mode store routing)", code)
+	}
+
 	// Ingesting a document into project A writes its blob under projects/A/cas — not a shared store.
 	req, _ := http.NewRequest("POST",
 		srv.URL+"/v1/projects/"+pA.ID+"/context?name=doc&type=document", bytes.NewReader([]byte("secret notes")))
