@@ -42,7 +42,7 @@ export function Library({ online }: { online: boolean }) {
           </div>
         ))}
       </nav>
-      <div className="settings-body" ref={bodyRef}>
+      <div className={'settings-body' + (active === 'report-templates' ? ' wide' : '')} ref={bodyRef}>
         {active === 'playbooks' && <PlaybookLibrary online={online} />}
         {active === 'agents' && <CustomAgents online={online} />}
         {active === 'methodology' && <MethodologyCatalog online={online} />}
