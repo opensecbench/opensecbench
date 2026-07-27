@@ -77,6 +77,13 @@ Full loop (capability + agent + manual), delivered so each slice is usable as it
   registry via `report.Builder.WithMethodology`, so user-authored-pack coverage appears in reports (was
   hardcoded to `BuiltIns()`). Re-runs reconcile inherently: `LinkCoverageObservation` is idempotent and
   coverage re-flips rather than duplicating.
+- **P3.2 — agent checks on the built-in judgment items _(done)_.** The items scanners can't do — IDOR,
+  authn/session, CSRF, per-endpoint authz, mass assignment, rate limiting, and the OAuth flow checks
+  (redirect_uri, state, PKCE) — now carry an `agent` check delegating to the `code-analysis` profile with a
+  check-specific instruction to review the code and record concrete gaps as observations (which auto-attach as
+  the item's evidence). `code-analysis` sends no live traffic, so a one-click "Run methodology" reviews code
+  rather than firing requests at a target. Verified live: web-app runs 3 opengrep scans + 3 agent code-reviews,
+  all driving coverage. SAST items keep their `opengrep` capability check.
 - **P3.1 — built-in packs runnable _(done, from the live smoke test)_.** The shipped packs named
   `trufflehog` (not a registered capability) and `semgrep` (opts out of auto-scan via empty `AppliesTo`), so
   "Run" on a built-in pack produced only skips. Repointed the SAST items to `opengrep` (the registered
