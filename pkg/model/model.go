@@ -594,6 +594,20 @@ type SavedMethodology struct {
 	UpdatedAt time.Time       `json:"updated_at"`
 }
 
+// ReportTemplate is a user-authored (or forked) report template: raw Go-template MD/HTML sources that
+// are parsed into the report Registry so generation treats them like built-ins. Base names the built-in
+// a template was forked from (provenance only; empty when authored fresh).
+type ReportTemplate struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Kind      string    `json:"kind"`
+	Base      string    `json:"base"`
+	MD        string    `json:"md"`
+	HTML      string    `json:"html"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Plan is a running agent playbook — a DAG of steps executed in dependency order (ADR-0019).
 type Plan struct {
 	ID         string     `json:"id"`
