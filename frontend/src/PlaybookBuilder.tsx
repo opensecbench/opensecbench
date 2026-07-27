@@ -6,25 +6,29 @@ type Step = { key: string; profile: string; instruction: string; depends_on: str
 // PlaybookBuilder authors OR edits an agent playbook (ADR-0019 §4): name, goal, and a list of steps. Each
 // step is either a sub-task for a specialist profile (with dependencies on earlier steps) or a human-approval
 // gate that pauses the run until someone approves (ADR-0044). Passing `edit` loads an existing saved playbook
-// and saves in place, keeping its id so schedules stay valid.
+// and saves in place, keeping its id so schedules stay valid. Passing `template` instead pre-fills the fields
+// from another playbook (e.g. a read-only built-in) but stays in create mode — this is the "Save a copy" path.
 export function PlaybookBuilder({
   online,
   edit,
+  template,
   onSaved,
   onCancel,
 }: {
   online: boolean
   edit?: AgentPlaybook
+  template?: AgentPlaybook
   onSaved: () => void
   onCancel: () => void
 }) {
+  const seed = edit ?? template // fields to pre-fill from; only `edit` also saves in place
   const [profiles, setProfiles] = useState<AgentProfile[]>([])
-  const [name, setName] = useState(edit?.name ?? '')
-  const [description, setDescription] = useState(edit?.description ?? '')
-  const [goal, setGoal] = useState(edit?.goal ?? '')
+  const [name, setName] = useState(seed?.name ?? '')
+  const [description, setDescription] = useState(seed?.description ?? '')
+  const [goal, setGoal] = useState(seed?.goal ?? '')
   const [steps, setSteps] = useState<Step[]>(
-    edit?.steps?.length
-      ? edit.steps.map((s) => ({ key: s.key, profile: s.profile, instruction: s.instruction, depends_on: s.depends_on ?? [], gate: !!s.gate }))
+    seed?.steps?.length
+      ? seed.steps.map((s) => ({ key: s.key, profile: s.profile, instruction: s.instruction, depends_on: s.depends_on ?? [], gate: !!s.gate }))
       : [{ key: 'step1', profile: '', instruction: '', depends_on: [], gate: false }],
   )
   const [error, setError] = useState<string | null>(null)
