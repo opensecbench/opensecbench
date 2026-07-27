@@ -17,44 +17,47 @@ import (
 // (envVar -> vault secret NAME) and TargetDir are persisted so a queued task can be reconstructed and
 // re-run after a restart (ADR-0023); resolved secret values are never stored (ADR-0011).
 type NewTask struct {
-	CapabilityID      string
-	CapabilityVersion string
-	ApplicationID     *string
-	AssetID           *string
-	ProjectID         *string // scope/project association (network & SCA tasks with no application)
-	Actor             string
-	Runner            string
-	Params            json.RawMessage
-	SecretRefs        map[string]string
-	TargetDir         string
-	RunnerTarget      string // '' = local runner; otherwise a runners.id (ADR-0024)
-	MethodologyItemID *string
-	MethodologyRunID  *string
-	Queued            bool
+	CapabilityID       string
+	CapabilityVersion  string
+	ApplicationID      *string
+	AssetID            *string
+	ProjectID          *string // scope/project association (network & SCA tasks with no application)
+	Actor              string
+	Runner             string
+	Params             json.RawMessage
+	SecretRefs         map[string]string
+	TargetDir          string
+	RunnerTarget       string // '' = local runner; otherwise a runners.id (ADR-0024)
+	MethodologyItemIDs []string
+	MethodologyRunID   *string
+	Queued             bool
 }
 
 // taskCols is the full task column list, shared by every task read so reconstruction data (project_id,
 // secret_refs, target_dir, attempts) is always loaded.
 const taskCols = `id, capability_id, capability_version, application_id, asset_id, project_id, actor, runner,
 	params, status, exit_code, error, attempts, created_at, started_at, finished_at, secret_refs, target_dir, runner_target,
-	methodology_item_id, methodology_run_id`
+	methodology_item_ids, methodology_run_id`
 
 // scanTask reads one task row selected with taskCols.
 func scanTask(s interface{ Scan(...any) error }) (model.Task, error) {
 	var t model.Task
 	var app, asset, project sql.NullString
 	var params, secretRefs, targetDir, runnerTarget string
-	var methItem, methRun sql.NullString
+	var methItems, methRun sql.NullString
 	var exit sql.NullInt64
 	var created string
 	var started, finished sql.NullString
 	if err := s.Scan(&t.ID, &t.CapabilityID, &t.CapabilityVersion, &app, &asset, &project, &t.Actor, &t.Runner,
 		&params, &t.Status, &exit, &t.Error, &t.Attempts, &created, &started, &finished, &secretRefs, &targetDir, &runnerTarget,
-		&methItem, &methRun); err != nil {
+		&methItems, &methRun); err != nil {
 		return model.Task{}, err
 	}
 	t.ApplicationID, t.AssetID, t.ProjectID = ptr(app), ptr(asset), ptr(project)
-	t.MethodologyItemID, t.MethodologyRunID = ptr(methItem), ptr(methRun)
+	if methItems.Valid && methItems.String != "" {
+		_ = json.Unmarshal([]byte(methItems.String), &t.MethodologyItemIDs)
+	}
+	t.MethodologyRunID = ptr(methRun)
 	t.Params = json.RawMessage(params)
 	if secretRefs != "" {
 		_ = json.Unmarshal([]byte(secretRefs), &t.SecretRefs)
@@ -90,23 +93,30 @@ func (db *DB) CreateTask(ctx context.Context, nt NewTask) (model.Task, error) {
 	nowStr := now.Format(timeLayout)
 
 	t := model.Task{
-		ID:                uuid.NewString(),
-		CapabilityID:      nt.CapabilityID,
-		CapabilityVersion: nt.CapabilityVersion,
-		ApplicationID:     nt.ApplicationID,
-		AssetID:           nt.AssetID,
-		ProjectID:         nt.ProjectID,
-		Actor:             nt.Actor,
-		Runner:            nt.Runner,
-		Params:            params,
-		Status:            model.TaskRunning,
-		SecretRefs:        nt.SecretRefs,
-		TargetDir:         nt.TargetDir,
-		RunnerTarget:      nt.RunnerTarget,
-		MethodologyItemID: nt.MethodologyItemID,
-		MethodologyRunID:  nt.MethodologyRunID,
-		CreatedAt:         now,
-		StartedAt:         &now,
+		ID:                 uuid.NewString(),
+		CapabilityID:       nt.CapabilityID,
+		CapabilityVersion:  nt.CapabilityVersion,
+		ApplicationID:      nt.ApplicationID,
+		AssetID:            nt.AssetID,
+		ProjectID:          nt.ProjectID,
+		Actor:              nt.Actor,
+		Runner:             nt.Runner,
+		Params:             params,
+		Status:             model.TaskRunning,
+		SecretRefs:         nt.SecretRefs,
+		TargetDir:          nt.TargetDir,
+		RunnerTarget:       nt.RunnerTarget,
+		MethodologyItemIDs: nt.MethodologyItemIDs,
+		MethodologyRunID:   nt.MethodologyRunID,
+		CreatedAt:          now,
+		StartedAt:          &now,
+	}
+	// Item ids are stored as a JSON array; NULL (not "[]") when absent so the coverage view's IS NOT NULL
+	// filter cleanly excludes ordinary scans.
+	var methItems any
+	if len(nt.MethodologyItemIDs) > 0 {
+		b, _ := json.Marshal(nt.MethodologyItemIDs)
+		methItems = string(b)
 	}
 	var startedAt any = nowStr
 	if nt.Queued {
@@ -116,10 +126,10 @@ func (db *DB) CreateTask(ctx context.Context, nt NewTask) (model.Task, error) {
 	}
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO tasks
-		 (id, capability_id, capability_version, application_id, asset_id, project_id, actor, runner, params, status, created_at, started_at, secret_refs, target_dir, runner_target, methodology_item_id, methodology_run_id)
+		 (id, capability_id, capability_version, application_id, asset_id, project_id, actor, runner, params, status, created_at, started_at, secret_refs, target_dir, runner_target, methodology_item_ids, methodology_run_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.CapabilityID, t.CapabilityVersion, nt.ApplicationID, nt.AssetID, nt.ProjectID, t.Actor, t.Runner,
-		string(params), t.Status, nowStr, startedAt, secretRefs, nt.TargetDir, nt.RunnerTarget, nt.MethodologyItemID, nt.MethodologyRunID)
+		string(params), t.Status, nowStr, startedAt, secretRefs, nt.TargetDir, nt.RunnerTarget, methItems, nt.MethodologyRunID)
 	if err != nil {
 		return model.Task{}, err
 	}

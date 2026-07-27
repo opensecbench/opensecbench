@@ -299,10 +299,10 @@ type RunRequest struct {
 	SecretRefs    map[string]string // envVar -> vault secret name, injected at exec time (ADR-0011)
 	Params        map[string]any
 	RunnerID      string // "" = local Docker runner; otherwise an enrolled remote runner id (ADR-0024)
-	// MethodologyItemID / MethodologyRunID attribute the task to the methodology item + run that spawned it
-	// (ADR-0056), so the on-complete hook routes results back to that item's coverage. Nil for ordinary runs.
-	MethodologyItemID *string
-	MethodologyRunID  *string
+	// MethodologyItemIDs / MethodologyRunID attribute the task to the methodology item(s) + run that spawned
+	// it (ADR-0056); a single capability run serves every item that mapped to it. Empty for ordinary runs.
+	MethodologyItemIDs []string
+	MethodologyRunID   *string
 }
 
 // ErrOutOfScope is returned when a network capability's target is not in the project allowlist.
@@ -410,20 +410,20 @@ func (e *Engine) createTask(ctx context.Context, req RunRequest, p prepared, que
 	}
 	paramsJSON, _ := json.Marshal(req.Params)
 	return e.p(pidPtr(req.ProjectID)).CreateTask(ctx, store.NewTask{
-		CapabilityID:      p.man.ID,
-		CapabilityVersion: p.man.Version,
-		ApplicationID:     p.applicationID,
-		AssetID:           req.AssetID,
-		ProjectID:         req.ProjectID,
-		Actor:             actor,
-		Runner:            e.runner.Name(),
-		Params:            paramsJSON,
-		SecretRefs:        req.SecretRefs, // reference names only, persisted for durable reconstruction
-		TargetDir:         req.TargetDir,  // raw dir (empty when derived from an asset)
-		RunnerTarget:      req.RunnerID,   // '' = local; else an enrolled remote runner (ADR-0024)
-		MethodologyItemID: req.MethodologyItemID,
-		MethodologyRunID:  req.MethodologyRunID,
-		Queued:            queued,
+		CapabilityID:       p.man.ID,
+		CapabilityVersion:  p.man.Version,
+		ApplicationID:      p.applicationID,
+		AssetID:            req.AssetID,
+		ProjectID:          req.ProjectID,
+		Actor:              actor,
+		Runner:             e.runner.Name(),
+		Params:             paramsJSON,
+		SecretRefs:         req.SecretRefs, // reference names only, persisted for durable reconstruction
+		TargetDir:          req.TargetDir,  // raw dir (empty when derived from an asset)
+		RunnerTarget:       req.RunnerID,   // '' = local; else an enrolled remote runner (ADR-0024)
+		MethodologyItemIDs: req.MethodologyItemIDs,
+		MethodologyRunID:   req.MethodologyRunID,
+		Queued:             queued,
 	})
 }
 
@@ -522,10 +522,34 @@ func (e *Engine) RunMethodologyChecks(ctx context.Context, projectID, runID stri
 	}
 	pid := projectID
 	var res ScanResult
+
+	// Dedup: group the requesting items by capability so a capability shared by several items runs ONCE per
+	// asset and attributes its results to all of them. Running it per item would waste work and, worse, the
+	// engine's fingerprint dedup would leave every item but the first with zero evidence (ADR-0056).
+	type group struct {
+		items []string
+		seen  map[string]bool
+	}
+	groups := map[string]*group{}
+	order := []string{}
 	for _, chk := range checks {
-		c, ok := e.registry.Get(chk.CapabilityID)
+		g := groups[chk.CapabilityID]
+		if g == nil {
+			g = &group{seen: map[string]bool{}}
+			groups[chk.CapabilityID] = g
+			order = append(order, chk.CapabilityID)
+		}
+		if chk.ItemID != "" && !g.seen[chk.ItemID] {
+			g.seen[chk.ItemID] = true
+			g.items = append(g.items, chk.ItemID)
+		}
+	}
+
+	for _, capID := range order {
+		items := groups[capID].items
+		c, ok := e.registry.Get(capID)
 		if !ok {
-			res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: chk.CapabilityID, Reason: "unknown capability"})
+			res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: capID, Reason: "unknown capability"})
 			continue
 		}
 		m := c.Manifest()
@@ -548,8 +572,8 @@ func (e *Engine) RunMethodologyChecks(ctx context.Context, projectID, runID stri
 			if !m.TargetsEcosystems(eco) {
 				continue
 			}
-			assetID, item := a.ID, chk.ItemID
-			t, err := e.Enqueue(ctx, RunRequest{CapabilityID: m.ID, AssetID: &assetID, ProjectID: &pid, Actor: "methodology", MethodologyItemID: &item, MethodologyRunID: &runID})
+			assetID := a.ID
+			t, err := e.Enqueue(ctx, RunRequest{CapabilityID: m.ID, AssetID: &assetID, ProjectID: &pid, Actor: "methodology", MethodologyItemIDs: items, MethodologyRunID: &runID})
 			if err != nil {
 				res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: m.ID, AssetID: a.ID, Reason: err.Error()})
 				continue

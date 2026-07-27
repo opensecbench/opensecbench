@@ -821,11 +821,11 @@ type Task struct {
 	// runners.id. Persisted so the durable queue re-dispatches to the right runner after a restart.
 	RunnerTarget string `json:"runner_target,omitempty"`
 
-	// MethodologyItemID / MethodologyRunID attribute a task to the methodology item + run that spawned it
-	// (ADR-0056), so the on-complete hook can route results back to that item's coverage. Nil for ordinary
-	// scans and agent tasks.
-	MethodologyItemID *string `json:"methodology_item_id,omitempty"`
-	MethodologyRunID  *string `json:"methodology_run_id,omitempty"`
+	// MethodologyItemIDs / MethodologyRunID attribute a task to the methodology item(s) + run that spawned it
+	// (ADR-0056), so the on-complete hook routes results back to every requesting item's coverage. A single
+	// capability run serves all items that mapped to it (dedup). Empty for ordinary scans and agent tasks.
+	MethodologyItemIDs []string `json:"methodology_item_ids,omitempty"`
+	MethodologyRunID   *string  `json:"methodology_run_id,omitempty"`
 }
 
 // Artifact kinds.

@@ -342,29 +342,32 @@ func (s *Server) runMethodologyAgentChecks(projectID, runID string, checks []age
 // is indifferent to who produced the observations.
 func (s *Server) methodologyOnComplete(ctx context.Context, oc task.Outcome) {
 	t := oc.Task
-	if t.MethodologyItemID == nil || *t.MethodologyItemID == "" || t.ProjectID == nil || *t.ProjectID == "" {
+	if len(t.MethodologyItemIDs) == 0 || t.ProjectID == nil || *t.ProjectID == "" {
 		return
 	}
-	itemID, projectID := *t.MethodologyItemID, *t.ProjectID
+	projectID := *t.ProjectID
 	pdb, err := s.mgr.Project(projectID)
 	if err != nil || pdb == nil {
 		return
-	}
-	for _, o := range oc.Observations {
-		_ = pdb.LinkCoverageObservation(ctx, projectID, itemID, o.ID)
 	}
 	status, note := model.CoverageCovered, "methodology run · "+t.CapabilityID
 	if t.Status != model.TaskSucceeded {
 		status, note = model.CoverageInProgress, "methodology run · "+t.CapabilityID+" ("+t.Status+")"
 	}
-	_ = pdb.SetCoverage(ctx, projectID, itemID, status, note)
 	runID := ""
 	if t.MethodologyRunID != nil {
 		runID = *t.MethodologyRunID
 	}
-	s.events.Publish(events.Event{Type: "methodology.item", ProjectID: projectID, Payload: map[string]any{
-		"item_id": itemID, "status": status, "run_id": runID, "capability": t.CapabilityID, "task_status": t.Status,
-	}})
+	// A capability shared by several items runs once; attach its results and flip coverage for every item.
+	for _, itemID := range t.MethodologyItemIDs {
+		for _, o := range oc.Observations {
+			_ = pdb.LinkCoverageObservation(ctx, projectID, itemID, o.ID)
+		}
+		_ = pdb.SetCoverage(ctx, projectID, itemID, status, note)
+		s.events.Publish(events.Event{Type: "methodology.item", ProjectID: projectID, Payload: map[string]any{
+			"item_id": itemID, "status": status, "run_id": runID, "capability": t.CapabilityID, "task_status": t.Status,
+		}})
+	}
 }
 
 // getMethodologyCoverage returns a project's adopted packs with per-item status and a roll-up.

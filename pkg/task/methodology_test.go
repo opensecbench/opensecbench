@@ -34,14 +34,14 @@ func TestRunMethodologyChecksAttributesAndFiresHook(t *testing.T) {
 		t.Fatalf("enqueued %d, want 1 (skips=%v)", len(res.Enqueued), res.Skipped)
 	}
 	tk := res.Enqueued[0]
-	if tk.MethodologyItemID == nil || *tk.MethodologyItemID != "web-app/xss" || tk.MethodologyRunID == nil || *tk.MethodologyRunID != "run-1" {
+	if len(tk.MethodologyItemIDs) != 1 || tk.MethodologyItemIDs[0] != "web-app/xss" || tk.MethodologyRunID == nil || *tk.MethodologyRunID != "run-1" {
 		t.Fatalf("task not attributed to item/run: %+v", tk)
 	}
 
 	// The worker completes it and the hook fires with the same attribution.
 	select {
 	case oc := <-done:
-		if oc.Task.MethodologyItemID == nil || *oc.Task.MethodologyItemID != "web-app/xss" {
+		if len(oc.Task.MethodologyItemIDs) != 1 || oc.Task.MethodologyItemIDs[0] != "web-app/xss" {
 			t.Fatalf("on-complete task lost its item id: %+v", oc.Task)
 		}
 	case <-time.After(5 * time.Second):
@@ -71,5 +71,35 @@ func TestRunMethodologyChecksRunsOptOutCapability(t *testing.T) {
 	}
 	if len(res.Enqueued) != 1 || res.Enqueued[0].CapabilityID != "semgrep" {
 		t.Fatalf("opt-out capability not run as an explicit check: enqueued=%d skipped=%v", len(res.Enqueued), res.Skipped)
+	}
+}
+
+// Several items mapping to the same capability run it ONCE, attributing the single task to all of them —
+// dedup, and correct multi-item evidence (a per-item run would leave all but the first with no evidence,
+// since the engine fingerprint-dedupes observations). ADR-0056.
+func TestRunMethodologyChecksDedupesSharedCapability(t *testing.T) {
+	db, blobs := openStore(t)
+	ctx := context.Background()
+	reg := capability.NewRegistry()
+	reg.Register(pyOnlyCap{}) // source_repo + python
+	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), reg, fakeRunner{out: []byte("x"), code: 0})
+	defer eng.Close()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	seedRepoAsset(t, db, proj.ID, "requirements.txt", "flask\n")
+
+	res, err := eng.RunMethodologyChecks(ctx, proj.ID, "run", []MethodologyCheck{
+		{ItemID: "a", CapabilityID: "py-checker"},
+		{ItemID: "b", CapabilityID: "py-checker"},
+		{ItemID: "a", CapabilityID: "py-checker"}, // duplicate item — collapsed
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Enqueued) != 1 {
+		t.Fatalf("shared capability should run once, got %d tasks", len(res.Enqueued))
+	}
+	got := res.Enqueued[0].MethodologyItemIDs
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("shared task should attribute to both items in order, got %v", got)
 	}
 }
