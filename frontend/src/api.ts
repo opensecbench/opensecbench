@@ -186,7 +186,9 @@ export interface AuditEvent {
 
 export interface KBEntry {
   id: string
-  target_id: string
+  target_id?: string
+  group_id?: string
+  organization_id?: string
   kind: string
   scope: string
   title: string
@@ -1173,6 +1175,20 @@ export const api = {
     targetId: string,
     e: { kind: string; title: string; body?: string; tags?: string },
   ) => request<KBEntry>('POST', `/v1/targets/${targetId}/kb`, e),
+  // Scope-aware create: author knowledge at target | group | org | global (ADR-0041). The server validates
+  // the right anchor is set for the scope.
+  createKBScoped: (payload: {
+    scope: string
+    target_id?: string
+    group_id?: string
+    organization_id?: string
+    kind: string
+    title: string
+    body?: string
+    tags?: string
+  }) => request<KBEntry>('POST', '/v1/kb', payload),
+  updateKBEntry: (id: string, e: { title: string; body: string; tags?: string }) =>
+    request<KBEntry>('PUT', `/v1/kb/${id}`, e),
   reviewKBEntry: (id: string, state: string) =>
     request<KBEntry>('POST', `/v1/kb/${id}/review`, { state }),
 

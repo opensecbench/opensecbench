@@ -55,6 +55,44 @@ func (s *Server) createKBEntry(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, entry)
 }
 
+// createKBEntryScoped creates a human KB entry at any scope — target, group (team), org, or global — so an
+// operator can deliberately author team- or org-wide knowledge (ADR-0041). CreateKBEntry validates that the
+// right anchor is set for the scope.
+func (s *Server) createKBEntryScoped(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Scope          string `json:"scope"` // target | group | org | global (default target)
+		TargetID       string `json:"target_id"`
+		GroupID        string `json:"group_id"`
+		OrganizationID string `json:"organization_id"`
+		Kind           string `json:"kind"`
+		Title          string `json:"title"`
+		Body           string `json:"body"`
+		Tags           string `json:"tags"`
+		Sensitivity    string `json:"sensitivity"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	entry, err := s.global().CreateKBEntry(r.Context(), model.KBEntry{
+		Scope:          req.Scope,
+		TargetID:       req.TargetID,
+		GroupID:        req.GroupID,
+		OrganizationID: req.OrganizationID,
+		Kind:           req.Kind,
+		Title:          req.Title,
+		Body:           req.Body,
+		Tags:           req.Tags,
+		Sensitivity:    req.Sensitivity,
+		Origin:         model.OriginHuman,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "kb.create", entry.ID, map[string]string{"scope": entry.Scope, "kind": entry.Kind})
+	writeJSON(w, http.StatusCreated, entry)
+}
+
 func (s *Server) getKBEntry(w http.ResponseWriter, r *http.Request) {
 	entry, err := s.global().GetKBEntry(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
