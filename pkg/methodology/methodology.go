@@ -28,6 +28,10 @@ type Methodology struct {
 	// base, the pack is suggested for adoption (ADR-0009/ADR-0010 tie-in).
 	Keywords []string `json:"keywords,omitempty"`
 	Items    []Item   `json:"items"`
+	// Builtin marks a pack the operator can't edit (a code-defined or extension pack). It is not stored;
+	// the API sets it per-request from the saved-pack set (ADR-0055) so the editor can show built-ins
+	// read-only, exactly as the playbook library does.
+	Builtin bool `json:"builtin,omitempty"`
 }
 
 // Registry holds methodologies by id. Safe for concurrent use (runtime extension registration).
@@ -44,11 +48,19 @@ func (r *Registry) Get(id string) (Methodology, bool) {
 	return m, ok
 }
 
-// Register adds (or replaces) a methodology pack — used to load extension-provided packs.
+// Register adds (or replaces) a methodology pack — used to load extension-provided packs and user-authored
+// packs (ADR-0055) into the runtime registry so adoption, coverage, and item lookup treat them like built-ins.
 func (r *Registry) Register(m Methodology) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.packs[m.ID] = m
+}
+
+// Remove drops a pack from the registry — used when a user deletes a saved pack (ADR-0055).
+func (r *Registry) Remove(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.packs, id)
 }
 
 // All returns every methodology, sorted by id.

@@ -216,7 +216,27 @@ export interface Methodology {
   title: string
   tech: string
   version: string
+  keywords?: string[]
   items: MethodologyItem[]
+  builtin?: boolean // code-defined or extension pack — read-only in the editor (ADR-0055)
+}
+
+// MethodologyInput is what the editor sends when authoring a pack (ADR-0055). Ids and defaults are derived
+// server-side, so a brand-new pack can omit ids entirely.
+export interface MethodologyInput {
+  id?: string
+  title: string
+  tech?: string
+  version?: string
+  keywords?: string[]
+  items: {
+    id?: string
+    title: string
+    objective?: string
+    procedure?: string
+    standards?: string[]
+    suggested_capabilities?: string[]
+  }[]
 }
 
 export interface CoverageView {
@@ -1194,6 +1214,11 @@ export const api = {
 
   // methodology
   listMethodologies: () => request<Methodology[]>('GET', '/v1/methodologies'),
+  // Authoring the catalog (ADR-0055) — built-ins are read-only, so create/update/delete only apply to
+  // user-authored packs. Create/update send the full pack; the backend fills derived ids and defaults.
+  createMethodology: (m: MethodologyInput) => request<Methodology>('POST', '/v1/methodologies', m),
+  updateMethodology: (id: string, m: MethodologyInput) => request<Methodology>('PUT', '/v1/methodologies/' + id, m),
+  deleteMethodology: (id: string) => request<void>('DELETE', '/v1/methodologies/' + id),
   getMethodologyCoverage: (projectId: string) =>
     request<CoverageView>('GET', `/v1/projects/${projectId}/methodology`),
   adoptMethodology: (projectId: string, methodologyId: string) =>

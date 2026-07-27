@@ -1,15 +1,152 @@
 package api
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/methodology"
+	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
-// listMethodologies returns the full methodology catalog (all packs + items).
-func (s *Server) listMethodologies(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.methods.All())
+// listMethodologies returns the full methodology catalog (all packs + items). Each pack is flagged Builtin
+// unless it has a saved-pack row (ADR-0055), so the editor shows code-defined and extension packs read-only.
+func (s *Server) listMethodologies(w http.ResponseWriter, r *http.Request) {
+	saved := s.savedMethodologyIDs(r)
+	packs := s.methods.All()
+	for i := range packs {
+		packs[i].Builtin = !saved[packs[i].ID]
+	}
+	writeJSON(w, http.StatusOK, packs)
+}
+
+// savedMethodologyIDs returns the set of pack ids that are user-authored (editable). A load failure yields an
+// empty set, which conservatively marks every pack built-in rather than offering edits that would then fail.
+func (s *Server) savedMethodologyIDs(r *http.Request) map[string]bool {
+	set := map[string]bool{}
+	saved, err := s.global().ListSavedMethodologies(r.Context())
+	if err != nil {
+		return set
+	}
+	for _, m := range saved {
+		set[m.ID] = true
+	}
+	return set
+}
+
+// createMethodology stores a user-authored methodology pack and registers it so it's immediately adoptable.
+func (s *Server) createMethodology(w http.ResponseWriter, r *http.Request) {
+	var m methodology.Methodology
+	if !decodeJSON(w, r, &m) {
+		return
+	}
+	methodology.Normalize(&m)
+	if err := methodology.Validate(m); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, ok := s.methods.Get(m.ID); ok {
+		writeErr(w, http.StatusBadRequest, "a methodology with id "+m.ID+" already exists; give it a different title")
+		return
+	}
+	if err := s.checkItemIDCollisions(m); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := s.persistMethodology(r, m, true); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.methods.Register(m)
+	s.record(r.Context(), actorOf(r), "methodology.create", m.ID, map[string]string{"title": m.Title})
+	m.Builtin = false
+	writeJSON(w, http.StatusCreated, m)
+}
+
+// updateMethodology edits a saved pack in place, keeping its id so adopted-pack and coverage references stay
+// valid. Built-in and extension packs have no saved row, so editing one returns 404.
+func (s *Server) updateMethodology(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var m methodology.Methodology
+	if !decodeJSON(w, r, &m) {
+		return
+	}
+	m.ID = id // the path is authoritative; ids never change on edit
+	methodology.Normalize(&m)
+	if err := methodology.Validate(m); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.checkItemIDCollisions(m); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_, err := s.persistMethodology(r, m, false)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "methodology not found or not editable (built-ins can't be edited; save a copy instead)")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.methods.Register(m)
+	s.record(r.Context(), actorOf(r), "methodology.update", m.ID, map[string]string{"title": m.Title})
+	m.Builtin = false
+	writeJSON(w, http.StatusOK, m)
+}
+
+// deleteMethodology removes a user-saved pack (built-ins can't be deleted).
+func (s *Server) deleteMethodology(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := s.global().DeleteSavedMethodology(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "methodology not found (built-ins can't be deleted)")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.methods.Remove(id)
+	s.record(r.Context(), actorOf(r), "methodology.delete", id, nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// persistMethodology marshals the pack and writes it to the saved-methodology store (create or update).
+func (s *Server) persistMethodology(r *http.Request, m methodology.Methodology, create bool) (model.SavedMethodology, error) {
+	m.Builtin = false // never persist the transient UI flag
+	data, err := json.Marshal(m)
+	if err != nil {
+		return model.SavedMethodology{}, err
+	}
+	row := model.SavedMethodology{ID: m.ID, Title: m.Title, Data: data}
+	if create {
+		return s.global().CreateSavedMethodology(r.Context(), row)
+	}
+	return s.global().UpdateSavedMethodology(r.Context(), row)
+}
+
+// checkItemIDCollisions ensures the pack's item ids don't clash with items in any OTHER registered pack —
+// item ids are globally unique so the coverage store and Registry.Item lookup stay unambiguous.
+func (s *Server) checkItemIDCollisions(m methodology.Methodology) error {
+	taken := map[string]string{} // itemID -> owning pack id
+	for _, other := range s.methods.All() {
+		if other.ID == m.ID {
+			continue
+		}
+		for _, it := range other.Items {
+			taken[it.ID] = other.ID
+		}
+	}
+	for _, it := range m.Items {
+		if owner, ok := taken[it.ID]; ok {
+			return errors.New("item id " + it.ID + " is already used by pack " + owner)
+		}
+	}
+	return nil
 }
 
 // getMethodologyCoverage returns a project's adopted packs with per-item status and a roll-up.
