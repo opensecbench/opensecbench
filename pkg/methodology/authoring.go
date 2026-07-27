@@ -43,7 +43,45 @@ func Normalize(m *Methodology) {
 		}
 		it.Standards = cleanStrings(it.Standards)
 		it.SuggestedCapabilities = cleanStrings(it.SuggestedCapabilities)
+		it.Checks = normalizeChecks(it.Checks, it.SuggestedCapabilities)
 	}
+}
+
+// EffectiveChecks returns an item's runnable checks — its own, or capability checks derived from
+// SuggestedCapabilities when it declares none. Use this at run time so an un-normalized item (e.g. from an
+// extension pack registered without Normalize) is still runnable (ADR-0056).
+func EffectiveChecks(it Item) []Check { return normalizeChecks(it.Checks, it.SuggestedCapabilities) }
+
+// normalizeChecks trims agent-check text and, when an item declares no checks of its own, derives one
+// capability check per suggested capability (ADR-0056) — so code-defined and previously-saved packs become
+// runnable without re-authoring. Manual checks carry no fields. Invalid/empty checks are dropped.
+func normalizeChecks(checks []Check, suggestedCaps []string) []Check {
+	out := make([]Check, 0, len(checks))
+	for _, c := range checks {
+		c.Kind = strings.TrimSpace(c.Kind)
+		switch c.Kind {
+		case CheckCapability:
+			if c.Capability = strings.TrimSpace(c.Capability); c.Capability != "" {
+				out = append(out, Check{Kind: CheckCapability, Capability: c.Capability})
+			}
+		case CheckAgent:
+			c.Profile, c.Instruction = strings.TrimSpace(c.Profile), strings.TrimSpace(c.Instruction)
+			if c.Profile != "" && c.Instruction != "" {
+				out = append(out, Check{Kind: CheckAgent, Profile: c.Profile, Instruction: c.Instruction})
+			}
+		case CheckManual:
+			out = append(out, Check{Kind: CheckManual})
+		}
+	}
+	if len(out) == 0 {
+		for _, cap := range suggestedCaps {
+			out = append(out, Check{Kind: CheckCapability, Capability: cap})
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Validate checks a normalized pack is self-consistent: it has an id, a title, at least one titled item, and
@@ -68,6 +106,21 @@ func Validate(m Methodology) error {
 			return fmt.Errorf("duplicate item id %q", it.ID)
 		}
 		seen[it.ID] = true
+		for _, c := range it.Checks {
+			switch c.Kind {
+			case CheckCapability:
+				if c.Capability == "" {
+					return fmt.Errorf("item %q: a capability check needs a capability id", it.ID)
+				}
+			case CheckAgent:
+				if c.Profile == "" || c.Instruction == "" {
+					return fmt.Errorf("item %q: an agent check needs a profile and an instruction", it.ID)
+				}
+			case CheckManual:
+			default:
+				return fmt.Errorf("item %q: unknown check kind %q", it.ID, c.Kind)
+			}
+		}
 	}
 	return nil
 }

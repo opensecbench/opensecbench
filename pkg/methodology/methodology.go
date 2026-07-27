@@ -8,6 +8,23 @@ import (
 	"sync"
 )
 
+// Check kinds — how a methodology item gets tested (ADR-0056). Exactly one kind per check.
+const (
+	CheckCapability = "capability" // run a deterministic scanner (Capability id)
+	CheckAgent      = "agent"      // delegate a judgment check to a specialist Profile with an Instruction
+	CheckManual     = "manual"     // a human reviews and signs off; nothing runs
+)
+
+// Check is one way an item is tested (ADR-0056). "Run the methodology" dispatches each check by Kind:
+// capability checks fan out through the task engine, agent checks delegate to a profile, manual checks wait
+// for a human. An item may carry several checks of mixed kinds.
+type Check struct {
+	Kind        string `json:"kind"`                  // one of CheckCapability / CheckAgent / CheckManual
+	Capability  string `json:"capability,omitempty"`  // Kind == capability: the capability id to run
+	Profile     string `json:"profile,omitempty"`     // Kind == agent: the specialist profile to delegate to
+	Instruction string `json:"instruction,omitempty"` // Kind == agent: what to tell the specialist
+}
+
 // Item is one checklist check within a methodology.
 type Item struct {
 	ID                    string   `json:"id"` // pack-scoped, e.g. "web-app/idor"
@@ -16,6 +33,9 @@ type Item struct {
 	Procedure             string   `json:"procedure"`
 	Standards             []string `json:"standards,omitempty"`              // e.g. "OWASP ASVS V4", "CWE-639"
 	SuggestedCapabilities []string `json:"suggested_capabilities,omitempty"` // capability ids that help
+	// Checks are how this item is tested (ADR-0056). If empty, Normalize derives capability checks from
+	// SuggestedCapabilities, so code-defined and previously-saved packs become runnable without re-authoring.
+	Checks []Check `json:"checks,omitempty"`
 }
 
 // Methodology is a pack of checklist items for a technology/domain.
@@ -89,11 +109,15 @@ func (r *Registry) Item(itemID string) (Item, Methodology, bool) {
 	return Item{}, Methodology{}, false
 }
 
-// BuiltIns returns the first-party methodology packs.
+// BuiltIns returns the first-party methodology packs, normalized so every item carries its Checks (derived
+// from SuggestedCapabilities) — the registry is then uniform for the run orchestrator and the UI (ADR-0056).
 func BuiltIns() *Registry {
 	r := &Registry{packs: map[string]Methodology{}}
 	for _, m := range []Methodology{webApp, restAPI, oidcOAuth} {
-		r.packs[m.ID] = m
+		mm := m
+		mm.Items = append([]Item(nil), m.Items...) // clone so Normalize doesn't mutate the package globals
+		Normalize(&mm)
+		r.packs[mm.ID] = mm
 	}
 	return r
 }
