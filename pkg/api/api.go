@@ -356,6 +356,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/projects/{id}/kb", s.listProjectKB)
 	s.mux.HandleFunc("GET /v1/targets/{id}/kb", s.listTargetKB)
 	s.mux.HandleFunc("POST /v1/targets/{id}/kb", s.createKBEntry)
+	s.mux.HandleFunc("POST /v1/kb", s.createKBEntryScoped)
 	s.mux.HandleFunc("GET /v1/kb/{id}", s.getKBEntry)
 	s.mux.HandleFunc("PUT /v1/kb/{id}", s.updateKBEntry)
 	s.mux.HandleFunc("POST /v1/kb/{id}/review", s.reviewKBEntry)
