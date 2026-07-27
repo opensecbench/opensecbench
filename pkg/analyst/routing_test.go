@@ -63,8 +63,8 @@ func TestRoutingOrderedListFallThrough(t *testing.T) {
 	ctx := context.Background()
 	db := migratedStore(t)
 	active := &llm.MockProvider{}
-	sub := &llm.MockProvider{}  // "subscription" (top choice)
-	gw := &llm.MockProvider{}   // "gateway" fallback
+	sub := &llm.MockProvider{} // "subscription" (top choice)
+	gw := &llm.MockProvider{}  // "gateway" fallback
 	svc := NewService(store.NewCombinedManager(db), nil, nil, "", active)
 	svc.SetProviderResolver(func(_ context.Context, id string) (llm.Provider, error) {
 		switch id {
