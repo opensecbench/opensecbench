@@ -2946,5 +2946,7 @@ select.em-in { cursor: pointer; }
 /* report template editor: title input growth, preview project selector, and inline (Library) sizing */
 .rte-toolbar .grow { flex: 1; }
 .rte-projsel { background: var(--bg); border: 1px solid var(--line2); color: var(--tx); border-radius: 5px; padding: 3px 6px; font-size: 12px; margin-left: 8px; }
-.rte-inline { flex: 1; min-height: 0; }
-.rte-inline .rte-body { height: calc(100vh - 250px); min-height: 440px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+/* the report-template editor needs the full pane width; other Library sections stay reading-width (720px) */
+.settings-body.wide { max-width: none; display: flex; flex-direction: column; }
+.rte-inline { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.rte-inline .rte-body { flex: 1; min-height: 440px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
