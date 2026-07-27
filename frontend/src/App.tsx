@@ -65,7 +65,7 @@ export function App() {
         <button className={`rail-btn ${view === 'home' ? 'active' : ''}`} title="Home" onClick={() => setView('home')}>
           ⌂
         </button>
-        <button className={`rail-btn ${view === 'library' ? 'active' : ''}`} title="Library — playbooks, agents, methodology, connectors" onClick={() => setView('library')}>
+        <button className={`rail-btn ${view === 'library' ? 'active' : ''}`} title="Library — playbooks, agents, methodology, report templates, connectors" onClick={() => setView('library')}>
           📚
         </button>
         <button className={`rail-btn ${view === 'ext' ? 'active' : ''}`} title="Extensions & Governance" onClick={() => setView('ext')}>
