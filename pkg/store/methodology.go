@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -99,19 +100,25 @@ func (db *DB) FindingsByMethodologyItem(ctx context.Context, projectID string) (
 // view's transient RunState so the control panel shows items in flight.
 func (db *DB) ActiveMethodologyItemStates(ctx context.Context, projectID string) (map[string]string, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT methodology_item_id, status FROM tasks
-		 WHERE project_id = ? AND methodology_item_id IS NOT NULL AND status IN ('pending','running')`, projectID)
+		`SELECT methodology_item_ids, status FROM tasks
+		 WHERE project_id = ? AND methodology_item_ids IS NOT NULL AND status IN ('pending','running')`, projectID)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	out := map[string]string{}
 	for rows.Next() {
-		var item, status string
-		if err := rows.Scan(&item, &status); err != nil {
+		var itemsJSON, status string
+		if err := rows.Scan(&itemsJSON, &status); err != nil {
 			return nil, err
 		}
-		if status == "running" || out[item] == "" {
+		var items []string
+		if json.Unmarshal([]byte(itemsJSON), &items) != nil {
+			continue
+		}
+		// A running task's items are running; a pending task's are queued — but "running" wins over "queued"
+		// if the same item appears on both (a capability shared across items still resolves to one state).
+		for _, item := range items {
 			if status == "running" {
 				out[item] = "running"
 			} else if out[item] == "" {

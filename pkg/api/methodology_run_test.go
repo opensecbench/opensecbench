@@ -44,36 +44,35 @@ func TestMethodologyOnCompleteFlipsCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	itemID := "web-app/secrets"
+	// One capability run shared by two items: both must get the evidence and flip to covered (dedup path).
+	itemID, itemShared := "web-app/secrets", "web-app/injection-sqli"
 	oc := task.Outcome{
-		Task:         model.Task{ID: "t1", CapabilityID: "trufflehog", ProjectID: &pid, MethodologyItemID: &itemID, Status: model.TaskSucceeded},
+		Task:         model.Task{ID: "t1", CapabilityID: "opengrep", ProjectID: &pid, MethodologyItemIDs: []string{itemID, itemShared}, Status: model.TaskSucceeded},
 		Observations: []model.Observation{obs},
 	}
 	s.methodologyOnComplete(ctx, oc)
 
-	// Coverage flipped to covered (tested).
+	// Coverage flipped to covered (tested) for BOTH items.
 	cov, err := db.ListCoverage(ctx, pid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var status string
+	covByItem := map[string]string{}
 	for _, c := range cov {
-		if c.ItemID == itemID {
-			status = c.Status
-		}
+		covByItem[c.ItemID] = c.Status
 	}
-	if status != model.CoverageCovered {
-		t.Fatalf("item coverage = %q, want covered", status)
+	if covByItem[itemID] != model.CoverageCovered || covByItem[itemShared] != model.CoverageCovered {
+		t.Fatalf("both shared items should be covered, got %q / %q", covByItem[itemID], covByItem[itemShared])
 	}
-	// The observation is attached to the item as evidence.
+	// The observation is attached to BOTH items as evidence.
 	counts, _ := db.CountCoverageEvidence(ctx, pid)
-	if counts[itemID] != 1 {
-		t.Fatalf("evidence count = %d, want 1", counts[itemID])
+	if counts[itemID] != 1 || counts[itemShared] != 1 {
+		t.Fatalf("both shared items should have 1 evidence, got %d / %d", counts[itemID], counts[itemShared])
 	}
 
 	// A failed task lands the item at in_progress (tested-with-a-problem), not covered.
 	itemID2 := "web-app/xss"
-	s.methodologyOnComplete(ctx, task.Outcome{Task: model.Task{ID: "t2", CapabilityID: "semgrep", ProjectID: &pid, MethodologyItemID: &itemID2, Status: model.TaskFailed}})
+	s.methodologyOnComplete(ctx, task.Outcome{Task: model.Task{ID: "t2", CapabilityID: "opengrep", ProjectID: &pid, MethodologyItemIDs: []string{itemID2}, Status: model.TaskFailed}})
 	cov2, _ := db.ListCoverage(ctx, pid)
 	var status2 string
 	for _, c := range cov2 {
