@@ -49,7 +49,7 @@ import { OverviewTab } from './Overview'
 import { ProxyTab } from './ProxyTab'
 import { ActivityTab } from './ActivityTab'
 import { ReportTemplateEditor } from './ReportTemplateEditor'
-import { hasNativePickers, pickDirectory } from './native'
+import { hasNativePickers, pickDirectory, openExternal } from './native'
 
 // The terminal pulls in xterm.js; load it only when the tab is opened.
 const TerminalTab = lazy(() => import('./TerminalTab').then((m) => ({ default: m.TerminalTab })))
@@ -1280,7 +1280,7 @@ function ReportsTab({
     try {
       const rep = await api.generateReport(project.id, template, format, narrate)
       await reload()
-      window.open(api.artifactContentURL(rep.artifact_id), '_blank')
+      openExternal(api.artifactContentURL(rep.artifact_id))
     } catch (e) {
       onError((e as Error).message)
     } finally {
@@ -1327,7 +1327,7 @@ function ReportsTab({
               <span className="muted">{rep.template_id}</span>
               <span className="grow" />
               <span className="muted mono">{new Date(rep.created_at).toLocaleString()}</span>
-              <a className="link" href={api.artifactContentURL(rep.artifact_id)} target="_blank" rel="noreferrer">open</a>
+              <button className="link" onClick={() => openExternal(api.artifactContentURL(rep.artifact_id))}>open</button>
               <button
                 className="del"
                 title="Delete this report"

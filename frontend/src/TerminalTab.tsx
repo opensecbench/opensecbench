@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { api, Project, Session, wsURL } from './api'
+import { openExternal } from './native'
 
 export function TerminalTab({
   project,
@@ -164,9 +165,9 @@ export function TerminalTab({
               <span className={`badge ${s.status === 'active' ? 'active' : 'succeeded'}`}>{s.status}</span>
               <span className="row-title mono">{s.container}</span>
               {s.status === 'closed' && s.transcript_artifact_id && (
-                <a className="link" href={api.artifactContentURL(s.transcript_artifact_id)} target="_blank" rel="noreferrer">
+                <button className="link" onClick={() => openExternal(api.artifactContentURL(s.transcript_artifact_id!))}>
                   transcript
-                </a>
+                </button>
               )}
             </li>
           ))}

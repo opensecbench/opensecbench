@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, CertSummary, HTTPExchange, ProxyRule, ProxyStatus, Project, RunnerView } from './api'
 import { actionsFor, type ActionContext } from './exchangeActions'
 import { ContextMenu, useContextMenu } from './ContextMenu'
-import { hasNativeBrowserLaunch, openProxyBrowser } from './native'
+import { hasNativeBrowserLaunch, openProxyBrowser, openExternal } from './native'
 
 const METHODS = ['', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 const RULE_TARGETS: { value: string; label: string }[] = [
@@ -300,7 +300,7 @@ export function ProxyTab({
             Open browser
           </button>
         )}
-        <a className="link" href={api.proxyCAURL()} target="_blank" rel="noreferrer">download CA cert</a>
+        <button className="link" onClick={() => openExternal(api.proxyCAURL())}>download CA cert</button>
         <button className={`ghost-btn ${showRules ? 'on' : ''}`} onClick={() => setShowRules((v) => !v)}>
           ⇄ Match &amp; replace{rules.length ? ` (${rules.filter((r) => r.enabled).length}/${rules.length})` : ''}
         </button>
