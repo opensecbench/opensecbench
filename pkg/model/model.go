@@ -820,6 +820,12 @@ type Task struct {
 	// RunnerTarget selects where the task runs (ADR-0024): '' = the local Docker runner; otherwise a
 	// runners.id. Persisted so the durable queue re-dispatches to the right runner after a restart.
 	RunnerTarget string `json:"runner_target,omitempty"`
+
+	// MethodologyItemID / MethodologyRunID attribute a task to the methodology item + run that spawned it
+	// (ADR-0056), so the on-complete hook can route results back to that item's coverage. Nil for ordinary
+	// scans and agent tasks.
+	MethodologyItemID *string `json:"methodology_item_id,omitempty"`
+	MethodologyRunID  *string `json:"methodology_run_id,omitempty"`
 }
 
 // Artifact kinds.
