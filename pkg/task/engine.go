@@ -504,6 +504,59 @@ func (e *Engine) ScanProject(ctx context.Context, projectID string) (ScanResult,
 	return res, nil
 }
 
+// MethodologyCheck is one capability check to run for a methodology item (ADR-0056): the item that asked for
+// it and the capability to run. The API resolves these from a project's adopted packs.
+type MethodologyCheck struct {
+	ItemID       string
+	CapabilityID string
+}
+
+// RunMethodologyChecks fans the given capability checks across the project's applicable assets, tagging each
+// spawned task with its methodology item and a shared run id (ADR-0056) so the on-complete hook routes results
+// back to the item. It mirrors ScanProject's applicability gating; a check that matches no asset — or fails to
+// enqueue — is recorded as a skip rather than failing the run.
+func (e *Engine) RunMethodologyChecks(ctx context.Context, projectID, runID string, checks []MethodologyCheck) (ScanResult, error) {
+	assets, err := e.p(projectID).ListAssets(ctx)
+	if err != nil {
+		return ScanResult{}, err
+	}
+	pid := projectID
+	var res ScanResult
+	for _, chk := range checks {
+		c, ok := e.registry.Get(chk.CapabilityID)
+		if !ok {
+			res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: chk.CapabilityID, Reason: "unknown capability"})
+			continue
+		}
+		m := c.Manifest()
+		ran := false
+		for _, a := range assets {
+			if !m.AppliesToKind(a.Type) {
+				continue
+			}
+			eco := capability.DetectEcosystems(a.Location)
+			for _, t := range a.Ecosystems {
+				eco[t] = true
+			}
+			if !m.TargetsEcosystems(eco) {
+				continue
+			}
+			assetID, item := a.ID, chk.ItemID
+			t, err := e.Enqueue(ctx, RunRequest{CapabilityID: m.ID, AssetID: &assetID, ProjectID: &pid, Actor: "methodology", MethodologyItemID: &item, MethodologyRunID: &runID})
+			if err != nil {
+				res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: m.ID, AssetID: a.ID, Reason: err.Error()})
+				continue
+			}
+			res.Enqueued = append(res.Enqueued, t)
+			ran = true
+		}
+		if !ran {
+			res.Skipped = append(res.Skipped, ScanSkip{CapabilityID: m.ID, Reason: "no applicable asset for this capability"})
+		}
+	}
+	return res, nil
+}
+
 // enrichOutdated parses a syft CycloneDX SBOM, asks deps.dev which components are behind their latest
 // release, and records each as an unreviewed observation (fingerprint-deduped so a re-scan doesn't
 // duplicate). Best-effort — a network or parse error just yields fewer observations.

@@ -20,6 +20,9 @@ type ItemCoverage struct {
 	Status        string `json:"status"`
 	Note          string `json:"note,omitempty"`
 	EvidenceCount int    `json:"evidence_count,omitempty"` // observations attached to this item (ADR-0015 P3b)
+	// RunState is transient live state while a methodology run is in flight: "queued" or "running" (ADR-0056).
+	// Set by the API from active tasks, not persisted; empty when nothing is running for the item.
+	RunState string `json:"run_state,omitempty"`
 }
 
 // PackCoverage is an adopted methodology and its items' statuses.

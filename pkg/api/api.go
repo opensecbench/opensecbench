@@ -289,6 +289,12 @@ func New(deps Deps) *Server {
 			return s.runners.Runner(id, r.Name), nil
 		})
 	}
+	// Route a methodology-triggered task's results back to the item that spawned it (ADR-0056): attach its
+	// observations as evidence and flip the item's coverage to tested. Fires for every task; a no-op unless
+	// the task carries a methodology item id.
+	if s.engine != nil && s.mgr != nil {
+		s.engine.SetOnComplete(s.methodologyOnComplete)
+	}
 	s.startScheduler()
 	return s
 }
@@ -420,6 +426,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology/suggestions", s.methodologySuggestions)
 	s.mux.HandleFunc("GET /v1/projects/{id}/graph", s.projectGraph)
+	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/run", s.runMethodology)
 	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/adopt", s.adoptMethodology)
 	s.mux.HandleFunc("POST /v1/projects/{id}/methodology/unadopt", s.unadoptMethodology)
 	s.mux.HandleFunc("POST /v1/projects/{id}/coverage", s.setCoverage)

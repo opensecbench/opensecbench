@@ -1,14 +1,19 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
+
+	"github.com/opensecbench/opensecbench/pkg/events"
 	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
 // listMethodologies returns the full methodology catalog (all packs + items). Each pack is flagged Builtin
@@ -175,6 +180,97 @@ func (s *Server) persistMethodology(r *http.Request, m methodology.Methodology, 
 	return s.global().UpdateSavedMethodology(r.Context(), row)
 }
 
+// runMethodology fans out the capability checks of a project's adopted packs (ADR-0056 P1). Optional query
+// params narrow the run: ?pack=<id> to one pack, ?item=<id> to one item. Agent and manual checks are skipped
+// in this phase (reported in the response). Returns the run id and what was enqueued/skipped.
+func (s *Server) runMethodology(w http.ResponseWriter, r *http.Request) {
+	if s.engine == nil {
+		writeErr(w, http.StatusServiceUnavailable, "engine unavailable")
+		return
+	}
+	projectID := r.PathValue("id")
+	onlyPack := r.URL.Query().Get("pack")
+	onlyItem := r.URL.Query().Get("item")
+
+	adopted, err := s.pdb(r).ListAdoptedMethodologies(r.Context(), projectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var checks []task.MethodologyCheck
+	deferred := 0 // agent/manual checks not run in P1
+	for _, packID := range adopted {
+		if onlyPack != "" && onlyPack != packID {
+			continue
+		}
+		pack, ok := s.methods.Get(packID)
+		if !ok {
+			continue
+		}
+		for _, it := range pack.Items {
+			if onlyItem != "" && onlyItem != it.ID {
+				continue
+			}
+			for _, c := range methodology.EffectiveChecks(it) {
+				if c.Kind == methodology.CheckCapability {
+					checks = append(checks, task.MethodologyCheck{ItemID: it.ID, CapabilityID: c.Capability})
+				} else {
+					deferred++
+				}
+			}
+		}
+	}
+	if len(checks) == 0 {
+		writeErr(w, http.StatusBadRequest, "nothing to run: the adopted packs have no capability checks (agent/manual checks aren't run in this phase)")
+		return
+	}
+	runID := uuid.NewString()
+	res, err := s.engine.RunMethodologyChecks(r.Context(), projectID, runID, checks)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.record(r.Context(), actorOf(r), "methodology.run", projectID, map[string]string{"run": runID})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"run_id":        runID,
+		"enqueued":      len(res.Enqueued),
+		"skipped":       res.Skipped,
+		"deferred_kind": deferred, // agent/manual checks that this phase doesn't execute yet
+	})
+}
+
+// methodologyOnComplete is the engine's on-complete hook (ADR-0056): when a methodology-triggered task
+// finishes, attach its observations to the originating item as evidence and flip the item's coverage to
+// tested (in_progress if the task failed). Findings are a separate signal, so coverage means "we tested
+// this," not "it's clean." A human and an agent both drive coverage identically (ADR-0053/0054) — this hook
+// is indifferent to who produced the observations.
+func (s *Server) methodologyOnComplete(ctx context.Context, oc task.Outcome) {
+	t := oc.Task
+	if t.MethodologyItemID == nil || *t.MethodologyItemID == "" || t.ProjectID == nil || *t.ProjectID == "" {
+		return
+	}
+	itemID, projectID := *t.MethodologyItemID, *t.ProjectID
+	pdb, err := s.mgr.Project(projectID)
+	if err != nil || pdb == nil {
+		return
+	}
+	for _, o := range oc.Observations {
+		_ = pdb.LinkCoverageObservation(ctx, projectID, itemID, o.ID)
+	}
+	status, note := model.CoverageCovered, "methodology run · "+t.CapabilityID
+	if t.Status != model.TaskSucceeded {
+		status, note = model.CoverageInProgress, "methodology run · "+t.CapabilityID+" ("+t.Status+")"
+	}
+	_ = pdb.SetCoverage(ctx, projectID, itemID, status, note)
+	runID := ""
+	if t.MethodologyRunID != nil {
+		runID = *t.MethodologyRunID
+	}
+	s.events.Publish(events.Event{Type: "methodology.item", ProjectID: projectID, Payload: map[string]any{
+		"item_id": itemID, "status": status, "run_id": runID, "capability": t.CapabilityID, "task_status": t.Status,
+	}})
+}
+
 // getMethodologyCoverage returns a project's adopted packs with per-item status and a roll-up.
 func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
@@ -201,9 +297,14 @@ func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Live run state (ADR-0056): mark items with an in-flight methodology task as queued/running so the
+	// control panel shows the run in progress. Best-effort — a failure just omits the transient state.
+	active, _ := s.pdb(r).ActiveMethodologyItemStates(r.Context(), projectID)
 	for pi := range view.Packs {
 		for ii := range view.Packs[pi].Items {
-			view.Packs[pi].Items[ii].EvidenceCount = evidence[view.Packs[pi].Items[ii].Item.ID]
+			id := view.Packs[pi].Items[ii].Item.ID
+			view.Packs[pi].Items[ii].EvidenceCount = evidence[id]
+			view.Packs[pi].Items[ii].RunState = active[id]
 		}
 	}
 	writeJSON(w, http.StatusOK, view)
