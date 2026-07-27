@@ -55,6 +55,11 @@ type Engine struct {
 	// enrichment after a syft SBOM completes. nil disables it (tests / offline).
 	outdatedHTTP enrich.Doer
 
+	// onComplete, if set, is called after every task's execution finishes (success or failure) with its
+	// final Outcome. It's the seam the methodology runner hooks (ADR-0056) to route a task's observations
+	// back to the item that spawned it and flip coverage. nil in most contexts.
+	onComplete func(ctx context.Context, oc Outcome)
+
 	notify     chan struct{}   // "there may be work" wakeup, so workers claim immediately on enqueue
 	baseCtx    context.Context // parent context for background runs (survives request cancellation)
 	baseCancel context.CancelFunc
@@ -279,6 +284,10 @@ func (e *Engine) Registry() *capability.Registry { return e.registry }
 // (ADR-0031-adjacent). Without it, syft completion does not trigger a currency check.
 func (e *Engine) SetOutdatedChecker(d enrich.Doer) { e.outdatedHTTP = d }
 
+// SetOnComplete registers a callback fired after every task finishes executing (ADR-0056), used by the
+// methodology runner to route a completed task's observations back to its originating item and set coverage.
+func (e *Engine) SetOnComplete(fn func(ctx context.Context, oc Outcome)) { e.onComplete = fn }
+
 // RunRequest asks the engine to run a capability against a target directory.
 type RunRequest struct {
 	CapabilityID  string
@@ -290,6 +299,10 @@ type RunRequest struct {
 	SecretRefs    map[string]string // envVar -> vault secret name, injected at exec time (ADR-0011)
 	Params        map[string]any
 	RunnerID      string // "" = local Docker runner; otherwise an enrolled remote runner id (ADR-0024)
+	// MethodologyItemID / MethodologyRunID attribute the task to the methodology item + run that spawned it
+	// (ADR-0056), so the on-complete hook routes results back to that item's coverage. Nil for ordinary runs.
+	MethodologyItemID *string
+	MethodologyRunID  *string
 }
 
 // ErrOutOfScope is returned when a network capability's target is not in the project allowlist.
@@ -408,6 +421,8 @@ func (e *Engine) createTask(ctx context.Context, req RunRequest, p prepared, que
 		SecretRefs:        req.SecretRefs, // reference names only, persisted for durable reconstruction
 		TargetDir:         req.TargetDir,  // raw dir (empty when derived from an asset)
 		RunnerTarget:      req.RunnerID,   // '' = local; else an enrolled remote runner (ADR-0024)
+		MethodologyItemID: req.MethodologyItemID,
+		MethodologyRunID:  req.MethodologyRunID,
 		Queued:            queued,
 	})
 }
@@ -567,8 +582,13 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 }
 
 // execute runs a created task's container, captures its output, interprets it, and finishes the task.
-// It is the shared body of both the synchronous Run and the async worker path.
-func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p prepared) (Outcome, error) {
+// It is the shared body of both the synchronous Run and the async worker path. Every return flows through
+// e.outcome, so the deferred on-complete hook (ADR-0056) fires once with the final outcome — success or
+// failure — the single choke point the methodology runner needs.
+func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p prepared) (oc Outcome, err error) {
+	if e.onComplete != nil {
+		defer func() { e.onComplete(ctx, oc) }()
+	}
 	man := p.man
 	spec := p.spec
 
