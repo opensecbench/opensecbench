@@ -1,7 +1,19 @@
-import { useEffect, useState } from 'react'
-import { api, CoverageView, Methodology, MethodologySuggestion, Project } from './api'
+import { useEffect, useRef, useState } from 'react'
+import { api, CoverageView, Methodology, MethodologyCheck, MethodologySuggestion, Project } from './api'
 
 const STATUSES = ['not_started', 'in_progress', 'covered', 'not_applicable']
+
+// checkSummary collapses an item's checks into short chips: capability ids, and a count of agent/manual checks.
+function checkChips(checks?: MethodologyCheck[]): { cls: string; label: string }[] {
+  if (!checks || checks.length === 0) return [{ cls: 'manual', label: 'manual' }]
+  return checks.map((c) =>
+    c.kind === 'capability'
+      ? { cls: 'cap', label: c.capability || 'capability' }
+      : c.kind === 'agent'
+        ? { cls: 'agent', label: `agent · ${c.profile || '?'}` }
+        : { cls: 'manual', label: 'manual' },
+  )
+}
 
 export function MethodologyTab({
   project,
@@ -20,6 +32,9 @@ export function MethodologyTab({
   const [view, setView] = useState<CoverageView | null>(null)
   const [suggestions, setSuggestions] = useState<MethodologySuggestion[]>([])
   const [adopt, setAdopt] = useState('')
+  const [running, setRunning] = useState(false)
+  const [runNote, setRunNote] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   async function reload() {
     try {
@@ -27,6 +42,41 @@ export function MethodologyTab({
       setSuggestions((await api.methodologySuggestions(project.id)) ?? [])
     } catch (e) {
       onError((e as Error).message)
+    }
+  }
+
+  // While any item has a task in flight, poll coverage so the panel tracks queued → running → tested
+  // without a manual refresh (ADR-0056). Stops when nothing is active.
+  useEffect(() => {
+    const active = (view?.packs ?? []).some((p) => (p.items ?? []).some((ic) => ic.run_state))
+    if (pollRef.current) {
+      clearTimeout(pollRef.current)
+      pollRef.current = null
+    }
+    if (active && online) {
+      pollRef.current = setTimeout(() => void reload(), 2000)
+    }
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, online])
+
+  // Run the whole methodology, or one pack. Coverage then fills in as tasks complete (the poll picks it up).
+  async function run(pack?: string) {
+    setRunNote(null)
+    setRunning(true)
+    try {
+      const res = await api.runMethodology(project.id, pack ? { pack } : undefined)
+      const parts = [`Queued ${res.enqueued} check${res.enqueued === 1 ? '' : 's'}`]
+      if (res.deferred_kind > 0) parts.push(`${res.deferred_kind} agent/manual check${res.deferred_kind === 1 ? '' : 's'} not run yet`)
+      if (res.skipped?.length) parts.push(`${res.skipped.length} skipped`)
+      setRunNote(parts.join(' · '))
+      await reload()
+    } catch (e) {
+      onError((e as Error).message)
+    } finally {
+      setRunning(false)
     }
   }
 
@@ -84,7 +134,17 @@ export function MethodologyTab({
 
   return (
     <section className="panel">
-      <div className="panel-head">Methodology & coverage</div>
+      <div className="panel-head">
+        Methodology & coverage
+        <span className="grow" />
+        {packs.length > 0 && (
+          <button className="mrun-btn" disabled={!online || running} title="Run the adopted packs' capability checks against this project" onClick={() => void run()}>
+            {running ? 'Starting…' : '▶ Run methodology'}
+          </button>
+        )}
+      </div>
+
+      {runNote && <div className="banner">{runNote}</div>}
 
       {s && s.total > 0 && (
         <div className="cov-summary">
@@ -126,6 +186,7 @@ export function MethodologyTab({
           <h3 className="mpack-head">
             {p.title} <span className="muted">{p.tech}</span>
             <span className="grow" />
+            <button className="mpack-run" title="Run this pack's capability checks" disabled={!online || running} onClick={() => void run(p.id)}>▶ Run</button>
             <button className="mpack-remove" title="Remove this methodology from the project" disabled={!online} onClick={() => void doUnadopt(p.id, p.title)}>Remove</button>
           </h3>
           <ul className="mitems">
@@ -134,11 +195,19 @@ export function MethodologyTab({
                 <div className="mitem-main">
                   <span className="mitem-title">{ic.item.title}</span>
                   {ic.item.objective && <span className="mitem-obj">{ic.item.objective}</span>}
+                  <span className="mitem-checks">
+                    {checkChips(ic.item.checks).map((chip, i) => (
+                      <span key={i} className={`mchip ${chip.cls}`}>{chip.label}</span>
+                    ))}
+                  </span>
                   {ic.item.standards && ic.item.standards.length > 0 && (
                     <span className="mitem-std">{ic.item.standards.join(' · ')}</span>
                   )}
                 </div>
                 <div className="mitem-actions">
+                  {ic.run_state && (
+                    <span className={`mitem-runstate ${ic.run_state}`}>{ic.run_state === 'running' ? '● running' : '◦ queued'}</span>
+                  )}
                   {(ic.evidence_count ?? 0) > 0 && (
                     <span className="mitem-ev" title="evidence attached to this item">🔬 {ic.evidence_count}</span>
                   )}

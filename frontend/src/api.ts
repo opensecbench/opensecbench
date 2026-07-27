@@ -202,6 +202,15 @@ export interface KBEntry {
   updated_at: string
 }
 
+// MethodologyCheck is how an item gets tested (ADR-0056): a capability run, an agent task, or a manual
+// sign-off. An item may carry several.
+export interface MethodologyCheck {
+  kind: 'capability' | 'agent' | 'manual'
+  capability?: string
+  profile?: string
+  instruction?: string
+}
+
 export interface MethodologyItem {
   id: string
   title: string
@@ -209,6 +218,7 @@ export interface MethodologyItem {
   procedure?: string
   standards?: string[]
   suggested_capabilities?: string[]
+  checks?: MethodologyCheck[]
 }
 
 export interface Methodology {
@@ -244,7 +254,7 @@ export interface CoverageView {
     id: string
     title: string
     tech: string
-    items: { item: MethodologyItem; status: string; note?: string; evidence_count?: number }[]
+    items: { item: MethodologyItem; status: string; note?: string; evidence_count?: number; run_state?: string }[]
   }[]
   summary: {
     total: number
@@ -1229,6 +1239,18 @@ export const api = {
     request<void>('POST', `/v1/projects/${projectId}/methodology/adopt`, { methodology_id: methodologyId }),
   unadoptMethodology: (projectId: string, methodologyId: string) =>
     request<void>('POST', `/v1/projects/${projectId}/methodology/unadopt`, { methodology_id: methodologyId }),
+  // Run the project's methodology (ADR-0056): fans the adopted packs' capability checks out through the
+  // engine. Optionally narrow to one pack or item. Results flow back to coverage as tasks complete.
+  runMethodology: (projectId: string, opts?: { pack?: string; item?: string }) => {
+    const q = new URLSearchParams()
+    if (opts?.pack) q.set('pack', opts.pack)
+    if (opts?.item) q.set('item', opts.item)
+    const qs = q.toString()
+    return request<{ run_id: string; enqueued: number; skipped: { capability_id: string; reason: string }[]; deferred_kind: number }>(
+      'POST',
+      `/v1/projects/${projectId}/methodology/run${qs ? '?' + qs : ''}`,
+    )
+  },
   setCoverage: (projectId: string, itemId: string, status: string, note = '') =>
     request<void>('POST', `/v1/projects/${projectId}/coverage`, { item_id: itemId, status, note }),
 
