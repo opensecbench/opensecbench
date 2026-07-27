@@ -77,6 +77,12 @@ Full loop (capability + agent + manual), delivered so each slice is usable as it
   registry via `report.Builder.WithMethodology`, so user-authored-pack coverage appears in reports (was
   hardcoded to `BuiltIns()`). Re-runs reconcile inherently: `LinkCoverageObservation` is idempotent and
   coverage re-flips rather than duplicating.
+- **P3.3 — dedup shared capabilities / multi-item attribution _(done)_.** A correctness fix: when several
+  items map to the same capability (web-app's injection/xss/secrets all → opengrep), running one task per item
+  meant the engine's fingerprint dedup left every item but the first with no evidence. A capability shared by
+  several items now runs **once** per asset and attributes to all of them — tasks carry `methodology_item_ids`
+  (a JSON array; migrations 0061/project-0013), and the on-complete hook links evidence + flips coverage for
+  every attributed item. Verified live: web-app runs opengrep once (was 3×).
 - **P3.2 — agent checks on the built-in judgment items _(done)_.** The items scanners can't do — IDOR,
   authn/session, CSRF, per-endpoint authz, mass assignment, rate limiting, and the OAuth flow checks
   (redirect_uri, state, PKCE) — now carry an `agent` check delegating to the `code-analysis` profile with a
