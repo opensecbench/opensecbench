@@ -12,17 +12,25 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
-// templateInfo is the JSON view of a report template.
+// templateInfo is the JSON view of a report template. Builtin flags the code-defined/extension templates
+// (no saved row) so the editor knows which are read-only — editing one forks a copy instead.
 type templateInfo struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	Kind  string `json:"kind"`
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Kind    string `json:"kind"`
+	Builtin bool   `json:"builtin"`
 }
 
-func (s *Server) listReportTemplates(w http.ResponseWriter, _ *http.Request) {
-	var out []templateInfo
+func (s *Server) listReportTemplates(w http.ResponseWriter, r *http.Request) {
+	saved := map[string]bool{}
+	if rows, err := s.global().ListReportTemplates(r.Context()); err == nil {
+		for _, t := range rows {
+			saved[t.ID] = true
+		}
+	}
+	out := []templateInfo{}
 	for _, t := range s.reports.Templates() {
-		out = append(out, templateInfo{ID: t.ID, Title: t.Title, Kind: t.Kind})
+		out = append(out, templateInfo{ID: t.ID, Title: t.Title, Kind: t.Kind, Builtin: !saved[t.ID]})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

@@ -17,9 +17,18 @@ type Template struct {
 	Title string
 	Kind  string
 
+	// mdSrc/htmlSrc retain the raw template sources so the editor can pre-fill when a user forks a
+	// template (parsed templates can't be printed back to source). Not rendered — Render uses md/html.
+	mdSrc   string
+	htmlSrc string
+
 	md   *texttemplate.Template
 	html *htmltemplate.Template
 }
+
+// Source returns the raw Go-template MD and HTML sources this template was parsed from. The editor reads
+// these to seed a fork of a built-in; empty for templates registered without retained source.
+func (t *Template) Source() (md, html string) { return t.mdSrc, t.htmlSrc }
 
 // Render produces the report in the requested format.
 func (t *Template) Render(d Data, format Format) ([]byte, error) {
@@ -78,8 +87,42 @@ func (r *Registry) Add(id, title, kind, md, html string) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.tmpls[id] = &Template{ID: id, Title: title, Kind: kind, md: mdT, html: htmlT}
+	r.tmpls[id] = &Template{ID: id, Title: title, Kind: kind, mdSrc: md, htmlSrc: html, md: mdT, html: htmlT}
 	return nil
+}
+
+// Parse validates that md and html are well-formed report templates without registering them, so a bad
+// user-authored template can be rejected before it is persisted.
+func Parse(id, md, html string) error {
+	if _, err := texttemplate.New(id).Funcs(funcs).Parse(md); err != nil {
+		return fmt.Errorf("report: parse markdown template %q: %w", id, err)
+	}
+	if _, err := htmltemplate.New(id).Funcs(htmltemplate.FuncMap(funcs)).Parse(html); err != nil {
+		return fmt.Errorf("report: parse html template %q: %w", id, err)
+	}
+	return nil
+}
+
+// RenderDraft parses md/html sources and renders Data in the requested format without registering a
+// template — powering the editor's live preview of an unsaved draft. Only Markdown and HTML are supported.
+func RenderDraft(md, html string, d Data, format Format) ([]byte, error) {
+	mdT, err := texttemplate.New("draft").Funcs(funcs).Parse(md)
+	if err != nil {
+		return nil, fmt.Errorf("report: parse markdown template: %w", err)
+	}
+	htmlT, err := htmltemplate.New("draft").Funcs(htmltemplate.FuncMap(funcs)).Parse(html)
+	if err != nil {
+		return nil, fmt.Errorf("report: parse html template: %w", err)
+	}
+	t := &Template{ID: "draft", md: mdT, html: htmlT}
+	return t.Render(d, format)
+}
+
+// Remove drops a template from the registry (e.g. when a user deletes a saved template). No-op if absent.
+func (r *Registry) Remove(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tmpls, id)
 }
 
 var funcs = map[string]any{
@@ -122,11 +165,13 @@ func BuiltIns() *Registry {
 
 func mustTemplate(id, title, kind, md, html string) *Template {
 	return &Template{
-		ID:    id,
-		Title: title,
-		Kind:  kind,
-		md:    texttemplate.Must(texttemplate.New(id).Funcs(funcs).Parse(md)),
-		html:  htmltemplate.Must(htmltemplate.New(id).Funcs(htmltemplate.FuncMap(funcs)).Parse(html)),
+		ID:      id,
+		Title:   title,
+		Kind:    kind,
+		mdSrc:   md,
+		htmlSrc: html,
+		md:      texttemplate.Must(texttemplate.New(id).Funcs(funcs).Parse(md)),
+		html:    htmltemplate.Must(htmltemplate.New(id).Funcs(htmltemplate.FuncMap(funcs)).Parse(html)),
 	}
 }
 

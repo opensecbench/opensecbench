@@ -134,6 +134,18 @@ func Start(opts Options) (*Instance, error) {
 		}
 	}
 
+	// Load user-authored report templates so generation treats them like built-ins. Registered after
+	// extensions so a saved fork (under a new id) never clobbers a shipped or extension template.
+	if saved, err := db.ListReportTemplates(context.Background()); err != nil {
+		log.Printf("report templates: load failed: %v", err)
+	} else {
+		for _, rt := range saved {
+			if err := reportReg.Add(rt.ID, rt.Title, rt.Kind, rt.MD, rt.HTML); err != nil {
+				log.Printf("saved report template %s skipped: %v", rt.ID, err)
+			}
+		}
+	}
+
 	engine := task.NewEngine(mgr, casr, capReg, runner.LocalRunner{})
 	// Enable the deps.dev outdated-dependency enrichment (fires after a syft SBOM completes).
 	engine.SetOutdatedChecker(&http.Client{Timeout: 20 * time.Second})
