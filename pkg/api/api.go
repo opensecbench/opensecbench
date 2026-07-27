@@ -414,6 +414,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/projects/{id}/usage", s.projectUsage)
 	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
 	s.mux.HandleFunc("POST /v1/methodologies", s.createMethodology)
+	s.mux.HandleFunc("POST /v1/methodologies/draft", s.draftMethodology)
 	s.mux.HandleFunc("PUT /v1/methodologies/{id}", s.updateMethodology)
 	s.mux.HandleFunc("DELETE /v1/methodologies/{id}", s.deleteMethodology)
 	s.mux.HandleFunc("GET /v1/projects/{id}/methodology", s.getMethodologyCoverage)

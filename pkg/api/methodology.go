@@ -65,6 +65,34 @@ func (s *Server) createMethodology(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, m)
 }
 
+// draftMethodology converts pasted free-form checklist text into a structured methodology pack via the LLM
+// WITHOUT persisting it (ADR-0055). The frontend opens the draft in the editor for review and saves it through
+// the normal create path — so LLM output always gets a human glance before it enters the catalog.
+func (s *Server) draftMethodology(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Text  string `json:"text"`
+		Title string `json:"title"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Text) == "" {
+		writeErr(w, http.StatusBadRequest, "checklist text is required")
+		return
+	}
+	svc := s.analystService()
+	if !svc.Available() {
+		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured")
+		return
+	}
+	m, err := svc.ConvertChecklist(r.Context(), req.Text, req.Title)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
+}
+
 // updateMethodology edits a saved pack in place, keeping its id so adopted-pack and coverage references stay
 // valid. Built-in and extension packs have no saved row, so editing one returns 404.
 func (s *Server) updateMethodology(w http.ResponseWriter, r *http.Request) {

@@ -63,3 +63,23 @@ Closing the loop after the initial build:
   `Manager.PurgeMethodologyPack` iterates every project, unadopting the pack and deleting
   `methodology_coverage`/`coverage_observations` rows for its item ids. Best-effort — a sweep failure is
   audited but doesn't fail the delete, since orphaned rows are harmless (`BuildCoverage` skips unknown packs).
+
+## On-ramps: checklist conversion + import/export
+
+The structured item model (objective / procedure / standards / capabilities) is what makes coverage tracking
+work, but hand-authoring it is friction. Two on-ramps let teams keep their existing loose checklists and still
+land in the structured model:
+
+- **Paste-a-checklist (LLM).** `POST /v1/methodologies/draft` → `Service.ConvertChecklist` runs a single
+  cheap-tagged LLM completion that maps free-form checklist text into the pack schema (reusing the narrator's
+  tolerant `extractJSONObject`). It does **not** persist — it returns an unsaved draft that opens in the editor
+  for review, so LLM output always gets a human glance before entering the catalog. The prompt is constrained
+  to real capability ids (from the engine's registry) so suggestions validate. This is the human-facing twin
+  of the `save_methodology` agent tool: same structured target, different entry point.
+- **Import / export JSON.** Deterministic round-trip, no model involved. Export is client-side (serialize the
+  pack, strip the transient `builtin` flag, download `methodology-<id>.json`); import parses a `.json` file and
+  opens it as a draft through the same review-then-save path. Reuses the existing create endpoint — no new
+  backend. Good for sharing packs between instances or restoring a deleted one.
+
+Both funnel through one path in the editor: draft → review → save. Copy, import, and convert all just pre-fill
+the builder in create mode; only an explicit Edit saves in place.

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
+	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
@@ -71,5 +72,33 @@ func TestSaveMethodologyTool(t *testing.T) {
 		"title": "Bad", "items": `not json`,
 	}}); err == nil {
 		t.Fatal("malformed items should fail")
+	}
+}
+
+func TestConvertChecklist(t *testing.T) {
+	ctx := context.Background()
+	db, _ := seedProject(t)
+	// The model returns methodology JSON (wrapped in a code fence, to exercise the tolerant extractor).
+	resp := "```json\n" + `{"title":"GraphQL API","tech":"api","keywords":["graphql"],
+		"items":[{"title":"Query depth limiting","objective":"Bound cost"},{"title":"Introspection disabled"}]}` + "\n```"
+	svc := NewService(store.NewCombinedManager(db), nil, nil, "", &llm.MockProvider{Responses: []string{resp}})
+
+	m, err := svc.ConvertChecklist(ctx, "- limit query depth\n- disable introspection", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Title != "GraphQL API" || m.ID != "graphql-api" {
+		t.Fatalf("draft pack ids not derived: %+v", m)
+	}
+	if len(m.Items) != 2 || m.Items[0].ID != "graphql-api/query-depth-limiting" {
+		t.Fatalf("draft items wrong: %+v", m.Items)
+	}
+	if m.Builtin {
+		t.Fatal("draft should not be flagged builtin")
+	}
+
+	// No provider ⇒ a clear error, not a panic.
+	if _, err := NewService(store.NewCombinedManager(db), nil, nil, "", nil).ConvertChecklist(ctx, "x", ""); err == nil {
+		t.Fatal("convert without a provider should fail")
 	}
 }
