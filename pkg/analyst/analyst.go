@@ -727,12 +727,19 @@ func createObservation(ctx context.Context, deps ExecDeps, call agent.ToolCall) 
 	// is wired (a bare tool loop), fall back to a plain project-stamped insert.
 	if deps.Engine != nil && deps.ProjectID != "" {
 		saved, _, err := deps.Engine.IngestObservation(ctx, deps.ProjectID, o)
+		if err == nil {
+			linkMethodologyEvidence(ctx, deps, saved.ID) // attach to the methodology item if this is an agent check (ADR-0056)
+		}
 		return jsonify(saved, err)
 	}
 	if deps.ProjectID != "" {
 		o.ProjectID = &deps.ProjectID
 	}
-	return jsonify(deps.p().CreateObservation(ctx, o))
+	saved, err := deps.p().CreateObservation(ctx, o)
+	if err == nil {
+		linkMethodologyEvidence(ctx, deps, saved.ID)
+	}
+	return jsonify(saved, err)
 }
 
 // triageObservation applies the agent's triage disposition to a raw observation — dismiss (noise/false

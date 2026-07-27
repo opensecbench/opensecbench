@@ -68,10 +68,12 @@ export function MethodologyTab({
     setRunning(true)
     try {
       const res = await api.runMethodology(project.id, pack ? { pack } : undefined)
-      const parts = [`Queued ${res.enqueued} check${res.enqueued === 1 ? '' : 's'}`]
-      if (res.deferred_kind > 0) parts.push(`${res.deferred_kind} agent/manual check${res.deferred_kind === 1 ? '' : 's'} not run yet`)
+      const parts: string[] = []
+      if (res.enqueued > 0) parts.push(`queued ${res.enqueued} scan${res.enqueued === 1 ? '' : 's'}`)
+      if (res.agent_started > 0) parts.push(`started ${res.agent_started} agent check${res.agent_started === 1 ? '' : 's'}`)
+      if (res.deferred_manual > 0) parts.push(`${res.deferred_manual} manual item${res.deferred_manual === 1 ? '' : 's'} need sign-off`)
       if (res.skipped?.length) parts.push(`${res.skipped.length} skipped`)
-      setRunNote(parts.join(' · '))
+      setRunNote(parts.length ? 'Running · ' + parts.join(' · ') : 'Nothing to run')
       await reload()
     } catch (e) {
       onError((e as Error).message)

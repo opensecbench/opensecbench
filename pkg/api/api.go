@@ -93,7 +93,8 @@ type Server struct {
 	hubCli         *hub.Client
 	sched          *analyst.Scheduler
 	schedCancel    context.CancelFunc
-	runReg         *analyst.RunRegistry // shared record of in-flight background agent runs
+	runReg         *analyst.RunRegistry  // shared record of in-flight background agent runs
+	methAgents     *methodologyAgentRuns // items with an agent methodology check in flight (ADR-0056 P2)
 
 	extMu sync.Mutex
 	exts  []extension.Loaded
@@ -255,6 +256,7 @@ func New(deps Deps) *Server {
 		proxies:      make(map[string]*liveProxy),
 		matchReplace: make(map[string]*ruleEngine),
 		runReg:       analyst.NewRunRegistry(),
+		methAgents:   newMethodologyAgentRuns(),
 	}
 	if s.methods == nil {
 		s.methods = methodology.BuiltIns()
