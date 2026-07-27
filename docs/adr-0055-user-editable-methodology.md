@@ -41,10 +41,25 @@ Mirror the playbook stack for methodology:
 
 ## Consequences
 
-- Item ids are globally unique across packs; the create/update path enforces it. Copying a built-in drops the
-  source item ids so they're re-scoped under the new pack.
-- Deleting a saved pack removes it from the registry but leaves any per-project adoption/coverage rows that
-  referenced it; `BuildCoverage` skips packs the registry no longer knows. Retroactive cleanup of orphaned
-  coverage rows is deferred (not observed to matter in practice — a deleted pack simply stops appearing).
+- Item ids are globally unique across packs; the create/update path enforces it via the shared
+  `methodology.CheckItemCollisions` (used by both the HTTP handlers and the agent tool). Copying a built-in
+  drops the source item ids so they're re-scoped under the new pack.
 - Extension-provided packs remain immutable through this path, which is correct: they're owned by the
   extension, not the operator. Editing one means copying it first.
+
+## Follow-ups (delivered)
+
+Closing the loop after the initial build:
+
+- **Agent-authoring parity (ADR-0053).** A `save_methodology` agent tool authors packs through the exact
+  `Normalize → Validate → CheckItemCollisions → persist → Register` path the HTTP handler uses, so an
+  agent-authored pack is indistinguishable from a human's and immediately adoptable/coverable. It's reversible
+  (a human can edit/delete it), so it stays out of `toolConsequence` and runs ungated like `create_finding`.
+  The registry is threaded into the analyst via `ExecDeps.Methods` / `Service.SetMethods`; nil in headless
+  runs makes the tool a no-op. Built-in/extension packs stay immutable (edit → error).
+- **Validated capability picker.** The editor's per-item "suggested capabilities" field is now a picker backed
+  by `GET /v1/capabilities`, so items only ever reference capabilities that exist (no free-text drift).
+- **Orphan cleanup on delete.** Deleting a pack now sweeps per-project adoption + coverage:
+  `Manager.PurgeMethodologyPack` iterates every project, unadopting the pack and deleting
+  `methodology_coverage`/`coverage_observations` rows for its item ids. Best-effort — a sweep failure is
+  audited but doesn't fail the delete, since orphaned rows are harmless (`BuildCoverage` skips unknown packs).

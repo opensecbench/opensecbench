@@ -14,6 +14,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
 	"github.com/opensecbench/opensecbench/pkg/rag"
@@ -190,6 +191,14 @@ func Tools() []agent.Tool {
 			{Name: "status", Type: agent.TypeEnum, Required: true, Description: "coverage status", Enum: []string{"not_started", "in_progress", "covered", "not_applicable"}},
 			{Name: "note", Type: agent.TypeString, Description: "optional note (evidence/rationale)"},
 		}},
+		{Name: "save_methodology", Description: "Create or edit a methodology pack (a reusable testing checklist) in the shared catalog. Omit 'id' to create a new pack; pass an existing user-saved pack's id to edit it (built-in packs can't be edited). Reversible — a human can edit or delete packs in the catalog. Use this to capture a checklist you'd want to reuse across engagements.", Params: []agent.Param{
+			{Name: "title", Type: agent.TypeString, Required: true, Description: "pack title, e.g. 'GraphQL API'"},
+			{Name: "id", Type: agent.TypeString, Description: "existing user-saved pack id to edit; omit to create a new pack"},
+			{Name: "tech", Type: agent.TypeString, Description: "technology tag, e.g. api/web/mobile (default 'custom')"},
+			{Name: "version", Type: agent.TypeString, Description: "version string (default '1.0.0')"},
+			{Name: "keywords", Type: agent.TypeArray, Description: "applicability keywords; the pack is suggested when these appear in a target's knowledge base"},
+			{Name: "items", Type: agent.TypeString, Required: true, Description: `JSON array of checklist items, e.g. [{"title":"Query depth limiting","objective":"Bound query cost","procedure":"Send deeply nested queries","standards":["OWASP API4"],"suggested_capabilities":["semgrep"]}]. Item ids are derived from titles.`},
+		}},
 		{Name: "create_finding", Description: "Create a finding from confirmed observations. GATED — writes an assessment artifact.", Params: []agent.Param{
 			{Name: "title", Type: agent.TypeString, Required: true, Description: "finding title"},
 			{Name: "severity", Type: agent.TypeEnum, Required: true, Description: "severity", Enum: []string{"critical", "high", "medium", "low", "info"}},
@@ -259,6 +268,10 @@ type ExecDeps struct {
 	WorkspaceRoot string
 	ProjectID     string
 	Indexer       *rag.Indexer // semantic corpus index for search_corpus + index-on-write (ADR-0039)
+
+	// Methods, if set, is the methodology registry the save_methodology tool authors into (ADR-0055) — so the
+	// agent's packs become adoptable/coverable just like a human's. Nil in headless runs ⇒ the tool is a no-op.
+	Methods *methodology.Registry
 
 	// EgressSender, if set, issues a send from a chosen enrolled runner's vantage (runnerID != "") or the
 	// local host (ADR-0025). When nil, sends always go out locally via Replay.
@@ -375,6 +388,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return sendRequest(ctx, deps, call)
 		case "set_coverage":
 			return setCoverage(ctx, deps, call)
+		case "save_methodology":
+			return saveMethodology(ctx, deps, call)
 		case "create_finding":
 			return createFinding(ctx, deps, call)
 		case "set_finding_status":

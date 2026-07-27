@@ -2367,6 +2367,12 @@ select option {
 .mcat-caret { color: var(--tx3); }
 .pbuild-row { display: flex; gap: 7px; }
 .pbuild-row .pbuild-in { flex: 1; }
+.mbuild-caps { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 2px; }
+.mbuild-caps-lbl { font-size: 11px; color: var(--tx3); margin-right: 2px; }
+.mbuild-cap { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--tx2); background: var(--bg4); border: 1px solid var(--line2); border-radius: 10px; padding: 1px 4px 1px 8px; }
+.mbuild-cap-x { border: 0; background: transparent; color: var(--tx3); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px; }
+.mbuild-cap-x:hover { color: var(--red, #e5484d); }
+.mbuild-cap-add { background: var(--bg); border: 1px solid var(--line2); border-radius: 5px; padding: 2px 6px; color: var(--tx2); font-size: 11px; cursor: pointer; }
 .mcat-meta { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--tx3); }
 .mcat-items { border-top: 1px solid var(--line); padding: 6px 13px 10px; }
 .mcat-item { padding: 7px 0; border-top: 1px solid var(--line); }
