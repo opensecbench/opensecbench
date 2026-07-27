@@ -472,6 +472,27 @@ export interface ReportTemplate {
   id: string
   title: string
   kind: string
+  builtin: boolean // code-defined/extension templates are read-only; editing forks a copy
+}
+
+// ReportTemplateDetail carries the raw Go-template sources for the editor (built-ins expose theirs so a
+// user can fork and tweak). `base` names the built-in a saved template was forked from (provenance).
+export interface ReportTemplateDetail {
+  id: string
+  title: string
+  kind: string
+  base: string
+  md: string
+  html: string
+  builtin: boolean
+}
+
+export interface ReportTemplateInput {
+  id?: string // omit to derive from the title (create); ignored on update (path is authoritative)
+  title: string
+  base?: string
+  md: string
+  html: string
 }
 
 export interface Report {
@@ -1289,6 +1310,38 @@ export const api = {
 
   // reports
   listReportTemplates: () => request<ReportTemplate[]>('GET', '/v1/report-templates'),
+  getReportTemplate: (id: string) =>
+    request<ReportTemplateDetail>('GET', '/v1/report-templates/' + encodeURIComponent(id)),
+  createReportTemplate: (body: ReportTemplateInput) =>
+    request<ReportTemplateDetail>('POST', '/v1/report-templates', body),
+  updateReportTemplate: (id: string, body: ReportTemplateInput) =>
+    request<ReportTemplateDetail>('PUT', '/v1/report-templates/' + encodeURIComponent(id), body),
+  deleteReportTemplate: (id: string) =>
+    request<void>('DELETE', '/v1/report-templates/' + encodeURIComponent(id)),
+  // previewReportTemplate renders draft md/html against a project's real data, returning raw HTML/Markdown.
+  previewReportTemplate: async (body: {
+    project_id: string
+    format: string
+    md: string
+    html: string
+  }): Promise<string> => {
+    const res = await fetch(baseURL + '/v1/report-templates/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      let message = res.statusText
+      try {
+        const err = await res.json()
+        if (err?.error) message = err.error
+      } catch {
+        /* non-JSON error */
+      }
+      throw new Error(message)
+    }
+    return res.text()
+  },
   listReports: (projectId: string) => request<Report[]>('GET', `/v1/projects/${projectId}/reports`),
   generateReport: (projectId: string, template: string, format: string, narrate = false) =>
     request<Report>('POST', `/v1/projects/${projectId}/reports`, { template, format, narrate }),

@@ -48,6 +48,7 @@ import { OrchestrateTab } from './OrchestrateTab'
 import { OverviewTab } from './Overview'
 import { ProxyTab } from './ProxyTab'
 import { ActivityTab } from './ActivityTab'
+import { ReportTemplateEditor } from './ReportTemplateEditor'
 import { hasNativePickers, pickDirectory } from './native'
 
 // The terminal pulls in xterm.js; load it only when the tab is opened.
@@ -1247,6 +1248,7 @@ function ReportsTab({
   const [format, setFormat] = useState('html')
   const [narrate, setNarrate] = useState(true) // author an executive summary + per-finding impact/remediation (ADR-0045)
   const [busy, setBusy] = useState(false)
+  const [editingTemplates, setEditingTemplates] = useState(false)
 
   async function reload() {
     try {
@@ -1256,17 +1258,19 @@ function ReportsTab({
     }
   }
 
+  async function loadTemplates() {
+    try {
+      const tmpls = (await api.listReportTemplates()) ?? []
+      setTemplates(tmpls)
+      if (tmpls.length && !tmpls.find((t) => t.id === template)) setTemplate(tmpls[0].id)
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
   useEffect(() => {
     if (!online) return
-    void (async () => {
-      try {
-        const tmpls = (await api.listReportTemplates()) ?? []
-        setTemplates(tmpls)
-        if (tmpls.length && !tmpls.find((t) => t.id === template)) setTemplate(tmpls[0].id)
-      } catch (e) {
-        onError((e as Error).message)
-      }
-    })()
+    void loadTemplates()
     void reload()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, project.id])
@@ -1294,9 +1298,12 @@ function ReportsTab({
       <div className="create-row">
         <select value={template} onChange={(e) => setTemplate(e.target.value)}>
           {templates.map((t) => (
-            <option key={t.id} value={t.id}>{t.title}</option>
+            <option key={t.id} value={t.id}>{t.title}{t.builtin ? '' : ' (custom)'}</option>
           ))}
         </select>
+        <button className="ghost-btn" title="Create, fork, or edit report templates" onClick={() => setEditingTemplates(true)} disabled={!online}>
+          ✎ Templates
+        </button>
         <select value={format} onChange={(e) => setFormat(e.target.value)}>
           {['html', 'md', 'pdf'].map((f) => (
             <option key={f} value={f}>{f.toUpperCase()}</option>
@@ -1340,6 +1347,14 @@ function ReportsTab({
             </li>
           ))}
         </ul>
+      )}
+      {editingTemplates && (
+        <ReportTemplateEditor
+          projectId={project.id}
+          online={online}
+          onChanged={() => void loadTemplates()}
+          onClose={() => setEditingTemplates(false)}
+        />
       )}
     </section>
   )
