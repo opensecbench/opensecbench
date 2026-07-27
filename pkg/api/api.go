@@ -574,6 +574,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/threads", s.listThreads)
 	s.mux.HandleFunc("POST /v1/threads", s.createThread)
 	s.mux.HandleFunc("GET /v1/threads/{id}", s.getThread)
+	s.mux.HandleFunc("POST /v1/threads/{id}/archive", s.archiveThread)
 	s.mux.HandleFunc("DELETE /v1/threads/{id}", s.deleteThread)
 	s.mux.HandleFunc("POST /v1/threads/{id}/messages", s.sendMessage)
 	s.mux.HandleFunc("POST /v1/threads/{id}/fork", s.forkThread)
@@ -1294,6 +1295,23 @@ func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"thread": th, "messages": msgs})
 }
 
+// archiveThread soft-archives a chat: retained in the project record for auditability, hidden from the
+// active list. The default way to clear a thread — deleteThread is the deliberate, permanent purge.
+func (s *Server) archiveThread(w http.ResponseWriter, r *http.Request) {
+	err := s.pdb(r).ArchiveThread(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "thread not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteThread permanently purges a thread and its messages/approvals (FK cascade). This leaves the audit
+// record — a deliberate action, distinct from archiving.
 func (s *Server) deleteThread(w http.ResponseWriter, r *http.Request) {
 	err := s.pdb(r).DeleteThread(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {

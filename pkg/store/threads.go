@@ -51,10 +51,10 @@ func (db *DB) CreateThread(ctx context.Context, nt NewThread) (model.Thread, err
 
 func scanThread(row interface{ Scan(...any) error }) (model.Thread, error) {
 	var t model.Thread
-	var project, parent sql.NullString
+	var project, parent, archived sql.NullString
 	var forkSeq sql.NullInt64
 	var created, updated string
-	if err := row.Scan(&t.ID, &project, &parent, &forkSeq, &t.Title, &t.Status, &t.Provider, &t.AgentType, &created, &updated); err != nil {
+	if err := row.Scan(&t.ID, &project, &parent, &forkSeq, &t.Title, &t.Status, &t.Provider, &t.AgentType, &created, &updated, &archived); err != nil {
 		return model.Thread{}, err
 	}
 	t.ProjectID, t.ParentThreadID = ptr(project), ptr(parent)
@@ -62,11 +62,15 @@ func scanThread(row interface{ Scan(...any) error }) (model.Thread, error) {
 		v := int(forkSeq.Int64)
 		t.ForkSeq = &v
 	}
+	if archived.Valid && archived.String != "" {
+		v := parseTime(archived.String)
+		t.ArchivedAt = &v
+	}
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
 	return t, nil
 }
 
-const threadCols = `id, project_id, parent_thread_id, fork_seq, title, status, provider, agent_type, created_at, updated_at`
+const threadCols = `id, project_id, parent_thread_id, fork_seq, title, status, provider, agent_type, created_at, updated_at, archived_at`
 
 // GetThread returns a thread by id.
 func (db *DB) GetThread(ctx context.Context, id string) (model.Thread, error) {
@@ -77,9 +81,10 @@ func (db *DB) GetThread(ctx context.Context, id string) (model.Thread, error) {
 	return t, err
 }
 
-// ListThreads returns all threads, newest first.
+// ListThreads returns the active (non-archived) threads, newest first. Archived threads are retained in the
+// database for auditability but excluded here so they drop out of every active surface (panel, Home, CLI).
 func (db *DB) ListThreads(ctx context.Context) ([]model.Thread, error) {
-	rows, err := db.QueryContext(ctx, `SELECT `+threadCols+` FROM threads ORDER BY updated_at DESC`)
+	rows, err := db.QueryContext(ctx, `SELECT `+threadCols+` FROM threads WHERE archived_at IS NULL ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +226,22 @@ func (db *DB) ForkThread(ctx context.Context, id string, atSeq int) (model.Threa
 	}
 	child.CreatedAt, child.UpdatedAt = parseTime(ts), parseTime(ts)
 	return child, nil
+}
+
+// ArchiveThread soft-archives a thread: it stays in the project database (transcript intact) for
+// auditability but drops out of the active list. Idempotent — re-archiving just refreshes the timestamp.
+// Returns ErrNotFound if the thread does not exist.
+func (db *DB) ArchiveThread(ctx context.Context, id string) error {
+	ts := nowString()
+	res, err := db.ExecContext(ctx, `UPDATE threads SET archived_at = ?, updated_at = ? WHERE id = ?`, ts, ts, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteThread removes a thread and its messages/approvals (FK ON DELETE CASCADE). Forked children and

@@ -184,14 +184,21 @@ export function AnalystPanel({
     }
   }
 
-  // Delete a thread and its transcript. The ✕ lives on the chip (a span, not a nested button — the chip is
-  // itself a button); stopPropagation keeps the click off the chip's open handler. If we deleted the open
-  // thread, drop back to the no-thread state so the panel doesn't render a phantom transcript.
-  async function removeThread(t: Thread, e: ReactMouseEvent) {
+  // Retire a chat from the active list. Default is archive: it stays in the project's database (transcript
+  // intact) for auditability, just hidden from this list. Shift-click purges permanently instead — a
+  // deliberate, unrecoverable delete that also leaves the audit record. The control lives on the chip as a
+  // span (not a nested button — the chip is itself a button); stopPropagation keeps it off the open handler.
+  // Either way, drop back to the no-thread state if the open thread is the one going away.
+  async function retireThread(t: Thread, e: ReactMouseEvent) {
     e.stopPropagation()
-    if (!window.confirm(`Delete thread "${t.title || 'Analyst'}"? Its messages can't be recovered.`)) return
+    const name = t.title || 'Analyst'
+    const purge = e.shiftKey
+    const ok = purge
+      ? window.confirm(`Permanently delete thread "${name}"? Its messages can't be recovered and it leaves the project's audit record.\n\nTo archive instead (kept for audit), cancel and click without holding Shift.`)
+      : window.confirm(`Archive thread "${name}"? It leaves this list but stays in the project record for auditability.`)
+    if (!ok) return
     try {
-      await api.deleteThread(t.id)
+      await (purge ? api.deleteThread(t.id) : api.archiveThread(t.id))
       if (current?.id === t.id) {
         setCurrent(null)
         setMessages([])
@@ -329,7 +336,7 @@ export function AnalystPanel({
           <button key={t.id} className={`wb-an-chip ${current?.id === t.id ? 'on' : ''}`} onClick={() => open(t)}>
             <span className={`tstatus tstatus-${t.status}`} />
             <span className="tname">{t.title || 'Analyst'}</span>
-            <span className="tdel" title="Delete thread" onClick={(e) => removeThread(t, e)}>✕</span>
+            <span className="tarch" title="Archive (kept in the project record) — Shift-click to delete permanently" onClick={(e) => retireThread(t, e)}>🗄</span>
           </button>
         ))}
         {threads.length === 0 && (
