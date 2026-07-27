@@ -583,6 +583,17 @@ type SavedPlaybook struct {
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
+// SavedMethodology is a user-authored methodology pack (ADR-0055): authored directly or saved as an editable
+// copy of a built-in. Data is the full methodology.Methodology JSON (id, title, tech, version, keywords,
+// items); it is loaded into the registry at startup so user packs behave like built-ins.
+type SavedMethodology struct {
+	ID        string          `json:"id"`
+	Title     string          `json:"title"`
+	Data      json.RawMessage `json:"data"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
 // Plan is a running agent playbook — a DAG of steps executed in dependency order (ADR-0019).
 type Plan struct {
 	ID         string     `json:"id"`

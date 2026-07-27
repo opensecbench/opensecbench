@@ -5,6 +5,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -115,6 +116,22 @@ func Start(opts Options) (*Instance, error) {
 	}
 	for dir, e := range extErrs {
 		log.Printf("extension skipped (%s): %v", dir, e)
+	}
+
+	// Load user-authored methodology packs (ADR-0055) into the registry so adoption, coverage, and item
+	// lookup treat them exactly like built-ins. Registered after extensions so a saved edit of an extension
+	// pack (a saved copy under a new id) never clobbers the source.
+	if saved, err := db.ListSavedMethodologies(context.Background()); err != nil {
+		log.Printf("saved methodologies: load failed: %v", err)
+	} else {
+		for _, sm := range saved {
+			var m methodology.Methodology
+			if err := json.Unmarshal(sm.Data, &m); err != nil {
+				log.Printf("saved methodology %s skipped: %v", sm.ID, err)
+				continue
+			}
+			methReg.Register(m)
+		}
 	}
 
 	engine := task.NewEngine(mgr, casr, capReg, runner.LocalRunner{})
