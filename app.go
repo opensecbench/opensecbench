@@ -29,6 +29,14 @@ func (a *App) SelectFile() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select a file"})
 }
 
+// OpenURL opens a URL in the user's default system browser. The native WebKit webview does not honour
+// target="_blank"/window.open (there is no tab strip), so links that must render a page — generated
+// reports, transcripts, downloads served by the local API — go through here instead of an <a target>.
+func (a *App) OpenURL(url string) error {
+	runtime.BrowserOpenURL(a.ctx, url)
+	return nil
+}
+
 // OpenProxyBrowser launches a throwaway Chromium preconfigured to use the project's intercepting
 // proxy (port) and trust only its CA (spki) — the desktop equivalent of `osb proxy browser`. This
 // is an OS-native action (launching a local process), which is why it's a Wails binding.
