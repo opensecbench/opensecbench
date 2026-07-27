@@ -75,6 +75,33 @@ func TestSaveMethodologyTool(t *testing.T) {
 	}
 }
 
+// An agent check carries its methodology item through context, so an observation the sub-agent records
+// attaches to that item as evidence — the agent equivalent of the capability path's evidence link (ADR-0056).
+func TestCreateObservationLinksMethodologyEvidence(t *testing.T) {
+	ctx := context.Background()
+	db, projectID := seedProject(t)
+	exec := Executor(ExecDeps{Mgr: store.NewCombinedManager(db), ProjectID: projectID})
+
+	// With an item in context, the recorded observation links to it as evidence.
+	if _, err := exec(withMethodologyItem(ctx, "web-app/idor"),
+		agent.ToolCall{Tool: "create_observation", Args: map[string]any{"title": "IDOR on /orders", "severity": "high"}}); err != nil {
+		t.Fatal(err)
+	}
+	counts, _ := db.CountCoverageEvidence(ctx, projectID)
+	if counts["web-app/idor"] != 1 {
+		t.Fatalf("observation not linked to item as evidence: %v", counts)
+	}
+
+	// Without an item in context, nothing links (an ordinary agent turn).
+	if _, err := exec(ctx, agent.ToolCall{Tool: "create_observation", Args: map[string]any{"title": "unrelated"}}); err != nil {
+		t.Fatal(err)
+	}
+	counts2, _ := db.CountCoverageEvidence(ctx, projectID)
+	if counts2["web-app/idor"] != 1 {
+		t.Fatalf("a non-methodology observation should not link: %v", counts2)
+	}
+}
+
 func TestConvertChecklist(t *testing.T) {
 	ctx := context.Background()
 	db, _ := seedProject(t)

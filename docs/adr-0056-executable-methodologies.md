@@ -62,8 +62,13 @@ Full loop (capability + agent + manual), delivered so each slice is usable as it
 - **P1 — Capability checks, end to end.** The check model, the two engine seams, the run orchestrator for
   capability checks, and the control-panel UI (per-item status queued → running → tested, evidence + findings,
   run all/pack/item). Proves the whole architecture on the kind that's easiest to trust.
-- **P2 — Agent checks.** Wire the `agent` kind to `Service.Delegate`; the same completion path routes the
-  sub-agent's observations home. Covers the items scanners can't (IDOR, authz, business logic).
+- **P2 — Agent checks. _(done)_** The `agent` kind runs as a background sub-agent via `Service.Delegate`,
+  authorizing the specialist's own toolset (automated run, no human in the loop — parity). The item id is
+  carried through context (mirroring `progressSink`/`delegationDepth`), so the sub-agent's `create_observation`
+  attaches its result to the item as evidence — concurrent agent checks stay correctly attributed. On
+  completion the API flips coverage (covered, or in_progress if the run errored/stopped). Agent-check liveness
+  isn't in the tasks table, so a small in-memory per-project tracker feeds the coverage view's RunState.
+  Covers the items scanners can't (IDOR, authz, business logic).
 - **P3 — Manual sign-off & polish.** Explicit human sign-off (with note) for manual items; the run surfaces
   what's waiting on a person; re-runs reconcile against prior results; report coverage reads the live registry
   (fixing the current `report.go` use of `BuiltIns()`, which drops user-authored-pack coverage from reports).

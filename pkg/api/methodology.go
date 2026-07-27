@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -180,9 +181,59 @@ func (s *Server) persistMethodology(r *http.Request, m methodology.Methodology, 
 	return s.global().UpdateSavedMethodology(r.Context(), row)
 }
 
-// runMethodology fans out the capability checks of a project's adopted packs (ADR-0056 P1). Optional query
-// params narrow the run: ?pack=<id> to one pack, ?item=<id> to one item. Agent and manual checks are skipped
-// in this phase (reported in the response). Returns the run id and what was enqueued/skipped.
+// agentCheck is one resolved agent methodology check to run (ADR-0056 P2).
+type agentCheck struct {
+	itemID      string
+	profile     string
+	instruction string
+}
+
+// methodologyAgentRuns tracks which methodology items currently have an agent check in flight, per project
+// (ADR-0056 P2). Agent checks are blocking delegate runs, not engine tasks, so their liveness isn't in the
+// tasks table — this in-memory set feeds the coverage view's transient RunState. Process-local (desktop app).
+type methodologyAgentRuns struct {
+	mu      sync.Mutex
+	running map[string]map[string]bool // projectID -> itemID set
+}
+
+func newMethodologyAgentRuns() *methodologyAgentRuns {
+	return &methodologyAgentRuns{running: map[string]map[string]bool{}}
+}
+
+func (m *methodologyAgentRuns) mark(projectID, itemID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.running[projectID] == nil {
+		m.running[projectID] = map[string]bool{}
+	}
+	m.running[projectID][itemID] = true
+}
+
+func (m *methodologyAgentRuns) clear(projectID, itemID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s := m.running[projectID]; s != nil {
+		delete(s, itemID)
+		if len(s) == 0 {
+			delete(m.running, projectID)
+		}
+	}
+}
+
+func (m *methodologyAgentRuns) states(projectID string) map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]string{}
+	for id := range m.running[projectID] {
+		out[id] = "running"
+	}
+	return out
+}
+
+// runMethodology fans out a project's adopted-pack checks (ADR-0056). Optional query params narrow the run:
+// ?pack=<id> to one pack, ?item=<id> to one item. Capability checks go through the engine; agent checks run
+// as background sub-agents (P2); manual checks are deferred to human sign-off (P3, reported). Returns the run
+// id and what was enqueued/started/skipped.
 func (s *Server) runMethodology(w http.ResponseWriter, r *http.Request) {
 	if s.engine == nil {
 		writeErr(w, http.StatusServiceUnavailable, "engine unavailable")
@@ -197,8 +248,9 @@ func (s *Server) runMethodology(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var checks []task.MethodologyCheck
-	deferred := 0 // agent/manual checks not run in P1
+	var capChecks []task.MethodologyCheck
+	var agentChecks []agentCheck
+	manual := 0
 	for _, packID := range adopted {
 		if onlyPack != "" && onlyPack != packID {
 			continue
@@ -212,31 +264,75 @@ func (s *Server) runMethodology(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			for _, c := range methodology.EffectiveChecks(it) {
-				if c.Kind == methodology.CheckCapability {
-					checks = append(checks, task.MethodologyCheck{ItemID: it.ID, CapabilityID: c.Capability})
-				} else {
-					deferred++
+				switch c.Kind {
+				case methodology.CheckCapability:
+					capChecks = append(capChecks, task.MethodologyCheck{ItemID: it.ID, CapabilityID: c.Capability})
+				case methodology.CheckAgent:
+					agentChecks = append(agentChecks, agentCheck{itemID: it.ID, profile: c.Profile, instruction: c.Instruction})
+				case methodology.CheckManual:
+					manual++
 				}
 			}
 		}
 	}
-	if len(checks) == 0 {
-		writeErr(w, http.StatusBadRequest, "nothing to run: the adopted packs have no capability checks (agent/manual checks aren't run in this phase)")
+	if len(capChecks) == 0 && len(agentChecks) == 0 {
+		writeErr(w, http.StatusBadRequest, "nothing to run: the adopted packs have no capability or agent checks (manual checks need human sign-off)")
 		return
 	}
 	runID := uuid.NewString()
-	res, err := s.engine.RunMethodologyChecks(r.Context(), projectID, runID, checks)
+
+	res, err := s.engine.RunMethodologyChecks(r.Context(), projectID, runID, capChecks)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Agent checks run as background sub-agents (blocking delegate runs); skip them cleanly with no provider.
+	agentStarted := 0
+	if len(agentChecks) > 0 && s.analystService().Available() {
+		s.runMethodologyAgentChecks(projectID, runID, agentChecks)
+		agentStarted = len(agentChecks)
+	}
+
 	s.record(r.Context(), actorOf(r), "methodology.run", projectID, map[string]string{"run": runID})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"run_id":        runID,
-		"enqueued":      len(res.Enqueued),
-		"skipped":       res.Skipped,
-		"deferred_kind": deferred, // agent/manual checks that this phase doesn't execute yet
+		"run_id":          runID,
+		"enqueued":        len(res.Enqueued),
+		"agent_started":   agentStarted,
+		"deferred_manual": manual,
+		"skipped":         res.Skipped,
 	})
+}
+
+// runMethodologyAgentChecks runs each agent check as a background sub-agent (ADR-0056 P2). Each delegates to
+// the item's profile with its instruction, carrying the item id so the sub-agent's observations attach to the
+// item as evidence; on completion it flips coverage (covered, or in_progress if the run errored/stopped) — the
+// agent driving coverage exactly as a human would. Concurrency is bounded inside Delegate (agentSem).
+func (s *Server) runMethodologyAgentChecks(projectID, runID string, checks []agentCheck) {
+	svc := s.analystService()
+	for _, c := range checks {
+		s.methAgents.mark(projectID, c.itemID)
+		s.events.Publish(events.Event{Type: "methodology.item", ProjectID: projectID, Payload: map[string]any{
+			"item_id": c.itemID, "run_id": runID, "status": "running", "kind": "agent",
+		}})
+		go func(c agentCheck) {
+			defer s.methAgents.clear(projectID, c.itemID)
+			ctx := context.Background() // outlive the HTTP request; the run is cancelable via the RunRegistry
+			res, err := svc.RunMethodologyAgentCheck(ctx, projectID, c.itemID, c.profile, c.instruction)
+			status, note := model.CoverageCovered, "methodology run · agent:"+c.profile
+			if err != nil {
+				status, note = model.CoverageInProgress, "methodology run · agent:"+c.profile+" (error)"
+			} else if res.Stopped {
+				status, note = model.CoverageInProgress, "methodology run · agent:"+c.profile+" (incomplete)"
+			}
+			if pdb, e := s.mgr.Project(projectID); e == nil && pdb != nil {
+				_ = pdb.SetCoverage(ctx, projectID, c.itemID, status, note)
+			}
+			s.events.Publish(events.Event{Type: "methodology.item", ProjectID: projectID, Payload: map[string]any{
+				"item_id": c.itemID, "run_id": runID, "status": status, "kind": "agent",
+			}})
+		}(c)
+	}
 }
 
 // methodologyOnComplete is the engine's on-complete hook (ADR-0056): when a methodology-triggered task
@@ -300,6 +396,9 @@ func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) 
 	// Live run state (ADR-0056): mark items with an in-flight methodology task as queued/running so the
 	// control panel shows the run in progress. Best-effort — a failure just omits the transient state.
 	active, _ := s.pdb(r).ActiveMethodologyItemStates(r.Context(), projectID)
+	for id, st := range s.methAgents.states(projectID) { // agent checks aren't tasks; overlay their liveness
+		active[id] = st
+	}
 	for pi := range view.Packs {
 		for ii := range view.Packs[pi].Items {
 			id := view.Packs[pi].Items[ii].Item.ID

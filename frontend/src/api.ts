@@ -1246,7 +1246,7 @@ export const api = {
     if (opts?.pack) q.set('pack', opts.pack)
     if (opts?.item) q.set('item', opts.item)
     const qs = q.toString()
-    return request<{ run_id: string; enqueued: number; skipped: { capability_id: string; reason: string }[]; deferred_kind: number }>(
+    return request<{ run_id: string; enqueued: number; agent_started: number; deferred_manual: number; skipped: { capability_id: string; reason: string }[] }>(
       'POST',
       `/v1/projects/${projectId}/methodology/run${qs ? '?' + qs : ''}`,
     )

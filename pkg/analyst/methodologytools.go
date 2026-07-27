@@ -13,6 +13,38 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
+// methodologyItemKey carries the methodology item id of an in-flight agent check through the context (ADR-0056
+// P2), mirroring the progressSink/delegationDepth pattern — so a sub-agent's create_observation attaches its
+// result to the item as evidence without threading the id through every signature. Concurrent agent checks
+// each carry their own id, so attribution stays correct even when they run in parallel.
+type methodologyItemKey struct{}
+
+func withMethodologyItem(ctx context.Context, itemID string) context.Context {
+	return context.WithValue(ctx, methodologyItemKey{}, itemID)
+}
+
+func methodologyItemOf(ctx context.Context) string {
+	s, _ := ctx.Value(methodologyItemKey{}).(string)
+	return s
+}
+
+// linkMethodologyEvidence attaches an observation to the methodology item of the current agent check, if one
+// is in context — the agent equivalent of the capability path's on-complete evidence link (ADR-0056).
+func linkMethodologyEvidence(ctx context.Context, deps ExecDeps, observationID string) {
+	if item := methodologyItemOf(ctx); item != "" && deps.ProjectID != "" && deps.p() != nil {
+		_ = deps.p().LinkCoverageObservation(ctx, deps.ProjectID, item, observationID)
+	}
+}
+
+// RunMethodologyAgentCheck runs a specialist agent check for a methodology item (ADR-0056 P2): it delegates to
+// the profile with the item's instruction, authorizing the specialist's own toolset (an automated run, no
+// human in the loop, per the human/agent parity of ADR-0053/0054), and carries the item id so observations the
+// sub-agent records attach to the item as evidence. Blocking — the caller flips coverage from the result.
+func (svc *Service) RunMethodologyAgentCheck(ctx context.Context, projectID, itemID, profileID, instruction string) (DelegationResult, error) {
+	p := svc.resolveProfile(ctx, profileID)
+	return svc.Delegate(withMethodologyItem(ctx, itemID), projectID, profileID, instruction, profileToolNames(p))
+}
+
 // saveMethodology authors a methodology pack into the shared catalog (ADR-0055), giving the agent the same
 // pack-authoring capability a human has in the catalog UI. It reuses the exact validate → persist → register
 // path the HTTP handler uses, so an agent-authored pack is indistinguishable from a human-authored one and is
