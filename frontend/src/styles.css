@@ -1113,7 +1113,20 @@ select option {
 .cov-fill{height:100%;background:var(--green);transition:width .3s}
 .cov-nums{font-size:12px;color:var(--tx2);margin-top:6px}
 .mpack{margin:16px 0}
-.mpack-head{font-size:15px;margin:0 0 6px}
+.mpack-head{font-size:15px;margin:0 0 6px;display:flex;align-items:center;gap:8px}
+/* Run controls (ADR-0056): accent for the whole-methodology run, quieter for per-pack. */
+.mrun-btn{background:var(--acc);border:1px solid var(--acc);color:#04101f;font-weight:700;border-radius:7px;padding:5px 12px;font-size:12px;cursor:pointer}
+.mrun-btn:disabled{opacity:.55;cursor:default}
+.mpack-run{background:transparent;border:1px solid var(--line2);color:var(--acc);border-radius:6px;padding:3px 9px;font-size:11.5px;cursor:pointer}
+.mpack-run:hover:not(:disabled){border-color:var(--acc)}
+.mpack-run:disabled{opacity:.55;cursor:default}
+.mitem-checks{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.mchip{font-family:var(--mono);font-size:9.5px;padding:1px 6px;border-radius:4px;border:1px solid var(--line2);color:var(--tx3);white-space:nowrap}
+.mchip.cap{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 40%,var(--line2))}
+.mchip.agent{color:var(--violet,#a78bfa);border-color:color-mix(in srgb,var(--violet,#a78bfa) 40%,var(--line2))}
+.mitem-runstate{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;padding:1px 7px;border-radius:20px}
+.mitem-runstate.running{color:var(--amber);background:color-mix(in srgb,var(--amber) 15%,transparent)}
+.mitem-runstate.queued{color:var(--tx3);background:var(--bg3)}
 .mitems{list-style:none;margin:0;padding:0}
 .mitem{display:flex;align-items:flex-start;gap:12px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;border-left:3px solid var(--tx3)}
 .mitem.status-covered{border-left-color:var(--green)}
