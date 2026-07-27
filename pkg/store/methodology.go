@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
@@ -30,6 +31,30 @@ func (db *DB) UnadoptMethodology(ctx context.Context, projectID, methodologyID s
 	_, err := db.ExecContext(ctx,
 		`DELETE FROM project_methodologies WHERE project_id = ? AND methodology_id = ?`, projectID, methodologyID)
 	return err
+}
+
+// DeleteCoverageForItems removes coverage and linked-observation rows for the given methodology item ids in a
+// project. Used when a methodology pack is deleted so its per-item coverage doesn't dangle (ADR-0055). A
+// nil/empty itemIDs is a no-op.
+func (db *DB) DeleteCoverageForItems(ctx context.Context, projectID string, itemIDs []string) error {
+	if len(itemIDs) == 0 {
+		return nil
+	}
+	ph := make([]string, len(itemIDs))
+	args := make([]any, 0, len(itemIDs)+1)
+	args = append(args, projectID)
+	for i, id := range itemIDs {
+		ph[i] = "?"
+		args = append(args, id)
+	}
+	in := strings.Join(ph, ",")
+	if _, err := db.ExecContext(ctx, `DELETE FROM methodology_coverage WHERE project_id = ? AND item_id IN (`+in+`)`, args...); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM coverage_observations WHERE project_id = ? AND item_id IN (`+in+`)`, args...); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ListAdoptedMethodologies returns the methodology ids a project has adopted.

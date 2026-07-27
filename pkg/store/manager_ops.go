@@ -444,6 +444,30 @@ func (m *Manager) ListDueSchedules(ctx context.Context, now time.Time) ([]model.
 }
 
 // eachProject runs fn against every project's database, for cross-project reads.
+// PurgeMethodologyPack removes a deleted methodology pack's per-project traces across every project — the
+// adoption row for the pack and the coverage/evidence rows for its items — so deleting a pack from the
+// catalog (ADR-0055) leaves no orphaned coverage. The per-project tables key on project_id, so this is safe
+// in both combined and split backing (each project's handle sees only its own rows in split mode).
+func (m *Manager) PurgeMethodologyPack(ctx context.Context, methodologyID string, itemIDs []string) error {
+	ids, err := m.activeProjectIDs(ctx)
+	if err != nil {
+		return err
+	}
+	for _, pid := range ids {
+		pdb, err := m.Project(pid)
+		if err != nil {
+			continue
+		}
+		if err := pdb.UnadoptMethodology(ctx, pid, methodologyID); err != nil {
+			return err
+		}
+		if err := pdb.DeleteCoverageForItems(ctx, pid, itemIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *Manager) eachProject(ctx context.Context, fn func(*DB) error) error {
 	ids, err := m.activeProjectIDs(ctx)
 	if err != nil {

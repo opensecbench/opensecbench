@@ -98,7 +98,7 @@ func TestMethodologyAuthoringCRUD(t *testing.T) {
 		t.Fatalf("update not applied: %+v", updated)
 	}
 
-	// Delete removes it from the catalog.
+	// Delete removes it from the catalog AND sweeps the project's orphaned adoption + coverage.
 	if code, _ := httpDo(t, http.MethodDelete, srv.URL+"/v1/methodologies/graphql-api", ``); code != http.StatusNoContent {
 		t.Fatalf("delete = %d", code)
 	}
@@ -107,6 +107,14 @@ func TestMethodologyAuthoringCRUD(t *testing.T) {
 	for _, p := range after {
 		if p.ID == "graphql-api" {
 			t.Fatal("deleted pack still in catalog")
+		}
+	}
+	// The project no longer shows the pack as adopted, and its coverage row is gone (not orphaned).
+	var view methodology.View
+	postGet(t, srv.URL+"/v1/projects/"+proj.ID+"/methodology", &view)
+	for _, p := range view.Packs {
+		if p.ID == "graphql-api" {
+			t.Fatalf("deleted pack still adopted after sweep: %+v", view.Packs)
 		}
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
+	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/rag"
 	"github.com/opensecbench/opensecbench/pkg/replay"
@@ -44,7 +45,8 @@ type Service struct {
 	egressAllowPrivate  bool
 	providerLocal       bool
 	tokenBudget         int
-	indexer             *rag.Indexer // semantic corpus index (ADR-0039)
+	indexer             *rag.Indexer          // semantic corpus index (ADR-0039)
+	methods             *methodology.Registry // catalog the save_methodology tool authors into (ADR-0055)
 
 	// egressSender, if set, routes the send_request tool through a chosen runner's vantage (ADR-0025).
 	egressSender func(context.Context, string, replay.Request) (replay.Response, error)
@@ -119,6 +121,10 @@ func (r *RunRegistry) Cancel(id string) bool {
 // SetRunRegistry injects the shared registry so this Service reports into the same store the activity
 // endpoint reads.
 func (svc *Service) SetRunRegistry(r *RunRegistry) { svc.runs = r }
+
+// SetMethods gives the service the methodology registry the save_methodology tool authors into (ADR-0055), so
+// agent-authored packs land in the same catalog the human edits. Injected by the API layer.
+func (svc *Service) SetMethods(r *methodology.Registry) { svc.methods = r }
 
 // trackRun registers a background agent run, returning a cancelable context for it and a closure that
 // deregisters it on completion. Cancel (via the registry) cancels that context, so the run stops.
@@ -523,7 +529,7 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 // under a strict policy with an external LLM provider, running a capability on a private asset is
 // blocked, because its output would be summarized by the external model.
 func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context.Context, agent.ToolCall) (string, error) {
-	exec := Executor(ExecDeps{Mgr: svc.mgr, Engine: svc.engine, Replay: svc.replay, Blobs: svc.casFor(projectID), Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer, Narrator: svc})
+	exec := Executor(ExecDeps{Mgr: svc.mgr, Engine: svc.engine, Replay: svc.replay, Blobs: svc.casFor(projectID), Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer, Methods: svc.methods, Narrator: svc})
 	// The egress guard keys on the provider that will actually receive the tool output (which, with tag
 	// routing, may differ per task); a local model is never an egress risk.
 	external := prov != nil && !llm.IsLocal(prov)

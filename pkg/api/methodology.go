@@ -51,7 +51,7 @@ func (s *Server) createMethodology(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "a methodology with id "+m.ID+" already exists; give it a different title")
 		return
 	}
-	if err := s.checkItemIDCollisions(m); err != nil {
+	if err := methodology.CheckItemCollisions(s.methods, m); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -79,7 +79,7 @@ func (s *Server) updateMethodology(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.checkItemIDCollisions(m); err != nil {
+	if err := methodology.CheckItemCollisions(s.methods, m); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -98,10 +98,12 @@ func (s *Server) updateMethodology(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
-// deleteMethodology removes a user-saved pack (built-ins can't be deleted).
+// deleteMethodology removes a user-saved pack (built-ins can't be deleted) and sweeps its orphaned per-project
+// adoption + coverage rows so no project keeps coverage for a pack that no longer exists (ADR-0055).
 func (s *Server) deleteMethodology(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := s.global().DeleteSavedMethodology(r.Context(), id)
+	// Read the pack first so we know its item ids for the coverage sweep; a missing row means it's built-in.
+	sm, err := s.global().GetSavedMethodology(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "methodology not found (built-ins can't be deleted)")
 		return
@@ -110,7 +112,23 @@ func (s *Server) deleteMethodology(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	var pack methodology.Methodology
+	_ = json.Unmarshal(sm.Data, &pack)
+	itemIDs := make([]string, 0, len(pack.Items))
+	for _, it := range pack.Items {
+		itemIDs = append(itemIDs, it.ID)
+	}
+
+	if err := s.global().DeleteSavedMethodology(r.Context(), id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	s.methods.Remove(id)
+	// Best-effort cleanup: the pack is already gone, so a sweep failure shouldn't fail the delete — orphaned
+	// rows are harmless (BuildCoverage skips unknown packs) and can be re-swept later.
+	if err := s.mgr.PurgeMethodologyPack(r.Context(), id, itemIDs); err != nil {
+		s.record(r.Context(), actorOf(r), "methodology.delete.sweep_failed", id, map[string]string{"error": err.Error()})
+	}
 	s.record(r.Context(), actorOf(r), "methodology.delete", id, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -127,26 +145,6 @@ func (s *Server) persistMethodology(r *http.Request, m methodology.Methodology, 
 		return s.global().CreateSavedMethodology(r.Context(), row)
 	}
 	return s.global().UpdateSavedMethodology(r.Context(), row)
-}
-
-// checkItemIDCollisions ensures the pack's item ids don't clash with items in any OTHER registered pack —
-// item ids are globally unique so the coverage store and Registry.Item lookup stay unambiguous.
-func (s *Server) checkItemIDCollisions(m methodology.Methodology) error {
-	taken := map[string]string{} // itemID -> owning pack id
-	for _, other := range s.methods.All() {
-		if other.ID == m.ID {
-			continue
-		}
-		for _, it := range other.Items {
-			taken[it.ID] = other.ID
-		}
-	}
-	for _, it := range m.Items {
-		if owner, ok := taken[it.ID]; ok {
-			return errors.New("item id " + it.ID + " is already used by pack " + owner)
-		}
-	}
-	return nil
 }
 
 // getMethodologyCoverage returns a project's adopted packs with per-item status and a roll-up.

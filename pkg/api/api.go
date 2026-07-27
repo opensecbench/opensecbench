@@ -569,6 +569,8 @@ func (s *Server) routes() {
 func (s *Server) analystService() *analyst.Service {
 	svc := analyst.NewService(s.mgr, s.engine, s.casr, s.workspaceDir, s.guardedProvider())
 	svc.SetRunRegistry(s.runReg)
+	// The save_methodology tool authors into the same catalog registry the HTTP handlers use (ADR-0055).
+	svc.SetMethods(s.methods)
 	svc.Audit = func(action, detail string) {
 		s.record(context.Background(), "thread:analyst", "analyst."+action, detail, nil)
 	}

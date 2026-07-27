@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { api, Methodology, MethodologyInput } from './api'
+import { useEffect, useState } from 'react'
+import { api, CapabilityManifest, Methodology, MethodologyInput } from './api'
 
-type Item = { id?: string; title: string; objective: string; procedure: string; standards: string; caps: string }
+// caps is a validated list of capability ids (picked from the registry); standards is free text.
+type Item = { id?: string; title: string; objective: string; procedure: string; standards: string; caps: string[] }
 
 // splitList turns a comma-separated field into a trimmed, empty-free list (and back, with joinList).
 const splitList = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
@@ -38,21 +39,37 @@ export function MethodologyBuilder({
           objective: it.objective ?? '',
           procedure: it.procedure ?? '',
           standards: joinList(it.standards),
-          caps: joinList(it.suggested_capabilities),
+          caps: it.suggested_capabilities ?? [],
         }))
-      : [{ title: '', objective: '', procedure: '', standards: '', caps: '' }],
+      : [{ title: '', objective: '', procedure: '', standards: '', caps: [] }],
   )
+  const [capabilities, setCapabilities] = useState<CapabilityManifest[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // The suggested-capabilities picker is validated against the live capability registry (ADR-0055) rather
+  // than free text, so items only ever reference capabilities that actually exist.
+  useEffect(() => {
+    if (!online) return
+    void api.listCapabilities().then(setCapabilities).catch(() => setCapabilities([]))
+  }, [online])
+  const capTitle = (id: string) => capabilities.find((c) => c.id === id)?.title ?? id
 
   function update(i: number, patch: Partial<Item>) {
     setItems((s) => s.map((it, j) => (j === i ? { ...it, ...patch } : it)))
   }
   function addItem() {
-    setItems((s) => [...s, { title: '', objective: '', procedure: '', standards: '', caps: '' }])
+    setItems((s) => [...s, { title: '', objective: '', procedure: '', standards: '', caps: [] }])
   }
   function removeItem(i: number) {
     setItems((s) => s.filter((_, j) => j !== i))
+  }
+  function addCap(i: number, id: string) {
+    if (!id) return
+    setItems((s) => s.map((it, j) => (j === i && !it.caps.includes(id) ? { ...it, caps: [...it.caps, id] } : it)))
+  }
+  function removeCap(i: number, id: string) {
+    setItems((s) => s.map((it, j) => (j === i ? { ...it, caps: it.caps.filter((c) => c !== id) } : it)))
   }
 
   async function save() {
@@ -70,7 +87,7 @@ export function MethodologyBuilder({
           objective: it.objective.trim(),
           procedure: it.procedure.trim(),
           standards: splitList(it.standards),
-          suggested_capabilities: splitList(it.caps),
+          suggested_capabilities: it.caps,
         })),
       }
       if (edit) await api.updateMethodology(edit.id, body)
@@ -112,7 +129,26 @@ export function MethodologyBuilder({
           <textarea className="pbuild-instr" placeholder="Objective — what this check confirms" value={it.objective} onChange={(e) => update(i, { objective: e.target.value })} />
           <textarea className="pbuild-instr" placeholder="Procedure — how to test it" value={it.procedure} onChange={(e) => update(i, { procedure: e.target.value })} />
           <input className="pbuild-in" placeholder="Standards, comma-separated (e.g. OWASP ASVS V4, CWE-639)" value={it.standards} onChange={(e) => update(i, { standards: e.target.value })} />
-          <input className="pbuild-in" placeholder="Suggested capability ids, comma-separated (e.g. semgrep, trufflehog)" value={it.caps} onChange={(e) => update(i, { caps: e.target.value })} />
+          <div className="mbuild-caps">
+            <span className="mbuild-caps-lbl">Capabilities</span>
+            {it.caps.map((id) => (
+              <span key={id} className="mbuild-cap">
+                {capTitle(id)}
+                <button className="mbuild-cap-x" title="Remove" onClick={() => removeCap(i, id)}>×</button>
+              </span>
+            ))}
+            <select
+              className="mbuild-cap-add"
+              value=""
+              disabled={capabilities.length === 0}
+              onChange={(e) => { addCap(i, e.target.value); e.target.value = '' }}
+            >
+              <option value="">＋ add capability…</option>
+              {capabilities.filter((c) => !it.caps.includes(c.id)).map((c) => (
+                <option key={c.id} value={c.id}>{c.title} ({c.id})</option>
+              ))}
+            </select>
+          </div>
         </div>
       ))}
 

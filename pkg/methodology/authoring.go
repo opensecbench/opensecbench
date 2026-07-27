@@ -72,6 +72,27 @@ func Validate(m Methodology) error {
 	return nil
 }
 
+// CheckItemCollisions ensures a pack's item ids don't clash with items in any OTHER registered pack. Item ids
+// are globally unique so the coverage store and Registry.Item lookup stay unambiguous (ADR-0055). Shared by
+// the HTTP handlers and the agent authoring tool so both enforce the same rule.
+func CheckItemCollisions(r *Registry, m Methodology) error {
+	taken := map[string]string{} // itemID -> owning pack id
+	for _, other := range r.All() {
+		if other.ID == m.ID {
+			continue
+		}
+		for _, it := range other.Items {
+			taken[it.ID] = other.ID
+		}
+	}
+	for _, it := range m.Items {
+		if owner, ok := taken[it.ID]; ok {
+			return fmt.Errorf("item id %s is already used by pack %s", it.ID, owner)
+		}
+	}
+	return nil
+}
+
 // cleanStrings trims each element and drops empties, returning nil for an all-empty slice so it omits from JSON.
 func cleanStrings(in []string) []string {
 	out := make([]string, 0, len(in))
