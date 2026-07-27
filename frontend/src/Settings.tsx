@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api, SettingSection } from './api'
 import { applyTheme } from './theme'
 import { Providers } from './Providers'
@@ -48,6 +48,13 @@ export function Settings({ online }: { online: boolean }) {
 
   const activeSection = declarative.find((s) => s.id === active)
 
+  // Tabs share one scroll container (.settings-body) that stays mounted across switches; reset to the top
+  // on switch so a shorter section can't inherit a taller one's scrollTop and end up stranded past its end.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0
+  }, [active])
+
   return (
     <div className="settings">
       <nav className="settings-nav">
@@ -57,7 +64,7 @@ export function Settings({ online }: { online: boolean }) {
           </button>
         ))}
       </nav>
-      <div className="settings-body">
+      <div className="settings-body" ref={bodyRef}>
         {active === 'providers' && (
           <>
             <Providers online={online} />

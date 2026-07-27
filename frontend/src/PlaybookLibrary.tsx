@@ -9,6 +9,7 @@ export function PlaybookLibrary({ online }: { online: boolean }) {
   const [playbooks, setPlaybooks] = useState<AgentPlaybook[]>([])
   const [building, setBuilding] = useState(false)
   const [editing, setEditing] = useState<AgentPlaybook | null>(null)
+  const [template, setTemplate] = useState<AgentPlaybook | null>(null) // "Save a copy" source (e.g. a built-in)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -21,6 +22,14 @@ export function PlaybookLibrary({ online }: { online: boolean }) {
   useEffect(() => {
     if (online) void load()
   }, [online, load])
+
+  // Open the builder pre-filled with a copy of `pb` (create mode). Works for built-ins and saved playbooks
+  // alike — a built-in becomes a starting template you can then edit freely.
+  function copy(pb: AgentPlaybook) {
+    setEditing(null)
+    setTemplate({ ...pb, name: `${pb.name} (copy)` })
+    setBuilding(true)
+  }
 
   async function del(id: string) {
     try {
@@ -37,20 +46,22 @@ export function PlaybookLibrary({ online }: { online: boolean }) {
       <div className="lib-head">
         <h2>Playbooks</h2>
         <p>Reusable agent playbooks — a DAG of specialist steps with approval gates. Build them once here; run them on a project from its Agents surface.</p>
-        <button className="lib-new" disabled={!online} onClick={() => { setEditing(null); setBuilding((v) => !v) }}>
-          {building && !editing ? 'Close' : '＋ New playbook'}
+        <button className="lib-new" disabled={!online} onClick={() => { setEditing(null); setTemplate(null); setBuilding((v) => !v) }}>
+          {building && !editing && !template ? 'Close' : '＋ New playbook'}
         </button>
       </div>
 
       {(building || editing) && (
         <PlaybookBuilder
-          key={editing?.id ?? 'new'}
+          key={editing?.id ?? (template ? `copy:${template.id}` : 'new')}
           online={online}
           edit={editing ?? undefined}
-          onCancel={() => { setBuilding(false); setEditing(null) }}
+          template={template ?? undefined}
+          onCancel={() => { setBuilding(false); setEditing(null); setTemplate(null) }}
           onSaved={() => {
             setBuilding(false)
             setEditing(null)
+            setTemplate(null)
             void load()
           }}
         />
@@ -62,9 +73,10 @@ export function PlaybookLibrary({ online }: { online: boolean }) {
             <b>{pb.name}</b>
             <span className={pb.builtin ? 'orch-builtin' : 'orch-saved'}>{pb.builtin ? 'built-in' : 'saved'}</span>
             <span className="grow" />
+            <button className="orch-copy" title="Save an editable copy of this playbook" disabled={!online} onClick={() => copy(pb)}>⧉ Copy</button>
             {!pb.builtin && (
               <>
-                <button className="orch-edit" title="Edit this playbook" disabled={!online} onClick={() => { setEditing(pb); setBuilding(true) }}>✎ Edit</button>
+                <button className="orch-edit" title="Edit this playbook" disabled={!online} onClick={() => { setEditing(pb); setTemplate(null); setBuilding(true) }}>✎ Edit</button>
                 <button className="orch-del" title="Delete this playbook" disabled={!online} onClick={() => del(pb.id)}>×</button>
               </>
             )}

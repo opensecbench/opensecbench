@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { PlaybookLibrary } from './PlaybookLibrary'
 import { CustomAgents } from './CustomAgents'
 import { MethodologyCatalog } from './MethodologyCatalog'
@@ -18,6 +18,14 @@ export function Library({ online }: { online: boolean }) {
   const [active, setActive] = useState('playbooks')
   const groups = [...new Set(SECTIONS.map((s) => s.group))]
 
+  // The four sections share one scroll container (.settings-body) that stays mounted across tab switches.
+  // Scrolling a tall section (e.g. Playbooks) leaves its scrollTop behind; switching to a shorter section
+  // that no longer overflows strands the content past the end with no scrollbar. Reset to top on switch.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0
+  }, [active])
+
   return (
     <div className="settings">
       <nav className="settings-nav">
@@ -32,7 +40,7 @@ export function Library({ online }: { online: boolean }) {
           </div>
         ))}
       </nav>
-      <div className="settings-body">
+      <div className="settings-body" ref={bodyRef}>
         {active === 'playbooks' && <PlaybookLibrary online={online} />}
         {active === 'agents' && <CustomAgents online={online} />}
         {active === 'methodology' && <MethodologyCatalog online={online} />}
