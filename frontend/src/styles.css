@@ -2902,3 +2902,43 @@ select.em-in { cursor: pointer; }
 .tasks-layout .badge.done { background: var(--green-bg); color: var(--green); }
 .tasks-layout .badge.error,
 .tasks-layout .badge.cancelled { background: var(--red-bg); color: var(--red); }
+
+/* ===== Report template editor (fork/edit built-in report templates) ===== */
+.rte-overlay { position: fixed; inset: 0; background: color-mix(in srgb, #000 55%, transparent); display: flex; align-items: stretch; justify-content: center; z-index: 50; padding: 24px; }
+.rte-panel { background: var(--bg2); border: 1px solid var(--line2); border-radius: 12px; width: min(1180px, 100%); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+.rte-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.rte-head b { color: var(--tx); }
+.rte-head .grow { flex: 1; }
+.rte-head .muted { font-size: 12px; }
+.rte-dirty { color: var(--amber); font-size: 11px; font-weight: 700; }
+.rte-body { display: flex; flex: 1; min-height: 0; }
+.rte-rail { width: 210px; border-right: 1px solid var(--line); padding: 10px; overflow-y: auto; flex-shrink: 0; }
+.rte-new { width: 100%; background: var(--bg4); border: 1px solid var(--line2); color: var(--tx2); border-radius: 6px; padding: 6px; cursor: pointer; font-size: 12px; margin-bottom: 8px; }
+.rte-new:hover:not(:disabled) { border-color: var(--acc); color: var(--tx); }
+.rte-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.rte-item { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.rte-item:hover { background: var(--bg3); }
+.rte-item.active { background: color-mix(in srgb, var(--acc) 18%, var(--bg2)); }
+.rte-item-title { flex: 1; font-size: 12px; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rte-tag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 3px; padding: 1px 5px; }
+.rte-tag.builtin { color: var(--tx3); border: 1px solid var(--line2); }
+.rte-tag.custom { color: var(--acc); border: 1px solid color-mix(in srgb, var(--acc) 45%, var(--line)); }
+.rte-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 12px 16px; overflow: hidden; }
+.rte-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.rte-toolbar .primary { background: var(--acc); border: 1px solid var(--acc); color: #04101f; font-weight: 700; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+.rte-toolbar .del { background: transparent; border: 1px solid var(--red); color: var(--red); border-radius: 8px; padding: 7px 12px; font-weight: 600; }
+.rte-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+.rte-note { font-size: 12px; color: var(--tx3); background: var(--bg3); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin-bottom: 8px; }
+.rte-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex: 1; min-height: 0; }
+.rte-source { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.rte-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--tx3); margin: 6px 0 3px; }
+.rte-code { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; line-height: 1.5; background: var(--bg); border: 1px solid var(--line2); border-radius: 6px; color: var(--tx); padding: 8px; resize: vertical; min-height: 120px; }
+.rte-code[readonly] { opacity: 0.75; }
+.rte-fields { margin-top: 8px; }
+.rte-fields .hint { font-size: 11px; line-height: 1.5; }
+.rte-fields code { background: var(--bg3); border-radius: 3px; padding: 0 3px; font-size: 11px; }
+.rte-preview { display: flex; flex-direction: column; min-height: 0; }
+.rte-preview-h { display: flex; align-items: center; }
+.rte-preview-h .grow { flex: 1; }
+.rte-frame { flex: 1; min-height: 240px; border: 1px solid var(--line2); border-radius: 6px; background: #fff; width: 100%; }
+.rte-frame.empty { display: flex; align-items: center; justify-content: center; text-align: center; color: var(--tx3); font-size: 13px; background: var(--bg3); padding: 20px; }
