@@ -177,7 +177,7 @@ export function KnowledgeTab({
                     <div className="kb-line">
                       <span className="badge">{e.kind}</span>
                       <span className="badge scope">{scopeLabel(e)}</span>
-                      {e.origin === 'thread' && <span className="badge ai">AI draft</span>}
+                      {e.origin === 'thread' && <span className="badge ai">AI</span>}
                       <span className="kb-title">{e.title}</span>
                     </div>
                     {e.body && <div className="kb-body">{e.body}</div>}

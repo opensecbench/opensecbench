@@ -103,14 +103,23 @@ func Tools() []agent.Tool {
 			{Name: "confidence", Type: agent.TypeEnum, Description: "how sure you are (default medium)", Enum: []string{"high", "medium", "low"}},
 			{Name: "rationale", Type: agent.TypeString, Required: true, Description: "the evidence — the call path or dispatch you traced, why it is/isn't reachable"},
 		}},
-		{Name: "draft_kb_entry", Description: "Draft a knowledge-base entry. Saved as an unreviewed draft for human confirmation. Use scope 'org' for knowledge that applies across the whole organization (a shared auth provider, org-wide conventions, common infra) so every app inherits it; 'target' for facts specific to one system.", Params: []agent.Param{
+		{Name: "add_kb_entry", Description: "Add a durable knowledge-base entry directly — the same control the human has on the Knowledge tab. It goes live immediately and is inherited by the projects in its scope (the human can edit or remove it). Check list_kb / search_kb / get_dossier first and prefer update_kb_entry or verify_kb_entry over duplicating. Choose the scope so the right projects inherit it.", Params: []agent.Param{
 			{Name: "kind", Type: agent.TypeEnum, Required: true, Description: "entry kind", Enum: []string{"architecture", "auth", "endpoint", "tech_stack", "environment", "data_flow", "convention", "gotcha", "tactic"}},
 			{Name: "title", Type: agent.TypeString, Required: true, Description: "short entry title"},
 			{Name: "body", Type: agent.TypeString, Required: true, Description: "the knowledge (what was learned)"},
-			{Name: "scope", Type: agent.TypeEnum, Description: "target (default) | org | global — org/global apply across the organization's apps", Enum: []string{"target", "org", "global"}},
+			{Name: "scope", Type: agent.TypeEnum, Description: "target (default) | group (the team) | org | global — group/org/global apply across the team's/organization's projects", Enum: []string{"target", "group", "org", "global"}},
 			{Name: "target", Type: agent.TypeString, Description: "target id (from list_targets) — required for target scope"},
 		}},
-		{Name: "verify_kb_entry", Description: "Mark a known fact as still true (bump its freshness) so the dossier stops flagging it stale. Use when you re-observe something already in the knowledge base (from get_dossier/list_kb) instead of drafting a duplicate. Does not confirm drafts — humans do that.", Params: []agent.Param{
+		{Name: "update_kb_entry", Description: "Edit an existing knowledge-base entry's title/body — correct or expand a fact, the same edit the human has. Reversible. Use verify_kb_entry instead when the fact is unchanged and you're just re-affirming it's still current.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "kb entry id (from list_kb / search_kb / get_dossier)"},
+			{Name: "title", Type: agent.TypeString, Required: true, Description: "the (possibly unchanged) title"},
+			{Name: "body", Type: agent.TypeString, Required: true, Description: "the updated knowledge"},
+		}},
+		{Name: "search_kb", Description: "Keyword search the project's inherited knowledge base (title + body) — a quick lookup of what we already know about a topic. For meaning-based search across the corpus + KB, use search_corpus instead.", Params: []agent.Param{
+			{Name: "q", Type: agent.TypeString, Required: true, Description: "keywords to match"},
+			{Name: "limit", Type: agent.TypeInteger, Description: "max results (default 15)"},
+		}},
+		{Name: "verify_kb_entry", Description: "Mark a known fact as still true (bump its freshness) so the dossier stops flagging it stale. Use when you re-observe something already in the knowledge base (from get_dossier/list_kb) instead of duplicating it.", Params: []agent.Param{
 			{Name: "id", Type: agent.TypeString, Required: true, Description: "kb entry id (from get_dossier or list_kb)"},
 		}},
 		{Name: "generate_report", Description: "Compile the project's confirmed findings into a durable report deliverable (stored, downloadable). Built from evidence-backed findings only — you can't add findings, so confirm them first, but the report is auto-narrated: an executive summary + per-finding impact/remediation are written for you, grounded in those findings. Returns the report id + finding count.", Params: []agent.Param{
@@ -314,8 +323,12 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return webFetch(ctx, deps, call)
 		case "save_context":
 			return saveContext(ctx, deps, call)
-		case "draft_kb_entry":
-			return draftKBEntry(ctx, deps, call)
+		case "add_kb_entry":
+			return addKBEntry(ctx, deps, call)
+		case "update_kb_entry":
+			return updateKBEntryTool(ctx, deps, call)
+		case "search_kb":
+			return searchKB(ctx, deps, call)
 		case "verify_kb_entry":
 			return verifyKBEntry(ctx, deps, call)
 		case "generate_report":
@@ -622,38 +635,45 @@ func setFindingStatus(ctx context.Context, deps ExecDeps, call agent.ToolCall) (
 	return jsonify(map[string]string{"id": id, "status": status, "note": stringArg(call, "note")}, nil)
 }
 
-// draftKBEntry writes an unreviewed, agent-origin knowledge-base entry (ADR-0010). It only records
-// a draft for human confirmation, so it is not gated.
-func draftKBEntry(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
+// addKBEntry writes an agent-origin knowledge-base entry directly — capability parity with the human's
+// Knowledge tab (ADR-0053/0054). It is confirmed on creation (live immediately, inherited in scope); the
+// origin still records it was AI-authored, and the human can edit or remove it (reversible; not gated).
+func addKBEntry(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, error) {
 	target, _ := call.Args["target"].(string)
 	kind, _ := call.Args["kind"].(string)
 	title, _ := call.Args["title"].(string)
 	body, _ := call.Args["body"].(string)
 	scope, _ := call.Args["scope"].(string)
 	if kind == "" || title == "" {
-		return "", errors.New("draft_kb_entry requires 'kind' and 'title'")
+		return "", errors.New("add_kb_entry requires 'kind' and 'title'")
 	}
 	if scope == "" {
 		scope = model.KBScopeTarget
 	}
-	entry := model.KBEntry{Kind: kind, Title: title, Body: body, Scope: scope, Origin: model.OriginThread, SourceRef: "thread:analyst"}
+	entry := model.KBEntry{Kind: kind, Title: title, Body: body, Scope: scope, Origin: model.OriginThread, ReviewState: model.ReviewConfirmed, SourceRef: "thread:analyst"}
 	switch scope {
 	case model.KBScopeTarget:
 		if target == "" {
-			return "", errors.New("draft_kb_entry: target-scoped entries require 'target' (from list_targets)")
+			return "", errors.New("add_kb_entry: target-scoped entries require 'target' (from list_targets)")
 		}
 		entry.TargetID = target
+	case model.KBScopeGroup:
+		group := deps.projectGroup(ctx)
+		if group == "" {
+			return "", errors.New("add_kb_entry: no team to anchor group-scoped knowledge to (this project has none)")
+		}
+		entry.GroupID = group
 	case model.KBScopeOrg:
 		// Resolve the organization from the project (or its targets) so the agent needn't fetch org ids.
 		org := deps.projectOrg(ctx, target)
 		if org == "" {
-			return "", errors.New("draft_kb_entry: no organization to anchor org-scoped knowledge to (this project/target has none)")
+			return "", errors.New("add_kb_entry: no organization to anchor org-scoped knowledge to (this project/target has none)")
 		}
 		entry.OrganizationID = org
 	case model.KBScopeGlobal:
 		// no anchor
 	default:
-		return "", errors.New("draft_kb_entry: scope must be target, org, or global")
+		return "", errors.New("add_kb_entry: scope must be target, group, org, or global")
 	}
 	e, err := deps.g().CreateKBEntry(ctx, entry)
 	if err != nil {

@@ -18,7 +18,7 @@ func TestPolicyBaseIsConsequenceTier(t *testing.T) {
 		}
 	}
 	// Reversible writes run freely — capability parity with the human, oversight is undo/audit (ADR-0053/0054).
-	for _, tool := range []string{"create_finding", "set_coverage", "set_finding_status", "triage_observation", "draft_kb_entry", "workspace_write", "show"} {
+	for _, tool := range []string{"create_finding", "set_coverage", "set_finding_status", "triage_observation", "add_kb_entry", "workspace_write", "show"} {
 		if p.NeedsApproval(tool, "pentester") {
 			t.Errorf("%s (reversible) should run without approval by default", tool)
 		}

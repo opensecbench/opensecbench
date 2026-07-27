@@ -97,7 +97,7 @@ func TestSaveContext(t *testing.T) {
 	}
 }
 
-// The tech-scout profile can research + draft (web_fetch/draft_kb_entry) but has no ungoverned mutation
+// The tech-scout profile can research + draft (web_fetch/add_kb_entry) but has no ungoverned mutation
 // (no create_finding/run_capability), and its playbook DAG is well-formed.
 func TestTechScoutProfileAndPlaybook(t *testing.T) {
 	p := ProfileByID("tech-scout")
@@ -105,7 +105,7 @@ func TestTechScoutProfileAndPlaybook(t *testing.T) {
 	for _, tool := range p.Tools {
 		names[tool] = true
 	}
-	for _, want := range []string{"web_fetch", "list_dependencies", "save_context", "draft_kb_entry"} {
+	for _, want := range []string{"web_fetch", "list_dependencies", "save_context", "add_kb_entry"} {
 		if !names[want] {
 			t.Fatalf("tech-scout missing %q", want)
 		}
