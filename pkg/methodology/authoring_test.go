@@ -30,6 +30,47 @@ func TestNormalizeDerivesIDsAndDefaults(t *testing.T) {
 	}
 }
 
+func TestNormalizeDerivesChecksFromSuggestedCapabilities(t *testing.T) {
+	// An item with no explicit checks but suggested capabilities becomes runnable capability checks.
+	m := Methodology{Title: "P", Items: []Item{
+		{Title: "Secrets", SuggestedCapabilities: []string{"trufflehog", "semgrep"}},
+		{Title: "IDOR", Checks: []Check{{Kind: CheckAgent, Profile: "pentester", Instruction: "enumerate refs"}}},
+		{Title: "Threat model", Checks: []Check{{Kind: CheckManual}}},
+		{Title: "Junk", Checks: []Check{{Kind: CheckCapability, Capability: "  "}, {Kind: "bogus"}}},
+	}}
+	Normalize(&m)
+
+	if got := m.Items[0].Checks; len(got) != 2 || got[0].Kind != CheckCapability || got[0].Capability != "trufflehog" {
+		t.Fatalf("derived capability checks wrong: %+v", got)
+	}
+	// An item that declares its own checks is NOT overwritten by suggested capabilities.
+	if got := m.Items[1].Checks; len(got) != 1 || got[0].Kind != CheckAgent {
+		t.Fatalf("agent check not preserved: %+v", got)
+	}
+	if got := m.Items[2].Checks; len(got) != 1 || got[0].Kind != CheckManual {
+		t.Fatalf("manual check wrong: %+v", got)
+	}
+	// Empty-capability and unknown-kind checks are dropped.
+	if got := m.Items[3].Checks; got != nil {
+		t.Fatalf("invalid checks should be dropped, got %+v", got)
+	}
+}
+
+func TestValidateChecks(t *testing.T) {
+	base := func(c Check) Methodology {
+		return Methodology{ID: "p", Title: "P", Items: []Item{{ID: "p/a", Title: "A", Checks: []Check{c}}}}
+	}
+	if err := Validate(base(Check{Kind: CheckCapability})); err == nil {
+		t.Fatal("capability check without id should fail validation")
+	}
+	if err := Validate(base(Check{Kind: CheckAgent, Profile: "pentester"})); err == nil {
+		t.Fatal("agent check without instruction should fail validation")
+	}
+	if err := Validate(base(Check{Kind: CheckCapability, Capability: "semgrep"})); err != nil {
+		t.Fatalf("valid capability check rejected: %v", err)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	cases := []struct {
 		name    string
