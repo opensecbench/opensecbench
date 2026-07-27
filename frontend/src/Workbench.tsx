@@ -1290,7 +1290,18 @@ function ReportsTab({
 
   return (
     <section className="panel">
-      <div className="panel-head">Reports</div>
+      <div className="panel-head" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>Reports</span>
+        <span style={{ flex: 1 }} />
+        <button
+          className="ghost-btn"
+          title="Create, fork, or edit report templates (also in the Library)"
+          onClick={() => setEditingTemplates(true)}
+          disabled={!online}
+        >
+          ✎ Manage templates
+        </button>
+      </div>
       <p className="hint">
         Generated from confirmed findings with traceable evidence only. PDF renders via a local
         headless browser.
@@ -1301,9 +1312,6 @@ function ReportsTab({
             <option key={t.id} value={t.id}>{t.title}{t.builtin ? '' : ' (custom)'}</option>
           ))}
         </select>
-        <button className="ghost-btn" title="Create, fork, or edit report templates" onClick={() => setEditingTemplates(true)} disabled={!online}>
-          ✎ Templates
-        </button>
         <select value={format} onChange={(e) => setFormat(e.target.value)}>
           {['html', 'md', 'pdf'].map((f) => (
             <option key={f} value={f}>{f.toUpperCase()}</option>
