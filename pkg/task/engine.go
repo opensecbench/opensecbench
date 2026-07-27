@@ -531,7 +531,14 @@ func (e *Engine) RunMethodologyChecks(ctx context.Context, projectID, runID stri
 		m := c.Manifest()
 		ran := false
 		for _, a := range assets {
-			if !m.AppliesToKind(a.Type) {
+			// An explicit methodology check runs even for a capability that opts out of auto-scan (empty
+			// AppliesTo, e.g. semgrep) — the operator named it deliberately (ADR-0056). Such opt-out
+			// capabilities are source scanners, so run them against source repos; otherwise honor AppliesTo.
+			kindOK := m.AppliesToKind(a.Type)
+			if len(m.AppliesTo) == 0 && a.Type == model.AssetSourceRepo {
+				kindOK = true
+			}
+			if !kindOK {
 				continue
 			}
 			eco := capability.DetectEcosystems(a.Location)
