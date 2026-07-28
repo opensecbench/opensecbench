@@ -69,8 +69,8 @@ func TestTunnelEchoAndMeta(t *testing.T) {
 	a, b := newPipe()
 	client := New(a, true)
 	server := New(b, false)
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	go echoServer(t, server)
 
 	st, err := client.Open([]byte("GET /x"))
@@ -96,8 +96,8 @@ func TestTunnelLargeTransferFlowControl(t *testing.T) {
 	a, b := newPipe()
 	client := New(a, true)
 	server := New(b, false)
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	go echoServer(t, server)
 
 	payload := make([]byte, 4*initialWindow+123) // > window, forces WINDOW grants
@@ -125,8 +125,8 @@ func TestTunnelConcurrentStreams(t *testing.T) {
 	a, b := newPipe()
 	client := New(a, true)
 	server := New(b, false)
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	go echoServer(t, server)
 
 	const n = 12
@@ -164,7 +164,7 @@ func TestTunnelSessionCloseWakesWaiters(t *testing.T) {
 	a, b := newPipe()
 	client := New(a, true)
 	server := New(b, false)
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	st, err := client.Open(nil)
 	if err != nil {
@@ -176,7 +176,7 @@ func TestTunnelSessionCloseWakesWaiters(t *testing.T) {
 		done <- err
 	}()
 	time.Sleep(20 * time.Millisecond)
-	client.Close()
+	_ = client.Close()
 	select {
 	case err := <-done:
 		if err == nil {

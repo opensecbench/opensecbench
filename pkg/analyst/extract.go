@@ -54,7 +54,7 @@ func extractOOXML(data []byte) (string, error) {
 	var out strings.Builder
 	for _, f := range zr.File {
 		name := f.Name
-		if name != "word/document.xml" && !(strings.HasPrefix(name, "ppt/slides/slide") && strings.HasSuffix(name, ".xml")) {
+		if name != "word/document.xml" && (!strings.HasPrefix(name, "ppt/slides/slide") || !strings.HasSuffix(name, ".xml")) {
 			continue
 		}
 		rc, err := f.Open()

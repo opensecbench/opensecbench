@@ -248,9 +248,7 @@ func (svc *Service) runPlan(ctx context.Context, plan model.Plan) {
 
 		// Run all ready (non-gate) steps concurrently as one wave.
 		var wave []*model.PlanStep
-		for _, s := range ready {
-			wave = append(wave, s)
-		}
+		wave = append(wave, ready...)
 		if len(wave) > 0 {
 			svc.runWave(ctx, plan.ProjectID, wave, results, done, failed, &anyFailed)
 			progressed = true

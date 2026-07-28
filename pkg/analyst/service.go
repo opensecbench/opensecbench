@@ -450,7 +450,7 @@ func (svc *Service) Routing(ctx context.Context) map[string][]RoutingEntry {
 	out := map[string][]RoutingEntry{}
 	for tag, list := range svc.loadRouting(ctx).Tags {
 		for _, ref := range list {
-			out[tag] = append(out[tag], RoutingEntry{ProviderID: ref.ProviderID, Model: ref.Model})
+			out[tag] = append(out[tag], RoutingEntry(ref))
 		}
 	}
 	return out
@@ -461,7 +461,7 @@ func (svc *Service) Routing(ctx context.Context) map[string][]RoutingEntry {
 func (svc *Service) DefaultRoutingRef(ctx context.Context) (RoutingEntry, bool) {
 	for _, ref := range svc.loadRouting(ctx).Tags["default"] {
 		if ref.ProviderID != "" {
-			return RoutingEntry{ProviderID: ref.ProviderID, Model: ref.Model}, true
+			return RoutingEntry(ref), true
 		}
 	}
 	return RoutingEntry{}, false

@@ -26,7 +26,7 @@ func TestProjectEventsSSE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("content-type = %q, want text/event-stream", ct)
 	}
@@ -59,7 +59,7 @@ func TestProjectEventsSSE(t *testing.T) {
 
 	var sawEvent, sawData bool
 	deadline := time.After(2 * time.Second)
-	for !(sawEvent && sawData) {
+	for !sawEvent || !sawData {
 		select {
 		case <-deadline:
 			t.Fatalf("did not receive the published event (event=%v data=%v)", sawEvent, sawData)

@@ -11,7 +11,7 @@ func TestNamespace(t *testing.T) {
 			Fields: []Field{
 				{Key: "scanner.depth", Label: "Depth", Type: TypeNumber, Default: "3"},
 				{Key: "scanner.bad", Label: "Bad", Type: "wat"}, // unknown type → dropped
-				{Key: "", Label: "No key", Type: TypeBool},       // empty key → dropped
+				{Key: "", Label: "No key", Type: TypeBool},      // empty key → dropped
 			},
 		},
 	})

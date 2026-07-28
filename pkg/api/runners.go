@@ -189,7 +189,7 @@ func (s *Server) runnerStream(w http.ResponseWriter, r *http.Request) {
 	sub := s.runners.Register(runnerIDFrom(r))
 	defer sub.Close()
 
-	fmt.Fprint(w, ": connected\n\n")
+	_, _ = fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
 
 	ping := time.NewTicker(25 * time.Second)
@@ -202,14 +202,14 @@ func (s *Server) runnerStream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ping.C:
 			_ = s.global().TouchRunner(r.Context(), runnerIDFrom(r))
-			fmt.Fprint(w, ": ping\n\n")
+			_, _ = fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
 		case d := <-sub.Ch:
 			payload, err := json.Marshal(d)
 			if err != nil {
 				continue
 			}
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", d.Kind, payload)
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", d.Kind, payload)
 			flusher.Flush()
 		}
 	}

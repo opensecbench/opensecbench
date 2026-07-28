@@ -198,9 +198,7 @@ func TestRemoteRunnerEndToEnd(t *testing.T) {
 	if done.Status != model.TaskSucceeded {
 		t.Fatalf("remote task = %s (err=%q)", done.Status, done.Error)
 	}
-	if done.Runner != "" && done.Runner != "local-docker" {
-		// provenance runner name recorded at create; not asserting exact value here
-	}
+	// done.Runner carries the provenance runner name recorded at create; we don't assert its exact value.
 
 	// The dispatch reached the agent, and the runner's output landed as an artifact.
 	select {

@@ -27,10 +27,10 @@ func TestValidateArgs(t *testing.T) {
 	}
 	ok(map[string]any{"q": "hi"})
 	ok(map[string]any{"q": "hi", "n": float64(3), "kind": "a", "extra": "ignored"}) // extras ignored
-	bad(map[string]any{}, "missing required")            // q absent
-	bad(map[string]any{"q": 123}, "string")              // q wrong type
-	bad(map[string]any{"q": "hi", "n": 3.5}, "integer")  // non-integral
-	bad(map[string]any{"q": "hi", "kind": "z"}, "one of") // enum violation
+	bad(map[string]any{}, "missing required")                                       // q absent
+	bad(map[string]any{"q": 123}, "string")                                         // q wrong type
+	bad(map[string]any{"q": "hi", "n": 3.5}, "integer")                             // non-integral
+	bad(map[string]any{"q": "hi", "kind": "z"}, "one of")                           // enum violation
 }
 
 func TestLoopValidatesArgsBeforeExecuting(t *testing.T) {
