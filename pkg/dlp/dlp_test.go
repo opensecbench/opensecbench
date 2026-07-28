@@ -13,7 +13,9 @@ func TestInspectFindsSecretsCanariesPatterns(t *testing.T) {
 		map[string]string{"TOKEN-abc-123": "api_token"},
 		map[string]string{"OSB-CANARY-deadbeef": "planted-1"},
 	)
-	text := "here is TOKEN-abc-123 and OSB-CANARY-deadbeef plus AKIA1234567890ABCDEF and a jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkw.abcDEFghijk"
+	// Intentional DLP test fixture — the token/canary/AWS-key/JWT below are fakes we expect Inspect to
+	// catch, not real secrets. The trailing marker tells gitleaks to skip this line (it must be inline).
+	text := "here is TOKEN-abc-123 and OSB-CANARY-deadbeef plus AKIA1234567890ABCDEF and a jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkw.abcDEFghijk" //gitleaks:allow
 	hits := s.Inspect(text)
 
 	kinds := map[string]string{}
