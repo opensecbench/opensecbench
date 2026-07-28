@@ -25,7 +25,7 @@ func (s *Server) projectEvents(w http.ResponseWriter, r *http.Request) {
 	ch, unsubscribe := s.events.Subscribe(r.PathValue("id"))
 	defer unsubscribe()
 
-	fmt.Fprint(w, ": connected\n\n")
+	_, _ = fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
 
 	// Heartbeat so idle connections stay open and dead ones are noticed promptly.
@@ -37,7 +37,7 @@ func (s *Server) projectEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ping.C:
-			fmt.Fprint(w, ": ping\n\n")
+			_, _ = fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
 		case ev, open := <-ch:
 			if !open {
@@ -47,7 +47,7 @@ func (s *Server) projectEvents(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, payload)
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, payload)
 			flusher.Flush()
 		}
 	}

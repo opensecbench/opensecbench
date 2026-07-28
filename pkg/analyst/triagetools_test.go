@@ -88,6 +88,7 @@ func TestAssessmentPlaybookNeverConfirmsFindings(t *testing.T) {
 	}
 	if assessment == nil {
 		t.Fatal("assessment playbook not found")
+		return // unreachable, but staticcheck (SA5011) doesn't treat t.Fatal as terminating
 	}
 	// DAG sanity: each dependency references an earlier step key.
 	seen := map[string]bool{}
