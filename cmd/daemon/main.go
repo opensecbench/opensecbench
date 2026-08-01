@@ -38,7 +38,7 @@ func run(addr, runnerAddr, dbPath string) error {
 	if cp.RunnerURL != "" {
 		log.Printf("remote-runner protocol listening at %s (front with TLS/tunnel; runners authenticate with ed25519)", cp.RunnerURL)
 	}
-	log.Printf("Analyst provider: %s (configure via OSB_LLM_PROVIDER / OSB_LLM_BASE_URL / OSB_LLM_MODEL / OSB_LLM_API_KEY)", cp.ProviderName())
+	log.Printf("Analyst provider: %s (configure a provider connection in Settings; OSB_LLM_* is a headless fallback)", cp.ProviderName())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
