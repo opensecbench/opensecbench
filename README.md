@@ -45,8 +45,9 @@ An IDE-style workbench shell with an always-present AI dock:
   durable `target` that carries a knowledge base across engagements; project templates; omni-search
   across everything.
 - **Sandboxed capabilities & runners** — every security operation runs in an isolated Docker runner
-  with resource limits and scope enforcement. Built-ins: source inventory, Semgrep, TruffleHog,
-  Grype, Syft, nmap, HTTP probe — plus anything shipped as an extension.
+  with resource limits and scope enforcement. Built-ins: source inventory, SAST (opengrep/Semgrep),
+  secret scanning (TruffleHog), SCA (Grype + govulncheck), SBOM (Syft), route mapping, nmap, HTTP
+  probe — plus anything shipped as an extension.
 - **Evidence loop** — tool output is deterministically interpreted (SARIF, nmap, TruffleHog) into
   **observations** with full provenance; triage and promote to **findings** — only confirmed
   observations can back a finding.
@@ -81,28 +82,15 @@ An IDE-style workbench shell with an always-present AI dock:
 - **SQLite** for structured project data; **content-addressed storage** for immutable artifacts.
 - **OCI-sandboxed capabilities** — every security operation runs in an isolated runner.
 - **Own agent runtime** — the control plane owns the tool-calling loop; providers are inference-only
-  and swappable: **Anthropic**, **OpenAI-compatible** (incl. Azure, DeepSeek, xAI Grok), **local
-  models** (Ollama), and the **Claude CLI** (subscription). Tool use is first-class — native tool-use
-  where the backend supports it, a prompted fallback otherwise.
+  and swappable: **Anthropic**, **OpenAI-compatible** (Azure OpenAI, DeepSeek, xAI Grok), **gateways**
+  (AWS Bedrock, Azure AI Foundry), **local models** (Ollama), and the **Claude CLI** (subscription).
+  Tool use is first-class — native tool-use where the backend supports it, a prompted fallback otherwise.
 
 Everything — capabilities, methodologies, project templates, playbooks, report templates — is a
 versioned, signed, open-format **extension package**.
 
 See [`docs/adr/`](docs/adr/) for architecture decision records and format specs, and
 [`TASKS.md`](TASKS.md) / [`TODO.md`](TODO.md) for current work and backlog.
-
-## Repository layout
-
-```
-main.go     desktop app entrypoint (behind the `desktop` build tag)
-cmd/        headless entrypoints: daemon (control-plane API), osb (CLI)
-pkg/        control-plane packages (see docs/adr/adr-0001-architecture-overview.md)
-extensions/ first-party packages (same format as third-party)
-images/     OSB-built container images (e.g. the sandboxed claude-cli)
-frontend/   React + TypeScript desktop/web UI
-docs/adr/   architecture decision records + open-format specs (index: docs/adr/README.md)
-migrations/ SQLite schema migrations
-```
 
 ## Development
 
@@ -137,8 +125,9 @@ window. Needs the [Wails](https://wails.io) CLI and, on Linux, the GTK/WebKit de
 ```sh
 make dev                                 # = wails dev -tags "desktop webkit2_41"
 make build                               # = wails build -tags "desktop webkit2_41"
-OSB_LLM_PROVIDER=claude-cli make dev     # with the Analyst enabled
 ```
+
+The Analyst is configured from the app's settings (see below) — no environment variables needed.
 
 Notes:
 - Without the `desktop` tag, Wails builds a stub that prints a hint and exits.
