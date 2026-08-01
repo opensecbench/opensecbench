@@ -94,7 +94,19 @@ See [`docs/adr/`](docs/adr/) for architecture decision records and format specs,
 
 ## Development
 
-Requires the Go toolchain declared in `go.mod` (auto-managed by `GOTOOLCHAIN`).
+**Prerequisites:**
+
+- **Go** — the toolchain declared in `go.mod` (auto-installed via `GOTOOLCHAIN`). This alone is enough
+  for the headless control plane and the `osb` CLI.
+- **Docker** — required at *runtime* to execute the sandboxed capabilities/scanners (opengrep, Grype,
+  Syft, TruffleHog, nmap, …). The app runs without it, but scans won't.
+- **Node + npm** — to build the React frontend.
+- **Desktop app only** — the [Wails](https://wails.io) CLI plus your platform's native webview:
+  Linux needs `libgtk-3-dev` + `libwebkit2gtk-4.1-dev`; macOS uses the built-in WebKit (Xcode Command
+  Line Tools); Windows uses WebView2 (preinstalled on Windows 11 and with Microsoft Edge).
+
+The full dependency lists are the manifests themselves: Go modules in [`go.mod`](go.mod), frontend
+packages in [`frontend/package.json`](frontend/package.json).
 
 ```sh
 go build ./...      # core packages
@@ -117,16 +129,19 @@ cd frontend && npm install && npm run dev    # in another → http://localhost:5
 ```
 
 **Desktop app (Wails):** boots the control plane in-process and renders the frontend in a native
-window. Needs the [Wails](https://wails.io) CLI and, on Linux, the GTK/WebKit dev libraries
-(`libgtk-3-dev`, `libwebkit2gtk-4.1-dev`).
+window. `make dev` and `make build` detect your OS and pass the right webview build tags
+automatically — Linux, macOS, and Windows all work:
 
 ```sh
 make dev      # run the desktop app with live reload
 make build    # package a desktop binary into ./build/bin
 ```
 
-The Analyst is configured from the app's settings (see below) — no environment variables needed.
+Wails builds for the host OS (it does not cross-compile), so run these on the machine you want the
+binary for. The Analyst is configured from the app's settings (see below) — no environment variables
+needed.
 
+- No `make` on Windows? Run `wails dev -tags desktop` / `wails build -tags desktop` directly.
 - On older Linux distros that ship webkit2gtk-4.0 instead of 4.1, run `make dev WAILS_TAGS=desktop`.
 
 ## The Analyst (AI)

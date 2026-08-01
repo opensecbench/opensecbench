@@ -6,9 +6,17 @@
 
 .PHONY: dev build daemon cli test lint fmt frontend images claude-image adr-index
 
-# Wails build tags. On modern distros (Ubuntu/Pop!_OS 24.04+) webkit is 4.1, which needs the
-# webkit2_41 tag. On older distros that ship webkit2gtk-4.0, override: WAILS_TAGS=desktop.
-WAILS_TAGS ?= desktop webkit2_41
+# Wails build tags. The `webkit2_41` tag selects webkit2gtk-4.1 and is LINUX-ONLY — macOS (native
+# WebKit) and Windows (WebView2) must not get it, so we only add it on Linux. On modern distros
+# (Ubuntu/Pop!_OS 24.04+) webkit is 4.1; on older distros that ship webkit2gtk-4.0, override with
+# `WAILS_TAGS=desktop`. You can always override WAILS_TAGS explicitly on the command line.
+ifeq ($(OS),Windows_NT)
+  WAILS_TAGS ?= desktop
+else ifeq ($(shell uname),Linux)
+  WAILS_TAGS ?= desktop webkit2_41
+else
+  WAILS_TAGS ?= desktop
+endif
 
 # Live-reload desktop app.
 dev:
