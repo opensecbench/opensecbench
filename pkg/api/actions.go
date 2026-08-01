@@ -109,8 +109,18 @@ func (s *Server) runObservationAction(w http.ResponseWriter, r *http.Request) {
 	s.runSubjectAction(w, r, action.SubjectObservation, r.PathValue("id"), r.PathValue("actionId"))
 }
 
+// actionProjectID resolves the active project for an action route from the header or query only — NOT the
+// path, because on these routes {id} is the subject (finding/observation), not the project, so the
+// projectFromReq path fallback would mistake the subject id for a project.
+func actionProjectID(r *http.Request) string {
+	if h := r.Header.Get("X-Project-Id"); h != "" {
+		return h
+	}
+	return r.URL.Query().Get("project")
+}
+
 func (s *Server) runSubjectAction(w http.ResponseWriter, r *http.Request, subjectKind, subjectID, actionID string) {
-	projectID := projectFromReq(r)
+	projectID := actionProjectID(r)
 	if projectID == "" {
 		writeErr(w, http.StatusBadRequest, "a project must be selected to run an action")
 		return
@@ -191,7 +201,12 @@ func (s *Server) listObservationActionRuns(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) listSubjectActionRuns(w http.ResponseWriter, r *http.Request, subjectKind, subjectID string) {
-	runs, err := s.pdb(r).ListActionRunsBySubject(r.Context(), subjectKind, subjectID)
+	projectID := actionProjectID(r)
+	if projectID == "" {
+		writeErr(w, http.StatusBadRequest, "a project must be selected")
+		return
+	}
+	runs, err := s.pdbID(projectID).ListActionRunsBySubject(r.Context(), subjectKind, subjectID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

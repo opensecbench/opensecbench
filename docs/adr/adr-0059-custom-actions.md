@@ -1,8 +1,8 @@
 # ADR-0059 — Custom actions on findings and observations
 
-Status: Proposed. Users can define reusable **actions** — an LLM agent or a sandboxed script — that run
-against a single finding or observation, templated from its fields, with the result attached back as
-evidence. The set is environment-specific (hunt our logs, generate our detection rule, draft our WAF rule),
+Status: Accepted — P1 built (both kinds), not yet live-smoke-tested. Users can define reusable **actions** —
+an LLM agent or a sandboxed script — that run against a single finding or observation, templated from its
+fields, with the result attached back as evidence. The set is environment-specific (hunt our logs, generate our detection rule, draft our WAF rule),
 so the platform ships editable examples and lets each operator author their own; it unions the two execution
 paths that already exist (agent delegation, the sandbox runner) rather than inventing a third.
 
