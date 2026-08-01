@@ -63,8 +63,17 @@ var scaReachabilityRouting = []disposition.Disposition{
 	{MinSeverity: "high", Action: disposition.ActionInvestigate},
 }
 
+// secretRouting routes trufflehog secret findings (ADR-0028): a VERIFIED secret was live-checked against
+// its provider, so it is auto-confirmed as a finding; an unverified match warrants a tracked investigation.
+var secretRouting = []disposition.Disposition{
+	{When: map[string]string{"verified": "true"}, Action: disposition.ActionFinding},
+	{When: map[string]string{"verified": "false"}, Action: disposition.ActionInvestigate},
+}
+
 // BuiltIns returns the registry of first-party capabilities. Third-party capabilities load as
-// extension packages later (ADR-0003), using this same contract.
+// extension packages (ADR-0003) using this same contract — but first-party tools ship in-tree as
+// built-ins: the extension format's payoff (add/update without recompiling) is moot for tools that
+// ship in the binary, and bundling one as an unsigned pack only made it fail to load by default.
 func BuiltIns() *Registry {
 	r := NewRegistry()
 	r.Register(sourceInventory{})
@@ -77,6 +86,7 @@ func BuiltIns() *Registry {
 	r.Register(govulncheck{})
 	r.Register(routeMap{})
 	r.Register(opengrepScan{})
+	r.Register(trufflehog{})
 	return r
 }
 
@@ -463,6 +473,44 @@ func (routeMap) Plan(in Input) (runner.RunSpec, error) {
 		Network:  "none", // bundled ruleset — no registry fetch
 		Timeout:  10 * time.Minute,
 		MemoryMB: 4096,
+		CPUs:     2,
+	}, nil
+}
+
+// trufflehog scans a source tree for secrets and emits NDJSON (interpreted into observations). Offline —
+// filesystem mode reads the tree only; verification of found secrets against their providers is disabled by
+// omitting --results/--only-verified so no network is touched (ADR-0028 routes on the `verified` flag the
+// tool sets from its own offline heuristics). Was briefly shipped as a bundled extension pack, but an
+// unsigned in-tree pack fails to load by default; a built-in is the right home for a first-party tool.
+type trufflehog struct{}
+
+func (trufflehog) Manifest() Manifest {
+	return Manifest{
+		ID:              "trufflehog",
+		AppliesTo:       []string{"source_repo"},
+		Version:         "1.0.0",
+		Title:           "TruffleHog (secrets)",
+		Description:     "Scans a source tree for secrets; emits NDJSON → secret observations. Offline (no network). Verified secrets auto-confirm as findings; unverified matches open investigations.",
+		OutputName:      "trufflehog.json",
+		OutputMediaType: "application/x-trufflehog-json", // interpret.TruffleHogMediaType
+		OKExitCodes:     []int{0, 183},                   // 183 = secrets found (trufflehog's --fail convention)
+		Dispositions:    secretRouting,
+	}
+}
+
+func (trufflehog) Plan(in Input) (runner.RunSpec, error) {
+	if in.TargetDir == "" {
+		return runner.RunSpec{}, errors.New("trufflehog: target directory required")
+	}
+	// The image's entrypoint is trufflehog, so Cmd carries the subcommand + args. --no-update keeps it
+	// offline (no self-update check); filesystem mode scans the read-only /src mount.
+	return runner.RunSpec{
+		Image:    "trufflesecurity/trufflehog:3.82.6",
+		Cmd:      []string{"filesystem", "/src", "--json", "--no-update"},
+		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
+		Network:  "none",
+		Timeout:  10 * time.Minute,
+		MemoryMB: 2048,
 		CPUs:     2,
 	}, nil
 }

@@ -1,8 +1,14 @@
 # Extensions
 
-First-party extension packages (ADR-0013). Each subdirectory is a package: an `extension.json`
-manifest plus an optional `extension.sig` (detached ed25519 signature). Built-ins use the **same**
-format third-party packages do — this directory dogfoods the loader.
+The extension loader (ADR-0013) for **third-party** packages. Each package is a directory with an
+`extension.json` manifest plus an `extension.sig` (detached ed25519 signature). Built-ins implement the
+**same** `capability.Capability` contract, so the extension API is exercised by every first-party tool —
+but first-party tools ship in-tree as built-ins (`pkg/capability/builtins.go`), **not** as bundled packs.
+
+> Bundling a first-party tool as an unsigned in-tree pack (we briefly did this for trufflehog) only makes
+> it fail to load by default — the extension format's payoff is add/update *without* recompiling, which is
+> moot for a tool that ships in the binary. So this directory carries no bundled packs; a runnable example
+> extension lives in its own separate repository.
 
 ## Installing a package
 
@@ -31,7 +37,6 @@ Then publish the package directory and share your `.pub` so users can trust it.
 - **methodology packs** — reusable checklists (ADR-0009).
 - **report templates** — MD/HTML template strings registered as report types.
 - **settings sections** — a `settings` array of declarative field-schema sections (ADR-0021 §6). Each
-  section is namespaced with `ext.<id>.` and rendered by the generic Settings UI — no client code. See
-  `trufflehog/extension.json` for a working example.
+  section is namespaced with `ext.<id>.` and rendered by the generic Settings UI — no client code.
 
 Playbook/visualization pack types are staged.
