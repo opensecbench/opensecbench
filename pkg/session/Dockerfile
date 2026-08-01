@@ -8,7 +8,7 @@
 #   OSB_SESSION_IMAGE=osb-session:local <run the control plane>
 #
 # Pin to a digest for a reproducible sandbox in real use.
-FROM debian:12-slim
+FROM debian:13-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash ca-certificates curl wget jq git \
