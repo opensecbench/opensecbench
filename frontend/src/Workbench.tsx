@@ -1,6 +1,8 @@
 import { Component, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   api,
+  Action,
+  ActionRun,
   BEHAVIORAL_CONTEXT_TAGS,
   Application,
   Artifact,
@@ -32,6 +34,9 @@ import {
 import { AnalystPanel } from './AnalystPanel'
 import { LocationChip, OpenCode, parseLoc } from './CodeLink'
 import { DataTable, Column } from './DataTable'
+import { ContextMenu, useContextMenu } from './ContextMenu'
+import { actionsForFinding, actionsForObservation, actionIcon } from './customActions'
+import { Markdown } from './Markdown'
 import { EngagementSettings } from './EngagementSettings'
 import { NotificationBell } from './NotificationBell'
 import { ActivityMenu } from './ActivityMenu'
@@ -640,6 +645,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const [context, setContext] = useState<ContextItem[]>([])
   const [findings, setFindings] = useState<Finding[]>([])
   const [observations, setObservations] = useState<Observation[]>([])
+  const [actions, setActions] = useState<Action[]>([]) // custom actions (ADR-0059)
   const [engagement, setEngagement] = useState<Engagement | null>(null) // the engagement record (ADR-0051)
   const engTechniques = engagement?.techniques ?? null
   const [requireAuth, setRequireAuth] = useState(true) // global setting: warn when authorization isn't on file
@@ -710,6 +716,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       setContext((await api.listContext(project.id)) ?? [])
       setFindings((await api.listFindings()) ?? [])
       setObservations((await api.listObservations(project.id)) ?? [])
+      setActions((await api.listActions()) ?? [])
       setEngagement((await api.getEngagement(project.id)) ?? null)
       setCoverage(await api.getMethodologyCoverage(project.id))
       await loadRoutes()
@@ -979,6 +986,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
           <FindingsTab
             findings={findings}
             observations={observations}
+            actions={actions}
             onOpenFinding={openFinding}
             onJump={(t) => activateSurface(t)}
             reload={loadAll}
@@ -992,6 +1000,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
           <TriageTab
             project={project}
             observations={observations}
+            actions={actions}
             online={online}
             onOpenCode={openCodeFile}
             onJump={(t) => activateSurface(t as Tab)}
@@ -1033,6 +1042,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             projectId={project.id}
             finding={findings.find((f) => f.id === doc.finding!.id) ?? null}
             observations={observations}
+            actions={actions}
             online={online}
             onOpenCode={openCodeFile}
             reload={loadAll}
@@ -2294,6 +2304,7 @@ const STATE_LABEL: Record<string, string> = { unreviewed: 'new', confirmed: 'pro
 function TriageTab({
   project,
   observations,
+  actions,
   online,
   onOpenCode,
   onJump,
@@ -2302,6 +2313,7 @@ function TriageTab({
 }: {
   project: Project
   observations: Observation[]
+  actions: Action[]
   online: boolean
   onOpenCode: OpenCode
   onJump: (t: Tab) => void
@@ -2355,6 +2367,7 @@ function TriageTab({
           embedded
           projectId={project.id}
           observations={observations}
+          actions={actions}
           online={online}
           onOpenCode={onOpenCode}
           onJump={onJump}
@@ -2379,6 +2392,7 @@ function TriageTab({
 function ObservationsTab({
   projectId,
   observations,
+  actions,
   online,
   onOpenCode,
   onJump,
@@ -2388,6 +2402,7 @@ function ObservationsTab({
 }: {
   projectId: string
   observations: Observation[]
+  actions: Action[]
   online: boolean
   onOpenCode: OpenCode
   onJump: (t: Tab) => void
@@ -2575,12 +2590,14 @@ function ObservationsTab({
         {detail && (
           <ObservationDetailPanel
             obs={detail}
+            actions={actions}
             online={online}
             busy={busy}
             onClose={() => setDetailId(null)}
             onOpenCode={onOpenCode}
             onAction={(fn) => void runOne(fn, detail.id)}
             onTriage={() => void aiTriage([detail.id])}
+            onError={onError}
           />
         )}
       </div>
@@ -2608,21 +2625,27 @@ function ObservationsTab({
 // same triage actions, so you can inspect before acting without leaving the table.
 function ObservationDetailPanel({
   obs,
+  actions,
   online,
   busy,
   onClose,
   onOpenCode,
   onAction,
   onTriage,
+  onError,
 }: {
   obs: Observation
+  actions: Action[]
   online: boolean
   busy: boolean
   onClose: () => void
   onOpenCode: OpenCode
   onAction: (fn: (id: string) => Promise<unknown>) => void
   onTriage: () => void
+  onError: (m: string) => void
 }) {
+  const { runs, run } = useActionRuns('observations', obs.id, online, onError)
+  const obsActions = actionsForObservation(actions, obs)
   // Show the AI's triage rationale prominently; keep it out of the raw attribute dump below.
   const rationale = obs.attributes?.triage_rationale
   const attrs = Object.entries(obs.attributes ?? {}).filter(([k]) => k !== 'triage_rationale' && k !== 'triaged_by' && k !== 'triage_flag')
@@ -2652,6 +2675,7 @@ function ObservationDetailPanel({
             {attrs.map(([k, v]) => <span key={k} className="sig-chip mono">{k}={v}</span>)}
           </div>
         )}
+        <ActionRunsPanel runs={runs} />
       </div>
       <div className="dp-actions">
         {obs.review_state === 'unreviewed' ? (
@@ -2663,14 +2687,102 @@ function ObservationDetailPanel({
         ) : (
           <button className="mini" disabled={!online || busy} onClick={() => onAction((id) => api.reviewObservation(id, 'unreviewed'))}>↺ Restore to triage</button>
         )}
+        <span className="grow" />
+        <ActionsMenu actions={obsActions} onRun={run} disabled={!online} />
       </div>
     </aside>
+  )
+}
+
+// --- Custom actions on findings & observations (ADR-0059) ---------------------------------------------
+
+// useActionRuns loads a subject's action-run history and polls while any run is still going, so a running
+// action's result appears when it finishes without a manual refresh.
+function useActionRuns(subjectKind: 'findings' | 'observations', subjectId: string, online: boolean, onError: (m: string) => void) {
+  const [runs, setRuns] = useState<ActionRun[]>([])
+  const load = async () => {
+    if (!subjectId) {
+      setRuns([])
+      return
+    }
+    try {
+      setRuns((await api.listActionRuns(subjectKind, subjectId)) ?? [])
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+  useEffect(() => {
+    if (online && subjectId) void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectKind, subjectId, online])
+  const anyRunning = runs.some((r) => r.status === 'running')
+  useEffect(() => {
+    if (!anyRunning) return
+    const t = setInterval(() => void load(), 2000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyRunning])
+  const run = async (a: Action) => {
+    try {
+      await api.runAction(subjectKind, subjectId, a.id)
+      await load()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+  return { runs, run }
+}
+
+// ActionsMenu is the "Actions ▾" control: a dropdown of the custom actions applicable to a subject. It
+// reuses the right-click ContextMenu primitive, opened from a left click on the button.
+function ActionsMenu({ actions, onRun, disabled }: { actions: Action[]; onRun: (a: Action) => void; disabled?: boolean }) {
+  const menu = useContextMenu<null>()
+  if (actions.length === 0) return null
+  return (
+    <>
+      <button className="fd-actions-btn" disabled={disabled} onClick={(e) => menu.open(e, null)}>
+        Actions <span className="caret">▾</span>
+      </button>
+      {menu.menu && (
+        <ContextMenu
+          x={menu.menu.x}
+          y={menu.menu.y}
+          onClose={menu.close}
+          items={actions.map((a) => ({ id: a.id, icon: actionIcon(a), label: a.name, onSelect: () => onRun(a) }))}
+        />
+      )}
+    </>
+  )
+}
+
+// ActionRunsPanel lists a subject's action runs with their streamed-back output.
+function ActionRunsPanel({ runs }: { runs: ActionRun[] }) {
+  if (runs.length === 0) return null
+  return (
+    <div className="act-runs">
+      <h3 className="fd-section">Action runs</h3>
+      {runs.map((r) => (
+        <div key={r.id} className={`act-run ${r.status}`}>
+          <div className="act-run-head">
+            <span className={`act-run-dot ${r.status}`} />
+            <span className="act-run-name">{r.action_name}</span>
+            <span className={`act-kind ${r.kind}`}>{r.kind}</span>
+            <span className="grow" />
+            <span className="act-run-time muted">{new Date(r.created_at).toLocaleString()}</span>
+          </div>
+          {r.status === 'running' && <div className="act-run-body muted">Running…</div>}
+          {r.status === 'error' && <div className="act-run-body err">⚠ {r.error || 'Action failed'}</div>}
+          {r.status === 'done' && (r.output ? <Markdown source={r.output} /> : <div className="act-run-body muted">No output.</div>)}
+        </div>
+      ))}
+    </div>
   )
 }
 
 function FindingsTab({
   findings,
   observations,
+  actions,
   onOpenFinding,
   onJump,
   reload,
@@ -2680,6 +2792,7 @@ function FindingsTab({
 }: {
   findings: Finding[]
   observations: Observation[]
+  actions: Action[]
   onOpenFinding: (f: Finding) => void
   onJump: (t: Tab) => void
   reload: () => Promise<void>
@@ -2690,6 +2803,17 @@ function FindingsTab({
   // Index observations by id so each finding can show its supporting location (findings carry no location of
   // their own — it lives on the observations they were promoted from, ADR-0050).
   const byId = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
+  // Right-click a finding row → run a custom action against it (ADR-0059).
+  const actMenu = useContextMenu<Finding>()
+  const rowActions = (f: Finding) => actionsForFinding(actions, f)
+  const runOnFinding = async (f: Finding, a: Action) => {
+    try {
+      await api.runAction('findings', f.id, a.id)
+      onOpenFinding(f) // open the finding so its Action-runs panel shows the result as it streams back
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
   const firstLoc = (f: Finding): string => {
     for (const id of f.observation_ids ?? []) {
       const o = byId.get(id)
@@ -2770,10 +2894,26 @@ function FindingsTab({
         rows={rows}
         columns={columns}
         onRowClick={(f) => onOpenFinding(f)}
+        onRowContextMenu={(f, e) => {
+          if (rowActions(f).length > 0) actMenu.open(e, f)
+        }}
         getRowClass={(f) => (flash === f.id ? 'flash' : '')}
         defaultSort={{ key: 'severity', dir: 'desc' }}
         empty="No findings yet. Triage scanner results in the Observations tab and promote the real ones here."
       />
+      {actMenu.menu && (
+        <ContextMenu
+          x={actMenu.menu.x}
+          y={actMenu.menu.y}
+          onClose={actMenu.close}
+          items={rowActions(actMenu.menu.payload).map((a) => ({
+            id: a.id,
+            icon: actionIcon(a),
+            label: a.name,
+            onSelect: () => runOnFinding(actMenu.menu!.payload, a),
+          }))}
+        />
+      )}
     </div>
   )
 }
@@ -2787,6 +2927,7 @@ function FindingDetail({
   projectId,
   finding,
   observations,
+  actions,
   online,
   onOpenCode,
   reload,
@@ -2795,13 +2936,16 @@ function FindingDetail({
   projectId: string
   finding: Finding | null
   observations: Observation[]
+  actions: Action[]
   online: boolean
   onOpenCode: OpenCode
   reload: () => Promise<void>
   onError: (m: string) => void
 }) {
   const byId = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
+  const { runs, run } = useActionRuns('findings', finding?.id ?? '', online, onError)
   if (!finding) return <div className="empty">This finding is no longer available.</div>
+  const findingActions = actionsForFinding(actions, finding)
   const obs = (finding.observation_ids ?? []).map((id) => byId.get(id)).filter((o): o is Observation => !!o)
   // Facts worth surfacing on an observation, minus the ones already shown structurally (locations/flow).
   const signalKeys = (o: Observation) =>
@@ -2830,6 +2974,7 @@ function FindingDetail({
               <option key={s} value={s}>{s.replace('_', ' ')}</option>
             ))}
           </select>
+          <ActionsMenu actions={findingActions} onRun={run} disabled={!online} />
         </div>
         <div className="fd-meta muted">
           {finding.cwe && <span>{finding.cwe}</span>}
@@ -2870,6 +3015,8 @@ function FindingDetail({
           ))}
         </ul>
       )}
+
+      <ActionRunsPanel runs={runs} />
     </section>
   )
 }

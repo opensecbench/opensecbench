@@ -665,6 +665,55 @@ export interface TaskOutcome {
   observations: Observation[]
 }
 
+// Custom actions (ADR-0059): a user-authored operation run against a finding or observation — an LLM
+// agent or a sandboxed script, templated from the subject's fields.
+export interface ActionPredicate {
+  min_severity?: string
+  statuses?: string[]
+  cwe_prefixes?: string[]
+}
+export interface ActionOutput {
+  record_observations?: boolean
+  write_to_path?: string
+}
+export interface Action {
+  id: string
+  name: string
+  description?: string
+  icon?: string
+  kind: 'agent' | 'script'
+  subject_kinds: string[]
+  applies_when: ActionPredicate
+  technique?: string
+  profile_id?: string
+  instruction?: string
+  image?: string
+  cmd?: string[]
+  network?: string
+  timeout_seconds?: number
+  memory_mb?: number
+  cpus?: number
+  output: ActionOutput
+  builtin?: boolean
+  created_at?: string
+  updated_at?: string
+}
+export interface ActionRun {
+  id: string
+  action_id: string
+  action_name: string
+  kind: string
+  subject_kind: string
+  subject_id: string
+  status: 'running' | 'done' | 'error'
+  summary?: string
+  output?: string
+  artifact_id?: string
+  error?: string
+  created_at: string
+  finished_at?: string
+}
+
 export interface SearchResult {
   kind: string
   id: string
@@ -1432,6 +1481,16 @@ export const api = {
   createAgentProfile: (p: { name: string; description: string; persona: string; tools: string[]; model_tag?: string }) =>
     request<{ id: string }>('POST', '/v1/analyst/profiles', p),
   deleteAgentProfile: (id: string) => request<void>('DELETE', '/v1/analyst/profiles/' + id),
+
+  // Custom actions (ADR-0059).
+  listActions: () => request<Action[]>('GET', '/v1/actions'),
+  createAction: (a: Partial<Action>) => request<Action>('POST', '/v1/actions', a),
+  updateAction: (id: string, a: Partial<Action>) => request<Action>('PUT', '/v1/actions/' + id, a),
+  deleteAction: (id: string) => request<void>('DELETE', '/v1/actions/' + id),
+  runAction: (subjectKind: 'findings' | 'observations', subjectId: string, actionId: string) =>
+    request<ActionRun>('POST', `/v1/${subjectKind}/${subjectId}/actions/${actionId}/run`),
+  listActionRuns: (subjectKind: 'findings' | 'observations', subjectId: string) =>
+    request<ActionRun[]>('GET', `/v1/${subjectKind}/${subjectId}/action-runs`),
   createThread: (projectId?: string, title?: string, agentType?: string) =>
     request<Thread>('POST', '/v1/threads', { project_id: projectId, title, agent_type: agentType }),
   getThread: (id: string) => request<{ thread: Thread; messages: Msg[] }>('GET', '/v1/threads/' + id),

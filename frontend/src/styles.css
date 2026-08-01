@@ -3007,3 +3007,51 @@ select.em-in { cursor: pointer; }
 .settings-body.wide { max-width: none; display: flex; flex-direction: column; }
 .rte-inline { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .rte-inline .rte-body { flex: 1; min-height: 440px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+
+/* Custom actions (ADR-0059) — Library editor + the Actions menu/runs on findings & observations. */
+.agents-sub { color: var(--tx3); font-size: 12.5px; margin: 2px 0 12px; max-width: 68ch; }
+.agents-grp { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--tx3); margin: 16px 0 6px; }
+.act-ico { width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center; font-size: 15px; background: var(--bg); border: 1px solid var(--line); flex: none; }
+.act-kind { font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+.act-kind.agent { color: var(--acc2); background: color-mix(in srgb, var(--acc2) 15%, transparent); }
+.act-kind.script { color: var(--acc); background: color-mix(in srgb, var(--acc) 15%, transparent); }
+.agents-row .act-ico + div { min-width: 0; }
+.agents-row { display: flex; align-items: center; gap: 10px; }
+
+.act-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.act-grid .act-icon { grid-column: auto; }
+.act-editor .act-icon { max-width: 100%; }
+.act-seg { display: inline-flex; border: 1px solid var(--line2); border-radius: 7px; overflow: hidden; margin-bottom: 4px; }
+.act-seg button { padding: 7px 14px; font-size: 12.5px; background: var(--bg3); color: var(--tx2); border: none; cursor: pointer; font-family: var(--sans); }
+.act-seg button + button { border-left: 1px solid var(--line2); }
+.act-seg button.on { background: var(--acc2); color: #0b0713; font-weight: 600; }
+.act-checks { display: flex; gap: 8px; }
+.act-checks label, .act-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--tx2); border: 1px solid var(--line2); background: var(--bg3); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+.act-checks label.on { border-color: var(--acc); color: var(--tx); }
+.act-inline { margin-top: 8px; border: none; background: none; padding: 0; }
+.act-mono { font-family: var(--mono); font-size: 12px; }
+.act-hint { font-size: 11.5px; color: var(--tx3); margin-top: 6px; line-height: 1.5; }
+.act-tokens { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0; }
+.act-tok { font-family: var(--mono); font-size: 10.5px; color: var(--acc2); background: color-mix(in srgb, var(--acc2) 12%, transparent); border: 1px solid color-mix(in srgb, var(--acc2) 28%, transparent); padding: 1px 6px; border-radius: 4px; }
+.act-gate { font-size: 12px; color: var(--tx2); background: var(--red-bg); border: 1px solid color-mix(in srgb, var(--amber) 32%, var(--line)); border-radius: 8px; padding: 8px 11px; margin-top: 10px; }
+.act-gate b { color: var(--amber); }
+
+/* Actions ▾ control (finding/observation header + observation panel) */
+.fd-actions-btn { font-size: 12.5px; border-radius: 6px; padding: 6px 12px; cursor: pointer; border: 1px solid var(--acc); background: var(--acc); color: #06131f; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.fd-actions-btn:disabled { opacity: .5; cursor: default; }
+.fd-actions-btn .caret { opacity: .8; }
+
+/* Action runs history */
+.act-runs { margin-top: 18px; }
+.act-run { border: 1px solid var(--line); border-radius: 9px; background: var(--bg); margin-bottom: 10px; overflow: hidden; }
+.act-run-head { display: flex; align-items: center; gap: 9px; padding: 9px 12px; background: var(--bg3); border-bottom: 1px solid var(--line); }
+.act-run-name { font-size: 13px; font-weight: 550; }
+.act-run-time { font-size: 11px; }
+.act-run-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--line2); }
+.act-run-dot.running { background: var(--amber); animation: orch-pulse 1.2s ease-in-out infinite; }
+.act-run-dot.done { background: var(--green); }
+.act-run-dot.error { background: var(--red); }
+.act-run-body { padding: 11px 13px; font-size: 12.5px; color: var(--tx2); }
+.act-run-body.err { color: var(--red); }
+.act-run > .md { padding: 4px 13px 11px; }
+.act-run pre { overflow-x: auto; }
