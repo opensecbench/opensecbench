@@ -109,7 +109,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
   { key: 'terminal', icon: '▤', label: 'Term' },
   { key: 'scan', icon: '▷', label: 'Scan' },
   { key: 'observations', icon: '🧪', label: 'Triage' },
-  { key: 'findings', icon: '⚑', label: 'Find', explorer: true },
+  { key: 'findings', icon: '⚑', label: 'Find' },
   { key: 'routes', icon: '🎯', label: 'Surface', explorer: true },
   { key: 'graph', icon: '📊', label: 'Graph' },
   { key: 'methodology', icon: '✓', label: 'Method', explorer: true },
@@ -213,12 +213,9 @@ const ASSET_ICON: Record<string, string> = {
   correspondence: '✉',
 }
 
-const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
-
 function explorerTitle(t: Tab | null): string {
   if (t === 'methodology') return 'Coverage'
   if (t === 'assets') return 'Applications'
-  if (t === 'findings') return 'Findings'
   if (t === 'context') return 'Context'
   if (t === 'code') return 'Source'
   if (t === 'routes') return 'Routes'
@@ -352,8 +349,6 @@ function WorkbenchExplorer({
   tab,
   project,
   apps,
-  findings,
-  observations,
   context,
   coverage,
   online,
@@ -362,14 +357,11 @@ function WorkbenchExplorer({
   selectedRouteId,
   onSelectRoute,
   onOpenCode,
-  onOpenFinding,
   onOpenContextItem,
 }: {
   tab: Tab | null
   project: Project
   apps: AppAssets[]
-  findings: Finding[]
-  observations: Observation[]
   context: ContextItem[]
   coverage: CoverageView | null
   online: boolean
@@ -378,18 +370,8 @@ function WorkbenchExplorer({
   selectedRouteId: string | null
   onSelectRoute: (id: string) => void
   onOpenCode: OpenCode
-  onOpenFinding: (f: Finding) => void
   onOpenContextItem: (c: ContextItem) => void
 }) {
-  // "Findings in files": each finding's located observations — clicking opens the finding's detail. Raw
-  // (un-promoted) observations do NOT appear here — they live on the Observations surface, their single home.
-  const obsById = new Map(observations.map((o) => [o.id, o]))
-  const findingLocs = findings.flatMap((f) =>
-    (f.observation_ids ?? [])
-      .map((id) => obsById.get(id))
-      .filter((o): o is Observation => !!o && !!o.asset_id && !!o.location)
-      .map((o) => ({ finding: f, obs: o })),
-  )
   return (
     <aside className="wb-explorer">
       <div className="wb-exp-head">
@@ -442,39 +424,6 @@ function WorkbenchExplorer({
             <FileTree assetId={codeAssetId} online={online} onOpenFile={(path) => onOpenCode(codeAssetId, path)} />
           ) : (
             <div className="wb-exp-empty">Open a file to browse its repo.</div>
-          )
-        ) : tab === 'findings' ? (
-          findings.length === 0 ? (
-            <div className="wb-exp-empty">No findings yet. Scanner results land in the Observations tab — promote the real ones there.</div>
-          ) : (
-            <>
-              {SEVERITIES.map((sev) => {
-                const n = findings.filter((f) => f.severity === sev).length
-                if (!n) return null
-                return (
-                  <div key={sev} className="wb-exp-row">
-                    <span className={`sev sev-${sev}`}>{sev}</span>
-                    <span className="pct">{n}</span>
-                  </div>
-                )
-              })}
-              {findingLocs.length > 0 && (
-                <>
-                  <div className="wb-exp-row grp" style={{ marginTop: 8 }}>Findings in files ({findingLocs.length})</div>
-                  {findingLocs.map(({ finding, obs }) => (
-                    <div
-                      key={finding.id + ':' + obs.id}
-                      className="wb-exp-row file"
-                      title={`${finding.title} — ${obs.location} · open finding details`}
-                      onClick={() => onOpenFinding(finding)}
-                    >
-                      <span className={`dot sev-${finding.severity}`} />
-                      <span className="lbl">{obs.location}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-            </>
           )
         ) : tab === 'context' ? (
           context.length === 0 ? (
@@ -1155,8 +1104,6 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
               tab={activeSurface}
               project={project}
               apps={apps}
-              findings={findings}
-              observations={observations}
               context={context}
               coverage={coverage}
               online={online}
@@ -1165,7 +1112,6 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
               selectedRouteId={selectedRouteId}
               onSelectRoute={setSelectedRouteId}
               onOpenCode={openCodeFile}
-              onOpenFinding={openFinding}
               onOpenContextItem={openContextItem}
             />
           </SurfaceBoundary>
