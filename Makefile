@@ -2,7 +2,7 @@
 #
 # The desktop app (main.go) is behind the `desktop` build tag so plain `go build ./...` and CI
 # don't need the webkit/gtk toolchain. Wails must be told that tag explicitly — these targets do
-# it for you. Set a provider to enable the Analyst, e.g. `OSB_LLM_PROVIDER=claude-cli make dev`.
+# it for you. The Analyst's AI provider is configured in the app's settings — no env vars needed.
 
 .PHONY: dev build daemon cli test lint fmt frontend images claude-image adr-index
 
