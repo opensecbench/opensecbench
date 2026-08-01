@@ -1,0 +1,37 @@
+# Dependabot keeps dependencies and base images current. Minor/patch updates are grouped into a
+# single PR per ecosystem to keep review noise down; majors come as individual PRs.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories:
+      - "/images/opengrep"
+      - "/images/claude-cli"
+      - "/pkg/session"
+    schedule:
+      interval: weekly
