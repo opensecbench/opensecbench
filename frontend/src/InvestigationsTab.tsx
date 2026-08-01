@@ -126,7 +126,7 @@ export function InvestigationsTab({
           onRowClick={(i) => setDetailId(i.id)}
           activeId={detail?.id}
           defaultSort={{ key: 'severity', dir: 'desc' }}
-          empty="No investigations. Send an observation here from the Observations tab to validate it."
+          empty="No investigations. Uncertain signals (unverified secrets, AI-triage flags) open one here to validate."
         />
         {detail && (
           <aside className="detail-panel">
