@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState, type MouseEvent as ReactMouseEvent } from 'react'
 
 // A compact, spreadsheet-style table shared across surfaces (Observations first; Findings/Investigations
 // can adopt it). It owns sort state; the parent owns filtering, selection, and row-click, so each surface
@@ -25,6 +25,7 @@ export function DataTable<T extends { id: string }>({
   columns,
   getRowClass,
   onRowClick,
+  onRowContextMenu,
   activeId,
   selectable = false,
   selected,
@@ -36,6 +37,7 @@ export function DataTable<T extends { id: string }>({
   columns: Column<T>[]
   getRowClass?: (row: T) => string
   onRowClick?: (row: T) => void
+  onRowContextMenu?: (row: T, e: ReactMouseEvent) => void
   activeId?: string
   selectable?: boolean
   selected?: Set<string>
@@ -115,6 +117,7 @@ export function DataTable<T extends { id: string }>({
                 key={row.id}
                 className={`${getRowClass?.(row) ?? ''} ${activeId === row.id ? 'active' : ''} ${onRowClick ? 'clickable' : ''}`}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onContextMenu={onRowContextMenu ? (e) => onRowContextMenu(row, e) : undefined}
               >
                 {selectable && (
                   <td className="dt-check" onClick={(e) => e.stopPropagation()}>
