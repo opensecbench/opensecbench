@@ -545,6 +545,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/integrations", s.listIntegrations)
 	s.mux.HandleFunc("GET /v1/findings/{id}/links", s.listFindingLinks)
 	s.mux.HandleFunc("POST /v1/findings/{id}/push", s.pushFinding)
+	// Custom actions (ADR-0059): global definitions + running one against a finding/observation.
+	s.mux.HandleFunc("GET /v1/actions", s.listActions)
+	s.mux.HandleFunc("POST /v1/actions", s.createAction)
+	s.mux.HandleFunc("PUT /v1/actions/{id}", s.updateAction)
+	s.mux.HandleFunc("DELETE /v1/actions/{id}", s.deleteAction)
+	s.mux.HandleFunc("POST /v1/findings/{id}/actions/{actionId}/run", s.runFindingAction)
+	s.mux.HandleFunc("GET /v1/findings/{id}/action-runs", s.listFindingActionRuns)
+	s.mux.HandleFunc("POST /v1/observations/{id}/actions/{actionId}/run", s.runObservationAction)
+	s.mux.HandleFunc("GET /v1/observations/{id}/action-runs", s.listObservationActionRuns)
 	// Per-project integration configs + inbound pull (ADR-0027).
 	// Global connectors (Library) + per-project bindings (ADR-0027 / IA declutter).
 	s.mux.HandleFunc("GET /v1/connectors", s.listConnectors)
