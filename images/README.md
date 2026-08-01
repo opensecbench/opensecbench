@@ -29,4 +29,4 @@ directory plus its Dockerfile — no Makefile change needed.
 
 | Image | Tag | Purpose | ADR |
 |-------|-----|---------|-----|
-| [`claude-cli`](claude-cli/) | `osb/claude-cli:latest` | Run the `claude` CLI as a sandboxed inference backend | [ADR-0018](../docs/adr-0018-sandboxed-cli-provider.md) |
+| [`claude-cli`](claude-cli/) | `osb/claude-cli:latest` | Run the `claude` CLI as a sandboxed inference backend | [ADR-0018](../docs/adr/adr-0018-sandboxed-cli-provider.md) |

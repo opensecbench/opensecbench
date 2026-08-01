@@ -29,6 +29,12 @@ jobs:
         run: go build ./...
       - name: go test
         run: go test -race ./...
+      - name: adr index current
+        run: |
+          go run scripts/gen_adr_index.go
+          if ! git diff --exit-code docs/adr/README.md; then
+            echo "The ADR index is stale. Run 'make adr-index' and commit docs/adr/README.md."; exit 1
+          fi
 
   lint:
     name: golangci-lint
