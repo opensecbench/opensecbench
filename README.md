@@ -147,31 +147,38 @@ Notes:
 
 ## The Analyst (AI)
 
-The control plane owns the agent loop; providers are inference-only (ADR-0006/0017). Configure one via
-`OSB_LLM_*` when starting the daemon (in production, keys come from the encrypted vault — env is a dev
-convenience):
+The control plane owns the agent loop; providers are inference-only (ADR-0006/0017). Configure a
+**provider connection** once in the app's **Analyst settings** (ADR-0052): pick a type, add a
+credential (kept in the encrypted vault, never in the environment), let it **discover the available
+models** live, and activate it. The connection is persisted and reused across runs — there's nothing
+to pass on the command line each time.
+
+Supported provider types:
+
+- **Anthropic** — API key.
+- **OpenAI-compatible** — any OpenAI-style endpoint (DeepSeek, xAI Grok, Azure OpenAI, …); set the base URL.
+- **Gateways** — **AWS Bedrock** and **Azure AI Foundry**, where one connection serves many models across families.
+- **Ollama** — local, no key, no egress.
+- **Claude via the CLI** — your local Claude subscription login (optionally sandboxed).
+
+The connection, its discovered models, the trust-curve approval policy, and custom agents are all
+managed from the Analyst settings; playbooks are triggered, scheduled, and built from the **Agents**
+surface. The Analyst calls read tools over your data (auto-approved) and gates outbound/mutating
+actions through an **approval queue** (`osb approval list|approve|deny`):
 
 ```sh
-# local Ollama, no key, no egress (MODEL must be one you have pulled):
-OSB_LLM_PROVIDER=ollama OSB_LLM_MODEL=qwen2.5 go run ./cmd/daemon
-# remote/non-default Ollama — set the OpenAI-compatible base URL (note the /v1):
-OSB_LLM_PROVIDER=ollama OSB_LLM_BASE_URL=http://10.0.0.5:11434/v1 OSB_LLM_MODEL=qwen2.5 go run ./cmd/daemon
-# hosted, OpenAI-compatible:
-OSB_LLM_PROVIDER=deepseek OSB_LLM_API_KEY=... go run ./cmd/daemon
-OSB_LLM_PROVIDER=grok     OSB_LLM_API_KEY=... go run ./cmd/daemon
-# Claude via the CLI (uses your local subscription login):
-OSB_LLM_PROVIDER=claude-cli go run ./cmd/daemon
-# Anthropic API:
-OSB_LLM_PROVIDER=anthropic OSB_LLM_API_KEY=... go run ./cmd/daemon
-
 osb analyst ask "how many findings are there, and which are high severity?"
 ```
 
-Providers: `ollama`, `deepseek`, `grok`, `openai`/`azure` (set `OSB_LLM_BASE_URL`), `anthropic`,
-`claude-cli`. In the desktop app, providers, the trust-curve approval policy, and custom agents are all
-configurable from the Analyst settings; playbooks are triggered, scheduled, and built from the **Agents**
-surface. The Analyst calls read tools over your data (auto-approved) and gates outbound/mutating actions
-through an **approval queue** (`osb approval list|approve|deny`).
+**Headless / no UI?** When you run `cmd/daemon` without the desktop app (CI, scripts, a quick
+try-out), `OSB_LLM_*` still bootstraps a provider at startup as a fallback:
+
+```sh
+# local Ollama, no key, no egress (MODEL must be one you've pulled):
+OSB_LLM_PROVIDER=ollama OSB_LLM_MODEL=qwen2.5 go run ./cmd/daemon
+# Anthropic API:
+OSB_LLM_PROVIDER=anthropic OSB_LLM_API_KEY=... go run ./cmd/daemon
+```
 
 Governance & agent env (dev convenience; the desktop UI exposes the same controls):
 
