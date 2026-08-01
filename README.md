@@ -97,7 +97,7 @@ See [`docs/adr/`](docs/adr/) for architecture decision records and format specs,
 Requires the Go toolchain declared in `go.mod` (auto-managed by `GOTOOLCHAIN`).
 
 ```sh
-go build ./...      # core packages (the desktop app is excluded — see below)
+go build ./...      # core packages
 go test ./...
 ```
 
@@ -118,21 +118,16 @@ cd frontend && npm install && npm run dev    # in another → http://localhost:5
 
 **Desktop app (Wails):** boots the control plane in-process and renders the frontend in a native
 window. Needs the [Wails](https://wails.io) CLI and, on Linux, the GTK/WebKit dev libraries
-(`libgtk-3-dev`, `libwebkit2gtk-4.1-dev`). The desktop entrypoint (`main.go`) is behind the
-`desktop` build tag so it never affects `go build ./...` or CI — **you must pass the tag to Wails**
-(the Makefile does it for you):
+(`libgtk-3-dev`, `libwebkit2gtk-4.1-dev`).
 
 ```sh
-make dev                                 # = wails dev -tags "desktop webkit2_41"
-make build                               # = wails build -tags "desktop webkit2_41"
+make dev      # run the desktop app with live reload
+make build    # package a desktop binary into ./build/bin
 ```
 
 The Analyst is configured from the app's settings (see below) — no environment variables needed.
 
-Notes:
-- Without the `desktop` tag, Wails builds a stub that prints a hint and exits.
-- On Ubuntu/Pop!_OS **24.04+**, webkit is 4.1, so the `webkit2_41` tag is required (the Makefile
-  includes it). On older distros with webkit2gtk-4.0, use `make dev WAILS_TAGS=desktop`.
+- On older Linux distros that ship webkit2gtk-4.0 instead of 4.1, run `make dev WAILS_TAGS=desktop`.
 
 ## The Analyst (AI)
 
