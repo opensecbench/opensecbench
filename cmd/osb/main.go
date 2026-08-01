@@ -1894,6 +1894,7 @@ func projectCmd(ctx context.Context, c *client.Client, args []string) error {
 		id := fs.String("id", "", "project id (required)")
 		out := fs.String("out", "", "output bundle file (required)")
 		pass := fs.String("passphrase", "", "encryption passphrase (or set OSB_BUNDLE_PASSPHRASE)")
+		full := fs.Bool("full", false, "full-fidelity clone (Analyst threads, investigations, traffic, reports, notes, coverage, engagement) — for demos/backup, NOT a client deliverable")
 		signKey := fs.String("sign-key", "", "private key file to sign the bundle (from 'osb ext keygen')")
 		publisher := fs.String("publisher", "", "publisher name recorded in the signature")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -1903,7 +1904,7 @@ func projectCmd(ctx context.Context, c *client.Client, args []string) error {
 		if *id == "" || *out == "" || phrase == "" {
 			return errors.New("project export: --id, --out, and a passphrase are required")
 		}
-		data, err := c.ExportProject(ctx, *id, phrase)
+		data, err := c.ExportProject(ctx, *id, phrase, *full)
 		if err != nil {
 			return err
 		}
@@ -2037,7 +2038,7 @@ Commands:
   project get <id>            show a project
   project create --name NAME [--template ID]  create a project
   project delete <id>         delete a project
-  project export --id ID --out FILE [--passphrase P]  encrypted project bundle
+  project export --id ID --out FILE [--passphrase P] [--full]  encrypted project bundle (--full = demo/backup clone)
   project import --file FILE [--passphrase P]          import a bundle (new project)
   template list               list project templates
   application create --project ID --name NAME

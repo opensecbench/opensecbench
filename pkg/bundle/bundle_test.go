@@ -63,7 +63,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	src, srcBlobs := newStore(t)
 	projID := seedProject(t, src, srcBlobs)
 
-	blob, err := Export(ctx, store.NewCombinedManager(src), srcBlobs, projID, "correct horse battery staple")
+	blob, err := Export(ctx, store.NewCombinedManager(src), srcBlobs, projID, "correct horse battery staple", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestWrongPassphraseFails(t *testing.T) {
 	ctx := context.Background()
 	src, srcBlobs := newStore(t)
 	projID := seedProject(t, src, srcBlobs)
-	blob, _ := Export(ctx, store.NewCombinedManager(src), srcBlobs, projID, "right")
+	blob, _ := Export(ctx, store.NewCombinedManager(src), srcBlobs, projID, "right", false)
 
 	dst, dstBlobs := newStore(t)
 	if _, err := Import(ctx, store.NewCombinedManager(dst), cas.Fixed(dstBlobs), blob, "wrong"); err == nil {
@@ -167,5 +167,154 @@ func TestBundleSignVerify(t *testing.T) {
 	got, err := ParseSidecar(raw)
 	if err != nil || got.Verify(data) != nil {
 		t.Fatalf("sidecar json round trip failed: %v", err)
+	}
+}
+
+// seedFull adds full-fidelity working state to an existing project (ADR-0060): an Analyst thread +
+// message, an investigation (linked to the thread) on a fresh observation, an HTTP exchange with a
+// response, a report + its CAS blob, a context note + its CAS blob, methodology adoption + coverage,
+// and an engagement record with a contact + test account.
+func seedFull(t *testing.T, db *store.DB, blobs *cas.Store, projID string) {
+	t.Helper()
+	ctx := context.Background()
+
+	thread, _ := db.CreateThread(ctx, store.NewThread{ProjectID: &projID, Title: "Recon chat", Provider: "mock", AgentType: "generalist"})
+	_, _ = db.AppendMessage(ctx, thread.ID, "user", "what does the login flow look like?")
+
+	obs, _ := db.CreateObservation(ctx, model.Observation{ProjectID: &projID, Origin: model.OriginHuman, Title: "Weak TLS ciphers", Severity: "medium"})
+	inv, _ := db.CreateInvestigation(ctx, model.Investigation{ProjectID: projID, ObservationID: obs.ID, Title: "Validate weak TLS", Status: model.InvestigationOpen})
+	_ = db.SetInvestigationThread(ctx, inv.ID, thread.ID)
+
+	ex, _ := db.CreateExchange(ctx, model.HTTPExchange{ProjectID: projID, Name: "login", Method: "POST", URL: "https://acme.com/login", RequestHeaders: "Content-Type: application/json", RequestBody: `{"u":"a"}`})
+	_ = db.RecordResponse(ctx, ex.ID, 200, "Content-Type: text/html", "<html>ok</html>", 42, "")
+
+	rd, _ := blobs.Put(bytes.NewReader([]byte("<html>REPORT</html>")))
+	rart, _ := db.CreateArtifact(ctx, model.Artifact{SHA256: rd, Size: 19, Kind: model.ArtifactOutput, Name: "report.html", MediaType: "text/html"})
+	_, _ = db.CreateReport(ctx, model.Report{ProjectID: projID, TemplateID: "technical", Format: "html", Title: "Technical Report", ArtifactID: rart.ID})
+
+	nd, _ := blobs.Put(bytes.NewReader([]byte("kickoff notes: scope is storefront")))
+	nart, _ := db.CreateArtifact(ctx, model.Artifact{SHA256: nd, Size: 34, Kind: model.ArtifactInput, Name: "notes.txt", MediaType: "text/plain"})
+	_, _ = db.CreateContextItem(ctx, model.ContextItem{ProjectID: projID, Type: model.ContextNote, Name: "Kickoff notes", ArtifactID: nart.ID})
+
+	_ = db.AdoptMethodology(ctx, projID, "owasp-asvs")
+	_ = db.SetCoverage(ctx, projID, "V2.1.1", model.CoverageCovered, "verified manually")
+
+	_, _ = db.SetEngagement(ctx, model.Engagement{
+		ProjectID: projID, Objective: "Assess storefront", Environment: "staging", Authorized: true, Authorizer: "Jane Acme",
+		Contacts:     []model.EngagementContact{{ProjectID: projID, Role: "primary", Name: "Jane", Email: "jane@acme.com"}},
+		TestAccounts: []model.EngagementTestAccount{{ProjectID: projID, Role: "user", Username: "tester", SecretRef: "acct-pw"}},
+	})
+}
+
+func TestExportImportFullRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	src, srcBlobs := newStore(t)
+	projID := seedProject(t, src, srcBlobs)
+	seedFull(t, src, srcBlobs, projID)
+
+	blob, err := Export(ctx, store.NewCombinedManager(src), srcBlobs, projID, "pw", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dst, dstBlobs := newStore(t)
+	newProjID, err := Import(ctx, store.NewCombinedManager(dst), cas.Fixed(dstBlobs), blob, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Analyst thread + message.
+	threads, _ := dst.ListThreads(ctx)
+	var thread *model.Thread
+	for i := range threads {
+		if threads[i].ProjectID != nil && *threads[i].ProjectID == newProjID {
+			thread = &threads[i]
+		}
+	}
+	if thread == nil || thread.Title != "Recon chat" {
+		t.Fatalf("thread not restored: %+v", threads)
+	}
+	msgs, _ := dst.ListMessages(ctx, thread.ID)
+	if len(msgs) != 1 || msgs[0].Content != "what does the login flow look like?" {
+		t.Fatalf("messages not restored: %+v", msgs)
+	}
+
+	// Investigation, remapped onto the restored thread and observation.
+	invs, _ := dst.ListInvestigationsByProject(ctx, newProjID)
+	if len(invs) != 1 || invs[0].Title != "Validate weak TLS" {
+		t.Fatalf("investigation not restored: %+v", invs)
+	}
+	if invs[0].ThreadID == nil || *invs[0].ThreadID != thread.ID {
+		t.Fatalf("investigation lost its thread link: %+v", invs[0])
+	}
+	if _, err := dst.GetObservation(ctx, invs[0].ObservationID); err != nil {
+		t.Fatalf("investigation observation not restored: %v", err)
+	}
+
+	// HTTP exchange with its response.
+	exs, _ := dst.ListExchangesByProject(ctx, newProjID)
+	if len(exs) != 1 || exs[0].URL != "https://acme.com/login" || exs[0].Status == nil || *exs[0].Status != 200 {
+		t.Fatalf("exchange not restored: %+v", exs)
+	}
+	if exs[0].ResponseBody != "<html>ok</html>" {
+		t.Fatalf("exchange response not restored: %+v", exs[0])
+	}
+
+	// Report + its rendered blob in the new CAS.
+	reps, _ := dst.ListReportsByProject(ctx, newProjID)
+	if len(reps) != 1 || reps[0].Title != "Technical Report" {
+		t.Fatalf("report not restored: %+v", reps)
+	}
+	rart, _ := dst.GetArtifact(ctx, reps[0].ArtifactID)
+	if rc, err := dstBlobs.Open(rart.SHA256); err != nil {
+		t.Fatalf("report blob not in CAS: %v", err)
+	} else {
+		_ = rc.Close()
+	}
+
+	// Context note + its blob.
+	items, _ := dst.ListContextItemsByProject(ctx, newProjID)
+	if len(items) != 1 || items[0].Name != "Kickoff notes" || items[0].Type != model.ContextNote {
+		t.Fatalf("context item not restored: %+v", items)
+	}
+	cart, _ := dst.GetArtifact(ctx, items[0].ArtifactID)
+	if rc, err := dstBlobs.Open(cart.SHA256); err != nil {
+		t.Fatalf("context blob not in CAS: %v", err)
+	} else {
+		_ = rc.Close()
+	}
+
+	// Methodology adoption + coverage.
+	adopted, _ := dst.ListAdoptedMethodologies(ctx, newProjID)
+	if len(adopted) != 1 || adopted[0] != "owasp-asvs" {
+		t.Fatalf("methodology adoption not restored: %+v", adopted)
+	}
+	cov, _ := dst.ListCoverage(ctx, newProjID)
+	if len(cov) != 1 || cov[0].Status != model.CoverageCovered {
+		t.Fatalf("coverage not restored: %+v", cov)
+	}
+
+	// Engagement record + children.
+	eng, err := dst.GetEngagement(ctx, newProjID)
+	if err != nil {
+		t.Fatalf("engagement not restored: %v", err)
+	}
+	if eng.Objective != "Assess storefront" || !eng.Authorized || len(eng.Contacts) != 1 || len(eng.TestAccounts) != 1 {
+		t.Fatalf("engagement not faithfully restored: %+v", eng)
+	}
+
+	// A shareable export of the same project must NOT carry the full-fidelity state (ADR-0060: default
+	// mode is the client deliverable, unchanged from ADR-0012).
+	shareable, err := Export(ctx, store.NewCombinedManager(src), srcBlobs, projID, "pw", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sd, err := open(shareable, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sd.Threads) != 0 || len(sd.Exchanges) != 0 || len(sd.Reports) != 0 || len(sd.ContextItems) != 0 || sd.Engagement != nil {
+		t.Fatalf("shareable bundle leaked full-fidelity state: threads=%d exchanges=%d reports=%d ctx=%d eng=%v",
+			len(sd.Threads), len(sd.Exchanges), len(sd.Reports), len(sd.ContextItems), sd.Engagement != nil)
 	}
 }

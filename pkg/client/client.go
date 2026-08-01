@@ -213,8 +213,12 @@ func (c *Client) DeleteSecret(ctx context.Context, name string) error {
 }
 
 // ExportProject returns an encrypted bundle of the project (passphrase sent out-of-band).
-func (c *Client) ExportProject(ctx context.Context, projectID, passphrase string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/projects/"+projectID+"/export", nil)
+func (c *Client) ExportProject(ctx context.Context, projectID, passphrase string, full bool) ([]byte, error) {
+	url := c.baseURL + "/v1/projects/" + projectID + "/export"
+	if full {
+		url += "?full=true"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return nil, err
 	}

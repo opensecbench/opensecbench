@@ -17,8 +17,9 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
-// FormatVersion is the bundle schema version.
-const FormatVersion = 1
+// FormatVersion is the bundle schema version. v2 adds the optional full-fidelity working state
+// (ADR-0060); a pre-v2 daemon rejects a v2 bundle, a v2 daemon reads a v1 bundle (new slices empty).
+const FormatVersion = 2
 
 var magic = []byte("OSBBNDL1")
 
@@ -43,7 +44,20 @@ type Data struct {
 	Observations []model.Observation `json:"observations"`
 	Artifacts    []model.Artifact    `json:"artifacts"`
 	KB           []model.KBEntry     `json:"kb"`
-	Blobs        map[string][]byte   `json:"blobs"` // sha256 -> bytes
+
+	// Full-fidelity working state (mode=full, ADR-0060) — the state a demo/backup needs but a
+	// client-facing deliverable does not. Empty/nil in a shareable bundle.
+	Threads        []model.Thread        `json:"threads,omitempty"`
+	Messages       []model.Message       `json:"messages,omitempty"`
+	Investigations []model.Investigation `json:"investigations,omitempty"`
+	Exchanges      []model.HTTPExchange  `json:"exchanges,omitempty"`
+	Reports        []model.Report        `json:"reports,omitempty"`
+	ContextItems   []model.ContextItem   `json:"context_items,omitempty"`
+	Adopted        []string              `json:"adopted_methodologies,omitempty"`
+	Coverage       []model.CoverageEntry `json:"coverage,omitempty"`
+	Engagement     *model.Engagement     `json:"engagement,omitempty"`
+
+	Blobs map[string][]byte `json:"blobs"` // sha256 -> bytes
 }
 
 // seal encrypts the JSON of d with a scrypt-derived key from passphrase. Layout:
