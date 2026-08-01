@@ -21,7 +21,8 @@ func (s *Server) exportProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	data, err := bundle.Export(r.Context(), s.mgr, s.casFor(id), id, pass)
+	full := r.URL.Query().Get("full") == "true"
+	data, err := bundle.Export(r.Context(), s.mgr, s.casFor(id), id, pass, full)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
