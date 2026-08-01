@@ -4,7 +4,7 @@
 # don't need the webkit/gtk toolchain. Wails must be told that tag explicitly — these targets do
 # it for you. Set a provider to enable the Analyst, e.g. `OSB_LLM_PROVIDER=claude-cli make dev`.
 
-.PHONY: dev build daemon cli test lint fmt frontend images claude-image
+.PHONY: dev build daemon cli test lint fmt frontend images claude-image adr-index
 
 # Wails build tags. On modern distros (Ubuntu/Pop!_OS 24.04+) webkit is 4.1, which needs the
 # webkit2_41 tag. On older distros that ship webkit2gtk-4.0, override: WAILS_TAGS=desktop.
@@ -50,3 +50,8 @@ image-%:
 
 # Convenience alias for the one image most people build.
 claude-image: image-claude-cli
+
+# Regenerate the ADR index table in docs/adr/README.md from each ADR's title + Status line.
+# CI runs this and fails if the committed index is stale (see .github/workflows/ci.yml).
+adr-index:
+	go run scripts/gen_adr_index.go

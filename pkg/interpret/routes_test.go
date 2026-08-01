@@ -4,7 +4,7 @@ import "testing"
 
 // Real semgrep-OSS --json output (verified against semgrep 1.104.0 with the bundled ruleset): metavars are
 // masked, so the route path is the quoted literal interpolated into extra.message; check_id is `rules.`-
-// prefixed; paths carry the /src mount prefix. See docs/adr-0033 + the routes.yml ruleset.
+// prefixed; paths carry the /src mount prefix. See docs/adr/adr-0033 + the routes.yml ruleset.
 const routeJSON = `{
   "results": [
     {

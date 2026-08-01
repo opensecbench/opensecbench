@@ -1,9 +1,11 @@
 # ADR-0021 — Settings, model catalog & appearance
 
-Status: Proposed. A first-class **Settings** surface (sectioned/tabbed) built on a **settings registry**
-that core and **extensions** both populate — so settings never feel bolted on. Plus structured **model
-configuration** (a curated catalog instead of a free-text field), **model tags** for task-based routing
-(frugality — right-size the model per job), and **appearance/theming** (light/dark + accent).
+Status: Accepted — delivered. A first-class **Settings** surface (sectioned/tabbed) built on a **settings
+registry** that core and **extensions** both populate — so settings never feel bolted on. Plus structured
+**model configuration** (a curated catalog instead of a free-text field), **model tags** for task-based
+routing (frugality — right-size the model per job), and **appearance/theming** (light/dark + accent). The
+model-catalog/routing mechanics (§3–§4) were later reworked by **ADR-0052** (provider connections + live
+model discovery).
 
 ## Context
 
