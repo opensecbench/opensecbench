@@ -1,6 +1,6 @@
 # ADR-0058 — Two-surface triage: Triage + Findings
 
-Status: Proposed. Consolidate the three triage surfaces — Observations, Investigations, Findings —
+Status: Accepted — delivered. Consolidate the three triage surfaces — Observations, Investigations, Findings —
 into **two**: a single **Triage** surface (the pre-confirmation queue plus in-flight validations) and
 **Findings** (the confirmed, reportable deliverable). This is a presentation change: the data model
 and the disposition routing of ADR-0028/ADR-0037 are unchanged. Supersedes the three-peer-tab UI
