@@ -9,15 +9,33 @@ OpenSecBench is not a scanner aggregator, a vulnerability-management system, or 
 pentester. It is a working environment that makes skilled AppSec and assessment engineers
 dramatically more effective — and that a community can extend and share.
 
-> **Status: pre-release, under active development.** The local single-user workbench is broadly
+<!-- TODO(screenshot): add a workbench screenshot before flipping the repo public.
+     Suggested shot: the full IDE workbench with the Analyst dock open on a real assessment.
+     Drop the image in docs/images/ (NOT the top-level images/, which holds container builds) and
+     replace this comment with, e.g.:
+     ![The OpenSecBench workbench](docs/images/workbench.png) -->
+
+> **Status: early access, under active development.** The local single-user workbench is broadly
 > feature-complete — the assessment lifecycle, sandboxed capabilities, the evidence loop, the HTTP
 > toolset, the multi-agent Analyst, methodology/coverage, the knowledge base, reporting, and signed
 > extensions all work. Platform-reach items (remote runners, hosted hub/team services) are still in
-> progress. The repository is private during the build and will be open-sourced at release.
+> progress. Expect rough edges, and see [Contributing](#contributing) if you'd like to help.
 
-## License
+## Responsible use
 
-Licensed under the [Apache License 2.0](LICENSE).
+OpenSecBench is a tool for **authorized** security assessment work. Only use it against systems you
+own or have **explicit, written permission** to test. Scanning, intercepting traffic against, or
+otherwise probing systems without authorization is unlawful in most jurisdictions (e.g. the U.S.
+Computer Fraud and Abuse Act, the UK Computer Misuse Act, and equivalents) — and no feature here
+changes that.
+
+The tool is built to keep you inside your authorization, not to define it: the engagement record
+captures scope + authorization, the scope guard enforces an allowlist, and prohibited-technique
+gating and the DLP/egress controls limit what runs and what leaves the host. These are guardrails —
+**you** remain responsible for staying within the scope and the law of your engagement.
+
+Provided "as is", without warranty of any kind (see the [LICENSE](LICENSE)). The authors accept no
+liability for misuse or for any damage arising from its use.
 
 ## What's inside
 
@@ -70,7 +88,7 @@ An IDE-style workbench shell with an always-present AI dock:
 Everything — capabilities, methodologies, project templates, playbooks, report templates — is a
 versioned, signed, open-format **extension package**.
 
-See [`docs/`](docs/) for architecture decision records and format specs, and
+See [`docs/adr/`](docs/adr/) for architecture decision records and format specs, and
 [`TASKS.md`](TASKS.md) / [`TODO.md`](TODO.md) for current work and backlog.
 
 ## Repository layout
@@ -78,11 +96,11 @@ See [`docs/`](docs/) for architecture decision records and format specs, and
 ```
 main.go     desktop app entrypoint (behind the `desktop` build tag)
 cmd/        headless entrypoints: daemon (control-plane API), osb (CLI)
-pkg/        control-plane packages (see docs/adr-0001-architecture-overview.md)
+pkg/        control-plane packages (see docs/adr/adr-0001-architecture-overview.md)
 extensions/ first-party packages (same format as third-party)
 images/     OSB-built container images (e.g. the sandboxed claude-cli)
 frontend/   React + TypeScript desktop/web UI
-docs/       architecture decision records + open-format specs
+docs/adr/   architecture decision records + open-format specs (index: docs/adr/README.md)
 migrations/ SQLite schema migrations
 ```
 
@@ -167,3 +185,24 @@ Governance & agent env (dev convenience; the desktop UI exposes the same control
 - `OSB_LLM_CLI_SANDBOX=1` (+ `OSB_LLM_CLI_IMAGE`) — run `claude-cli` inside a runner container that mounts
   only `~/.claude/.credentials.json`, instead of on the host (build the image with `make claude-image`).
 - `OSB_WORKSPACE_DIR` — root for the per-project agent workspace (defaults beside the database).
+
+## Contributing
+
+Contributions are welcome — issues, discussion, and pull requests all help. OpenSecBench is built
+by and for AppSec practitioners, so real-world workflow feedback is as valuable as code.
+
+Good places to start:
+
+- **Report a bug or request a feature** — open an issue with enough detail to reproduce or motivate it.
+- **Read the design first** — the [`docs/adr/`](docs/adr/) ADRs explain why things are the way they are;
+  aligning a change with the relevant ADR (or proposing a new one) makes review much faster.
+- **Extensions** — capabilities, methodologies, and report templates ship as signed, open-format
+  packages, so many additions don't require touching the core (see the extension-format ADRs).
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow and the checks a PR needs to pass.
+Found a security issue in OpenSecBench itself? Please report it privately — see
+[`SECURITY.md`](SECURITY.md).
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
