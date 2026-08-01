@@ -73,7 +73,6 @@ type Tab =
   | 'tasks'
   | 'observations'
   | 'findings'
-  | 'investigations'
   | 'routes'
   | 'reports'
   | 'graph'
@@ -109,9 +108,8 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
   { key: 'intercept', icon: '✋', label: 'Intcpt' },
   { key: 'terminal', icon: '▤', label: 'Term' },
   { key: 'scan', icon: '▷', label: 'Scan' },
-  { key: 'observations', icon: '🧪', label: 'Observe' },
+  { key: 'observations', icon: '🧪', label: 'Triage' },
   { key: 'findings', icon: '⚑', label: 'Find', explorer: true },
-  { key: 'investigations', icon: '🔎', label: 'Invest' },
   { key: 'routes', icon: '🎯', label: 'Surface', explorer: true },
   { key: 'graph', icon: '📊', label: 'Graph' },
   { key: 'methodology', icon: '✓', label: 'Method', explorer: true },
@@ -132,7 +130,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
 // still sit below a divider; global config/library moves out of the project entirely in a later step.
 const SURFACE_GROUPS: { label: string; keys: Tab[] }[] = [
   { label: 'Evidence', keys: ['assets', 'context', 'knowledge'] },
-  { label: 'Analysis', keys: ['observations', 'findings', 'investigations', 'routes', 'graph'] },
+  { label: 'Analysis', keys: ['observations', 'findings', 'routes', 'graph'] },
   { label: 'Testing', keys: ['replay', 'proxy', 'intercept', 'terminal', 'scan'] },
   { label: 'Run', keys: ['orchestrate', 'playbooks', 'tasks'] },
   { label: 'Coverage', keys: ['methodology', 'scope'] },
@@ -541,7 +539,7 @@ const HIT_SURFACE: Record<string, Tab> = {
   application: 'assets',
   asset: 'assets',
   finding: 'findings',
-  observation: 'investigations',
+  observation: 'observations',
   context: 'context',
   kb: 'knowledge',
 }
@@ -925,9 +923,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
       case 'findings':
         return 'the Findings list'
       case 'observations':
-        return 'the Observations (triage) list'
-      case 'investigations':
-        return 'the Investigations list'
+        return 'the Triage list'
       case 'routes': {
         const r = routes.find((x) => x.id === selectedRouteId)
         return r ? `the route ${r.method} ${r.path} on the Routes surface` : 'the Routes (attack-surface) list'
@@ -1044,8 +1040,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         )
       case 'observations':
         return (
-          <ObservationsTab
-            projectId={project.id}
+          <TriageTab
+            project={project}
             observations={observations}
             online={online}
             onOpenCode={openCodeFile}
@@ -1054,8 +1050,6 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             onError={setError}
           />
         )
-      case 'investigations':
-        return <InvestigationsTab project={project} online={online} observations={observations} onOpenCode={openCodeFile} onJump={(t) => activateSurface(t as Tab)} onError={setError} />
       case 'reports':
         return <ReportsTab project={project} online={online} onError={setError} />
       case 'routes':
@@ -2347,6 +2341,95 @@ const STATE_LABEL: Record<string, string> = { unreviewed: 'new', confirmed: 'pro
 // scanners/agents produced. Search/sort/filter to find what matters, select rows for bulk promote/investigate/
 // dismiss, or click a row to inspect it in the side panel. Items already under investigation live on the
 // Investigations tab, so they're excluded here.
+// TriageTab is the pre-confirmation surface (ADR-0058): a segmented control over the two triage stages —
+// the raw observation Queue and the in-flight Validating investigations — so the whole "before it's a
+// confirmed Finding" pipeline lives in one place instead of three peer tabs. Each stage keeps its own
+// filter/sort/select table (ObservationsTab / InvestigationsTab), rendered embedded here.
+function TriageTab({
+  project,
+  observations,
+  online,
+  onOpenCode,
+  onJump,
+  reload,
+  onError,
+}: {
+  project: Project
+  observations: Observation[]
+  online: boolean
+  onOpenCode: OpenCode
+  onJump: (t: Tab) => void
+  reload: () => Promise<void>
+  onError: (m: string) => void
+}) {
+  const [seg, setSeg] = useState<'queue' | 'validating'>('queue')
+  const [investigations, setInvestigations] = useState<Investigation[]>([])
+
+  // Load investigations for the segment badge counts (and so the Queue count doesn't double-count
+  // observations already under validation). Each stage's embedded table still owns its own data + polling.
+  useEffect(() => {
+    if (!online) return
+    const load = () => api.listInvestigations(project.id).then((r) => setInvestigations(r ?? [])).catch(() => {})
+    void load()
+    const t = window.setInterval(load, 5000)
+    return () => window.clearInterval(t)
+  }, [online, project.id])
+
+  const activeInvObsIds = useMemo(
+    () => new Set(investigations.filter((i) => i.status === 'open' || i.status === 'investigating').map((i) => i.observation_id)),
+    [investigations],
+  )
+  const queueCount = useMemo(
+    () => observations.filter((o) => o.review_state === 'unreviewed' && !activeInvObsIds.has(o.id)).length,
+    [observations, activeInvObsIds],
+  )
+  const validatingCount = activeInvObsIds.size
+
+  return (
+    <div className="table-page">
+      <div className="hero compact">
+        <h1>Triage</h1>
+        <p>
+          Everything before it's a confirmed{' '}
+          <button className="link" onClick={() => onJump('findings')}>Finding</button>: the raw <b>Queue</b> of
+          scanner observations, and the <b>Validating</b> threads working the uncertain ones. Confirm the real
+          ones through to Findings; dismiss the noise.
+        </p>
+      </div>
+      <div className="seg" role="tablist" aria-label="Triage stage">
+        <button role="tab" aria-selected={seg === 'queue'} className={`seg-btn ${seg === 'queue' ? 'on' : ''}`} onClick={() => setSeg('queue')}>
+          Queue <span className="n">{queueCount}</span>
+        </button>
+        <button role="tab" aria-selected={seg === 'validating'} className={`seg-btn ${seg === 'validating' ? 'on' : ''}`} onClick={() => setSeg('validating')}>
+          Validating <span className="n">{validatingCount}</span>
+        </button>
+      </div>
+      {seg === 'queue' ? (
+        <ObservationsTab
+          embedded
+          projectId={project.id}
+          observations={observations}
+          online={online}
+          onOpenCode={onOpenCode}
+          onJump={onJump}
+          reload={reload}
+          onError={onError}
+        />
+      ) : (
+        <InvestigationsTab
+          embedded
+          project={project}
+          online={online}
+          observations={observations}
+          onOpenCode={onOpenCode}
+          onJump={(t) => onJump(t as Tab)}
+          onError={onError}
+        />
+      )}
+    </div>
+  )
+}
+
 function ObservationsTab({
   projectId,
   observations,
@@ -2355,6 +2438,7 @@ function ObservationsTab({
   onJump,
   reload,
   onError,
+  embedded,
 }: {
   projectId: string
   observations: Observation[]
@@ -2363,6 +2447,9 @@ function ObservationsTab({
   onJump: (t: Tab) => void
   reload: () => Promise<void>
   onError: (m: string) => void
+  // When embedded in the Triage surface, drop the standalone page wrapper + hero so the toolbar and
+  // table flatten into the Triage flex column (the segmented control provides the header).
+  embedded?: boolean
 }) {
   const [status, setStatus] = useState('triage')
   const [search, setSearch] = useState('')
@@ -2481,19 +2568,8 @@ function ObservationsTab({
   ]
 
   const ids = [...selected]
-  return (
-    <div className="table-page">
-      <div className="hero compact">
-        <h1>Observations</h1>
-        <p>
-          The raw triage queue. Let{' '}
-          <button className="link" disabled={!online || busy} onClick={triageAll}><b>🤖 AI triage</b></button>{' '}
-          trawl it (dismisses noise by reachability, flags the real ones, proposes findings for your approval), or
-          work rows yourself — promote to a{' '}
-          <button className="link" onClick={() => onJump('findings')}>Finding</button> or dismiss. Click a row to inspect it.
-        </p>
-      </div>
-
+  const body = (
+    <>
       {triageNote && (
         <div className="banner">
           {triageNote}
@@ -2562,6 +2638,22 @@ function ObservationsTab({
           />
         )}
       </div>
+    </>
+  )
+  if (embedded) return body
+  return (
+    <div className="table-page">
+      <div className="hero compact">
+        <h1>Observations</h1>
+        <p>
+          The raw triage queue. Let{' '}
+          <button className="link" disabled={!online || busy} onClick={triageAll}><b>🤖 AI triage</b></button>{' '}
+          trawl it (dismisses noise by reachability, flags the real ones, proposes findings for your approval), or
+          work rows yourself — promote to a{' '}
+          <button className="link" onClick={() => onJump('findings')}>Finding</button> or dismiss. Click a row to inspect it.
+        </p>
+      </div>
+      {body}
     </div>
   )
 }
@@ -2715,9 +2807,8 @@ function FindingsTab({
       <div className="hero compact">
         <h1>Findings</h1>
         <p>
-          Confirmed, report-worthy vulnerabilities. Nothing lands here on its own — you promote it from{' '}
-          <button className="link" onClick={() => onJump('observations')}>Observations</button> or confirm it in{' '}
-          <button className="link" onClick={() => onJump('investigations')}>Investigations</button>. Click a finding to open its detail.
+          Confirmed, report-worthy vulnerabilities. Nothing lands here on its own — you promote it from the{' '}
+          <button className="link" onClick={() => onJump('observations')}>Triage</button> queue, or confirm a validated one there. Click a finding to open its detail.
         </p>
       </div>
       <div className="table-toolbar">

@@ -17,6 +17,7 @@ export function InvestigationsTab({
   onOpenCode,
   onJump,
   onError,
+  embedded,
 }: {
   project: Project
   online: boolean
@@ -24,6 +25,8 @@ export function InvestigationsTab({
   onOpenCode: OpenCode
   onJump: (t: string) => void
   onError: (m: string) => void
+  // When embedded in the Triage surface's Validating segment, drop the page wrapper + hero.
+  embedded?: boolean
 }) {
   // The observation each investigation was opened for carries severity + source location (ADR-0050).
   const obsById = useMemo(() => new Map(observations.map((o) => [o.id, o])), [observations])
@@ -99,17 +102,8 @@ export function InvestigationsTab({
     { key: 'status', header: 'Status', width: '104px', sortable: true, sortValue: (i) => i.status, render: (i) => <span className={`badge ${i.status}`}>{INV_STATE[i.status] ?? i.status}</span> },
   ]
 
-  return (
-    <div className="table-page">
-      <div className="hero compact">
-        <h1>Investigations</h1>
-        <p>
-          The validation queue: uncertain signals flagged for a closer look. Run the agent to validate, then confirm —
-          which promotes it to a <button className="link" onClick={() => onJump('findings')}>Finding</button> — or dismiss.
-          Human-gated throughout.
-        </p>
-      </div>
-
+  const body = (
+    <>
       {note && <div className="banner">{note}</div>}
 
       <div className="table-toolbar">
@@ -173,6 +167,20 @@ export function InvestigationsTab({
           </aside>
         )}
       </div>
+    </>
+  )
+  if (embedded) return body
+  return (
+    <div className="table-page">
+      <div className="hero compact">
+        <h1>Investigations</h1>
+        <p>
+          The validation queue: uncertain signals flagged for a closer look. Run the agent to validate, then confirm —
+          which promotes it to a <button className="link" onClick={() => onJump('findings')}>Finding</button> — or dismiss.
+          Human-gated throughout.
+        </p>
+      </div>
+      {body}
     </div>
   )
 }
