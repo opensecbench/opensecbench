@@ -341,3 +341,80 @@ func TestSubscriptionBillingBlockAndHeaders(t *testing.T) {
 }
 
 func jsonUnmarshalStrict(b []byte, v any) error { return json.Unmarshal(b, v) }
+
+// TestCacheBreakpoints verifies the request carries prompt-cache breakpoints on the system prefix and on
+// the trailing messages, so the agent loop's resent history is served from cache instead of re-billed.
+func TestCacheBreakpoints(t *testing.T) {
+	var gotBody []byte
+	a := &AnthropicProvider{
+		Model: "claude-sonnet-5", UseNativeTools: true, APIKey: "k",
+		HTTP: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			gotBody, _ = io.ReadAll(r.Body)
+			return jsonResp(`{"model":"claude-sonnet-5","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`), nil
+		})},
+	}
+	// A multi-turn conversation, as the loop resends it: user, assistant tool_use, tool_result, user.
+	if _, err := a.Complete(context.Background(), CompletionRequest{Messages: []Message{
+		{Role: RoleSystem, Content: "You are the Analyst."},
+		{Role: RoleUser, Content: "one"},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call_1", Tool: "list_kb", Args: map[string]any{}}}},
+		{Role: RoleTool, ToolCallID: "call_1", Content: "big result"},
+		{Role: RoleUser, Content: "two"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var body struct {
+		System []struct {
+			CacheControl map[string]any `json:"cache_control"`
+		} `json:"system"`
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := jsonUnmarshalStrict(gotBody, &body); err != nil {
+		t.Fatalf("decode body: %v — %s", err, gotBody)
+	}
+	// System prefix (tools cache with it, ahead in cache order): breakpoint on the final block.
+	if n := len(body.System); n == 0 || body.System[n-1].CacheControl["type"] != "ephemeral" {
+		t.Fatalf("system prefix not cache-marked: %s", gotBody)
+	}
+	// The last two messages carry a cache breakpoint on their final content block; earlier ones don't.
+	cached := func(raw json.RawMessage) bool {
+		var blocks []map[string]any
+		if json.Unmarshal(raw, &blocks) != nil || len(blocks) == 0 {
+			return false
+		}
+		_, ok := blocks[len(blocks)-1]["cache_control"]
+		return ok
+	}
+	msgs := body.Messages
+	if len(msgs) != 4 {
+		t.Fatalf("want 4 messages, got %d: %s", len(msgs), gotBody)
+	}
+	if !cached(msgs[3].Content) || !cached(msgs[2].Content) {
+		t.Fatalf("last two messages should be cache-marked: %s", gotBody)
+	}
+	if cached(msgs[0].Content) || cached(msgs[1].Content) {
+		t.Fatalf("earlier messages should not be cache-marked: %s", gotBody)
+	}
+}
+
+// TestBilledInputFold checks that cache-aware usage folds into one base-input-equivalent: fresh at 1x,
+// writes at 1.25x, reads at 0.1x — so the recorded count reflects what's billed.
+func TestBilledInputFold(t *testing.T) {
+	cases := []struct {
+		fresh, create, read, want int
+	}{
+		{100, 0, 0, 100},       // caching off → unchanged
+		{0, 0, 1000, 100},      // pure cache read: 1000 × 0.1
+		{0, 800, 0, 1000},      // pure cache write: 800 × 1.25
+		{200, 800, 1000, 1300}, // 200 + 1000 + 100
+	}
+	for _, c := range cases {
+		u := anthropicUsage{InputTokens: c.fresh, CacheCreationInputTokens: c.create, CacheReadInputTokens: c.read}
+		if got := u.billedInput(); got != c.want {
+			t.Errorf("billedInput(fresh=%d create=%d read=%d) = %d, want %d", c.fresh, c.create, c.read, got, c.want)
+		}
+	}
+}

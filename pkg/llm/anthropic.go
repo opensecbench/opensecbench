@@ -142,9 +142,11 @@ func (a *AnthropicProvider) buildRequest(ctx context.Context, req CompletionRequ
 	}
 	var system string
 	if a.UseNativeTools {
-		// Native path: translate canonical tool turns into tool_use/tool_result content blocks.
+		// Native path: translate canonical tool turns into tool_use/tool_result content blocks, and set
+		// cache breakpoints on the trailing messages so the resent prefix is served from cache each step.
 		var msgs []map[string]any
 		system, msgs = anthropicMessages(req.Messages)
+		markConversationCache(msgs, 2)
 		payload["messages"] = msgs
 		if len(req.Tools) > 0 {
 			payload["tools"] = anthropicTools(req.Tools)
@@ -161,20 +163,22 @@ func (a *AnthropicProvider) buildRequest(ctx context.Context, req CompletionRequ
 		}
 		payload["messages"] = msgs
 	}
-	// On the subscription OAuth path, the `system` array must lead with the Claude Code billing block —
-	// how Anthropic attributes the call to the subscription. Its absence yields the opaque
-	// 429 rate_limit_error even at 0% utilization; with it, requests succeed even mid-throttle.
+	// Render the system prompt as text blocks with a cache breakpoint on the last one, so the static
+	// instruction+tool-schema prefix (tools are cached with system, ahead of it in cache order) is served
+	// from cache across the loop's steps. On the subscription OAuth path the `system` array must lead with
+	// the Claude Code billing block — how Anthropic attributes the call to the subscription; its absence
+	// yields the opaque 429 rate_limit_error even at 0% utilization. The breakpoint sits on the final block
+	// so it covers the billing prefix too.
+	var systemBlocks []map[string]any
 	if a.CredentialFile != "" {
-		blocks := []map[string]any{{
-			"type": "text", "text": claudeCodeBillingPrefix(),
-			"cache_control": map[string]any{"type": "ephemeral"},
-		}}
-		if system != "" {
-			blocks = append(blocks, map[string]any{"type": "text", "text": system})
-		}
-		payload["system"] = blocks
-	} else if system != "" {
-		payload["system"] = system
+		systemBlocks = append(systemBlocks, map[string]any{"type": "text", "text": claudeCodeBillingPrefix()})
+	}
+	if system != "" {
+		systemBlocks = append(systemBlocks, map[string]any{"type": "text", "text": system})
+	}
+	if len(systemBlocks) > 0 {
+		systemBlocks[len(systemBlocks)-1]["cache_control"] = ephemeralCache
+		payload["system"] = systemBlocks
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -217,16 +221,33 @@ func (a *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	var out struct {
 		Model   string                  `json:"model"`
 		Content []anthropicContentBlock `json:"content"`
-		Usage   struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage"`
+		Usage   anthropicUsage          `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return CompletionResponse{}, err
 	}
 	text, calls := parseAnthropicContent(out.Content)
-	return CompletionResponse{Text: text, ToolCalls: calls, InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens, Model: out.Model}, nil
+	return CompletionResponse{Text: text, ToolCalls: calls, InputTokens: out.Usage.billedInput(), OutputTokens: out.Usage.OutputTokens, Model: out.Model}, nil
+}
+
+// anthropicUsage is the Messages API usage block. When prompt caching is active, input_tokens counts
+// ONLY the fresh (uncached) input; the cached portions are reported separately and are billed at
+// different rates. billedInput folds them into one base-input-equivalent so the count we record and
+// display reflects the actual bill.
+type anthropicUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// billedInput is the base-input-token-equivalent of this run's input: fresh tokens at 1x, cache writes at
+// 1.25x, cache reads at 0.1x (Anthropic's 5-minute ephemeral rates). Multiplying it by the model's base
+// input price yields the actual input cost — so the number is what's billed, not a raw sum (which would
+// overstate cache reads 10x) nor input_tokens alone (which would omit the cached reads entirely). With
+// caching off, cache_* are zero and this equals input_tokens.
+func (u anthropicUsage) billedInput() int {
+	return u.InputTokens + (u.CacheCreationInputTokens*5+2)/4 + (u.CacheReadInputTokens+5)/10
 }
 
 // CompleteStream calls the Messages API with streaming on, firing onDelta for each text chunk and assembling
@@ -255,17 +276,15 @@ func (a *AnthropicProvider) CompleteStream(ctx context.Context, req CompletionRe
 	blocks := map[int]*block{}
 	var order []int
 	var out CompletionResponse
+	var startUsage anthropicUsage // message_start reports input + cache buckets; folded into out after the stream
 
 	err = sseData(resp.Body, func(data string) bool {
 		var ev struct {
 			Type    string `json:"type"`
 			Index   int    `json:"index"`
 			Message struct {
-				Model string `json:"model"`
-				Usage struct {
-					InputTokens  int `json:"input_tokens"`
-					OutputTokens int `json:"output_tokens"`
-				} `json:"usage"`
+				Model string         `json:"model"`
+				Usage anthropicUsage `json:"usage"`
 			} `json:"message"`
 			ContentBlock struct {
 				Type string `json:"type"`
@@ -287,7 +306,7 @@ func (a *AnthropicProvider) CompleteStream(ctx context.Context, req CompletionRe
 		switch ev.Type {
 		case "message_start":
 			out.Model = ev.Message.Model
-			out.InputTokens = ev.Message.Usage.InputTokens
+			startUsage = ev.Message.Usage
 		case "content_block_start":
 			b := &block{typ: ev.ContentBlock.Type, id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
 			blocks[ev.Index] = b
@@ -314,6 +333,7 @@ func (a *AnthropicProvider) CompleteStream(ctx context.Context, req CompletionRe
 	if err != nil {
 		return out, err
 	}
+	out.InputTokens = startUsage.billedInput()
 	for _, idx := range order {
 		b := blocks[idx]
 		if b.typ != "tool_use" {

@@ -167,6 +167,35 @@ func anthropicMessages(msgs []Message) (system string, out []map[string]any) {
 	return system, out
 }
 
+// ephemeralCache is the cache_control marker for a 5-minute prompt-cache breakpoint (write billed at
+// 1.25x base input, subsequent reads at 0.1x).
+var ephemeralCache = map[string]any{"type": "ephemeral"}
+
+// markMessageCache sets a cache_control breakpoint on a rendered Anthropic message's final content block,
+// converting plain string content into a text block so the marker has somewhere to attach.
+func markMessageCache(msg map[string]any) {
+	switch c := msg["content"].(type) {
+	case string:
+		msg["content"] = []map[string]any{{"type": "text", "text": c, "cache_control": ephemeralCache}}
+	case []map[string]any:
+		if len(c) > 0 {
+			c[len(c)-1]["cache_control"] = ephemeralCache
+		}
+	}
+}
+
+// markConversationCache places cache breakpoints on the last n messages. The agent loop resends a
+// growing history every step; marking the trailing messages lets the whole prefix before them be served
+// from cache on the next turn instead of re-billed at full rate. The marker moves forward each turn while
+// the previous turn's marker still yields a prefix hit. Anthropic allows 4 breakpoints total; we use at
+// most 2 here, leaving one for the tools/system prefix.
+func markConversationCache(msgs []map[string]any, n int) {
+	for i := len(msgs) - 1; i >= 0 && n > 0; i-- {
+		markMessageCache(msgs[i])
+		n--
+	}
+}
+
 // anthropicContentBlock is one element of a Messages API response content array.
 type anthropicContentBlock struct {
 	Type  string         `json:"type"`
