@@ -689,7 +689,7 @@ func (s *Server) providerName() string {
 // analystAsk is a convenience: create a thread and send one message.
 func (s *Server) analystAsk(w http.ResponseWriter, r *http.Request) {
 	if s.llmProvider() == nil {
-		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured (set OSB_LLM_PROVIDER)")
+		writeErr(w, http.StatusServiceUnavailable, "no LLM provider configured (add one in Settings, or set OSB_LLM_* on the daemon)")
 		return
 	}
 	var req struct {

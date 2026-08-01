@@ -2102,7 +2102,7 @@ Commands:
   finding get <id>            show a finding
   finding push --id ID --integration jira|defectdojo --url URL [--project K] [--credential SECRET]
   finding links <id>          list a finding's external tracker links
-  analyst ask <message>       ask the Analyst (needs OSB_LLM_PROVIDER on the daemon)
+  analyst ask <message>       ask the Analyst (configure a provider in Settings, or OSB_LLM_* on the daemon)
   thread list                 list Analyst threads
   thread show <id>            show a thread's messages
   thread send <id> <message>  continue a thread
