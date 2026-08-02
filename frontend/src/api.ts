@@ -34,22 +34,23 @@ export async function initAuth(): Promise<void> {
 }
 
 // authHeaders returns the Authorization header for fetch/XHR calls (empty when no token is known).
-function authHeaders(): Record<string, string> {
+// The token is ALWAYS carried in a header, never a URL (ADR-0061).
+export function authHeaders(): Record<string, string> {
   return authToken ? { Authorization: `Bearer ${authToken}` } : {}
 }
 
-// withToken appends the API token as a query param, for URL contexts that cannot send a header:
-// EventSource, WebSocket, <img>/<a> src, and pages the desktop app opens in the system browser. Only
-// baseURL targets are touched, and it is idempotent (won't double-append).
-export function withToken(u: string): string {
-  if (!authToken || !u.startsWith(baseURL) || /[?&]token=/.test(u)) return u
-  return u + (u.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(authToken)
+// wsAuthProtocols carries the token into a WebSocket handshake. The browser WebSocket API can't set
+// Authorization, but it can request subprotocols, so we offer [marker, token]; the server reads the
+// token from the Sec-WebSocket-Protocol header and echoes only the marker (ADR-0061).
+const WS_BEARER_PROTO = 'osb.bearer'
+export function wsAuthProtocols(): string[] {
+  return authToken ? [WS_BEARER_PROTO, authToken] : []
 }
 
-// wsURL builds a WebSocket URL against the control plane for a given API path, carrying the API token
-// as a query param since the browser WebSocket API can't set headers.
+// wsURL builds a plain WebSocket URL against the control plane; auth travels via wsAuthProtocols(),
+// never in the URL.
 export function wsURL(path: string): string {
-  return withToken(baseURL + path).replace(/^http/, 'ws')
+  return (baseURL + path).replace(/^http/, 'ws')
 }
 
 // UICommand is a navigation instruction the Analyst emits (the backend "show" tool) so a running agent can
@@ -1054,12 +1055,22 @@ async function postContext(
 
 export const api = {
   baseURL,
-  // artifactContentURL is embedded in <img>/<a> where no header can be set, so it carries the active
-  // project as a query param; the backend reads it as a fallback to X-Project-Id (ADR-0049).
-  artifactContentURL: (id: string) =>
-    withToken(
-      `${baseURL}/v1/artifacts/${id}/content${activeProjectId ? `?project=${encodeURIComponent(activeProjectId)}` : ''}`,
-    ),
+  // artifactPath is an API-relative path to an artifact's bytes, for the native download binding
+  // (App.SaveArtifact), which authenticates with a header — no token in the URL (ADR-0061). The
+  // project id rides as a query param (the backend reads it as a fallback to X-Project-Id, ADR-0049);
+  // it is not a secret.
+  artifactPath: (id: string) =>
+    `/v1/artifacts/${id}/content${activeProjectId ? `?project=${encodeURIComponent(activeProjectId)}` : ''}`,
+
+  // artifactBlob fetches an artifact's raw bytes over an authenticated header, for in-app rendering
+  // such as <img src={objectURL}>. Callers own the returned object URL's lifecycle.
+  artifactBlob: async (id: string): Promise<Blob> => {
+    const res = await fetch(baseURL + `/v1/artifacts/${id}/content`, {
+      headers: { ...authHeaders(), ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
+    })
+    if (!res.ok) throw new Error(res.statusText)
+    return res.blob()
+  },
 
   health: () => request<Record<string, string>>('GET', '/healthz'),
 
@@ -1178,8 +1189,9 @@ export const api = {
     request<void>('POST', `/v1/investigations/${id}/status`, { status }),
 
   // Live project event stream (SSE): captured exchanges, proxy status, and intercept queue changes,
-  // so clients react instead of polling. EventSource auto-reconnects; callers resync with a fetch on
-  // (re)connect. Returns a close fn.
+  // so clients react instead of polling. Implemented over fetch (not EventSource) so the API token
+  // rides in an Authorization header rather than a URL (ADR-0061); reconnects with a short backoff,
+  // and callers resync with a fetch on (re)connect. Returns a close fn.
   subscribeProjectEvents: (
     projectId: string,
     handlers: {
@@ -1193,24 +1205,65 @@ export const api = {
       analystDelta?: (d: StreamDelta) => void
     },
   ): (() => void) => {
-    const es = new EventSource(withToken(`${baseURL}/v1/projects/${projectId}/events`))
-    const on = (type: string, fn: (payload: unknown) => void) =>
-      es.addEventListener(type, (e) => {
+    const route: Record<string, ((payload: unknown) => void) | undefined> = {
+      exchange: handlers.exchange as ((p: unknown) => void) | undefined,
+      proxy: handlers.proxy as ((p: unknown) => void) | undefined,
+      intercept: handlers.interceptState as ((p: unknown) => void) | undefined,
+      'intercept.held': handlers.held as ((p: unknown) => void) | undefined,
+      'intercept.resolved': handlers.resolved
+        ? (p) => handlers.resolved!((p as { id: string }).id)
+        : undefined,
+      'ui.command': handlers.ui as ((p: unknown) => void) | undefined,
+      'analyst.message': handlers.analystMessage as ((p: unknown) => void) | undefined,
+      'analyst.delta': handlers.analystDelta as ((p: unknown) => void) | undefined,
+    }
+    // A frame is "event: <type>\ndata: <json>"; ": ..." lines are comments/heartbeats.
+    const dispatch = (frame: string) => {
+      let event = 'message'
+      let data = ''
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data += line.slice(5).trim()
+      }
+      const fn = route[event]
+      if (!fn || !data) return
+      try {
+        fn(JSON.parse(data).payload)
+      } catch {
+        /* ignore malformed frame */
+      }
+    }
+
+    const ctrl = new AbortController()
+    void (async () => {
+      while (!ctrl.signal.aborted) {
         try {
-          fn(JSON.parse((e as MessageEvent).data).payload)
+          const res = await fetch(`${baseURL}/v1/projects/${projectId}/events`, {
+            headers: { ...authHeaders() },
+            signal: ctrl.signal,
+          })
+          if (!res.ok || !res.body) throw new Error(`sse ${res.status}`)
+          const reader = res.body.getReader()
+          const dec = new TextDecoder()
+          let buf = ''
+          for (;;) {
+            const { value, done } = await reader.read()
+            if (done) break
+            buf += dec.decode(value, { stream: true })
+            let sep: number
+            while ((sep = buf.indexOf('\n\n')) >= 0) {
+              dispatch(buf.slice(0, sep))
+              buf = buf.slice(sep + 2)
+            }
+          }
         } catch {
-          /* ignore malformed frame */
+          if (ctrl.signal.aborted) return
         }
-      })
-    if (handlers.exchange) on('exchange', (p) => handlers.exchange!(p as HTTPExchange))
-    if (handlers.proxy) on('proxy', (p) => handlers.proxy!(p as ProxyStatus))
-    if (handlers.interceptState) on('intercept', (p) => handlers.interceptState!(p as InterceptState))
-    if (handlers.held) on('intercept.held', (p) => handlers.held!(p as HeldItem))
-    if (handlers.resolved) on('intercept.resolved', (p) => handlers.resolved!((p as { id: string }).id))
-    if (handlers.ui) on('ui.command', (p) => handlers.ui!(p as UICommand))
-    if (handlers.analystMessage) on('analyst.message', (p) => handlers.analystMessage!(p as StreamMessage))
-    if (handlers.analystDelta) on('analyst.delta', (p) => handlers.analystDelta!(p as StreamDelta))
-    return () => es.close()
+        // Reconnect after a short pause unless the caller unsubscribed.
+        await new Promise((r) => setTimeout(r, 2000))
+      }
+    })()
+    return () => ctrl.abort()
   },
 
   // intercept (hold → edit → forward/drop)
@@ -1312,7 +1365,6 @@ export const api = {
     request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/start`, { port, runner_id: runnerId || undefined }),
   stopProxy: (projectId: string) =>
     request<ProxyStatus>('POST', `/v1/projects/${projectId}/proxy/stop`, {}),
-  proxyCAURL: () => `${baseURL}/v1/proxy/ca`,
 
   // knowledge base
   listProjectKB: (projectId: string) => request<KBEntry[]>('GET', `/v1/projects/${projectId}/kb`),

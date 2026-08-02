@@ -40,7 +40,7 @@ func main() {
 			"Free the port (e.g. `lsof -ti tcp:7373 | xargs -r kill`) and retry.", err)
 	}
 
-	app := &App{token: cp.Token}
+	app := &App{baseURL: cp.BaseURL, token: cp.Token}
 	err = wails.Run(&options.App{
 		Title:            "OpenSecBench",
 		Width:            1280,

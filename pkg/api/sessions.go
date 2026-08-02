@@ -26,11 +26,15 @@ type liveSession struct {
 	once      sync.Once
 }
 
-// upgrader allows any loopback origin (the API binds to loopback only; single-user workbench).
+// upgrader allows any loopback origin (the API binds to loopback only; single-user workbench). It
+// advertises the wsBearerProto subprotocol so the browser's token-carrying handshake negotiates
+// cleanly (ADR-0061): the client offers `[osb.bearer, <token>]`, the security middleware reads the
+// token from the header, and gorilla echoes only the marker back.
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
 	CheckOrigin:     func(*http.Request) bool { return true },
+	Subprotocols:    []string{wsBearerProto},
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {

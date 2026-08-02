@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { api, Project, Session, wsURL } from './api'
-import { openExternal } from './native'
+import { api, Project, Session, wsURL, wsAuthProtocols } from './api'
+import { ArtifactViewer } from './ArtifactViewer'
 
 export function TerminalTab({
   project,
@@ -17,6 +17,7 @@ export function TerminalTab({
   const [sessions, setSessions] = useState<Session[]>([])
   const [active, setActive] = useState<Session | null>(null)
   const [busy, setBusy] = useState(false)
+  const [viewTranscript, setViewTranscript] = useState<string | null>(null)
 
   const termHost = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -78,7 +79,8 @@ export function TerminalTab({
   }
 
   function openSocket(s: Session, term: Terminal, fit: FitAddon) {
-    const ws = new WebSocket(wsURL(`/v1/sessions/${s.id}/ws`))
+    // Token travels in the handshake subprotocols, not the URL (ADR-0061).
+    const ws = new WebSocket(wsURL(`/v1/sessions/${s.id}/ws`), wsAuthProtocols())
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
     const enc = new TextEncoder()
@@ -165,13 +167,22 @@ export function TerminalTab({
               <span className={`badge ${s.status === 'active' ? 'active' : 'succeeded'}`}>{s.status}</span>
               <span className="row-title mono">{s.container}</span>
               {s.status === 'closed' && s.transcript_artifact_id && (
-                <button className="link" onClick={() => openExternal(api.artifactContentURL(s.transcript_artifact_id!))}>
+                <button className="link" onClick={() => setViewTranscript(s.transcript_artifact_id!)}>
                   transcript
                 </button>
               )}
             </li>
           ))}
         </ul>
+      )}
+
+      {viewTranscript && (
+        <ArtifactViewer
+          artifactId={viewTranscript}
+          title="Session transcript"
+          downloadName="transcript.html"
+          onClose={() => setViewTranscript(null)}
+        />
       )}
     </section>
   )

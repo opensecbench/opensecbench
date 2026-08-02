@@ -327,8 +327,10 @@ func (s *Server) startScheduler() {
 
 // Handler returns the root HTTP handler, wrapped with the local security middleware (ADR-0061):
 // an Origin allowlist for CORS, plus — when an API token is configured — a Host-header allowlist and
-// a bearer-token gate. The API binds to loopback only, and these layers ensure it is not driven by a
-// browser page the user visits (cross-origin / DNS rebinding) or by another OS user on the host.
+// a bearer-token gate. The token is always carried in a header, never a URL (Authorization, or
+// Sec-WebSocket-Protocol for WebSocket handshakes). The API binds to loopback only, and these layers
+// ensure it is not driven by a browser page the user visits (cross-origin / DNS rebinding) or by
+// another OS user on the host.
 func (s *Server) Handler() http.Handler { return s.withSecurity(s.mux) }
 
 // isPublicPath lists endpoints reachable without the API token: liveness/readiness probes, which
@@ -379,14 +381,24 @@ func allowedOrigin(origin string) bool {
 	return false
 }
 
-// requestToken extracts the presented API token: `Authorization: Bearer <token>`, or a `?token=`
-// query param for contexts that cannot set a header (EventSource, WebSocket, <img>/<a>, pages opened
-// in the system browser).
+// wsBearerProto marks the token smuggled through Sec-WebSocket-Protocol (ADR-0061): the browser
+// WebSocket API can't set Authorization, but it can request subprotocols, so the client offers
+// `[wsBearerProto, <token>]`. The server reads the token here and echoes only the marker back.
+const wsBearerProto = "osb.bearer"
+
+// requestToken extracts the presented API token from a header — never a URL (ADR-0061). Normal
+// requests use `Authorization: Bearer <token>`; WebSocket handshakes, which can't set that header,
+// carry it as the second `Sec-WebSocket-Protocol` value (`osb.bearer, <token>`).
 func requestToken(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		return strings.TrimSpace(h[len("Bearer "):])
 	}
-	return r.URL.Query().Get("token")
+	if proto := r.Header.Get("Sec-WebSocket-Protocol"); proto != "" {
+		if parts := strings.Split(proto, ","); len(parts) == 2 && strings.TrimSpace(parts[0]) == wsBearerProto {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+	return ""
 }
 
 func (s *Server) withSecurity(h http.Handler) http.Handler {

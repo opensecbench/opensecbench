@@ -54,7 +54,9 @@ import { OverviewTab } from './Overview'
 import { ProxyTab } from './ProxyTab'
 import { ActivityTab } from './ActivityTab'
 import { ReportTemplateEditor } from './ReportTemplateEditor'
-import { hasNativePickers, pickDirectory, openExternal } from './native'
+import { hasNativePickers, pickDirectory } from './native'
+import { ArtifactViewer } from './ArtifactViewer'
+import { ArtifactImage } from './ArtifactImage'
 
 // The terminal pulls in xterm.js; load it only when the tab is opened.
 const TerminalTab = lazy(() => import('./TerminalTab').then((m) => ({ default: m.TerminalTab })))
@@ -1199,6 +1201,7 @@ function ReportsTab({
   const [narrate, setNarrate] = useState(true) // author an executive summary + per-finding impact/remediation (ADR-0045)
   const [busy, setBusy] = useState(false)
   const [editingTemplates, setEditingTemplates] = useState(false)
+  const [viewing, setViewing] = useState<{ id: string; title: string; format: string } | null>(null)
 
   async function reload() {
     try {
@@ -1230,7 +1233,7 @@ function ReportsTab({
     try {
       const rep = await api.generateReport(project.id, template, format, narrate)
       await reload()
-      openExternal(api.artifactContentURL(rep.artifact_id))
+      setViewing({ id: rep.artifact_id, title: rep.title, format: rep.format })
     } catch (e) {
       onError((e as Error).message)
     } finally {
@@ -1285,7 +1288,7 @@ function ReportsTab({
               <span className="muted">{rep.template_id}</span>
               <span className="grow" />
               <span className="muted mono">{new Date(rep.created_at).toLocaleString()}</span>
-              <button className="link" onClick={() => openExternal(api.artifactContentURL(rep.artifact_id))}>open</button>
+              <button className="link" onClick={() => setViewing({ id: rep.artifact_id, title: rep.title, format: rep.format })}>open</button>
               <button
                 className="del"
                 title="Delete this report"
@@ -1312,6 +1315,14 @@ function ReportsTab({
           online={online}
           onChanged={() => void loadTemplates()}
           onClose={() => setEditingTemplates(false)}
+        />
+      )}
+      {viewing && (
+        <ArtifactViewer
+          artifactId={viewing.id}
+          title={viewing.title}
+          downloadName={`${viewing.title || 'report'}.${viewing.format || 'html'}`}
+          onClose={() => setViewing(null)}
         />
       )}
     </section>
@@ -1720,7 +1731,7 @@ function ContextView({
       {editing && isNote ? (
         <textarea className="ctx-view-editor" value={body} onChange={(e) => setBody(e.target.value)} disabled={busy} placeholder="Note text…" />
       ) : isImage ? (
-        <img className="ctx-view-img" src={api.artifactContentURL(item.artifact_id)} alt={item.name} />
+        <ArtifactImage id={item.artifact_id} className="ctx-view-img" alt={item.name} />
       ) : loading ? (
         <div className="empty">Loading…</div>
       ) : binary ? (

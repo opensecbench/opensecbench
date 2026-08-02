@@ -3,7 +3,8 @@
 Status: Accepted. The loopback control-plane API is hardened with three layered local defences —
 a `Host`-header allowlist, an `Origin` allowlist, and a per-instance bearer token stored `0600` in
 the data dir — so it is not driven by a browser page the user visits or by another OS user on a
-shared host. This amends ADR-0001, which deferred all API authentication to a "future team service".
+shared host. The token is always carried in a **header, never a URL**. This amends ADR-0001, which
+deferred all API authentication to a "future team service".
 
 ## Context
 
@@ -55,13 +56,26 @@ via a temp-file-and-rename so it is never briefly world-readable. The token is *
 reused across restarts and rotated only by deleting the file (or the file being absent), per the
 product decision to keep long-lived local scripts working without re-reading on every daemon bounce.
 Every request except CORS preflight (`OPTIONS`) and the liveness probes (`/healthz`, `/readyz`) must
-present the token, compared in constant time (`crypto/subtle`):
+present the token, compared in constant time (`crypto/subtle`). **The token is only ever read from a
+header — never a URL query parameter** — so it cannot leak into browser history, referrers, or
+request logs:
 
-- **Header:** `Authorization: Bearer <token>` — used by all `fetch`/XHR clients and the CLI.
-- **Query fallback:** `?token=<token>` — for contexts that *cannot* set a header: `EventSource`
-  (SSE), the browser `WebSocket` API, `<img>/<a>` URLs, and pages the desktop app opens in the
-  **system browser** via `App.OpenURL` (reports, transcripts, downloads). This mirrors Jupyter's
-  `?token=`; acceptable because the listener is loopback and logs are local.
+- **`Authorization: Bearer <token>`** — all `fetch`/XHR clients and the CLI.
+- **`Sec-WebSocket-Protocol: osb.bearer, <token>`** — the browser `WebSocket` API can't set
+  `Authorization`, but it can request subprotocols, so the client offers `[osb.bearer, <token>]`; the
+  server reads the token from that header and echoes only the `osb.bearer` marker back.
+- **SSE** is consumed over `fetch` + a `ReadableStream` (not `EventSource`, which can't set headers),
+  so it too uses `Authorization`.
+
+Contexts that genuinely cannot send a header — an `<img>` load, or a page/download that would open in
+the **external system browser** — are handled without any URL token instead:
+
+- **In-app images** are fetched with `Authorization` and shown via an object URL.
+- **Reports and transcripts** render in an in-app sandboxed `<iframe>` (authenticated fetch), never
+  the external browser.
+- **Downloads** (CA cert, report/transcript files) go through a new `App.SaveArtifact` Wails binding:
+  Go — which already holds the token — fetches with `Authorization` and writes the bytes via a native
+  save dialog. The system browser is never handed a control-plane URL.
 
 **Enforcement is gated on a token being configured.** When `authToken == ""` the middleware enforces
 neither the token nor the `Host` check (CORS tightening always applies). The control plane always
@@ -92,9 +106,10 @@ sets a token, so the desktop app and headless daemon are always protected; unit 
 - The token is **not** confidentiality over the wire — traffic is plaintext HTTP on loopback, which
   never leaves the host. Transport encryption remains the future team service's concern (ADR-0001,
   ADR-0024), unchanged.
-- Tokens appear in `?token=` URLs for SSE/WS/opened pages, so they can land in local process/HTTP
-  logs. Accepted: loopback-only, single-user, local logs. If we later add request logging that ships
-  off-box, the query token must be redacted.
+- The token never appears in a URL — not in browser history, referrers, or request logs — because it
+  is read only from headers (`Authorization` / `Sec-WebSocket-Protocol`). The cost is more moving
+  parts than a `?token=` shortcut: fetch-based SSE, a WS subprotocol, in-app rendering, and a native
+  download binding. Worth it for a security tool that must not model its own data as leakable.
 - The `osb` CLI (not yet built) now has a defined, zero-handshake way in: read the file, send the
   header. No enrollment, unlike the remote runner.
 - Persistent (vs per-launch) token means a leaked token stays valid until the file is deleted;
