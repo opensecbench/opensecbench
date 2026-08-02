@@ -769,12 +769,8 @@ func (s *Server) guardedProvider() llm.Provider {
 func (s *Server) guardProvider(p llm.Provider) llm.Provider {
 	external := !llm.IsLocal(p)
 	load := func(ctx context.Context) (map[string]string, map[string]string) {
-		var secrets map[string]string
-		if s.vault != nil {
-			secrets, _ = s.global().SecretValueMap(ctx, s.vault.Open)
-		}
 		canaries, _ := s.global().CanaryMap(ctx)
-		return secrets, canaries
+		return s.dlpSecretValues(ctx), canaries
 	}
 	onHit := func(ctx context.Context, h dlp.Hit, blocked bool) {
 		_ = s.global().RecordDLPEvent(ctx, model.DLPEvent{
@@ -786,6 +782,50 @@ func (s *Server) guardProvider(p llm.Provider) llm.Provider {
 		}
 	}
 	return dlp.Guard(p, external, load, onHit)
+}
+
+// dlpSecretValues returns value->label for every secret the DLP egress guard should redact: the
+// instance-wide (global) vault plus each project's own vault (ADR-0011/0049). The guard wraps the
+// provider once and has no reliable per-call project context, so a project secret value is blocked on
+// external egress regardless of which project's session it appears in. Projects with no secrets are
+// skipped, so no project vault key is materialized here. Global entries win on a value collision.
+func (s *Server) dlpSecretValues(ctx context.Context) map[string]string {
+	secrets := map[string]string{}
+	if s.vault != nil {
+		if g, err := s.global().SecretValueMap(ctx, s.vault.Open); err == nil {
+			for v, n := range g {
+				secrets[v] = n
+			}
+		}
+	}
+	if s.vaultProv == nil || s.mgr == nil {
+		return secrets
+	}
+	rows, err := s.global().ListProjectIndex(ctx)
+	if err != nil {
+		return secrets
+	}
+	for _, pr := range rows {
+		pdb, err := s.mgr.Project(pr.ID)
+		if err != nil {
+			continue
+		}
+		if n, err := pdb.CountSecrets(ctx); err != nil || n == 0 {
+			continue
+		}
+		pv, err := s.vaultProv.For(s.mgr.ProjectDir(pr.ID))
+		if err != nil {
+			continue
+		}
+		if m, err := pdb.SecretValueMap(ctx, pv.Open); err == nil {
+			for v, name := range m {
+				if _, ok := secrets[v]; !ok {
+					secrets[v] = pr.ID + "/" + name
+				}
+			}
+		}
+	}
+	return secrets
 }
 
 func (s *Server) providerName() string {
