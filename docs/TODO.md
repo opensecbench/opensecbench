@@ -226,6 +226,32 @@ and can later ship as plugins.
 - [ ] Generalize beyond HTTP: let extension packages contribute new **workbench surfaces/tools** in
       general (the HTTP toolset is the first proving ground).
 
+## Data-egress redaction / sanitization
+
+Follows the derived-artifact egress carve-out (ADR-0064): derived scan output can now be sent to an
+external model at a lowered tier, but the residual risk is that a finding/observation still quotes
+sensitive source (a tainted snippet, a redacted secret, a file path). Reduce that risk, and — the bigger
+bet — generalize it into a "sanitize anything for sharing" capability.
+
+- [ ] **Redact embedded excerpts before derived egress** (near-term, from ADR-0064). Scrub sensitive
+      spans out of findings/observations at the egress boundary (reuse the DLP secret/canary matchers +
+      known asset file paths) so a lowered derived tier leaks as little raw source as possible. Keep it at
+      the gate (`analyst.executeFor`) so every derived read is covered uniformly.
+- [ ] **DLP event on derived egress** (near-term, from ADR-0064). When a derived artifact egresses under a
+      lowered tier, log a DLP event (the DLP log already exists, ADR-0062) so there's an audit trail of
+      exactly what left and under which tier — turns the "accepted residual leak" into an observable one.
+- [ ] **Sanitize-for-sharing pipeline — whole-document translate / redact / obfuscate** (research /
+      large, James's idea 2026-08-02). Vision: assess material you can't send to an LLM, but produce a
+      *sanitized rendering* of a whole document (source file, report, ingested doc) that IS shareable —
+      by redacting secrets/PII, obfuscating identifiers (consistent pseudonymization so the agent can
+      still reason about structure), and/or translating/summarizing away verbatim sensitive text. Then the
+      sanitized artifact carries a *lower* sensitivity and can egress while the original never does.
+      Unknowns worth investigating: how well obfuscation preserves the agent's usefulness; round-trip
+      de-obfuscation of the agent's answers back to real identifiers; where it runs (local model does the
+      sanitization pass before an external model sees anything); how to prove a sanitized artifact is
+      actually clean enough to reclassify. Prototype small (one document type, secret+path redaction +
+      identifier pseudonymization) before committing to a subsystem.
+
 ## Large subsystems (own effort each)
 
 - [x] **Remote outbound-connect runner** — Phase 1 delivered (ADR-0024): `osb-runner` agent dials home,

@@ -571,6 +571,9 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 			case derivedEgressTools[call.Tool]:
 				// Scanner-derived artifacts: classified at the (configurable) derived tier so scan OUTPUT can
 				// reach the model even when the raw source it came from cannot (ADR-0064).
+				// TODO(ADR-0064): redact embedded excerpts (secrets/paths) before egress + log a DLP event
+				// when a derived artifact leaves under a lowered tier — see docs/TODO.md "Data-egress
+				// redaction / sanitization".
 				required = derived
 				detail = "returns scanner-derived artifacts treated as " + sc.Label(required)
 				remedy = "raise the destination's clearance or lower the derived-artifacts egress tier"
