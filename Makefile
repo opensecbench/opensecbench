@@ -4,7 +4,7 @@
 # don't need the webkit/gtk toolchain. Wails must be told that tag explicitly — these targets do
 # it for you. The Analyst's AI provider is configured in the app's settings — no env vars needed.
 
-.PHONY: dev dev-attach build daemon cli test lint fmt frontend images claude-image adr-index
+.PHONY: dev dev-attach build gui tui cli daemon run-daemon test lint fmt frontend images claude-image adr-index
 
 # Wails build tags. The `webkit2_41` tag selects webkit2gtk-4.1 and is LINUX-ONLY — macOS (native
 # WebKit) and Windows (WebView2) must not get it, so we only add it on Linux. On modern distros
@@ -22,22 +22,30 @@ endif
 dev:
 	wails dev -tags "$(WAILS_TAGS)"
 
-# Live-reload desktop app attached to a separately-run `make daemon` (OSB_API), so the backend can be
-# restarted independently of the window. Reads the daemon's token from the default data dir.
+# Live-reload desktop app attached to a separately-run `make run-daemon` (OSB_API), so the backend can
+# be restarted independently of the window. Reads the daemon's token from the default data dir.
 dev-attach:
 	OSB_API=http://127.0.0.1:7373 wails dev -tags "$(WAILS_TAGS)"
 
-# Package a desktop binary into ./build/bin.
-build:
+# Build everything: the desktop GUI, the osb CLI/TUI, and the headless daemon.
+build: gui tui daemon
+
+# Desktop GUI (Wails) → ./build/bin. Needs the webkit/gtk toolchain and a built frontend.
+gui:
 	wails build -tags "$(WAILS_TAGS)"
 
-# Headless control plane (no desktop toolchain needed).
-daemon:
-	go run ./cmd/daemon
-
-# Build the CLI.
-cli:
+# osb CLI + TUI → ./bin/osb. One binary: `osb <command>` is the CLI; bare `osb` (or `osb tui`) opens
+# the terminal UI. `tui` and `cli` build the same binary.
+tui cli:
 	go build -o bin/osb ./cmd/osb
+
+# Headless control-plane binary → ./bin/daemon (no desktop toolchain needed).
+daemon:
+	go build -o bin/daemon ./cmd/daemon
+
+# Run the headless control plane in the foreground (pair with `make dev-attach`).
+run-daemon:
+	go run ./cmd/daemon
 
 test:
 	go test ./...

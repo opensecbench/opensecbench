@@ -177,12 +177,21 @@ cd frontend && npm install && npm run dev    # in another → http://localhost:5
 ```
 
 **Desktop app (Wails):** boots the control plane in-process and renders the frontend in a native
-window. `make dev` and `make build` detect your OS and pass the right webview build tags
-automatically — Linux, macOS, and Windows all work:
+window. `make dev` and `make gui` detect your OS and pass the right webview build tags automatically —
+Linux, macOS, and Windows all work:
 
 ```sh
 make dev      # run the desktop app with live reload
-make build    # package a desktop binary into ./build/bin
+make gui      # package the desktop binary into ./build/bin
+```
+
+**Build targets:** `make build` builds everything; the focused targets build one artifact each:
+
+```sh
+make build    # gui + tui + daemon
+make gui      # desktop GUI (Wails)          → build/bin/opensecbench
+make tui      # osb CLI + terminal UI        → bin/osb   (run: ./bin/osb tui, or bare ./bin/osb)
+make daemon   # headless control-plane binary → bin/daemon
 ```
 
 Wails builds for the host OS (it does not cross-compile), so run these on the machine you want the
