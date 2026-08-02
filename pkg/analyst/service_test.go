@@ -144,6 +144,36 @@ func TestEgressPolicyBlocksPrivateAssetOnExternalProvider(t *testing.T) {
 	}
 }
 
+// TestDefaultDenyEgress verifies the gate is default-deny: a content tool that is neither asset-scoped nor
+// on the safe allowlist is private-by-default, while static catalogs and writes pass at any clearance.
+func TestDefaultDenyEgress(t *testing.T) {
+	db := migratedStore(t)
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	svc := &Service{mgr: store.NewCombinedManager(db)}
+	ext := &llm.AnthropicProvider{} // external
+
+	// get_finding returns finding content → private-by-default: blocked under internal, allowed under private.
+	call := agent.ToolCall{Tool: "get_finding", Args: map[string]any{"id": "x"}}
+	if _, err := svc.executeFor(proj.ID, ext, model.SensitivityInternal)(ctx, call); err == nil || !strings.Contains(err.Error(), "egress") {
+		t.Fatalf("get_finding should be egress-blocked under internal clearance, got %v", err)
+	}
+	if _, err := svc.executeFor(proj.ID, ext, model.SensitivityPrivate)(ctx, call); err != nil && strings.Contains(err.Error(), "egress") {
+		t.Fatal("get_finding must not be egress-blocked under private clearance")
+	}
+
+	// A static catalog is content-free → passes even at the least-privilege open-source clearance.
+	if _, err := svc.executeFor(proj.ID, ext, model.SensitivityOpenSource)(ctx, agent.ToolCall{Tool: "list_capabilities"}); err != nil && strings.Contains(err.Error(), "egress") {
+		t.Fatal("list_capabilities is content-free and must never be egress-blocked")
+	}
+
+	// A write returns only an id/status (no new content egresses) → passes at open-source clearance.
+	writeCall := agent.ToolCall{Tool: "create_observation", Args: map[string]any{"title": "t", "severity": "low"}}
+	if _, err := svc.executeFor(proj.ID, ext, model.SensitivityOpenSource)(ctx, writeCall); err != nil && strings.Contains(err.Error(), "egress") {
+		t.Fatal("create_observation is a write and must not be egress-blocked")
+	}
+}
+
 // TestRestrictedDataClassForcesStrictEgress verifies a project whose engagement data class is "restricted"
 // clamps egress to open-source only even when the destination is cleared for private (ADR-0051 phase 2) —
 // never looser, only tighter.

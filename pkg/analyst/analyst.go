@@ -27,8 +27,9 @@ import (
 )
 
 // assetEgressTools take an 'asset' argument and would send that asset's contents (its scan output, or
-// its source read directly) to the model. Under a strict egress policy with an external provider, they
-// are blocked for a private asset (ADR-0011, ADR-0020) — enforced in service.executeFor.
+// its source read directly) to the model. On an external provider they are gated by the asset's own
+// sensitivity tier against the destination's clearance (ADR-0011, ADR-0020) — enforced in
+// service.executeFor.
 var assetEgressTools = map[string]bool{
 	"run_capability": true,
 	"run_playbook":   true,
@@ -36,6 +37,36 @@ var assetEgressTools = map[string]bool{
 	"list_dir":       true,
 	"grep_code":      true,
 	"find_files":     true,
+}
+
+// egressSafeTools return NO target/project-specific content to the model, so they may run against any
+// external destination regardless of its data clearance. The egress gate is default-deny (service.executeFor):
+// every tool that is neither here nor in assetEgressTools is treated as private-by-default — it must reach a
+// destination cleared for private — because it returns substantive project content (findings, observations,
+// corpus, KB, HTTP traffic, dependencies, workspace files, run_code/send_request output) to the model.
+//
+// What's safe: static project-independent catalogs; public-content ingress (web_fetch, itself source-gated by
+// the approval layer); and write tools, which return only an id/status — the model already holds what it is
+// writing, so no *new* content egresses. (delegate and show are intercepted before the gate; a delegated
+// sub-agent inherits this same clearance.)
+var egressSafeTools = map[string]bool{
+	"list_capabilities": true,
+	"list_playbooks":    true,
+	"web_fetch":         true,
+	// Writes (return id/status/confirmation only):
+	"create_observation":  true,
+	"triage_observation":  true,
+	"record_reachability": true,
+	"create_finding":      true,
+	"set_finding_status":  true,
+	"add_kb_entry":        true,
+	"update_kb_entry":     true,
+	"verify_kb_entry":     true,
+	"save_context":        true,
+	"save_methodology":    true,
+	"set_coverage":        true,
+	"workspace_write":     true,
+	"generate_report":     true,
 }
 
 // Tools are the tools the Analyst may call.
