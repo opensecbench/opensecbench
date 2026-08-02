@@ -62,7 +62,8 @@ func (svc *Service) contextNotesPreamble(ctx context.Context, projectID string, 
 	// destination's data clearance (note bodies are private ingested corpus), tightened to open-source only
 	// for a restricted engagement (ADR-0051).
 	external := prov != nil && !llm.IsLocal(prov)
-	allowPrivate := model.ClearanceAllows(clearance, model.SensitivityPrivate)
+	sc := svc.scale(ctx)
+	allowPrivate := sc.Allows(clearance, sc.Max())
 	if external {
 		if eng, err := svc.p(projectID).GetEngagement(ctx, projectID); err == nil && eng.DataClass == model.DataRestricted {
 			allowPrivate = false

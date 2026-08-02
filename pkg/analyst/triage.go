@@ -97,7 +97,7 @@ func (svc *Service) runBatchTriage(projectID string, picked []model.Observation)
 		pid := projectID
 		_, _ = svc.p(projectID).CreateNotification(ctx, model.Notification{
 			Kind: model.NotifyInfo, Title: "AI triage blocked",
-			Body:      fmt.Sprintf("The triage model (%s) is cleared only for %s; triage would send observation content. Use a local provider or raise its clearance to private.", tgt.Provider.Name(), model.ClearanceLabel(tgt.Clearance)),
+			Body:      fmt.Sprintf("The triage model (%s) is cleared only for %s; triage would send observation content. Use a local provider or raise its clearance.", tgt.Provider.Name(), svc.scale(ctx).Label(tgt.Clearance)),
 			ProjectID: &pid, Link: "observations",
 		})
 		return
