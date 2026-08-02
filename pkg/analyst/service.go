@@ -521,7 +521,6 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 // clearance covers the content's sensitivity tier. `clearance` is the effective ceiling for the routed
 // destination (connection ∩ model, resolved in targetForTag); "" fails safe to open-source only.
 func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance string) func(context.Context, agent.ToolCall) (string, error) {
-	exec := Executor(ExecDeps{Mgr: svc.mgr, Engine: svc.engine, Replay: svc.replay, Blobs: svc.casFor(projectID), Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer, Methods: svc.methods, Narrator: svc})
 	// The gate keys on the provider that will actually receive the tool output (which, with tag routing,
 	// may differ per task); a local model is never an egress risk, so its clearance is irrelevant.
 	external := prov != nil && !llm.IsLocal(prov)
@@ -530,7 +529,6 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 		pname = prov.Name()
 	}
 	sc := svc.scale(context.Background())
-	derived := svc.derivedTier(context.Background(), projectID, sc) // per-project egress tier for derived artifacts
 	// Per-engagement tightening (ADR-0051): a "restricted" engagement clamps this destination to the
 	// least-sensitive tier for the project, regardless of its configured clearance — only ever tighter.
 	if projectID != "" {
@@ -538,6 +536,14 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 			clearance = sc.Min()
 		}
 	}
+	derived := svc.derivedTier(context.Background(), projectID, sc) // per-project egress tier for derived artifacts
+	// Self-scoping tools receive the destination's clearance ceiling ("" for a local destination =
+	// unrestricted) so they return only cleared items (ADR-0065).
+	egressClearance := ""
+	if external {
+		egressClearance = clearance
+	}
+	exec := Executor(ExecDeps{Mgr: svc.mgr, Engine: svc.engine, Replay: svc.replay, Blobs: svc.casFor(projectID), Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer, Methods: svc.methods, Narrator: svc, EgressClearance: egressClearance, Scale: sc})
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
 		// delegate spawns a specialist sub-agent — handled at the service level (it needs the provider),
 		// not the pure tool Executor.
@@ -551,8 +557,9 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 		}
 		// Default-deny egress: sending any project content into an external model is gated by the
 		// destination's clearance (ADR-0011/0020). Asset-scoped tools use the asset's own sensitivity tier;
-		// every other non-safe tool is private-by-default (see egressSafeTools for what returns no content).
-		if external && !egressSafeTools[call.Tool] {
+		// derived tools the per-project derived tier; every other non-safe tool is private-by-default.
+		// selfScopedTools are exempt — they scope their own result to the cleared subset (ADR-0065).
+		if external && !egressSafeTools[call.Tool] && !selfScopedTools[call.Tool] {
 			required := sc.Max() // private-by-default: only a destination cleared for the top tier passes
 			detail := "returns project content treated as " + sc.Label(required)
 			remedy := "raise the destination's clearance"
@@ -582,10 +589,26 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 				// Data-centric egress (ADR-0065): the content is withheld, but the call succeeds with a
 				// structured marker instead of erroring — so the agent orients and guides the human ("lower
 				// the derived tier / raise clearance") rather than hitting a wall of errors.
+				svc.recordWithheld(ctx, call.Tool, pname, sc.Label(required)) // audit the withheld access (ADR-0065)
 				return withheldResult(call.Tool, detail, pname, sc.Label(clearance), remedy), nil
 			}
 		}
 		return exec(ctx, call)
+	}
+}
+
+// recordWithheld logs a DLP event when the egress gate withholds a tool's content (ADR-0065), so the
+// boundary is auditable — `osb dlp events` shows exactly what was withheld, from which tool, to which
+// destination, and at what sensitivity. Best-effort: an audit-write failure never blocks the turn.
+func (svc *Service) recordWithheld(ctx context.Context, tool, provider, sensitivity string) {
+	if g := svc.g(); g != nil {
+		_ = g.RecordDLPEvent(ctx, model.DLPEvent{
+			Kind:     "egress",
+			Label:    tool + " (" + sensitivity + ")",
+			Action:   "withhold",
+			Blocked:  true,
+			Location: "llm:" + provider,
+		})
 	}
 }
 
@@ -625,8 +648,12 @@ const (
 // settings table — the project database has no settings table under split storage (ADR-0049), so a
 // project's policy is stored as "<base>:<projectID>" beside the unkeyed global default. Empty projectID
 // yields the global default key.
-func DerivedTierKey(projectID string) string { return scopedSettingKey(DerivedEgressTierSetting, projectID) }
-func DerivedModeKey(projectID string) string { return scopedSettingKey(DerivedEgressModeSetting, projectID) }
+func DerivedTierKey(projectID string) string {
+	return scopedSettingKey(DerivedEgressTierSetting, projectID)
+}
+func DerivedModeKey(projectID string) string {
+	return scopedSettingKey(DerivedEgressModeSetting, projectID)
+}
 func scopedSettingKey(base, projectID string) string {
 	if projectID == "" {
 		return base

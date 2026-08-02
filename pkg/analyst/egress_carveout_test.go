@@ -76,3 +76,54 @@ func TestDerivedArtifactEgressCarveOut(t *testing.T) {
 		t.Fatalf("local provider list_findings should return real data: out=%s err=%v", out, err)
 	}
 }
+
+// TestListAssetsScopedAndDLPEvent covers ADR-0065 phases 3b + 4: list_assets runs and returns only the
+// assets the destination is cleared for (per-item, over-clearance never returned), and a withheld read is
+// recorded as a DLP event so the boundary is auditable.
+func TestListAssetsScopedAndDLPEvent(t *testing.T) {
+	ctx := context.Background()
+	db := storetest.New(t)
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "app")
+	pub, err := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/oss", Sensitivity: model.SensitivityOpenSource})
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv, err := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/secret", Sensitivity: model.SensitivityPrivate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobs, _ := cas.Open(t.TempDir())
+	svc := &Service{mgr: store.NewCombinedManager(db), casr: cas.Fixed(blobs)}
+	ext := &llm.AnthropicProvider{}
+
+	// list_assets is self-scoped: an open-source-cleared destination sees only the open-source asset.
+	out, err := svc.executeFor(proj.ID, ext, model.SensitivityOpenSource)(ctx, agent.ToolCall{Tool: "list_assets"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, pub.ID) {
+		t.Fatalf("list_assets should include the open-source asset, got %s", out)
+	}
+	if strings.Contains(out, priv.ID) || !strings.Contains(out, "withheld") {
+		t.Fatalf("list_assets should hide the private asset and note it withheld, got %s", out)
+	}
+
+	// A withheld read records a DLP event (auditable boundary).
+	_, _ = svc.executeFor(proj.ID, ext, model.SensitivityOpenSource)(ctx, listFindingsCall())
+	events, err := db.ListDLPEvents(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var audited bool
+	for _, e := range events {
+		if e.Kind == "egress" && e.Blocked {
+			audited = true
+		}
+	}
+	if !audited {
+		t.Fatalf("expected a DLP egress-withheld event, got %+v", events)
+	}
+}
+
+func listFindingsCall() agent.ToolCall { return agent.ToolCall{Tool: "list_findings"} }

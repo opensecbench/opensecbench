@@ -65,6 +65,14 @@ var derivedEgressTools = map[string]bool{
 	"run_playbook":   true,
 }
 
+// selfScopedTools run and scope their OWN result to the destination's clearance (each item filtered by
+// its sensitivity) rather than being withheld wholesale by the gate — so the agent sees the cleared
+// subset instead of nothing (ADR-0065). The egress gate skips them; the tool enforces via ExecDeps
+// (EgressClearance + Scale).
+var selfScopedTools = map[string]bool{
+	"list_assets": true,
+}
+
 // egressSafeTools return NO target/project-specific content to the model, so they may run against any
 // external destination regardless of its data clearance. The egress gate is default-deny (service.executeFor):
 // every tool that is neither here nor in assetEgressTools is treated as private-by-default — it must reach a
@@ -337,6 +345,12 @@ type ExecDeps struct {
 	// Narrator, if set, lets generate_report author an executive summary + per-finding impact/remediation
 	// (ADR-0045). Nil in contexts without an LLM provider — the tool then produces a data-only report.
 	Narrator report.Narrator
+
+	// EgressClearance is the destination's data-clearance ceiling for SELF-SCOPING read tools (see
+	// selfScopedTools): items above it are omitted from the result — scoped at the query, not filtered
+	// after (ADR-0065). Empty = a local destination (unrestricted). Scale supplies the rank comparison.
+	EgressClearance string
+	Scale           model.Scale
 }
 
 // g is the instance-wide database (targets, KB, settings); p is the current thread's project database
@@ -370,7 +384,8 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		case "list_findings":
 			return jsonify(deps.p().ListFindings(ctx))
 		case "list_assets":
-			return jsonify(deps.p().ListAssets(ctx))
+			assets, err := deps.p().ListAssets(ctx)
+			return jsonify(scopeAssets(deps, assets), err)
 		case "search":
 			q, _ := call.Args["q"].(string)
 			return jsonify(deps.p().Search(ctx, q, 25))
@@ -922,6 +937,30 @@ func NewLoop(provider llm.Provider, mgr *store.Manager, engine *task.Engine, all
 		Audit:    audit,
 		MaxSteps: 8,
 	}
+}
+
+// scopeAssets returns only the assets the destination is cleared for (ADR-0065): each is kept or dropped
+// by its own sensitivity against EgressClearance, and a count of the hidden ones is included so the agent
+// knows some exist. An empty EgressClearance (a local destination) returns everything.
+func scopeAssets(deps ExecDeps, assets []model.Asset) map[string]any {
+	if deps.EgressClearance == "" {
+		return map[string]any{"assets": assets}
+	}
+	cleared := make([]model.Asset, 0, len(assets))
+	withheld := 0
+	for _, a := range assets {
+		if deps.Scale.Allows(deps.EgressClearance, a.Sensitivity) {
+			cleared = append(cleared, a)
+		} else {
+			withheld++
+		}
+	}
+	out := map[string]any{"assets": cleared}
+	if withheld > 0 {
+		out["withheld"] = withheld
+		out["note"] = fmt.Sprintf("%d asset(s) above this destination's clearance are hidden", withheld)
+	}
+	return out
 }
 
 func jsonify[T any](v T, err error) (string, error) {
