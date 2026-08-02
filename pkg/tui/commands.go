@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -92,6 +93,24 @@ func loadThreads(ctx context.Context, c *client.Client, projectID string) tea.Cm
 			return errMsg{err}
 		}
 		return threadsMsg(ts)
+	}
+}
+
+// projectCreatedMsg reports a newly created dir-local project.
+type projectCreatedMsg struct{ project model.Project }
+
+// createLocalProject creates a project whose data lives under cwd/.opensecbench and binds the directory to
+// it with a marker, so a later `osb tui` here re-opens it. The name defaults to the directory's base name.
+func createLocalProject(ctx context.Context, c *client.Client, cwd string) tea.Cmd {
+	return func() tea.Msg {
+		// Location is the cwd itself; the store places the project's files in a .opensecbench subfolder
+		// there (store.ProjectSubdir). cwd already exists, which validateProjectLocation requires.
+		p, err := c.CreateProject(ctx, client.CreateProjectRequest{Name: filepath.Base(cwd), Location: cwd})
+		if err != nil {
+			return errMsg{err}
+		}
+		_ = writeMarker(cwd, p.ID, p.Name) // records the id in cwd/.opensecbench/project.json
+		return projectCreatedMsg{project: p}
 	}
 }
 

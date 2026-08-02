@@ -20,8 +20,16 @@ import (
 func runTUI(ctx context.Context, addr string) error {
 	redirectLogs() // keep control-plane logging off the rendered screen
 
+	// Working-directory context: offer to create a dir-local project here, or open one bound to this
+	// directory by a .opensecbench marker (ADR-0063).
+	opts := tui.Options{}
+	if cwd, err := os.Getwd(); err == nil {
+		opts.Cwd = cwd
+		opts.OpenProjectID = tui.DiscoverProject(cwd)
+	}
+
 	if c := client.New(addr, client.WithToken(resolveToken())); reachable(ctx, c) {
-		return tui.Run(ctx, c)
+		return tui.Run(ctx, c, opts)
 	}
 	// The user pointed us at a specific daemon that isn't answering; don't silently start a different
 	// one — that would attach to the wrong state.
@@ -38,7 +46,7 @@ func runTUI(ctx context.Context, addr string) error {
 		defer cancel()
 		_ = cp.Shutdown(shutCtx)
 	}()
-	return tui.Run(ctx, client.New(cp.BaseURL, client.WithToken(cp.Token)))
+	return tui.Run(ctx, client.New(cp.BaseURL, client.WithToken(cp.Token)), opts)
 }
 
 // reachable reports whether a control plane answers a health check within a short window.

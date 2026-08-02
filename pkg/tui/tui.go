@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -30,10 +31,12 @@ import (
 
 // Run starts the terminal client against an already-resolved control plane and blocks until the user
 // exits. The caller owns the control plane (attach or in-process spawn); the TUI only talks to pkg/client.
-func Run(ctx context.Context, c *client.Client) error {
+// opts carries the working-directory context (offer/open a dir-local project).
+func Run(ctx context.Context, c *client.Client, opts Options) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel() // stops the Attach stream goroutine on exit
 	m := newApp(ctx, c)
+	m.opts = opts
 	// Resolve the markdown style ONCE here, before Bubble Tea takes over stdin. Glamour's auto-style
 	// queries the terminal's background over stdin; doing that inside the event loop competes with Bubble
 	// Tea's input reader and can swallow keystrokes, so we detect it up front and use a fixed style.
@@ -103,7 +106,8 @@ type app struct {
 	cancelSend   context.CancelFunc
 	interrupting bool
 
-	style         string // Glamour style name, resolved once in Run
+	opts          Options // working-directory context (dir-local project)
+	style         string  // Glamour style name, resolved once in Run
 	width, height int
 	status        string
 	quitArmed     bool
@@ -150,12 +154,27 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case projectsMsg:
-		items := make([]list.Item, len(msg))
-		for i, p := range msg {
-			items[i] = projectItem{p}
+		items := make([]list.Item, 0, len(msg)+1)
+		if m.opts.Cwd != "" {
+			items = append(items, createHereItem{cwd: m.opts.Cwd}) // "＋ New project in this directory"
+		}
+		for _, p := range msg {
+			items = append(items, projectItem{p})
 		}
 		m.projects.SetItems(items)
+		// A directory bound to a project (via the .opensecbench marker) opens straight into it.
+		if m.opts.OpenProjectID != "" {
+			for _, p := range msg {
+				if p.ID == m.opts.OpenProjectID {
+					m.opts.OpenProjectID = "" // consume so a re-list doesn't re-trigger
+					return m.enterProject(p)
+				}
+			}
+		}
 		return m, nil
+
+	case projectCreatedMsg:
+		return m.enterProject(msg.project)
 
 	case threadsMsg:
 		items := make([]list.Item, 0, len(msg)+1)
@@ -285,11 +304,12 @@ func (m app) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.stage {
 	case stageProjects:
 		if k.String() == "enter" {
-			if it, ok := m.projects.SelectedItem().(projectItem); ok {
-				m.project = it.p
-				m.stage = stageThreads
-				m.threads.Title = "Conversations · " + it.p.Name
-				return m, loadThreads(m.ctx, m.c, it.p.ID)
+			switch it := m.projects.SelectedItem().(type) {
+			case createHereItem:
+				m.status = "creating project…"
+				return m, createLocalProject(m.ctx, m.c, it.cwd)
+			case projectItem:
+				return m.enterProject(it.p)
 			}
 		}
 	case stageThreads:
@@ -334,6 +354,14 @@ func (m app) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m.delegate(k)
+}
+
+// enterProject selects a project and moves to its conversation picker.
+func (m app) enterProject(p model.Project) (tea.Model, tea.Cmd) {
+	m.project = p
+	m.stage = stageThreads
+	m.threads.Title = "Conversations · " + p.Name
+	return m, loadThreads(m.ctx, m.c, p.ID)
 }
 
 // delegate forwards a message to the widget owning the current stage; in chat, a keystroke may grow the
@@ -790,6 +818,13 @@ func toolCallSummary(raw json.RawMessage) string {
 	}
 	return strings.Join(names, ", ")
 }
+
+// createHereItem is the project-picker entry that creates a new dir-local project in the cwd.
+type createHereItem struct{ cwd string }
+
+func (i createHereItem) Title() string       { return "＋ New project in " + filepath.Base(i.cwd) }
+func (i createHereItem) Description() string  { return "create it in " + filepath.Join(i.cwd, projectDirName) }
+func (i createHereItem) FilterValue() string { return "new project" }
 
 // projectItem and threadItem adapt domain records to list.Item.
 

@@ -83,6 +83,9 @@ func (c *Client) GetProject(ctx context.Context, id string) (model.Project, erro
 type CreateProjectRequest struct {
 	Name      string   `json:"name"`
 	TargetIDs []string `json:"target_ids,omitempty"`
+	// Location, when set, is a directory to keep this project's files in (project.db + cas + workspace),
+	// instead of the default data dir (ADR-0049). The TUI uses <cwd>/.opensecbench for a dir-local project.
+	Location string `json:"location,omitempty"`
 }
 
 // CreateProject creates a project.

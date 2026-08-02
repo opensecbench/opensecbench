@@ -54,6 +54,45 @@ func TestStagePickToChat(t *testing.T) {
 	}
 }
 
+// TestCreateProjectInDir confirms the project picker offers a create-here item when a cwd is set, and
+// that creating enters the new project.
+func TestCreateProjectInDir(t *testing.T) {
+	a := newApp(context.Background(), nil)
+	a.opts = Options{Cwd: "/tmp/myrepo"}
+	a = step(t, a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = step(t, a, projectsMsg{{ID: "p1", Name: "Existing"}})
+
+	if _, ok := a.projects.SelectedItem().(createHereItem); !ok {
+		t.Fatalf("first picker item should be create-here, got %T", a.projects.SelectedItem())
+	}
+	m, cmd := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a = m.(app)
+	if cmd == nil || !strings.Contains(a.status, "creating") {
+		t.Fatalf("selecting create-here should start creation: cmd=%v status=%q", cmd, a.status)
+	}
+
+	a = step(t, a, projectCreatedMsg{project: model.Project{ID: "new1", Name: "myrepo"}})
+	if a.stage != stageThreads || a.project.ID != "new1" {
+		t.Fatalf("after create: stage=%d project=%q, want threads/new1", a.stage, a.project.ID)
+	}
+}
+
+// TestBoundProjectAutoOpens confirms a directory bound to a project (via marker → OpenProjectID) opens
+// straight into it, skipping the picker.
+func TestBoundProjectAutoOpens(t *testing.T) {
+	a := newApp(context.Background(), nil)
+	a.opts = Options{Cwd: "/tmp/x", OpenProjectID: "p2"}
+	a = step(t, a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = step(t, a, projectsMsg{{ID: "p1", Name: "A"}, {ID: "p2", Name: "B"}})
+
+	if a.stage != stageThreads || a.project.ID != "p2" {
+		t.Fatalf("bound project should auto-open: stage=%d project=%q", a.stage, a.project.ID)
+	}
+	if a.opts.OpenProjectID != "" {
+		t.Fatal("OpenProjectID should be consumed after auto-open")
+	}
+}
+
 // TestStreamingReconciliation is the core: deltas accumulate into the live buffer, the finalized
 // assistant message supersedes it, wrong-thread events are ignored, and the send-result answer is
 // idempotent (no duplicate when the stream already delivered it).
