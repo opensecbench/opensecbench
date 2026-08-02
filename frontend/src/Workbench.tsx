@@ -25,7 +25,6 @@ import {
   Project,
   RouteView,
   RunnerView,
-  ScopeEntry,
   SearchResult,
   Task,
   TaskOutcome,
@@ -38,15 +37,13 @@ import { DataTable, Column } from './DataTable'
 import { ContextMenu, useContextMenu } from './ContextMenu'
 import { actionsForFinding, actionsForObservation, actionIcon } from './customActions'
 import { Markdown } from './Markdown'
-import { EngagementSettings } from './EngagementSettings'
+import { ProjectSettings, SettingsSection } from './ProjectSettings'
 import { NotificationBell } from './NotificationBell'
 import { ActivityMenu } from './ActivityMenu'
 import { GraphTab } from './GraphTab'
 import { RoutesTab } from './RoutesTab'
 import { FindingReachability } from './FindingReachability'
 import { AssetEcosystems } from './AssetEcosystems'
-import { IntegrationsTab } from './IntegrationsTab'
-import { SecretsLibrary } from './SecretsLibrary'
 import { InvestigationsTab } from './InvestigationsTab'
 import { KnowledgeTab } from './KnowledgeTab'
 import { InterceptTab } from './InterceptTab'
@@ -71,7 +68,6 @@ type Tab =
   | 'methodology'
   | 'knowledge'
   | 'context'
-  | 'scope'
   | 'scan'
   | 'replay'
   | 'proxy'
@@ -85,8 +81,6 @@ type Tab =
   | 'routes'
   | 'reports'
   | 'graph'
-  | 'integrations'
-  | 'secrets'
   | 'audit'
   | 'settings'
   | 'code'
@@ -123,13 +117,10 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
   { key: 'routes', icon: '🎯', label: 'Surface', explorer: true },
   { key: 'graph', icon: '📊', label: 'Graph' },
   { key: 'methodology', icon: '✓', label: 'Method', explorer: true },
-  { key: 'scope', icon: '🛡', label: 'Scope' },
   { key: 'orchestrate', icon: '🤖', label: 'Agents' },
   { key: 'playbooks', icon: '🧩', label: 'Play' },
   { key: 'tasks', icon: '🕘', label: 'Activity' },
   { key: 'reports', icon: '📄', label: 'Report' },
-  { key: 'integrations', icon: '🔌', label: 'Integr', meta: true },
-  { key: 'secrets', icon: '🔒', label: 'Secrets', meta: true },
   { key: 'settings', icon: '⚙', label: 'Settings', meta: true },
   { key: 'audit', icon: '📜', label: 'Audit', meta: true },
 ]
@@ -137,14 +128,15 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
 // The activity bar's primary surfaces, grouped by what they're for (ADR-0015 declutter). The rail is
 // ordered by how often each group is reached day-to-day (evidence → analysis → testing → run → coverage
 // → deliver): the evidence you set up and the triage you live in sit up top, the testing tools drop to
-// mid-list, and end-of-engagement coverage/deliver sit last. Meta surfaces (Settings/Integrations/Audit)
-// still sit below a divider; global config/library moves out of the project entirely in a later step.
+// mid-list, and end-of-engagement coverage/deliver sit last. Meta surfaces (Settings, Audit) still sit
+// below a divider; Settings now consolidates the per-project config (engagement, scope, integrations,
+// secrets) behind one sub-nav (see ProjectSettings). Global config/library lives outside the project.
 const SURFACE_GROUPS: { label: string; keys: Tab[] }[] = [
   { label: 'Evidence', keys: ['assets', 'context', 'knowledge'] },
   { label: 'Analysis', keys: ['observations', 'findings', 'routes', 'graph'] },
   { label: 'Testing', keys: ['replay', 'proxy', 'intercept', 'terminal', 'scan'] },
   { label: 'Run', keys: ['orchestrate', 'playbooks', 'tasks'] },
-  { label: 'Coverage', keys: ['methodology', 'scope'] },
+  { label: 'Coverage', keys: ['methodology'] },
   { label: 'Deliver', keys: ['reports'] },
 ]
 const surfaceByKey = (k: Tab) => SURFACES.find((s) => s.key === k)!
@@ -161,7 +153,7 @@ function surfaceTitle(t: Tab): string {
   if (t === 'assets') return 'Applications & Assets'
   if (t === 'scan') return 'Scan'
   if (t === 'orchestrate') return 'Agent Playbooks'
-  if (t === 'settings') return 'Engagement settings'
+  if (t === 'settings') return 'Settings'
   if (t === 'code') return 'Source'
   if (t === 'finding') return 'Finding'
   return t[0].toUpperCase() + t.slice(1)
@@ -482,6 +474,7 @@ interface Doc {
   code?: { assetId: string; path: string; line?: number } // a source file opened in CodeView (ADR-0050)
   finding?: { id: string } // a finding opened in its detail view; the row data is looked up live by id
   ctx?: { id: string } // a context item opened in its detail/editor view; looked up live by id
+  settingsSection?: SettingsSection // which sub-section the Settings surface opens on (deep-link)
 }
 
 function replayLabel(ex: HTTPExchange): string {
@@ -745,7 +738,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
 
   // Deep-link: a cockpit click can request a specific surface (e.g. tasks) on open.
   useEffect(() => {
-    if (initial?.surface) openSurface(initial.surface as Tab)
+    if (initial?.surface) jumpTo(initial.surface)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial?.surface])
 
@@ -802,6 +795,24 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
     const current = existing.find((d) => d.key === activeKey) ?? existing[existing.length - 1]
     setActiveKey(current.key)
   }
+  // Open the Settings surface on a specific section (Engagement/Scope/Integrations/Secrets now live there,
+  // not on the activity bar). Retargets the section if Settings is already open.
+  function openSettings(section: SettingsSection) {
+    setOpenDocs((docs) => {
+      if (docs.some((d) => d.surface === 'settings'))
+        return docs.map((d) => (d.surface === 'settings' ? { ...d, settingsSection: section } : d))
+      return [...docs, { key: 'settings', surface: 'settings', title: surfaceTitle('settings'), settingsSection: section }]
+    })
+    setActiveKey('settings')
+  }
+  // jumpTo is the generic navigation entry for child surfaces (Overview steps, agent "show"): folded config
+  // targets resolve to the Settings surface + section; everything else activates its surface.
+  const SETTINGS_TARGETS: Record<string, SettingsSection> = { engagement: 'engagement', scope: 'scope', integrations: 'integrations', secrets: 'secrets' }
+  function jumpTo(target: string) {
+    const section = SETTINGS_TARGETS[target]
+    if (section) openSettings(section)
+    else activateSurface(target as Tab)
+  }
   // Navigate to a surface and ask it to scroll/highlight a specific row (deep-link from omni-search). The
   // nonce makes re-selecting the same id re-fire the scroll even when the id is unchanged.
   function navigateTo(surface: Tab, id?: string) {
@@ -844,7 +855,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   function applyUICommand(cmd: UICommand) {
     switch (cmd.kind) {
       case 'surface':
-        if (cmd.id) activateSurface(cmd.id as Tab)
+        if (cmd.id) jumpTo(cmd.id)
         break
       case 'finding': {
         const f = findings.find((x) => x.id === cmd.id)
@@ -937,7 +948,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             coverage={coverage}
             engagement={engagement}
             online={online}
-            onJump={(t) => activateSurface(t as Tab)}
+            onJump={jumpTo}
             onScan={async () => {
               const res = await api.scanProject(project.id)
               void loadAll()
@@ -965,8 +976,6 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         ) : (
           <ContextTab project={project} items={context} online={online} reload={async () => setContext((await api.listContext(project.id)) ?? [])} onError={setError} />
         )
-      case 'scope':
-        return <ScopeTab project={project} online={online} onError={setError} />
       case 'scan':
         return <ScanTab assets={allAssets} capabilities={capabilities} techniques={engTechniques} authWarn={authWarn} online={online} afterFinding={loadAll} onError={setError} />
       case 'replay':
@@ -994,7 +1003,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             observations={observations}
             actions={actions}
             onOpenFinding={openFinding}
-            onJump={(t) => activateSurface(t)}
+            onJump={jumpTo}
             reload={loadAll}
             onError={setError}
             focusId={focus?.surface === 'findings' ? focus.id : undefined}
@@ -1009,7 +1018,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             actions={actions}
             online={online}
             onOpenCode={openCodeFile}
-            onJump={(t) => activateSurface(t as Tab)}
+            onJump={jumpTo}
             reload={loadAll}
             onError={setError}
           />
@@ -1025,23 +1034,15 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             online={online}
             onReload={() => void loadRoutes().catch((e) => setError((e as Error).message))}
             onOpenCode={openCodeFile}
-            onJump={(t) => activateSurface(t as Tab)}
+            onJump={jumpTo}
           />
         )
       case 'graph':
         return <GraphTab project={project} online={online} onError={setError} />
-      case 'integrations':
-        return <IntegrationsTab project={project} online={online} onError={setError} />
-      case 'secrets':
-        return (
-          <div className="settings-body">
-            <SecretsLibrary online={online} projectId={project.id} />
-          </div>
-        )
       case 'audit':
         return <AuditTab online={online} onError={setError} />
       case 'settings':
-        return <EngagementSettings project={project} online={online} onError={setError} onSaved={loadAll} />
+        return <ProjectSettings project={project} online={online} onError={setError} onSaved={loadAll} initialSection={doc.settingsSection} />
       case 'code':
         return doc.code ? (
           <Suspense fallback={<div className="empty">Loading viewer…</div>}>
@@ -1750,93 +1751,6 @@ function ContextView({
         <div className="empty">Binary file — no inline preview.</div>
       ) : (
         <pre className="ctx-view-body">{content}</pre>
-      )}
-    </section>
-  )
-}
-
-function ScopeTab({
-  project,
-  online,
-  onError,
-}: {
-  project: Project
-  online: boolean
-  onError: (m: string) => void
-}) {
-  const [entries, setEntries] = useState<ScopeEntry[]>([])
-  const [kind, setKind] = useState('host')
-  const [value, setValue] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  async function reload() {
-    setEntries((await api.listScope(project.id)) ?? [])
-  }
-
-  useEffect(() => {
-    if (online) void reload().catch((e) => onError((e as Error).message))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, project.id])
-
-  async function add(e: FormEvent) {
-    e.preventDefault()
-    if (!value.trim()) return
-    setBusy(true)
-    try {
-      await api.addScope(project.id, kind, value.trim())
-      setValue('')
-      await reload()
-    } catch (err) {
-      onError((err as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function remove(id: string) {
-    try {
-      await api.deleteScope(id)
-      await reload()
-    } catch (err) {
-      onError((err as Error).message)
-    }
-  }
-
-  return (
-    <section className="panel">
-      <div className="panel-head">In-scope allowlist</div>
-      <p className="hint">
-        Network capabilities (e.g. HTTP probe) may only touch targets that match an entry below. An
-        empty allowlist imposes no restriction.
-      </p>
-      <form className="create-row" onSubmit={add}>
-        <select value={kind} onChange={(e) => setKind(e.target.value)}>
-          {['host', 'domain', 'cidr'].map((k) => (
-            <option key={k} value={k}>{k}</option>
-          ))}
-        </select>
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={kind === 'cidr' ? '10.0.0.0/24' : kind === 'domain' ? 'acme.com' : 'api.acme.com'}
-          disabled={!online || busy}
-        />
-        <button type="submit" disabled={!online || busy || !value.trim()}>
-          {busy ? 'Adding…' : '＋ Add'}
-        </button>
-      </form>
-      {entries.length === 0 ? (
-        <div className="empty">No scope entries — all targets are allowed.</div>
-      ) : (
-        <ul className="rows">
-          {entries.map((e) => (
-            <li key={e.id} className="row-item">
-              <span className="badge">{e.kind}</span>
-              <span className="row-title">{e.value}</span>
-              <button className="link danger" onClick={() => remove(e.id)}>remove</button>
-            </li>
-          ))}
-        </ul>
       )}
     </section>
   )

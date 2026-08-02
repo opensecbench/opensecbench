@@ -2432,6 +2432,18 @@ select option {
 .settings-navgrp { display: flex; flex-direction: column; gap: 3px; }
 .settings-navgrp + .settings-navgrp { margin-top: 10px; }
 .settings-navgrp-h { font-size: 9px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--tx3); font-weight: 700; padding: 4px 11px 3px; }
+
+/* Per-project Settings surface: a sticky left sub-nav beside the section body, sitting inside the
+   already-padded/scrolling .wb-doc (so it can't reuse the full-height .settings flex pane). */
+.psettings { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 26px; align-items: start; }
+.psettings-nav { position: sticky; top: 0; display: flex; flex-direction: column; gap: 14px; }
+.psettings-grp { display: flex; flex-direction: column; gap: 2px; }
+.psettings-grp-h { font-size: 9px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--tx3); font-weight: 700; padding: 0 10px 4px; }
+.psettings-nav button { display: flex; align-items: center; gap: 9px; text-align: left; border: 0; background: none; color: var(--tx2); border-radius: 8px; padding: 8px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+.psettings-nav button:hover { background: var(--bg3); color: var(--tx); }
+.psettings-nav button.on { background: var(--bg4); color: var(--tx); font-weight: 600; box-shadow: inset 2px 0 0 var(--acc); }
+.psettings-nav button .ico { width: 16px; text-align: center; }
+.psettings-body { min-width: 0; }
 /* Library sections */
 .lib-section { display: flex; flex-direction: column; }
 .lib-head { margin-bottom: 14px; }

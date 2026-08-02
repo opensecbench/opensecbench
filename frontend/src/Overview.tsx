@@ -53,10 +53,10 @@ export function OverviewTab({
   const steps = [
     {
       done: hasEngagement,
-      to: 'scope',
+      to: 'engagement',
       t: 'Define scope & engagement',
       d: hasEngagement ? 'Targets and authorization on file.' : 'Set targets, rules of engagement, and authorization first.',
-      go: 'Scope',
+      go: 'Settings',
     },
     {
       done: assets > 0,
@@ -108,7 +108,7 @@ export function OverviewTab({
         <button className="wb-ov-stat" onClick={() => onJump('assets')} title="View assets"><div className="v">{assets}</div><div className="k">assets</div></button>
         <button className="wb-ov-stat" onClick={() => onJump('findings')} title="View findings"><div className={`v ${findings.length ? 'crit' : ''}`}>{findings.length}</div><div className="k">findings</div></button>
         <button className="wb-ov-stat" onClick={() => onJump('methodology')} title="View coverage"><div className={`v ${adopted ? (covered >= 80 ? 'good' : 'warn') : ''}`}>{adopted ? `${covered}%` : '—'}</div><div className="k">coverage</div></button>
-        <button className="wb-ov-stat" onClick={() => onJump('scope')} title="Scope & engagement"><div className={`v ${hasEngagement ? 'good' : 'warn'}`}>{hasEngagement ? '✓' : '—'}</div><div className="k">engagement</div></button>
+        <button className="wb-ov-stat" onClick={() => onJump('engagement')} title="Scope & engagement"><div className={`v ${hasEngagement ? 'good' : 'warn'}`}>{hasEngagement ? '✓' : '—'}</div><div className="k">engagement</div></button>
       </div>
 
       {summary && (summary.findings.total > 0 || summary.dependencies.Total > 0) && (
