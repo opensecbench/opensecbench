@@ -214,8 +214,8 @@ func (svc *Service) runShow(projectID string, call agent.ToolCall) (string, erro
 	return fmt.Sprintf("Requested the workbench to show %s. If the human has enabled Analyst navigation their screen is now there; otherwise tell them where to look.", target), nil
 }
 
-// NewService wires the Analyst service. Egress policy and budget are read from OSB_EGRESS_POLICY
-// (default strict) and OSB_AGENT_MAX_TOKENS.
+// NewService wires the Analyst service. Data egress is governed per-destination by the classification
+// scale + clearance (see executeFor / ADR-0062); the per-turn token budget is read from OSB_AGENT_MAX_TOKENS.
 func NewService(mgr *store.Manager, engine *task.Engine, casr cas.Resolver, workspaceRoot string, provider llm.Provider) *Service {
 	budget := defaultTokenBudget
 	if v := os.Getenv("OSB_AGENT_MAX_TOKENS"); v != "" {

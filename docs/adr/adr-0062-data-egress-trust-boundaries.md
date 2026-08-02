@@ -26,7 +26,40 @@ to refuse to read it — the gate is a read-gate that exists to be an egress-gat
 ## Decision
 
 Egress trust is decided at the **destination** (the specific connection+model a task is routed to), not by
-a global mode. The boundaries are:
+a global mode.
+
+### Boundary map
+
+```mermaid
+flowchart LR
+  subgraph HOST["Local host — trusted zone"]
+    direction TB
+    A["Assets<br/>(tier: open_source / internal / private)"]
+    SC["Scanners<br/>(local Docker; never gated by tier)"]
+    DER["Findings, observations, artifacts<br/>(private-by-default)"]
+    UI["Human / UI<br/>(always sees everything)"]
+    LM["Local model<br/>(Ollama / loopback)"]
+    A --> SC --> DER
+    A --> UI
+    DER --> UI
+    A -->|no gate| LM
+    DER -->|no gate| LM
+  end
+
+  A -->|asset content| GATE
+  DER -->|derived data| GATE
+  GATE{{"Egress gate — DEFAULT-DENY<br/>allow only if clearance covers the tier<br/>(restricted engagement clamps to least tier)"}}
+  DLP{{"DLP<br/>(secrets & canaries always redacted)"}}
+  GATE -->|blocked| STOP["refused"]
+  GATE -->|allowed| DLP
+  DLP --> EXT
+
+  subgraph EXTZONE["External — untrusted zone"]
+    EXT["External LLM provider<br/>(per-connection and per-model clearance)"]
+  end
+```
+
+The boundaries are:
 
 | # | Boundary (what crosses) | Control | Enforced at |
 |---|---|---|---|
