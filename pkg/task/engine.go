@@ -44,8 +44,9 @@ type Engine struct {
 	runner   runner.Runner
 
 	// Secrets, if set, resolves a vault secret name to its plaintext for exec-time injection
-	// (ADR-0011). nil disables secret injection.
-	Secrets func(ctx context.Context, name string) (string, error)
+	// (ADR-0011). projectID scopes the lookup: a project secret shadows a global one of the same name,
+	// and a nil/empty projectID resolves against the global vault only. nil disables secret injection.
+	Secrets func(ctx context.Context, projectID *string, name string) (string, error)
 
 	// resolveRunner, if set, returns the runner for a task's RunnerTarget (a remote runner id). When a
 	// task targets a remote runner and this is nil or errors, the task fails cleanly (ADR-0024).
@@ -1377,10 +1378,12 @@ func (e *Engine) injectSecrets(ctx context.Context, req RunRequest, spec *runner
 	if spec.SecretEnv == nil {
 		spec.SecretEnv = make(map[string]string, len(req.SecretRefs))
 	}
+	// A run's secret refs resolve in the project's scope first, falling back to global (ADR-0011).
+	pid := e.effectiveProjectID(ctx, req)
 	type rep struct{ val, name string }
 	var reps []rep
 	for env, name := range req.SecretRefs {
-		val, err := e.Secrets(ctx, name)
+		val, err := e.Secrets(ctx, pid, name)
 		if err != nil {
 			return nil, fmt.Errorf("resolve secret %q: %w", name, err)
 		}
@@ -1395,6 +1398,22 @@ func (e *Engine) injectSecrets(ctx context.Context, req RunRequest, spec *runner
 		}
 		return b
 	}, nil
+}
+
+// effectiveProjectID resolves the project a run belongs to: the request's explicit ProjectID, else the
+// project owning its application. Returns nil when neither resolves (the run is not project-scoped), which
+// callers treat as "global only". Mirrors the resolution in checkScope.
+func (e *Engine) effectiveProjectID(ctx context.Context, req RunRequest) *string {
+	if req.ProjectID != nil && *req.ProjectID != "" {
+		return req.ProjectID
+	}
+	if req.ApplicationID != nil {
+		if app, err := e.p(pidPtr(req.ProjectID)).GetApplication(ctx, *req.ApplicationID); err == nil && app.ProjectID != "" {
+			pid := app.ProjectID
+			return &pid
+		}
+	}
+	return nil
 }
 
 // checkScope resolves the project for a run and enforces its in-scope allowlist against the

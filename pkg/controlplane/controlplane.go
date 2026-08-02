@@ -6,6 +6,7 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -50,8 +51,8 @@ type Instance struct {
 	// Token is the local API bearer token (ADR-0061). The desktop app hands it to the webview over
 	// the Wails bridge; the CLI reads it from APITokenPath(dataDir). Clients present it as
 	// `Authorization: Bearer <token>` (or `?token=` where a header can't be set).
-	Token string
-	mgr   *store.Manager
+	Token     string
+	mgr       *store.Manager
 	srv       *http.Server
 	runnerSrv *http.Server
 	api       *api.Server
@@ -182,22 +183,48 @@ func Start(opts Options) (*Instance, error) {
 		proxyCA = nil
 	}
 
-	// The vault master key is resolved from OSB_VAULT_KEY or a 0600 key file beside the DB; a
-	// failure disables the vault (secret endpoints report unavailable) but never blocks startup.
+	// The instance-wide vault master key is resolved from OSB_VAULT_KEY or a 0600 key file beside the DB;
+	// a failure disables the global vault (secret endpoints report unavailable) but never blocks startup.
 	vault, err := secret.LoadVault(filepath.Dir(opts.DBPath))
 	if err != nil {
 		vault = nil
 	}
-	// Let the engine resolve secret references at exec time (ADR-0011).
-	if vault != nil {
-		engine.Secrets = func(ctx context.Context, name string) (string, error) {
-			sealed, err := db.GetSealed(ctx, name)
-			if err != nil {
-				return "", err
+	// Per-project vaults (ADR-0049): each project seals with its own key file beside its project.db,
+	// loaded lazily and cached. Shared with the API so its project-secret handlers seal the same way.
+	vaultProv := secret.NewProvider()
+	// Resolve secret references at exec time (ADR-0011): a project secret shadows a global one of the
+	// same name; an unset project name (or no project scope) falls back to the global vault.
+	engine.Secrets = func(ctx context.Context, projectID *string, name string) (string, error) {
+		if projectID != nil && *projectID != "" {
+			if pdb, perr := mgr.Project(*projectID); perr == nil {
+				sealed, gerr := pdb.GetSealed(ctx, name)
+				switch {
+				case gerr == nil:
+					pv, verr := vaultProv.For(mgr.ProjectDir(*projectID))
+					if verr != nil {
+						return "", fmt.Errorf("project vault: %w", verr)
+					}
+					v, oerr := pv.Open(sealed)
+					if oerr != nil {
+						return "", fmt.Errorf("open project secret %q: %w", name, oerr)
+					}
+					return string(v), nil
+				case errors.Is(gerr, store.ErrNotFound):
+					// Not set in this project — fall through to the global vault.
+				default:
+					return "", gerr
+				}
 			}
-			v, err := vault.Open(sealed)
-			return string(v), err
 		}
+		if vault == nil {
+			return "", errors.New("secret: vault unavailable")
+		}
+		sealed, err := db.GetSealed(ctx, name)
+		if err != nil {
+			return "", err
+		}
+		v, err := vault.Open(sealed)
+		return string(v), err
 	}
 
 	// Local API bearer token (ADR-0061): loaded/created 0600 beside the DB. Every non-loopback caller
@@ -216,7 +243,7 @@ func Start(opts Options) (*Instance, error) {
 	}
 	apiSrv := api.New(api.Deps{
 		Store: mgr, Engine: engine, CASResolver: casr, Provider: provider,
-		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault,
+		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault, VaultProvider: vaultProv,
 		Methods: methReg, Reports: reportReg, Extensions: loadedExt, TrustStore: trust, ExtDir: extDir,
 		WorkspaceDir: filepath.Join(filepath.Dir(opts.DBPath), "workspace"),
 		AuthToken:    authToken,
