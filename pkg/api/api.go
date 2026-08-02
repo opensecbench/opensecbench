@@ -2109,7 +2109,9 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 // --- search ---
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
-	results, err := s.pdb(r).Search(r.Context(), r.URL.Query().Get("q"), 25)
+	// Omni-search is split-storage-aware (ADR-0049): project entities come from the project's database,
+	// KB from global.db. Resolving a single DB (s.pdb) fails on a real project.db that has no kb_entries.
+	results, err := s.mgr.Search(r.Context(), projectFromReq(r), r.URL.Query().Get("q"), 25)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
