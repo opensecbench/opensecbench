@@ -206,18 +206,22 @@ func TestSlashCommandsAndAutocomplete(t *testing.T) {
 		t.Fatalf("/project: stage=%d, want projects", a.stage)
 	}
 
-	// /help sets a hint and never sends.
+	// /help prints a help block (returns a command) and never sends.
 	a.stage = stageChat
 	a.input.SetValue("/help")
-	a = step(t, a, tea.KeyMsg{Type: tea.KeyEnter})
-	if a.sending || !strings.Contains(a.status, "/new") {
-		t.Fatalf("/help: sending=%v status=%q", a.sending, a.status)
+	m, cmd := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a = m.(app)
+	if a.sending || cmd == nil {
+		t.Fatalf("/help: sending=%v cmd=%v (want a print command, no send)", a.sending, cmd)
+	}
+	if !strings.Contains(helpText(), "/new") {
+		t.Fatalf("help text missing commands: %q", helpText())
 	}
 
 	// /quit issues tea.Quit.
 	a.stage = stageChat
 	a.input.SetValue("/quit")
-	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("/quit issued no command")
 	}

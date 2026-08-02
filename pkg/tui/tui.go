@@ -336,12 +336,25 @@ func (m app) runCommand(text string) (tea.Model, tea.Cmd) {
 		m.stage = stageProjects
 		return m, loadProjects(m.ctx, m.c)
 	case "/help":
-		m.status = "/new /threads /project /quit · Esc interrupts · Ctrl-C twice quits"
-		return m, nil
+		m.status = ""
+		return m, tea.Println(hintStyle.Render(helpText())) // print into scrollback so it's unmistakable
 	default:
 		m.status = "unknown command: " + text
 		return m, nil
 	}
+}
+
+// helpText is the in-chat command + key reference printed by /help.
+func helpText() string {
+	return strings.Join([]string{
+		"Commands:",
+		"  /new       start a new conversation",
+		"  /threads   switch conversation",
+		"  /project   switch project",
+		"  /help      show this help",
+		"  /quit      exit",
+		"Keys: Enter send · Esc interrupt turn · Ctrl-C twice quit · Tab accept a suggestion",
+	}, "\n")
 }
 
 func (m app) handleEvent(ev client.Event) (tea.Model, tea.Cmd) {
