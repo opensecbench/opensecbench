@@ -876,7 +876,7 @@ export interface HomeData {
     tasks: { id: string; capability: string; status: string; project_id?: string; project?: string }[]
     threads: { id: string; title: string; status: string; agent_type: string; project_id?: string; project?: string }[]
   }
-  projects: { id: string; name: string; status: string; findings: number; high: number; to_triage: number; adopted: number; covered_pct: number }[]
+  projects: { id: string; name: string; status: string; findings: number; high: number; open_findings: number; to_triage: number; open_investigations: number; adopted: number; covered_pct: number }[]
   usage: {
     month_input: number
     month_output: number

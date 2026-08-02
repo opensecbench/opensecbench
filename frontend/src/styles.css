@@ -2545,6 +2545,7 @@ select option {
 .mc-row.link:hover { background: var(--bg3); }
 .mc-row code { font-family: var(--mono); font-size: 0.86em; color: var(--acc); }
 .mc-row .grow { flex: 1; }
+.mc-cue { flex: none; width: 1.3em; text-align: center; font-size: 0.95em; }
 .mc-stat { font-size: 11.5px; color: var(--tx2); }
 .mc-stat.red { color: var(--red); font-weight: 600; }
 .mc-stat.amber { color: var(--amber); font-weight: 600; }
