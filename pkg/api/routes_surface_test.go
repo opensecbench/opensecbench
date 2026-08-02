@@ -6,26 +6,19 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 // The routes surface joins the entry-point inventory with the findings reachable from each route and ranks
 // the riskiest first.
 func TestRoutesSurface(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 	ctx := context.Background()
 
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "eng"})

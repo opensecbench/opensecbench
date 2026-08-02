@@ -5,29 +5,18 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
 // methodologyOnComplete flips a methodology item to tested and attaches the task's observations as evidence
 // (ADR-0056) — the result→coverage seam, indifferent to whether a human or an agent produced the result.
 func TestMethodologyOnCompleteFlipsCoverage(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	ms, err := store.LoadMigrations(migrations.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, err := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	if err != nil {
 		t.Fatal(err)

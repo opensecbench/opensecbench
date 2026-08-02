@@ -8,19 +8,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 func TestProjectStructureGraph(t *testing.T) {
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	_, _ = db.Apply(ms)
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 	ctx := context.Background()
 
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "Acme"})
@@ -47,12 +45,10 @@ func TestProjectStructureGraph(t *testing.T) {
 }
 
 func TestProjectTrafficGraph(t *testing.T) {
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	_, _ = db.Apply(ms)
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 	ctx := context.Background()
 
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "Acme"})
@@ -80,12 +76,10 @@ func TestProjectTrafficGraph(t *testing.T) {
 }
 
 func TestTopologyGraph(t *testing.T) {
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	_, _ = db.Apply(ms)
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 	ctx := context.Background()
 
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
@@ -113,12 +107,10 @@ func TestTopologyGraph(t *testing.T) {
 }
 
 func TestDependencyGraph(t *testing.T) {
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	_, _ = db.Apply(ms)
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 	ctx := context.Background()
 
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})

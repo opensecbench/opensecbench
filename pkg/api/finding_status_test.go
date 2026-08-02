@@ -6,26 +6,19 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 // A finding can be advanced through its lifecycle via POST /findings/{id}/status (the store method existed
 // but had no route before ADR review 2026-07-20).
 func TestSetFindingStatus(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 	ctx := t.Context()
 
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "Acme"})
@@ -62,17 +55,10 @@ func TestSetFindingStatus(t *testing.T) {
 
 // An unknown target on project create is a 400, not a 500 (review #7).
 func TestCreateProjectUnknownTargetIs400(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 
 	if code := postJSON(t, srv.URL+"/v1/projects", `{"name":"P","target_ids":["does-not-exist"]}`, nil); code != http.StatusBadRequest {
 		t.Fatalf("unknown target should be 400, got %d", code)

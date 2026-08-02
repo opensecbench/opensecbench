@@ -8,27 +8,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 func TestRunInvestigation(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	// A provider that just answers (no tool calls) so the seeded investigation advance completes.
 	mock := &llm.MockProvider{Responses: []string{`{"answer":"Looks like a placeholder value — likely a false positive."}`}}
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs, Provider: mock}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})
@@ -69,11 +62,9 @@ func TestRunInvestigation(t *testing.T) {
 }
 
 func TestRunInvestigationNoProvider(t *testing.T) {
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	_, _ = db.Apply(ms)
+	db := storetest.New(t)
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db)}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "p"})

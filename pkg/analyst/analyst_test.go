@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
@@ -16,23 +15,13 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
 func migratedStore(t *testing.T) *store.DB {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, err := store.LoadMigrations(migrations.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := storetest.New(t)
 	return db
 }
 

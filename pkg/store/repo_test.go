@@ -4,22 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/opensecbench/opensecbench/migrations"
 )
-
-func migratedDB(t *testing.T) *DB {
-	t.Helper()
-	db := openTestDB(t)
-	ms, err := LoadMigrations(migrations.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
-	return db
-}
 
 func TestProjectLifecycle(t *testing.T) {
 	db := migratedDB(t)

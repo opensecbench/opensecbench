@@ -16,13 +16,13 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/runnerhub"
 	"github.com/opensecbench/opensecbench/pkg/runnertunnel"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
@@ -113,11 +113,7 @@ func TestProxyEgressViaRunnerStreams(t *testing.T) {
 	defer target.Close()
 
 	// Control plane with a proxy CA.
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	ca, err := proxy.LoadOrCreate(filepath.Join(t.TempDir(), "proxy-ca"))
 	if err != nil {
@@ -127,7 +123,7 @@ func TestProxyEgressViaRunnerStreams(t *testing.T) {
 	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs, ProxyCA: ca})
 	main := httptest.NewServer(srvObj.Handler())
 	runnerSrv := httptest.NewServer(srvObj.RunnerHandler())
-	t.Cleanup(func() { main.Close(); runnerSrv.Close(); srvObj.Close(); engine.Close(); _ = db.Close() })
+	t.Cleanup(func() { main.Close(); runnerSrv.Close(); srvObj.Close(); engine.Close() })
 
 	runnerID, priv := enrollRunnerKeys(t, main.URL, runnerSrv.URL)
 	go fakeTunnelAgent(t, runnerSrv.URL, runnerID, priv)
@@ -190,17 +186,13 @@ func TestProxyEgressViaRunnerStreams(t *testing.T) {
 }
 
 func TestProxyStartViaOfflineRunnerRejected(t *testing.T) {
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	ca, _ := proxy.LoadOrCreate(filepath.Join(t.TempDir(), "proxy-ca"))
 	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakeTaskRunner{})
 	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs, ProxyCA: ca})
 	main := httptest.NewServer(srvObj.Handler())
-	t.Cleanup(func() { main.Close(); srvObj.Close(); engine.Close(); _ = db.Close() })
+	t.Cleanup(func() { main.Close(); srvObj.Close(); engine.Close() })
 
 	// An enrolled runner with no tunnel connected can't be an egress vantage.
 	rn, _ := db.CreateRunner(context.Background(), "edge", "cHVia2V5")

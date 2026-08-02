@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/secret"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 func TestPushFindingToJiraIsIdempotent(t *testing.T) {
@@ -38,20 +38,13 @@ func TestPushFindingToJiraIsIdempotent(t *testing.T) {
 	}))
 	defer jira.Close()
 
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	key := make([]byte, secret.KeySize)
 	_, _ = rand.Read(key)
 	vault, _ := secret.NewVault(key)
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs, Vault: vault}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 	ctx := context.Background()
 
 	// A finding to push, a vault credential for Jira basic auth, a global Jira connector, and a per-project

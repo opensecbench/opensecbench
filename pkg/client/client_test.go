@@ -3,31 +3,19 @@ package client
 import (
 	"context"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/api"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 func newServer(t *testing.T) *Client {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, err := store.LoadMigrations(migrations.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	srv := httptest.NewServer(api.New(api.Deps{Store: store.NewCombinedManager(db)}).Handler())
 	t.Cleanup(func() {
 		srv.Close()
-		_ = db.Close()
 	})
 	return New(srv.URL)
 }

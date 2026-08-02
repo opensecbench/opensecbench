@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runnerhub"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
@@ -107,20 +107,13 @@ func (a *fakeAgent) stream(ctx context.Context) {
 }
 
 func TestRemoteRunnerEndToEnd(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakeTaskRunner{})
 	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs})
 	main := httptest.NewServer(srvObj.Handler())
 	runnerSrv := httptest.NewServer(srvObj.RunnerHandler())
-	t.Cleanup(func() { main.Close(); runnerSrv.Close(); engine.Close(); _ = db.Close() })
+	t.Cleanup(func() { main.Close(); runnerSrv.Close(); engine.Close() })
 
 	// Operator mints an enrollment token.
 	var tok struct {
@@ -268,17 +261,13 @@ func enrollOnlineRunner(t *testing.T, mainURL, runnerURL string) (*fakeAgent, st
 }
 
 func TestReplayEgressViaRunner(t *testing.T) {
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakeTaskRunner{})
 	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs})
 	main := httptest.NewServer(srvObj.Handler())
 	runnerSrv := httptest.NewServer(srvObj.RunnerHandler())
-	t.Cleanup(func() { main.Close(); runnerSrv.Close(); engine.Close(); _ = db.Close() })
+	t.Cleanup(func() { main.Close(); runnerSrv.Close(); engine.Close() })
 
 	_, runnerID := enrollOnlineRunner(t, main.URL, runnerSrv.URL)
 
@@ -311,14 +300,12 @@ func TestReplayEgressViaRunner(t *testing.T) {
 }
 
 func TestRunnerAuthRejectsBadSignature(t *testing.T) {
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	_, _ = db.Apply(ms)
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakeTaskRunner{})
 	srvObj := New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs})
 	runnerSrv := httptest.NewServer(srvObj.RunnerHandler())
-	t.Cleanup(func() { runnerSrv.Close(); engine.Close(); _ = db.Close() })
+	t.Cleanup(func() { runnerSrv.Close(); engine.Close() })
 
 	pub, _, _ := runnerhub.GenerateKeyPair()
 	r, err := db.CreateRunner(context.Background(), "edge", pub)

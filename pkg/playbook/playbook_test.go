@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
@@ -25,14 +25,7 @@ func (fakePBRunner) Run(context.Context, runner.RunSpec) (runner.Result, error) 
 }
 
 func TestRunnerStartAsync(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakePBRunner{})
 	defer engine.Close()
@@ -71,9 +64,7 @@ func TestRunnerStartAsync(t *testing.T) {
 }
 
 func TestRunnerStartUnknownPlaybook(t *testing.T) {
-	db, _ := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	ms, _ := store.LoadMigrations(migrations.FS)
-	_, _ = db.Apply(ms)
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakePBRunner{})
 	defer engine.Close()
@@ -103,14 +94,7 @@ func TestRunnerRunsPlaybook(t *testing.T) {
 	if !runner.Available() {
 		t.Skip("docker not available")
 	}
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), runner.LocalRunner{})
 

@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/extension"
 	"github.com/opensecbench/opensecbench/pkg/settings"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 type settingsResp struct {
@@ -87,17 +86,7 @@ func TestSettingsGetPut(t *testing.T) {
 // A server carrying one extension that declares a settings section (ADR-0021 §5).
 func newSettingsExtServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, err := store.LoadMigrations(migrations.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	ext := extension.Loaded{Manifest: extension.Manifest{
 		ID: "acme.scanner",
 		Settings: []settings.Section{{
@@ -110,7 +99,7 @@ func newSettingsExtServer(t *testing.T) *httptest.Server {
 		}},
 	}}
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), Extensions: []extension.Loaded{ext}}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 	return srv
 }
 

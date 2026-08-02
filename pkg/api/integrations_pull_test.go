@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/integration"
 	"github.com/opensecbench/opensecbench/pkg/secret"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 func putJSON(t *testing.T, url, body string, out any) int {
@@ -33,21 +33,14 @@ func putJSON(t *testing.T, url, body string, out any) int {
 
 func newIntegrationServer(t *testing.T) (*httptest.Server, *store.DB) {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	vault, err := secret.LoadVault(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), CAS: blobs, Vault: vault}).Handler())
-	t.Cleanup(func() { srv.Close(); _ = db.Close() })
+	t.Cleanup(func() { srv.Close() })
 	return srv, db
 }
 

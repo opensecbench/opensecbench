@@ -10,13 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/llm"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
@@ -44,17 +44,7 @@ func TestHealthz(t *testing.T) {
 
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, err := store.LoadMigrations(migrations.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, err := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +53,6 @@ func newTestServer(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), Engine: engine, CAS: blobs}).Handler())
 	t.Cleanup(func() {
 		srv.Close()
-		_ = db.Close()
 	})
 	return srv
 }
@@ -157,17 +146,7 @@ func TestProjectAPI(t *testing.T) {
 }
 
 func TestAnalystAsk(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, err := store.LoadMigrations(migrations.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	if _, err := db.CreateProject(context.Background(), store.NewProject{Name: "Acme"}); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +157,7 @@ func TestAnalystAsk(t *testing.T) {
 		`{"answer":"There is 1 project named Acme."}`,
 	}}
 	srv := httptest.NewServer(New(Deps{Store: store.NewCombinedManager(db), Provider: mock}).Handler())
-	defer func() { srv.Close(); _ = db.Close() }()
+	defer func() { srv.Close() }()
 
 	resp, err := http.Post(srv.URL+"/v1/analyst/ask", "application/json", bytes.NewBufferString(`{"message":"how many projects?"}`))
 	if err != nil {

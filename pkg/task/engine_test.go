@@ -12,32 +12,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opensecbench/opensecbench/migrations"
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 func newEngine(t *testing.T, r runner.Runner) (*Engine, *cas.Store) {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, err := store.LoadMigrations(migrations.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, err := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
 	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), r)
 	// Stop the worker pool before the DB closes (Cleanup is LIFO). Without this the engine's workers leak
 	// and busy-poll the closed DB for the rest of the run — starving other tests and causing flakes.
@@ -214,14 +203,7 @@ func TestEngineCancelStopsRun(t *testing.T) {
 	if !runner.Available() {
 		t.Skip("docker not available")
 	}
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
 	reg := capability.NewRegistry()
 	reg.Register(sleepCap{})
@@ -427,16 +409,8 @@ func TestEngineInjectsSecretsAndRedactsOutput(t *testing.T) {
 	// http-probe (network cap) with a secret ref; the fake runner echoes output containing the value.
 	const secretVal = "TOKEN-abc-123"
 	cr := &capturingRunner{out: []byte("Authorization: Bearer " + secretVal + "\nok\n")}
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ms, _ := store.LoadMigrations(migrations.FS)
-	if _, err := db.Apply(ms); err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.New(t)
 	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
-	t.Cleanup(func() { _ = db.Close() })
 	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), cr)
 	t.Cleanup(eng.Close)
 	eng.Secrets = func(_ context.Context, _ *string, name string) (string, error) {
