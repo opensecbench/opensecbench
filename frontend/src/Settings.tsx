@@ -11,11 +11,30 @@ import { ConnectorsLibrary } from './ConnectorsLibrary'
 // Custom Agents moved to the global Library (build & reuse) — see Library.tsx. Governance (LLM egress)
 // and Connectors moved here from the retired "Extensions & Governance" rail / Library.
 const CUSTOM: { id: string; title: string; icon: string; order: number }[] = [
-  { id: 'providers', title: 'Models & Providers', icon: '🧠', order: 20 },
+  { id: 'providers', title: 'Models & Providers', icon: '🧠', order: 12 },
   { id: 'approvals', title: 'Approvals', icon: '🛡', order: 30 },
   { id: 'governance', title: 'Governance', icon: '⧉', order: 35 },
-  { id: 'connectors', title: 'Connectors', icon: '🔌', order: 40 },
+  { id: 'connectors', title: 'Connectors', icon: '🔌', order: 45 },
 ]
+
+// Sections are bucketed into three categories in the nav (operational vs general settings vs policy),
+// rendered in this order. Grouping is a frontend concern — the backend Section has no category field —
+// so we map by section id; extension-contributed sections (source "ext:…") fall through to Extensions.
+// Within a group, sections keep their `order`. IDs not listed here default to General.
+const GROUP_ORDER = ['General', 'Operational', 'Policy', 'Extensions'] as const
+const GROUP_BY_ID: Record<string, (typeof GROUP_ORDER)[number]> = {
+  appearance: 'General',
+  notifications: 'General',
+  providers: 'Operational',
+  engagements: 'Operational',
+  runtime: 'Operational',
+  connectors: 'Operational',
+  approvals: 'Policy',
+  governance: 'Policy',
+}
+function groupOf(id: string, source?: string): (typeof GROUP_ORDER)[number] {
+  return GROUP_BY_ID[id] ?? (source?.startsWith('ext:') ? 'Extensions' : 'General')
+}
 
 export function Settings({ online }: { online: boolean }) {
   const [sections, setSections] = useState<SettingSection[]>([])
@@ -33,10 +52,14 @@ export function Settings({ online }: { online: boolean }) {
       .catch(() => {})
   }, [online])
 
-  // Declarative sections from the API + custom sections, ordered.
+  // Declarative sections from the API + custom sections, ordered, then bucketed into nav groups.
   const declarative = sections.filter((s) => !s.custom)
-  const tabs = [...declarative.map((s) => ({ id: s.id, title: s.title, icon: s.icon ?? '•', order: s.order })), ...CUSTOM].sort(
-    (a, b) => a.order - b.order,
+  const tabs = [
+    ...declarative.map((s) => ({ id: s.id, title: s.title, icon: s.icon ?? '•', order: s.order, source: s.source })),
+    ...CUSTOM.map((c) => ({ ...c, source: undefined as string | undefined })),
+  ].sort((a, b) => a.order - b.order)
+  const navGroups = GROUP_ORDER.map((g) => ({ label: g, items: tabs.filter((t) => groupOf(t.id, t.source) === g) })).filter(
+    (g) => g.items.length > 0,
   )
 
   async function setValue(key: string, value: string) {
@@ -63,10 +86,15 @@ export function Settings({ online }: { online: boolean }) {
   return (
     <div className="settings">
       <nav className="settings-nav">
-        {tabs.map((t) => (
-          <button key={t.id} className={active === t.id ? 'on' : ''} onClick={() => setActive(t.id)}>
-            <span className="settings-ico">{t.icon}</span> {t.title}
-          </button>
+        {navGroups.map((g) => (
+          <div key={g.label} className="settings-navgrp">
+            <div className="settings-navgrp-h">{g.label}</div>
+            {g.items.map((t) => (
+              <button key={t.id} className={active === t.id ? 'on' : ''} onClick={() => setActive(t.id)}>
+                <span className="settings-ico">{t.icon}</span> {t.title}
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
       <div className="settings-body" ref={bodyRef}>
