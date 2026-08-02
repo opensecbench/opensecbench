@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"net/http"
 	"regexp"
 	"sync"
 
@@ -107,75 +106,4 @@ func (s *Server) rebuildRules(projectID string) {
 		compiled = append(compiled, compiledRule{target: r.Target, re: re, replace: r.Replace})
 	}
 	eng.set(compiled)
-}
-
-// --- HTTP handlers ---
-
-func (s *Server) listProxyRules(w http.ResponseWriter, r *http.Request) {
-	rules, err := s.pdb(r).ListProxyRules(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if rules == nil {
-		rules = []model.ProxyRule{}
-	}
-	writeJSON(w, http.StatusOK, rules)
-}
-
-func (s *Server) createProxyRule(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Target  string `json:"target"`
-		Match   string `json:"match"`
-		Replace string `json:"replace"`
-		Enabled *bool  `json:"enabled"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	if _, err := regexp.Compile(req.Match); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid match pattern: "+err.Error())
-		return
-	}
-	enabled := true
-	if req.Enabled != nil {
-		enabled = *req.Enabled
-	}
-	projectID := r.PathValue("id")
-	rule, err := s.pdb(r).CreateProxyRule(r.Context(), model.ProxyRule{
-		ProjectID: projectID, Enabled: enabled, Target: req.Target, Match: req.Match, Replace: req.Replace,
-	})
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.rebuildRules(projectID)
-	s.record(r.Context(), actorOf(r), "proxy.rule.create", rule.ID, map[string]string{"target": rule.Target, "match": rule.Match})
-	writeJSON(w, http.StatusCreated, rule)
-}
-
-func (s *Server) updateProxyRule(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Enabled bool `json:"enabled"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	projectID, err := s.pdb(r).SetProxyRuleEnabled(r.Context(), r.PathValue("ruleId"), req.Enabled)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "rule not found")
-		return
-	}
-	s.rebuildRules(projectID)
-	writeJSON(w, http.StatusOK, map[string]bool{"enabled": req.Enabled})
-}
-
-func (s *Server) deleteProxyRule(w http.ResponseWriter, r *http.Request) {
-	projectID, err := s.pdb(r).DeleteProxyRule(r.Context(), r.PathValue("ruleId"))
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "rule not found")
-		return
-	}
-	s.rebuildRules(projectID)
-	w.WriteHeader(http.StatusNoContent)
 }

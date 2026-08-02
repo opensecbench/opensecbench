@@ -39,9 +39,9 @@ type Service struct {
 	casr          cas.Resolver
 	workspaceRoot string
 	providerLocal bool
-	tokenBudget         int
-	indexer             *rag.Indexer          // semantic corpus index (ADR-0039)
-	methods             *methodology.Registry // catalog the save_methodology tool authors into (ADR-0055)
+	tokenBudget   int
+	indexer       *rag.Indexer          // semantic corpus index (ADR-0039)
+	methods       *methodology.Registry // catalog the save_methodology tool authors into (ADR-0055)
 
 	// egressSender, if set, routes the send_request tool through a chosen runner's vantage (ADR-0025).
 	egressSender func(context.Context, string, replay.Request) (replay.Response, error)
