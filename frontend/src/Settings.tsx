@@ -4,16 +4,15 @@ import { applyTheme } from './theme'
 import { Providers } from './Providers'
 import { Tags } from './Tags'
 import { ApprovalPolicy } from './ApprovalPolicy'
-import { GovernanceProfile } from './GovernanceProfile'
 import { ConnectorsLibrary } from './ConnectorsLibrary'
 
 // Custom (bespoke-component) sections, composed alongside declarative ones from the API (ADR-0021).
-// Custom Agents moved to the global Library (build & reuse) — see Library.tsx. Governance (LLM egress)
-// and Connectors moved here from the retired "Extensions & Governance" rail / Library.
+// Custom Agents moved to the global Library (build & reuse) — see Library.tsx. Connectors moved here from
+// Library. Data-egress governance is per-connection now (Models & Providers ▸ Data clearance), not a
+// standalone section — the personal/corporate/strict profiles were retired.
 const CUSTOM: { id: string; title: string; icon: string; order: number }[] = [
   { id: 'providers', title: 'Models & Providers', icon: '🧠', order: 12 },
   { id: 'approvals', title: 'Approvals', icon: '🛡', order: 30 },
-  { id: 'governance', title: 'Governance', icon: '⧉', order: 35 },
   { id: 'connectors', title: 'Connectors', icon: '🔌', order: 45 },
 ]
 
@@ -30,7 +29,6 @@ const GROUP_BY_ID: Record<string, (typeof GROUP_ORDER)[number]> = {
   runtime: 'Operational',
   connectors: 'Operational',
   approvals: 'Policy',
-  governance: 'Policy',
 }
 function groupOf(id: string, source?: string): (typeof GROUP_ORDER)[number] {
   return GROUP_BY_ID[id] ?? (source?.startsWith('ext:') ? 'Extensions' : 'General')
@@ -105,7 +103,6 @@ export function Settings({ online }: { online: boolean }) {
           </>
         )}
         {active === 'approvals' && <ApprovalPolicy online={online} />}
-        {active === 'governance' && <GovernanceProfile online={online} />}
         {active === 'connectors' && <ConnectorsLibrary online={online} />}
         {activeSection && (
           <div className="settings-fields">

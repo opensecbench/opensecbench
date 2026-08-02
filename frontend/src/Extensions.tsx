@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { api, ExtensionInfo, HubPackage } from './api'
 
 // Extensions is a global Library ▸ Configure section (IA declutter): installed third-party packages and
-// the community hub to browse and trust-install new ones. Governance posture (the LLM-egress policy that
-// used to sit alongside these) moved to Settings ▸ Governance — see GovernanceProfile.tsx.
+// the community hub to browse and trust-install new ones. LLM-egress governance, which used to sit
+// alongside these, is now per-connection (Settings ▸ Models & Providers ▸ Data clearance).
 export function Extensions({ online }: { online: boolean }) {
   const [installed, setInstalled] = useState<ExtensionInfo[]>([])
   const [hubURL, setHubURL] = useState('')

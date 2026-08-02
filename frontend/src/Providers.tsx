@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
-import { api, ConnectionModel, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
+import { api, ConnectionModel, DataClearance, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
+
+// Data-clearance tiers a destination may be approved for (asset-sensitivity scale). Ordered least → most.
+const CLEARANCE_OPTIONS: { value: DataClearance; label: string }[] = [
+  { value: 'open_source', label: 'Open-source only' },
+  { value: 'internal', label: 'Internal' },
+  { value: 'private', label: 'Private (corporate)' },
+]
+function clearanceLabel(c: string): string {
+  return CLEARANCE_OPTIONS.find((o) => o.value === c)?.label ?? 'Open-source only'
+}
 
 // Map a provider add-form type to its catalog provider key. The Claude CLI subscription runs the same
 // Anthropic models a direct API connection does (passed as --model, ADR-0052), so it shares Anthropic's
@@ -42,6 +52,9 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
   const [error, setError] = useState<string | null>(null)
   const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([])
   const [customModel, setCustomModel] = useState(false)
+  const [clearance, setClearance] = useState<DataClearance>('open_source') // add-form default: least privilege
+  // In-progress clearance-note edits, keyed by connection id or `${connId}:${modelId}` for model overrides.
+  const [clearNotes, setClearNotes] = useState<Record<string, string>>({})
   // Discovered models per connection (ADR-0052): lazily fetched, expandable, refreshable.
   const [expanded, setExpanded] = useState<string | null>(null)
   const [connModels, setConnModels] = useState<Record<string, ConnectionModel[]>>({})
@@ -90,13 +103,31 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
 
   async function add() {
     try {
-      await api.addProvider({ name: name || cfg?.label || type, type, model, base_url: baseUrl, api_key: apiKey })
+      await api.addProvider({ name: name || cfg?.label || type, type, model, base_url: baseUrl, api_key: apiKey, data_clearance: clearance })
       setName('')
       setModel('')
       setBaseUrl('')
       setApiKey('')
+      setClearance('open_source')
       setError(null)
       await load()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  async function saveClearance(id: string, next: DataClearance, note: string) {
+    try {
+      await api.setProviderClearance(id, next, note)
+      await load()
+      onChanged?.()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  async function saveModelClearance(connId: string, modelId: string, next: DataClearance | '', note: string) {
+    try {
+      await api.setModelClearance(connId, modelId, next, note)
+      await loadConnModels(connId, false)
     } catch (e) {
       setError((e as Error).message)
     }
@@ -142,6 +173,24 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
               <div className="prov-main">
                 <div className="prov-name">{p.name} {p.active && <span className="badge active">active</span>}</div>
                 <div className="prov-meta">{p.type}{p.model ? ` · ${p.model}` : ''}{p.has_key ? ' · 🔑' : ''}</div>
+                {p.type === 'ollama' ? (
+                  <div className="prov-clearance local">🔒 Local · content stays on your machine</div>
+                ) : (
+                  <div className="prov-clearance">
+                    <span className="prov-clearance-label" title="Highest asset-sensitivity tier this destination may receive over external egress.">Data clearance</span>
+                    <select value={p.data_clearance} onChange={(e) => saveClearance(p.id, e.target.value as DataClearance, clearNotes[p.id] ?? p.clearance_note)} disabled={!online}>
+                      {CLEARANCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <input
+                      className="prov-clearance-note"
+                      placeholder="why (e.g. covered by DPA)"
+                      value={clearNotes[p.id] ?? p.clearance_note}
+                      onChange={(e) => setClearNotes((n) => ({ ...n, [p.id]: e.target.value }))}
+                      onBlur={(e) => { if (e.target.value !== p.clearance_note) void saveClearance(p.id, p.data_clearance, e.target.value) }}
+                      disabled={!online}
+                    />
+                  </div>
+                )}
                 {t && !t.testing && (
                   t.ok ? (
                     <div className="prov-test ok">
@@ -179,6 +228,29 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
                           {m.context_window ? ` · ${Math.round(m.context_window / 1000)}k` : ''}
                           {m.input_per_mtok || m.output_per_mtok ? ` · $${m.input_per_mtok}/$${m.output_per_mtok}` : ''}
                         </span>
+                        {p.type !== 'ollama' && (
+                          <span className="prov-model-clearance">
+                            <select
+                              value={m.data_clearance}
+                              onChange={(e) => saveModelClearance(p.id, m.model_id, e.target.value as DataClearance | '', clearNotes[`${p.id}:${m.model_id}`] ?? m.clearance_note)}
+                              disabled={!online}
+                              title="Clear this model for a lower tier than its connection (e.g. a model with retention not covered by the DPA)."
+                            >
+                              <option value="">inherit · {clearanceLabel(p.data_clearance)}</option>
+                              {CLEARANCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                            {m.data_clearance && (
+                              <input
+                                className="prov-clearance-note"
+                                placeholder="why (e.g. 30-day retention)"
+                                value={clearNotes[`${p.id}:${m.model_id}`] ?? m.clearance_note}
+                                onChange={(e) => setClearNotes((n) => ({ ...n, [`${p.id}:${m.model_id}`]: e.target.value }))}
+                                onBlur={(e) => { if (e.target.value !== m.clearance_note) void saveModelClearance(p.id, m.model_id, m.data_clearance, e.target.value) }}
+                                disabled={!online}
+                              />
+                            )}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -239,6 +311,11 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
         })()}
         {cfg?.needsBase && <input placeholder={cfg?.baseHint || 'base URL'} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />}
         {cfg?.needsKey && <input type="password" placeholder={cfg?.keyHint || 'API key (sealed in the vault)'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} />}
+        {type !== 'ollama' && (
+          <select value={clearance} onChange={(e) => setClearance(e.target.value as DataClearance)} title="Highest data tier this destination may receive over external egress. Default is least-privilege; raise it per your agreement with the vendor.">
+            {CLEARANCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>Cleared for: {o.label}</option>)}
+          </select>
+        )}
         <button className="prov-add-btn" onClick={add} disabled={!online}>＋ Add provider</button>
         <div className="prov-hint">
           {type === 'claude-cli'
