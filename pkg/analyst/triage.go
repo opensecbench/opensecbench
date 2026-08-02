@@ -91,6 +91,18 @@ func (svc *Service) runBatchTriage(projectID string, picked []model.Observation)
 	chunks := chunkObservations(picked, triageChunkMin(), triageChunkMax())
 	tgt := svc.targetForTag(ctx, svc.resolveProfile(ctx, "triage").ModelTag)
 
+	// Batch triage sends observation titles/details to the model (private-by-default egress). If the routed
+	// destination isn't cleared for private, don't send anything — surface why instead of silently leaking.
+	if !svc.clearedForPrivate(ctx, projectID, tgt) {
+		pid := projectID
+		_, _ = svc.p(projectID).CreateNotification(ctx, model.Notification{
+			Kind: model.NotifyInfo, Title: "AI triage blocked",
+			Body:      fmt.Sprintf("The triage model (%s) is cleared only for %s; triage would send observation content. Use a local provider or raise its clearance to private.", tgt.Provider.Name(), model.ClearanceLabel(tgt.Clearance)),
+			ProjectID: &pid, Link: "observations",
+		})
+		return
+	}
+
 	dismissed, flagged, failed, processed := 0, 0, 0, 0
 	stopped := false
 	for i, chunk := range chunks {

@@ -547,9 +547,12 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 		if call.Tool == "show" {
 			return svc.runShow(projectID, call)
 		}
-		if external {
-			// Reading an asset's contents into an external model is data egress (ADR-0011/0020), gated by
-			// the asset's sensitivity tier against the destination's clearance.
+		// Default-deny egress: sending any project content into an external model is gated by the
+		// destination's clearance (ADR-0011/0020). Asset-scoped tools use the asset's own sensitivity tier;
+		// every other non-safe tool is private-by-default (see egressSafeTools for what returns no content).
+		if external && !egressSafeTools[call.Tool] {
+			required := model.SensitivityPrivate
+			detail := "returns project content treated as private"
 			if assetEgressTools[call.Tool] {
 				if assetID, _ := call.Args["asset"].(string); assetID != "" {
 					asset, err := svc.p(projectID).GetAsset(ctx, assetID)
@@ -557,26 +560,33 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 						// Fail closed: if we can't classify the asset we can't prove egress is permitted.
 						return "", fmt.Errorf("blocked by data-egress policy: %q could not resolve asset %q to verify it is cleared for the external provider %q", call.Tool, assetID, pname)
 					}
-					if !model.ClearanceAllows(clearance, asset.Sensitivity) {
-						return "", fmt.Errorf("blocked by data-egress policy: %q would send %s asset content to %q, which is cleared only for %s; use a local provider (e.g. ollama), raise the destination's clearance, or lower the asset's sensitivity", call.Tool, model.ClearanceLabel(asset.Sensitivity), pname, model.ClearanceLabel(clearance))
-					}
+					required = asset.Sensitivity
+					detail = fmt.Sprintf("would send %s asset content", model.ClearanceLabel(asset.Sensitivity))
 				}
 			}
-			// Ingested corpus (documents, emails, chat, scanner output) has no per-item sensitivity flag, so
-			// it is treated as private by default: it egresses only to a destination cleared for private.
-			if !model.ClearanceAllows(clearance, model.SensitivityPrivate) {
-				switch call.Tool {
-				case "read_context":
-					return "", fmt.Errorf("blocked by data-egress policy: read_context would send ingested document/correspondence content to %q, which is cleared only for %s; use a local provider (e.g. ollama) or raise the destination's clearance to private", pname, model.ClearanceLabel(clearance))
-				case "search_corpus":
-					return "", fmt.Errorf("blocked by data-egress policy: search_corpus would send corpus/KB content to %q, which is cleared only for %s; use a local provider (e.g. ollama) or raise the destination's clearance to private", pname, model.ClearanceLabel(clearance))
-				case "read_artifact":
-					return "", fmt.Errorf("blocked by data-egress policy: read_artifact would send scanner output derived from asset content to %q, which is cleared only for %s; use a local provider (e.g. ollama) or raise the destination's clearance to private", pname, model.ClearanceLabel(clearance))
-				}
+			if !model.ClearanceAllows(clearance, required) {
+				return "", fmt.Errorf("blocked by data-egress policy: %q %s to %q, which is cleared only for %s; use a local provider (e.g. ollama), raise the destination's clearance, or lower the asset's sensitivity", call.Tool, detail, pname, model.ClearanceLabel(clearance))
 			}
 		}
 		return exec(ctx, call)
 	}
+}
+
+// clearedForPrivate reports whether a routed destination may receive private-by-default project content
+// (findings, observations, report data) sent to it by a direct completion — i.e. the bounded LLM calls
+// (narration, batch triage) that don't flow through the tool gate. A local provider is never a risk; an
+// external one must be cleared for private, honoring the per-engagement restricted clamp (ADR-0051).
+func (svc *Service) clearedForPrivate(ctx context.Context, projectID string, tgt runTarget) bool {
+	if tgt.Provider == nil || llm.IsLocal(tgt.Provider) {
+		return true
+	}
+	clearance := tgt.Clearance
+	if projectID != "" {
+		if eng, err := svc.p(projectID).GetEngagement(ctx, projectID); err == nil && eng.DataClass == model.DataRestricted {
+			clearance = model.SensitivityOpenSource
+		}
+	}
+	return model.ClearanceAllows(clearance, model.SensitivityPrivate)
 }
 
 // projectOf returns a thread's project id, or "" if it is a project-less thread.
