@@ -26,17 +26,19 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/task"
 )
 
-// assetEgressTools take an 'asset' argument and would send that asset's contents (its scan output, or
-// its source read directly) to the model. On an external provider they are gated by the asset's own
-// sensitivity tier against the destination's clearance (ADR-0011, ADR-0020) — enforced in
-// service.executeFor.
+// assetEgressTools read an 'asset' argument's RAW source/content directly into the model. On an external
+// provider they are gated by the asset's own sensitivity tier against the destination's clearance (ADR-0011,
+// ADR-0020) — enforced in service.executeFor. Raw source never egresses for a private asset.
+//
+// Note: run_capability / run_playbook are NOT here — they run a scanner locally and return only a DERIVED
+// summary (observation titles + counts), so they classify as derived artifacts (derivedEgressTools),
+// gated at the derived tier rather than the asset's sensitivity (ADR-0065). That's what lets the agent
+// drive local scans on private source and see the derived result.
 var assetEgressTools = map[string]bool{
-	"run_capability": true,
-	"run_playbook":   true,
-	"read_file":      true,
-	"list_dir":       true,
-	"grep_code":      true,
-	"find_files":     true,
+	"read_file":  true,
+	"list_dir":   true,
+	"grep_code":  true,
+	"find_files": true,
 }
 
 // derivedEgressTools return SCANNER-DERIVED artifacts — findings, observations, investigations, coverage,
@@ -57,6 +59,10 @@ var derivedEgressTools = map[string]bool{
 	"list_investigations": true,
 	"get_coverage":        true,
 	"list_dependencies":   true,
+	// Running a local scanner/playbook and returning its DERIVED summary (titles + counts) is derived
+	// output, gated at the derived tier — the raw scan output stays local (ADR-0065).
+	"run_capability": true,
+	"run_playbook":   true,
 }
 
 // egressSafeTools return NO target/project-specific content to the model, so they may run against any

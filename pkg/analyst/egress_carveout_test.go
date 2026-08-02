@@ -51,6 +51,13 @@ func TestDerivedArtifactEgressCarveOut(t *testing.T) {
 		t.Fatalf("list_findings should be withheld by default, got %s", out)
 	}
 
+	// run_capability is DERIVED now (its summary), not asset-gated: withheld by default (derived tier is
+	// top) — so its egress follows the derived-sharing policy, not the asset's sensitivity (ADR-0065).
+	runCap := agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": "x"}}
+	if out := run(runCap, model.SensitivityOpenSource); !strings.Contains(out, "withheld") {
+		t.Fatalf("run_capability should be derived-gated and withheld by default, got %s", out)
+	}
+
 	// Carve-out: lower the derived tier to open-source ⇒ scan output may now reach that provider.
 	if err := db.SetSetting(ctx, DerivedEgressTierSetting, model.SensitivityOpenSource); err != nil {
 		t.Fatal(err)
