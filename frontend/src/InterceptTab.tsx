@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, HeldItem, InterceptState, Project } from './api'
 
-// The Intercept surface (ADR-0016 Step 3): arm request/response interception, work the queue of held
-// traffic, and edit → Forward or Drop each item. Live over the SSE hub — no polling.
+// The Intercept surface (ADR-0016 Step 3): the queue of traffic paused by a "hold" rule — edit → Forward
+// or Drop each item. What gets held is decided by the Traffic rules on the Proxy tab (the "hold" action);
+// this surface is purely the runtime queue. Live over the SSE hub — no polling.
 export function InterceptTab({
   project,
   online,
@@ -12,7 +13,7 @@ export function InterceptTab({
   online: boolean
   onError: (m: string) => void
 }) {
-  const [state, setState] = useState<InterceptState>({ requests: false, responses: false, held: [] })
+  const [state, setState] = useState<InterceptState>({ held: [] })
   const [running, setRunning] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<HeldItem | null>(null)
@@ -43,14 +44,6 @@ export function InterceptTab({
     setDraft(selected ? { ...selected } : null)
   }, [selected?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function arm(requests: boolean, responses: boolean) {
-    try {
-      setState(await api.setIntercept(project.id, requests, responses))
-    } catch (e) {
-      onError((e as Error).message)
-    }
-  }
-
   async function resolve(action: 'forward' | 'drop') {
     if (!selected) return
     const d = draft ?? selected
@@ -76,17 +69,10 @@ export function InterceptTab({
   return (
     <div className="icept">
       <div className="icept-arm">
-        <label className={`icept-toggle ${state.requests ? 'on' : ''}`}>
-          <input type="checkbox" checked={state.requests} disabled={!online || !running} onChange={(e) => arm(e.target.checked, state.responses)} />
-          Intercept requests
-        </label>
-        <label className={`icept-toggle ${state.responses ? 'on' : ''}`}>
-          <input type="checkbox" checked={state.responses} disabled={!online || !running} onChange={(e) => arm(state.requests, e.target.checked)} />
-          Intercept responses
-        </label>
+        <span className="muted">Traffic pauses here when a <b>Hold</b> rule matches — set those up under <b>Traffic rules</b> on the Proxy tab.</span>
         <span className="spacer" />
         {!running ? (
-          <span className="warnpill">⚠ start the proxy to intercept</span>
+          <span className="warnpill">⚠ start the proxy first</span>
         ) : (
           <span className="muted">{state.held.length} held</span>
         )}
@@ -96,9 +82,9 @@ export function InterceptTab({
         <div className="icept-queue">
           {state.held.length === 0 ? (
             <div className="empty">
-              {running && (state.requests || state.responses)
-                ? 'Armed — waiting to hold traffic…'
-                : 'Nothing held. Arm interception above, then route traffic through the proxy.'}
+              {running
+                ? 'Nothing held yet. Add a Hold rule on the Proxy tab and route traffic through the proxy.'
+                : 'Start the proxy (Proxy tab) and add a Hold rule to pause matching traffic here.'}
             </div>
           ) : (
             state.held.map((h) => (

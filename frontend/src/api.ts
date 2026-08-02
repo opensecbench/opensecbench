@@ -322,9 +322,28 @@ export interface HeldItem {
   response_body?: string
 }
 export interface InterceptState {
-  requests: boolean
-  responses: boolean
   held: HeldItem[]
+}
+
+// A unified proxy traffic rule: a CEL match plus one action. Evaluated top→bottom per phase.
+export type RuleAction = 'hold' | 'drop' | 'set_header' | 'remove_header' | 'replace_body' | 'set_status'
+export interface TrafficRuleParams {
+  header_name?: string
+  header_value?: string
+  pattern?: string
+  replacement?: string
+  status?: number
+}
+export interface TrafficRule {
+  id?: string
+  project_id?: string
+  seq?: number
+  enabled: boolean
+  phase: 'request' | 'response' | 'both'
+  match: string
+  action: RuleAction
+  params: TrafficRuleParams
+  created_at?: string
 }
 
 export interface ActiveProvider {
@@ -1294,11 +1313,13 @@ export const api = {
     return () => ctrl.abort()
   },
 
-  // intercept (hold → edit → forward/drop)
+  // traffic rules (CEL match → action) + the hold queue they feed (hold → edit → forward/drop)
+  listTrafficRules: (projectId: string) =>
+    request<TrafficRule[]>('GET', `/v1/projects/${projectId}/traffic-rules`),
+  putTrafficRules: (projectId: string, rules: TrafficRule[]) =>
+    request<TrafficRule[]>('PUT', `/v1/projects/${projectId}/traffic-rules`, rules),
   getIntercept: (projectId: string) =>
     request<InterceptState>('GET', `/v1/projects/${projectId}/intercept`),
-  setIntercept: (projectId: string, requests: boolean, responses: boolean) =>
-    request<InterceptState>('PUT', `/v1/projects/${projectId}/intercept`, { requests, responses }),
   resolveIntercept: (
     projectId: string,
     holdId: string,
@@ -1314,14 +1335,6 @@ export const api = {
     },
   ) => request<{ status: string }>('POST', `/v1/projects/${projectId}/intercept/${holdId}`, body),
 
-  // proxy match/replace rules
-  listProxyRules: (projectId: string) =>
-    request<ProxyRule[]>('GET', `/v1/projects/${projectId}/proxy-rules`),
-  createProxyRule: (projectId: string, body: { target: string; match: string; replace: string; enabled?: boolean }) =>
-    request<ProxyRule>('POST', `/v1/projects/${projectId}/proxy-rules`, body),
-  setProxyRuleEnabled: (ruleId: string, enabled: boolean) =>
-    request<{ enabled: boolean }>('PUT', `/v1/proxy-rules/${ruleId}`, { enabled }),
-  deleteProxyRule: (ruleId: string) => request<void>('DELETE', `/v1/proxy-rules/${ruleId}`),
   saveExchangeEvidence: (id: string, note: string, itemId?: string) =>
     request<Observation>('POST', `/v1/exchanges/${id}/evidence`, { note, item_id: itemId ?? '' }),
 
