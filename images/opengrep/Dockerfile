@@ -8,7 +8,7 @@
 #
 # The capability invokes `opengrep scan …` directly (no ENTRYPOINT). git is present because opengrep
 # enumerates files via git when the target is a repo; ca-certificates for fetching registry rulesets.
-FROM debian:12-slim
+FROM debian:13-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git \

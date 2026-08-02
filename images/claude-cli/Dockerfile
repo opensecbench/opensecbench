@@ -10,7 +10,7 @@
 #   Pin the CLI: docker build --build-arg CLAUDE_VERSION=<x.y.z> -t osb/claude-cli:<x.y.z> images/claude-cli
 #
 # The runner invokes `claude -p …` directly (no ENTRYPOINT); the CLI is on PATH via the global npm install.
-FROM node:22-slim
+FROM node:25-slim
 
 # ca-certificates for TLS to the API; git because the CLI expects it available on PATH.
 RUN apt-get update \
