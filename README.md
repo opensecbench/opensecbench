@@ -16,10 +16,32 @@ dramatically more effective — and that a community can extend and share.
      ![The OpenSecBench workbench](docs/images/workbench.png) -->
 
 > **Status: early access, under active development.** The local single-user workbench is broadly
-> feature-complete — the assessment lifecycle, sandboxed capabilities, the evidence loop, the HTTP
+> functional — the assessment lifecycle, sandboxed capabilities, the evidence loop, the HTTP
 > toolset, the multi-agent Analyst, methodology/coverage, the knowledge base, reporting, and signed
 > extensions all work. Platform-reach items (remote runners, hosted hub/team services) are still in
 > progress. Expect rough edges, and see [Contributing](#contributing) if you'd like to help.
+
+## Design philosophy
+
+The recurring principles behind the design — and the bar new features are held to:
+
+- **Local-first.** Project data, evidence, and scans run and stay on your machine by default; nothing
+  phones home.
+- **Bring your own AI.** The control plane owns the agent loop; models are inference-only and swappable —
+  a local model, or any provider you configure. No lock-in to a single vendor.
+- **Least-privilege data egress.** What reaches an *external* model is governed per destination by an
+  explicit, default-deny clearance model — your data doesn't leave the host unless you've cleared where
+  it's going ([ADR-0062](docs/adr/adr-0062-data-egress-trust-boundaries.md)).
+- **Evidence before findings.** Tool output becomes an observation with full provenance; only a confirmed
+  observation can back a finding — no unaudited leap from a scan to a conclusion.
+- **Human-driven.** The Analyst assists the engineer and acts behind an approval policy; it doesn't
+  replace judgment or run unsupervised.
+- **Composable, not hardcoded.** Security operations are isolated, sandboxed capabilities; methodologies,
+  templates, and tools are versioned, signed, open-format extensions — extend and share without forking.
+- **Open formats.** Projects, methodologies, reports, and extensions are portable and inspectable, not
+  proprietary blobs.
+- **Auditable by construction.** An append-only, hash-chained audit trail records what ran, what was sent
+  to a model, and what changed.
 
 ## Responsible use
 
@@ -39,7 +61,9 @@ liability for misuse or for any damage arising from its use.
 
 ## What's inside
 
-An IDE-style workbench shell with an always-present AI dock:
+An IDE-style workbench shell with an always-present AI dock, organized around the assessment lifecycle:
+
+### Assessment
 
 - **Projects, applications, assets, durable targets** — an asset taxonomy with sensitivity levels; a
   durable `target` that carries a knowledge base across engagements; project templates; omni-search
@@ -48,25 +72,41 @@ An IDE-style workbench shell with an always-present AI dock:
   with resource limits and scope enforcement. Built-ins: source inventory, SAST (opengrep/Semgrep),
   secret scanning (TruffleHog), SCA (Grype + govulncheck), SBOM (Syft), route mapping, nmap, HTTP
   probe — plus anything shipped as an extension.
+- **HTTP toolset** — an intercepting **Proxy** (capture, history, match/replace), **Replay**
+  (edit/send/diff, save-as-evidence, scope-guarded), and **Intercept** (hold → edit → forward/drop).
+- **Methodology & coverage** — adoptable methodologies; coverage roll-up tied to evidence.
+
+### Evidence
+
 - **Evidence loop** — tool output is deterministically interpreted (SARIF, nmap, TruffleHog) into
   **observations** with full provenance; triage and promote to **findings** — only confirmed
   observations can back a finding.
-- **HTTP toolset** — an intercepting **Proxy** (capture, history, match/replace), **Replay**
-  (edit/send/diff, save-as-evidence, scope-guarded), and **Intercept** (hold → edit → forward/drop).
-- **The Analyst (multi-agent)** — least-privilege specialist agents (Lead, Code Analysis, Vuln
-  Validator, Pentester, Triage, Report Writer — plus your own custom ones), a **Lead** that delegates,
-  and **playbooks** that run as dependency-ordered plans you can trigger, **schedule**, record from a
-  run, or build from scratch. Agents read the whole evidence corpus (code, documents, correspondence,
-  traffic), share a workspace, and run sandboxed code — all behind a **trust-curve approval policy**
-  over a fixed scope + data-egress floor.
-- **Methodology & coverage** — adoptable methodologies; coverage roll-up tied to evidence.
 - **Knowledge base** — durable, target-anchored, inherited across engagements; feeds agent context
   and methodology suggestions.
+
+### AI — the Analyst
+
+- **Multi-agent** — least-privilege specialist agents (Lead, Code Analysis, Vuln Validator, Pentester,
+  Triage, Report Writer — plus your own custom ones), a **Lead** that delegates, and **playbooks** that
+  run as dependency-ordered plans you can trigger, **schedule**, record from a run, or build from
+  scratch. Agents read the evidence corpus (code, documents, correspondence, traffic), share a
+  workspace, and run sandboxed code — all behind a **trust-curve approval policy** over a fixed scope
+  and a per-destination data-egress clearance.
+
+### Reporting
+
 - **Reporting & visualization** — multi-type reports (executive · technical · retest · compliance ·
   branded) in MD/HTML/PDF/DOCX with embedded figures, and a **graph** view of the assessment.
-- **Governance & provenance** — an append-only, hash-chained **audit trail**; an encrypted **secrets
-  vault** with exec-time injection, output redaction, and a **DLP** egress monitor; a **scope guard**
-  allowlist; policy profiles.
+
+### Governance & provenance
+
+- **Auditable, contained** — an append-only, hash-chained **audit trail**; an encrypted **secrets
+  vault** with exec-time injection and output redaction; a **DLP** egress monitor; a **scope guard**
+  allowlist; and **per-destination data-egress clearance** on a configurable classification scale
+  ([ADR-0062](docs/adr/adr-0062-data-egress-trust-boundaries.md)).
+
+### Extensibility
+
 - **Extensions** — capabilities, methodologies, and report templates ship as **signed, digest-pinned**
   open-format packages; a community hub (a static, signed index) to browse, publish, and install with
   explicit trust.
