@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
 // Event is one control-plane domain event delivered over the live stream. It mirrors the server's
@@ -121,4 +123,53 @@ func trimSSEValue(b []byte) []byte {
 		return b[1:]
 	}
 	return b
+}
+
+const projectHeader = "X-Project-Id"
+
+// ProjectThreads lists a project's conversation threads (newest first), the project-scoped history the
+// TUI's thread picker shows. The X-Project-Id header routes the read to that project's database.
+func (c *Client) ProjectThreads(ctx context.Context, projectID string) ([]model.Thread, error) {
+	var out []model.Thread
+	return out, c.doHeaders(ctx, http.MethodGet, "/v1/threads", map[string]string{projectHeader: projectID}, nil, &out)
+}
+
+// CreateThread starts a new thread in a project and returns it. Used by the TUI's "new conversation".
+func (c *Client) CreateThread(ctx context.Context, projectID, title string) (model.Thread, error) {
+	var out model.Thread
+	body := map[string]string{"project_id": projectID, "title": title}
+	return out, c.doHeaders(ctx, http.MethodPost, "/v1/threads", map[string]string{projectHeader: projectID}, body, &out)
+}
+
+// ProjectThread fetches a project thread with its full message history — the history half of the
+// attach(thread) primitive (ADR-0063): fetch, then subscribe and reconcile live deltas against it.
+func (c *Client) ProjectThread(ctx context.Context, projectID, threadID string) (ThreadDetail, error) {
+	var out ThreadDetail
+	return out, c.doHeaders(ctx, http.MethodGet, "/v1/threads/"+threadID, map[string]string{projectHeader: projectID}, nil, &out)
+}
+
+// SendToThread posts a message to a project thread. The call blocks until the turn completes and returns
+// the final result (answer or a pending approval); meanwhile the turn streams live over Attach, so the
+// TUI paints from the stream and uses this result to reconcile and surface approvals.
+func (c *Client) SendToThread(ctx context.Context, projectID, threadID, message string) (SendResult, error) {
+	var out SendResult
+	body := map[string]string{"message": message}
+	return out, c.doHeaders(ctx, http.MethodPost, "/v1/threads/"+threadID+"/messages", map[string]string{projectHeader: projectID}, body, &out)
+}
+
+// AnalystDelta is the payload of an "analyst.delta" event: a chunk of assistant text as it types out.
+type AnalystDelta struct {
+	ThreadID string `json:"thread_id"`
+	Text     string `json:"text"`
+}
+
+// AnalystMessage is the payload of an "analyst.message" event: a finalized turn message (assistant
+// answer, tool call, or tool result) that supersedes the live-typing buffer for its thread.
+type AnalystMessage struct {
+	ThreadID   string          `json:"thread_id"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	ToolError  bool            `json:"tool_error,omitempty"`
 }

@@ -1053,6 +1053,12 @@ func (c *Client) ArtifactContent(ctx context.Context, id string) ([]byte, error)
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+	return c.doHeaders(ctx, method, path, nil, body, out)
+}
+
+// doHeaders is do with extra request headers — used to carry X-Project-Id so thread/analyst calls route
+// to the right project's database (ADR-0049), the project's threads instead of the reserved global one.
+func (c *Client) doHeaders(ctx context.Context, method, path string, headers map[string]string, body, out any) error {
 	var reqBody io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -1068,6 +1074,9 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	resp, err := c.http.Do(req)

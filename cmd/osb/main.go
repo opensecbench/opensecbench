@@ -33,8 +33,19 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
+	args := flag.Args()
+	// Bare `osb` at a terminal, or an explicit `osb tui`, launches the interactive terminal client
+	// (ADR-0063). Piped/scripted `osb` with no args still falls through to usage.
+	if (len(args) == 0 && isTTY()) || (len(args) > 0 && args[0] == "tui") {
+		if err := runTUI(context.Background(), *addr); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	c := client.New(*addr, client.WithToken(resolveToken()))
-	if err := dispatch(context.Background(), c, flag.Args()); err != nil {
+	if err := dispatch(context.Background(), c, args); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

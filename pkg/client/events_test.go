@@ -126,6 +126,81 @@ func TestAttachReconnects(t *testing.T) {
 	}
 }
 
+// TestProjectThreadsSendProjectHeader confirms the project-scoped thread calls carry X-Project-Id (the
+// routing key that homes a thread in its project's database, ADR-0049) — verified at the wire so it
+// doesn't depend on store isolation the test harness collapses.
+func TestProjectThreadsSendProjectHeader(t *testing.T) {
+	type seen struct {
+		method, path, project string
+	}
+	var mu sync.Mutex
+	got := map[string]seen{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got[r.Method+" "+trimID(r.URL.Path)] = seen{r.Method, r.URL.Path, r.Header.Get("X-Project-Id")}
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+	ctx := context.Background()
+
+	_, _ = c.ProjectThreads(ctx, "proj-9")
+	_, _ = c.CreateThread(ctx, "proj-9", "chat")
+	_, _ = c.ProjectThread(ctx, "proj-9", "th-1")
+	_, _ = c.SendToThread(ctx, "proj-9", "th-1", "hi")
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, key := range []string{"GET /v1/threads", "POST /v1/threads", "GET /v1/threads/th-1", "POST /v1/threads/th-1/messages"} {
+		if s, ok := got[key]; !ok {
+			t.Errorf("%s was not called", key)
+		} else if s.project != "proj-9" {
+			t.Errorf("%s sent X-Project-Id=%q, want proj-9", key, s.project)
+		}
+	}
+}
+
+// trimID collapses the trailing id segment so the four thread routes map to stable keys.
+func trimID(path string) string {
+	switch {
+	case path == "/v1/threads/th-1/messages":
+		return "/v1/threads/th-1/messages"
+	case path == "/v1/threads/th-1":
+		return "/v1/threads/th-1"
+	default:
+		return path
+	}
+}
+
+// TestProjectThreadRoundTrip drives the real API handler: create a thread in a project, list it, fetch
+// it back with history — proving the requests are well-formed and the responses decode.
+func TestProjectThreadRoundTrip(t *testing.T) {
+	c := newServer(t)
+	ctx := context.Background()
+
+	p, err := c.CreateProject(ctx, CreateProjectRequest{Name: "TUI threads"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	th, err := c.CreateThread(ctx, p.ID, "chat")
+	if err != nil || th.ID == "" {
+		t.Fatalf("CreateThread = %+v, err = %v", th, err)
+	}
+	list, err := c.ProjectThreads(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ID != th.ID {
+		t.Fatalf("ProjectThreads = %+v, want [%s]", list, th.ID)
+	}
+	detail, err := c.ProjectThread(ctx, p.ID, th.ID)
+	if err != nil || detail.Thread.ID != th.ID {
+		t.Fatalf("ProjectThread = %+v, err = %v", detail, err)
+	}
+}
+
 func recv(t *testing.T, ch <-chan Event) Event {
 	t.Helper()
 	select {
