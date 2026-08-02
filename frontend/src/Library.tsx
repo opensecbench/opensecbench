@@ -5,6 +5,7 @@ import { CustomActions } from './CustomActions'
 import { MethodologyCatalog } from './MethodologyCatalog'
 import { SecretsLibrary } from './SecretsLibrary'
 import { Extensions } from './Extensions'
+import { ClassificationLibrary } from './ClassificationLibrary'
 import { ReportTemplatesLibrary } from './ReportTemplateEditor'
 
 // Library is the global "build & reuse" surface (IA declutter): reusable definitions you build once and
@@ -17,6 +18,7 @@ const SECTIONS: { id: string; title: string; icon: string; group: string }[] = [
   { id: 'methodology', title: 'Methodology', icon: '✓', group: 'Build & reuse' },
   { id: 'report-templates', title: 'Report templates', icon: '📄', group: 'Build & reuse' },
   { id: 'secrets', title: 'Secrets', icon: '🔒', group: 'Configure' },
+  { id: 'classification', title: 'Data classification', icon: '🏷', group: 'Configure' },
   { id: 'extensions', title: 'Extensions', icon: '⧉', group: 'Configure' },
 ]
 
@@ -53,6 +55,7 @@ export function Library({ online }: { online: boolean }) {
         {active === 'methodology' && <MethodologyCatalog online={online} />}
         {active === 'report-templates' && <ReportTemplatesLibrary online={online} />}
         {active === 'secrets' && <SecretsLibrary online={online} />}
+        {active === 'classification' && <ClassificationLibrary online={online} />}
         {active === 'extensions' && <Extensions online={online} />}
       </div>
     </div>

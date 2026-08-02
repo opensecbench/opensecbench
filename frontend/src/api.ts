@@ -490,8 +490,18 @@ export interface HubPackage {
   publisher_key?: string
 }
 
-// Data clearance uses the asset sensitivity scale — the highest tier a destination may receive over egress.
-export type DataClearance = 'open_source' | 'internal' | 'private'
+// Data clearance uses the (user-configurable) classification scale — the highest tier a destination may
+// receive over egress. A level id; the set is defined by the classification registry, so this is a string.
+export type DataClearance = string
+
+// One tier in the user-configurable data-classification scale (shared by asset sensitivity + clearance).
+export interface ClassificationLevel {
+  id: string
+  label: string
+  rank: number // higher = more sensitive
+  builtin: boolean
+  color?: string
+}
 
 export interface Notification {
   id: string
@@ -1454,6 +1464,14 @@ export const api = {
     ),
   addReachability: (projectId: string, body: { subject_type: string; subject: string; reachable: string; confidence?: string; rationale?: string }) =>
     request<{ reachable: string; confidence: string; facts: ReachabilityFact[] | null }>('POST', `/v1/projects/${projectId}/reachability`, body),
+
+  // data-classification registry (governance): the ordered levels for asset sensitivity + clearance
+  listClassificationLevels: () => request<ClassificationLevel[]>('GET', '/v1/classification-levels'),
+  createClassificationLevel: (body: { label: string; rank: number; color?: string; id?: string }) =>
+    request<ClassificationLevel>('POST', '/v1/classification-levels', body),
+  updateClassificationLevel: (id: string, body: { label: string; rank: number; color?: string }) =>
+    request<void>('PUT', `/v1/classification-levels/${id}`, body),
+  deleteClassificationLevel: (id: string) => request<void>('DELETE', `/v1/classification-levels/${id}`),
 
   // extensions, hub
   listExtensions: () => request<ExtensionInfo[]>('GET', '/v1/extensions'),
