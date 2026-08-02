@@ -196,17 +196,21 @@ export function MethodologyTab({
         </div>
       )}
 
-      <div className="create-row">
-        <select value={adopt} onChange={(e) => setAdopt(e.target.value)} disabled={!online || available.length === 0}>
-          <option value="">{available.length ? 'Add a checklist…' : 'All checklists added'}</option>
-          {available.map((m) => (
-            <option key={m.id} value={m.id}>{m.title} ({m.items?.length ?? 0})</option>
-          ))}
-        </select>
-        <button onClick={doAdopt} disabled={!online || !adopt}>Add</button>
+      <div className="cl-add">
+        <div className="cl-add-h">{packs.length ? 'Add another checklist' : 'Pick a checklist to work through'}</div>
+        <div className="cl-add-row">
+          <select value={adopt} onChange={(e) => setAdopt(e.target.value)} disabled={!online || available.length === 0}>
+            <option value="">{available.length ? 'Choose a checklist…' : catalog.length ? 'All checklists added' : 'No checklist templates yet'}</option>
+            {available.map((m) => (
+              <option key={m.id} value={m.id}>{m.title} — {m.items?.length ?? 0} item{(m.items?.length ?? 0) === 1 ? '' : 's'}</option>
+            ))}
+          </select>
+          <button className="cl-add-btn" onClick={doAdopt} disabled={!online || !adopt}>＋ Add</button>
+        </div>
+        {catalog.length === 0 && (
+          <div className="hint">No checklist templates exist yet. Create one in the Library under “Checklists” — build it by hand, import JSON, or paste a free-form list — then add it here.</div>
+        )}
       </div>
-
-      {packs.length === 0 && <div className="empty">No checklist yet — add one above to start working through it.</div>}
 
       {packs.map((p) => (
         <div key={p.id} className="mpack">

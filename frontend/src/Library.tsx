@@ -15,7 +15,7 @@ const SECTIONS: { id: string; title: string; icon: string; group: string }[] = [
   { id: 'playbooks', title: 'Playbooks', icon: '🧩', group: 'Build & reuse' },
   { id: 'agents', title: 'Custom agents', icon: '🤖', group: 'Build & reuse' },
   { id: 'actions', title: 'Custom actions', icon: '🎯', group: 'Build & reuse' },
-  { id: 'methodology', title: 'Methodology', icon: '✓', group: 'Build & reuse' },
+  { id: 'methodology', title: 'Checklists', icon: '✓', group: 'Build & reuse' },
   { id: 'report-templates', title: 'Report templates', icon: '📄', group: 'Build & reuse' },
   { id: 'secrets', title: 'Secrets', icon: '🔒', group: 'Configure' },
   { id: 'classification', title: 'Data classification', icon: '🏷', group: 'Configure' },
