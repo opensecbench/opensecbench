@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestCALoadOrCreatePersists(t *testing.T) {
@@ -69,6 +70,23 @@ type capture struct {
 
 func (c *capture) add(e Exchange) { c.mu.Lock(); c.ex = append(c.ex, e); c.mu.Unlock() }
 
+// wait blocks until at least n exchanges have been captured (or a short deadline passes), then
+// returns a copy for race-free inspection. The proxy records the exchange after it writes the
+// response to the client, so a test that reads cap.ex the instant client.Get returns can race the
+// capture goroutine — poll under the lock until it lands.
+func (c *capture) wait(n int) []Exchange {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		c.mu.Lock()
+		got := append([]Exchange(nil), c.ex...)
+		c.mu.Unlock()
+		if len(got) >= n || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestProxyHTTPCapture(t *testing.T) {
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "plain-ok:"+r.URL.Path)
@@ -90,8 +108,9 @@ func TestProxyHTTPCapture(t *testing.T) {
 	if !strings.Contains(string(body), "plain-ok:/hi") {
 		t.Fatalf("body = %q", body)
 	}
-	if len(cap.ex) != 1 || !strings.Contains(cap.ex[0].ResponseBody, "plain-ok:/hi") {
-		t.Fatalf("capture = %+v", cap.ex)
+	ex := cap.wait(1)
+	if len(ex) != 1 || !strings.Contains(ex[0].ResponseBody, "plain-ok:/hi") {
+		t.Fatalf("capture = %+v", ex)
 	}
 }
 
@@ -128,11 +147,12 @@ func TestProxyHTTPSInterception(t *testing.T) {
 	if resp.Header.Get("X-Secret") != "42" {
 		t.Fatalf("missing header from origin: %v", resp.Header)
 	}
-	if len(cap.ex) != 1 || !strings.Contains(cap.ex[0].URL, "/secret") || cap.ex[0].Status != 200 {
-		t.Fatalf("capture = %+v", cap.ex)
+	ex := cap.wait(1)
+	if len(ex) != 1 || !strings.Contains(ex[0].URL, "/secret") || ex[0].Status != 200 {
+		t.Fatalf("capture = %+v", ex)
 	}
-	if !strings.Contains(cap.ex[0].ResponseHeaders, "X-Secret: 42") {
-		t.Fatalf("captured headers missing secret: %q", cap.ex[0].ResponseHeaders)
+	if !strings.Contains(ex[0].ResponseHeaders, "X-Secret: 42") {
+		t.Fatalf("captured headers missing secret: %q", ex[0].ResponseHeaders)
 	}
 }
 
