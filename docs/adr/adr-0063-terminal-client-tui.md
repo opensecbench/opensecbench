@@ -1,6 +1,6 @@
 # ADR-0063 — Terminal client: a Claude-Code-style agent REPL
 
-Status: Accepted — building (phased). We add `osb tui`, a full-screen-optional terminal client built on Bubble Tea, as a
+Status: Accepted — implemented (v1). We add `osb tui`, a full-screen-optional terminal client built on Bubble Tea, as a
 **peer client** of the desktop GUI over the same control-plane API (ADR-0001) — the interface *is* the
 Analyst conversation, not a reduced CLI or a multi-pane dashboard. The clients own no state, so a session
 started in the GUI and one in the terminal are the same session; getting there requires a bearer-authenticated
@@ -141,3 +141,24 @@ correct against an authenticated daemon. A future web client inherits the same `
 **Before changing this,** know that the parity invariant (item 8) is load-bearing: any client-side state that
 isn't pure presentation, or any streaming path that isn't the shared bus, quietly breaks "everything is the
 same." Keep new real-time features flowing through `pkg/client.Attach` and the event bus.
+
+## Implementation notes (v1 delivered)
+
+All eight Decision items shipped across five phases (`03f15d8` client bearer + `Attach`; `7f861d0` TUI shell;
+`c8a7e94` turn UX; `8e00eee` event coverage; `bb5115c` terminal approvals), plus post-phase extras
+(`6f5308e` `/findings`+`/observations`, `96b0ebe` `/search`, `9b86750` dir-local project create). Deltas from
+the design as written above, recorded for honesty rather than left implicit:
+
+- **Item 6 event coverage shipped narrower than the enumerated set, by design.** `task.completed` (with an
+  `observation_count`) and `finding.created` are published; `task.*` queued/progress and per-`observation.*`
+  events were **intentionally dropped** to avoid drowning the conversation scroll — observations surface via
+  `task.completed`'s count plus the pull-based `/observations` command (`8e00eee` commit rationale). Only
+  engine/disposition-origin findings emit `finding.created`; analyst/API-created findings still ride
+  `analyst.message`.
+- **GUI-side rendering of the new bus events is follow-on.** The events are on the bus (upgrading the GUI is
+  the stated side benefit of item 6), but the React handlers that route them into the findings table / progress
+  bars aren't wired yet. Tracked in `docs/TODO.md`.
+- **`/project` switching shipped** (`tui.go`), despite being listed as deferred above.
+- **Still deferred as written:** glance-panels, headless *provider*-connection creation (dir-local *project*
+  creation shipped; LLM providers remain GUI/`OSB_LLM_*`-first), anchored co-drive deep-refs, and
+  `osb session attach` raw-terminal streaming.

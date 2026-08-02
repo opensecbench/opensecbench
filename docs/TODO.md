@@ -214,6 +214,14 @@ and can later ship as plugins.
       evidence. *Remaining: DependencyTrack/SBOM; **watchers** (schedule → notify / create task / run
       playbook); DefectDojo pagination beyond 200; two-way status sync.*
 - [x] Interactive graph tab: structure, traffic, topology (nmap), dependency (SBOM) kinds
+- [x] **Terminal client `osb tui`** (ADR-0063) — Claude-Code-style agent REPL in `pkg/tui`, a peer client of
+      the GUI over the control-plane bus; `pkg/client` bearer auth + `Attach` SSE primitive; attach(thread)
+      resume; streaming conversation, slash commands (`/search` `/findings` `/observations` `/new` `/threads`
+      `/project`), terminal approvals, dir-local project create; `task.completed`/`finding.created`/`approval.*`
+      published on the bus. *Remaining: GUI-side React handlers to render the new `task.*`/`finding.*` bus
+      events (published, not yet consumed by the GUI); verify TUI-initiated turns co-drive an attached GUI via
+      `ui.command`; deferred by design — glance-panels, headless LLM-provider creation, anchored co-drive
+      deep-refs, `osb session attach` raw-terminal streaming.*
 - [ ] Runtime extension **uninstall** + update/version-constraint flow.
 
 ## Plugin / extension ecosystem
