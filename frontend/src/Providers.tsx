@@ -1,15 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, ConnectionModel, DataClearance, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
-
-// Data-clearance tiers a destination may be approved for (asset-sensitivity scale). Ordered least → most.
-const CLEARANCE_OPTIONS: { value: DataClearance; label: string }[] = [
-  { value: 'open_source', label: 'Open-source only' },
-  { value: 'internal', label: 'Internal' },
-  { value: 'private', label: 'Private (corporate)' },
-]
-function clearanceLabel(c: string): string {
-  return CLEARANCE_OPTIONS.find((o) => o.value === c)?.label ?? 'Open-source only'
-}
+import { api, ClassificationLevel, ConnectionModel, DataClearance, ModelCatalogEntry, ProviderView, UsageByModel } from './api'
 
 // Map a provider add-form type to its catalog provider key. The Claude CLI subscription runs the same
 // Anthropic models a direct API connection does (passed as --model, ADR-0052), so it shares Anthropic's
@@ -52,9 +42,12 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
   const [error, setError] = useState<string | null>(null)
   const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([])
   const [customModel, setCustomModel] = useState(false)
-  const [clearance, setClearance] = useState<DataClearance>('open_source') // add-form default: least privilege
+  const [clearance, setClearance] = useState<DataClearance>('') // add-form clearance; defaults to the least tier once loaded
   // In-progress clearance-note edits, keyed by connection id or `${connId}:${modelId}` for model overrides.
   const [clearNotes, setClearNotes] = useState<Record<string, string>>({})
+  // The data-classification scale (governance) drives the clearance options; ordered least → most sensitive.
+  const [levels, setLevels] = useState<ClassificationLevel[]>([])
+  const labelOf = (id: string) => levels.find((l) => l.id === id)?.label ?? id
   // Discovered models per connection (ADR-0052): lazily fetched, expandable, refreshable.
   const [expanded, setExpanded] = useState<string | null>(null)
   const [connModels, setConnModels] = useState<Record<string, ConnectionModel[]>>({})
@@ -86,6 +79,14 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
     if (online) void api.getModelCatalog().then(setModelCatalog).catch(() => {})
   }, [online])
 
+  useEffect(() => {
+    if (!online) return
+    void api.listClassificationLevels().then((ls) => {
+      setLevels(ls ?? [])
+      if (ls?.length) setClearance((c) => c || ls[0].id) // default the add form to the least-sensitive tier
+    }).catch(() => {})
+  }, [online])
+
   async function load() {
     try {
       setProviders((await api.listProviders()) ?? [])
@@ -108,7 +109,7 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
       setModel('')
       setBaseUrl('')
       setApiKey('')
-      setClearance('open_source')
+      setClearance(levels[0]?.id ?? '')
       setError(null)
       await load()
     } catch (e) {
@@ -179,7 +180,7 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
                   <div className="prov-clearance">
                     <span className="prov-clearance-label" title="Highest asset-sensitivity tier this destination may receive over external egress.">Data clearance</span>
                     <select value={p.data_clearance} onChange={(e) => saveClearance(p.id, e.target.value as DataClearance, clearNotes[p.id] ?? p.clearance_note)} disabled={!online}>
-                      {CLEARANCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {levels.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
                     </select>
                     <input
                       className="prov-clearance-note"
@@ -236,8 +237,8 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
                               disabled={!online}
                               title="Clear this model for a lower tier than its connection (e.g. a model with retention not covered by the DPA)."
                             >
-                              <option value="">inherit · {clearanceLabel(p.data_clearance)}</option>
-                              {CLEARANCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              <option value="">inherit · {labelOf(p.data_clearance)}</option>
+                              {levels.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
                             </select>
                             {m.data_clearance && (
                               <input
@@ -313,7 +314,7 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
         {cfg?.needsKey && <input type="password" placeholder={cfg?.keyHint || 'API key (sealed in the vault)'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} />}
         {type !== 'ollama' && (
           <select value={clearance} onChange={(e) => setClearance(e.target.value as DataClearance)} title="Highest data tier this destination may receive over external egress. Default is least-privilege; raise it per your agreement with the vendor.">
-            {CLEARANCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>Cleared for: {o.label}</option>)}
+            {levels.map((l) => <option key={l.id} value={l.id}>Cleared for: {l.label}</option>)}
           </select>
         )}
         <button className="prov-add-btn" onClick={add} disabled={!online}>＋ Add provider</button>

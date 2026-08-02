@@ -3,6 +3,7 @@ import {
   api,
   Action,
   ActionRun,
+  ClassificationLevel,
   BEHAVIORAL_CONTEXT_TAGS,
   Application,
   Artifact,
@@ -1406,6 +1407,12 @@ function AssetsTab({
 }) {
   const [appName, setAppName] = useState('')
   const [assetInputs, setAssetInputs] = useState<Record<string, { type: string; location: string; sensitivity: string }>>({})
+  // Asset sensitivity uses the user-configurable classification scale (governance) — load its levels so the
+  // pickers offer the same tiers as provider clearance (Library ▸ Data classification).
+  const [levels, setLevels] = useState<ClassificationLevel[]>([])
+  useEffect(() => {
+    if (online) void api.listClassificationLevels().then((ls) => setLevels(ls ?? [])).catch(() => {})
+  }, [online])
 
   async function addApp(e: FormEvent) {
     e.preventDefault()
@@ -1471,9 +1478,8 @@ function AssetsTab({
                         title="Data sensitivity — gates whether this asset may reach an external AI provider (open_source ≤ internal ≤ private)"
                         onChange={(e) => changeAssetSensitivity(as.id, e.target.value)}
                       >
-                        <option value="open_source">open_source</option>
-                        <option value="internal">internal</option>
-                        <option value="private">private</option>
+                        {levels.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+                        {!levels.some((l) => l.id === as.sensitivity) && <option value={as.sensitivity}>{as.sensitivity}</option>}
                       </select>
                       <span className="mono">{as.location}</span>
                     </div>
@@ -1503,9 +1509,7 @@ function AssetsTab({
               )}
               <select value={inp.sensitivity} onChange={(e) => setAssetInputs({ ...assetInputs, [app.id]: { ...inp, sensitivity: e.target.value } })}>
                 <option value="">sensitivity: infer</option>
-                <option value="open_source">open_source</option>
-                <option value="internal">internal</option>
-                <option value="private">private</option>
+                {levels.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
               </select>
               <button disabled={!online || !inp.location.trim()} onClick={() => addAsset(app.id)}>＋ Asset</button>
             </div>
