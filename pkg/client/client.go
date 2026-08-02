@@ -21,12 +21,44 @@ import (
 // Client calls the OpenSecBench control-plane API.
 type Client struct {
 	baseURL string
+	token   string
 	http    *http.Client
 }
 
-// New returns a client for the control plane at baseURL (e.g. "http://127.0.0.1:7373").
-func New(baseURL string) *Client {
-	return &Client{baseURL: baseURL, http: http.DefaultClient}
+// Option configures a Client at construction.
+type Option func(*Client)
+
+// WithToken makes the client present tok as a bearer credential on every request (ADR-0061). The
+// token is the daemon's local API token, read from controlplane.APITokenPath. An empty token is a
+// no-op, so an unauthenticated daemon (older builds, tests) still works.
+func WithToken(tok string) Option { return func(c *Client) { c.token = tok } }
+
+// New returns a client for the control plane at baseURL (e.g. "http://127.0.0.1:7373"). The returned
+// client has no request timeout: it must support long-lived Server-Sent Events streams (see Attach).
+func New(baseURL string, opts ...Option) *Client {
+	c := &Client{baseURL: baseURL}
+	for _, o := range opts {
+		o(c)
+	}
+	// A transport wrapper attaches the bearer token to every request — do(), the direct-request
+	// helpers, and the Attach stream alike — so authentication can never be forgotten on a new path.
+	c.http = &http.Client{Transport: authTransport{token: c.token, base: http.DefaultTransport}}
+	return c
+}
+
+// authTransport adds the ADR-0061 bearer token to every outgoing request. It clones the request before
+// mutating headers, per the http.RoundTripper contract, and no-ops when no token is configured.
+type authTransport struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (t authTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if t.token != "" {
+		r = r.Clone(r.Context())
+		r.Header.Set("Authorization", "Bearer "+t.token)
+	}
+	return t.base.RoundTrip(r)
 }
 
 // Health returns the control plane's health payload.

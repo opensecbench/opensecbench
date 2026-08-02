@@ -21,6 +21,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/browser"
 	"github.com/opensecbench/opensecbench/pkg/bundle"
 	"github.com/opensecbench/opensecbench/pkg/client"
+	"github.com/opensecbench/opensecbench/pkg/controlplane"
 	"github.com/opensecbench/opensecbench/pkg/extension"
 	"github.com/opensecbench/opensecbench/pkg/hub"
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -28,14 +29,42 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", "http://127.0.0.1:7373", "control-plane API base URL")
+	addr := flag.String("addr", defaultAddr(), "control-plane API base URL (or set OSB_API)")
 	flag.Usage = usage
 	flag.Parse()
 
-	if err := dispatch(context.Background(), client.New(*addr), flag.Args()); err != nil {
+	c := client.New(*addr, client.WithToken(resolveToken()))
+	if err := dispatch(context.Background(), c, flag.Args()); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// defaultAddr is the control-plane base URL, honoring OSB_API (a bare host:port is upgraded to an
+// http:// URL) so `osb` and the desktop's `dev-attach` point at the same daemon.
+func defaultAddr() string {
+	if a := os.Getenv("OSB_API"); a != "" {
+		if !strings.Contains(a, "://") {
+			a = "http://" + a
+		}
+		return a
+	}
+	return "http://127.0.0.1:7373"
+}
+
+// resolveToken finds the local API bearer token (ADR-0061): OSB_API_TOKEN wins (for attaching to a
+// daemon whose data dir we don't know), otherwise the token file beside the default database. A missing
+// token yields "", which is correct against an unauthenticated daemon.
+func resolveToken() string {
+	if t := os.Getenv("OSB_API_TOKEN"); t != "" {
+		return t
+	}
+	dbPath, err := controlplane.DefaultDBPath()
+	if err != nil {
+		return ""
+	}
+	tok, _ := controlplane.ReadAPIToken(filepath.Dir(dbPath))
+	return tok
 }
 
 func dispatch(ctx context.Context, c *client.Client, args []string) error {
