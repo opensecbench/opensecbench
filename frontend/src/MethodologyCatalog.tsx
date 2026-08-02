@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, Methodology } from './api'
 import { MethodologyBuilder } from './MethodologyBuilder'
 
-// MethodologyCatalog is the global authoring surface for methodology packs (ADR-0009 / ADR-0055) — the
-// testing checklists a project adopts from and tracks coverage against. Built-in and extension packs are
-// read-only; teams author their own here by hand, by copying a built-in, by importing JSON, or by pasting a
-// free-form checklist and letting the LLM structure it. Per-project adoption + coverage stay on the project's
-// Methodology surface.
+// MethodologyCatalog is the global authoring surface for checklist templates (ADR-0009 / ADR-0055) — the
+// testing checklists a project adds and works through. Built-in and extension templates are read-only; teams
+// author their own here by hand, by copying a built-in, by importing JSON, or by pasting a free-form list and
+// letting the LLM structure it. Per-project selection + progress stay on the project's Checklist surface.
+// (Component/type names keep the "methodology" spelling internally; only the UI vocabulary is "checklist".)
 export function MethodologyCatalog({ online }: { online: boolean }) {
   const [packs, setPacks] = useState<Methodology[]>([])
   const [open, setOpen] = useState<string | null>(null)
@@ -80,7 +80,7 @@ export function MethodologyCatalog({ online }: { online: boolean }) {
     try {
       const parsed = JSON.parse(await f.text())
       if (!parsed || typeof parsed !== 'object' || !parsed.title || !Array.isArray(parsed.items)) {
-        throw new Error('not a methodology pack (needs a title and an items array)')
+        throw new Error('not a checklist template (needs a title and an items array)')
       }
       setError(null)
       openDraft(parsed as Methodology)
@@ -96,7 +96,7 @@ export function MethodologyCatalog({ online }: { online: boolean }) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `methodology-${p.id}.json`
+    a.download = `checklist-${p.id}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -106,11 +106,11 @@ export function MethodologyCatalog({ online }: { online: boolean }) {
       {error && <div className="banner error">⚠ {error}</div>}
       <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={onImportFile} />
       <div className="lib-head">
-        <h2>Methodology catalog</h2>
-        <p>The testing standards available across the instance. Author your own packs — by hand, by copying a built-in, by importing JSON, or by pasting a free-form checklist for the assistant to structure — then a project adopts a pack from its Methodology surface and tracks per-item coverage there.</p>
+        <h2>Checklist templates</h2>
+        <p>The testing checklists available across the instance. Author your own — by hand, by copying a built-in, by importing JSON, or by pasting a free-form list for the assistant to structure — then a project adds one from its Checklist surface and works through it item by item.</p>
         <div className="lib-actions">
-          <button className="lib-new" disabled={!online} onClick={() => { reset(); setBuilding(true) }}>＋ New methodology</button>
-          <button className="ghost-btn" disabled={!online} onClick={() => { reset(); setConverting(true) }}>✨ From checklist</button>
+          <button className="lib-new" disabled={!online} onClick={() => { reset(); setBuilding(true) }}>＋ New checklist</button>
+          <button className="ghost-btn" disabled={!online} onClick={() => { reset(); setConverting(true) }}>✨ From text</button>
           <button className="ghost-btn" disabled={!online} onClick={() => fileRef.current?.click()}>⇪ Import JSON</button>
         </div>
       </div>
@@ -123,7 +123,7 @@ export function MethodologyCatalog({ online }: { online: boolean }) {
             <button className="ghost-btn" onClick={() => setConverting(false)}>Cancel</button>
           </div>
           <p className="mcat-convert-hint">Paste your text checklist below. The assistant turns each line into a structured item (objective, procedure, standards) and opens it here for review — nothing is saved until you save it.</p>
-          <input className="pbuild-in" placeholder="Pack title (optional — the assistant will suggest one)" value={checklistTitle} onChange={(e) => setChecklistTitle(e.target.value)} />
+          <input className="pbuild-in" placeholder="Checklist name (optional — the assistant will suggest one)" value={checklistTitle} onChange={(e) => setChecklistTitle(e.target.value)} />
           <textarea
             className="pbuild-instr"
             style={{ minHeight: 160 }}
@@ -154,7 +154,7 @@ export function MethodologyCatalog({ online }: { online: boolean }) {
         />
       )}
 
-      {packs.length === 0 && <div className="orch-empty">No methodology packs registered.</div>}
+      {packs.length === 0 && <div className="orch-empty">No checklist templates yet.</div>}
       {packs.map((p) => {
         const expanded = open === p.id
         return (
@@ -166,12 +166,12 @@ export function MethodologyCatalog({ online }: { online: boolean }) {
                 <span className="mcat-meta">{p.tech} · v{p.version} · {p.items.length} item{p.items.length === 1 ? '' : 's'}</span>
               </button>
               <span className={p.builtin ? 'orch-builtin' : 'orch-saved'}>{p.builtin ? 'built-in' : 'saved'}</span>
-              <button className="orch-copy" title="Export this pack as JSON" onClick={() => exportPack(p)}>⇩ Export</button>
-              <button className="orch-copy" title="Save an editable copy of this pack" disabled={!online} onClick={() => openDraft({ ...p, title: `${p.title} (copy)` })}>⧉ Copy</button>
+              <button className="orch-copy" title="Export this checklist as JSON" onClick={() => exportPack(p)}>⇩ Export</button>
+              <button className="orch-copy" title="Save an editable copy of this checklist" disabled={!online} onClick={() => openDraft({ ...p, title: `${p.title} (copy)` })}>⧉ Copy</button>
               {!p.builtin && (
                 <>
-                  <button className="orch-edit" title="Edit this pack" disabled={!online} onClick={() => { setConverting(false); setTemplate(null); setEditing(p); setBuilding(true) }}>✎ Edit</button>
-                  <button className="orch-del" title="Delete this pack" disabled={!online} onClick={() => del(p.id)}>×</button>
+                  <button className="orch-edit" title="Edit this checklist" disabled={!online} onClick={() => { setConverting(false); setTemplate(null); setEditing(p); setBuilding(true) }}>✎ Edit</button>
+                  <button className="orch-del" title="Delete this checklist" disabled={!online} onClick={() => del(p.id)}>×</button>
                 </>
               )}
             </div>

@@ -355,7 +355,7 @@ export function EngagementModal({
             </div>
             {methodologies.length > 0 && (
               <div className="em-field">
-                <label>Adopt methodology now</label>
+                <label>Add checklists now</label>
                 <div className="em-chiprow">
                   {methodologies.map((m) => (
                     <button key={m.id} className={`em-chip ${adopt.includes(m.id) ? 'on' : ''}`} onClick={() => setAdopt(toggle(adopt, m.id))}>{adopt.includes(m.id) ? '✓ ' : ''}{m.title}</button>

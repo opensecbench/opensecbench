@@ -136,7 +136,7 @@ const SURFACE_GROUPS: { label: string; keys: Tab[] }[] = [
   { label: 'Analysis', keys: ['observations', 'findings', 'routes', 'graph'] },
   { label: 'Testing', keys: ['replay', 'proxy', 'intercept', 'terminal', 'scan'] },
   { label: 'Run', keys: ['orchestrate', 'playbooks', 'tasks'] },
-  { label: 'Coverage', keys: ['methodology'] },
+  { label: 'Progress', keys: ['methodology'] },
   { label: 'Deliver', keys: ['reports'] },
 ]
 const surfaceByKey = (k: Tab) => SURFACES.find((s) => s.key === k)!
@@ -203,11 +203,6 @@ class SurfaceBoundary extends Component<{ children: ReactNode }, { error: Error 
 // Left panel between the activity bar and the document center. Its content is
 // scoped to the active surface, using data already loaded by the Workbench —
 // no per-surface refetch, no surface refactor. Rows can jump between surfaces.
-
-function packPct(items: { status: string }[]): number {
-  if (!items?.length) return 0
-  return Math.round((items.filter((i) => i.status === 'covered').length / items.length) * 100)
-}
 
 const ASSET_ICON: Record<string, string> = {
   source_repo: '🗄',
@@ -384,15 +379,17 @@ function WorkbenchExplorer({
       <div className="wb-exp-body">
         {tab === 'methodology' ? (
           (coverage?.packs ?? []).length === 0 ? (
-            <div className="wb-exp-empty">No methodology adopted yet.</div>
+            <div className="wb-exp-empty">No checklist added yet.</div>
           ) : (
             (coverage?.packs ?? []).map((p) => {
-              const pct = packPct(p.items ?? [])
+              const items = p.items ?? []
+              const total = items.length
+              const done = items.filter((i) => i.status === 'covered').length
               return (
                 <div key={p.id} className="wb-exp-row">
                   <span className="lbl">{p.title}</span>
-                  <span className="wb-exp-bar"><b style={{ width: `${pct}%` }} /></span>
-                  <span className="pct">{pct}%</span>
+                  <span className="wb-exp-bar"><b style={{ width: `${total ? (done / total) * 100 : 0}%` }} /></span>
+                  <span className="pct">{done}/{total}</span>
                 </div>
               )
             })

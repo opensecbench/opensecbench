@@ -1130,6 +1130,15 @@ select option {
 .cl-bar .b-done { background: var(--green); }
 .cl-bar .b-prog { background: var(--amber); }
 .cl-barlbl { font-size: 10.5px; color: var(--tx3); letter-spacing: 0.02em; }
+
+/* Prominent "pick a checklist" control — the way to select which checklists a project works through. */
+.cl-add { border: 1px solid var(--line2); border-radius: 10px; background: var(--bg2); padding: 13px 15px; margin: 4px 0 18px; }
+.cl-add-h { font-size: 12px; font-weight: 620; color: var(--tx); margin-bottom: 9px; }
+.cl-add-row { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+.cl-add-row select { flex: 1; min-width: 220px; max-width: 420px; background: var(--bg); border: 1px solid var(--line2); border-radius: 8px; color: var(--tx); font: inherit; font-size: 13px; padding: 8px 10px; }
+.cl-add-btn { background: var(--acc); color: #04101f; border: 0; border-radius: 8px; padding: 8px 15px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cl-add-btn:disabled { opacity: 0.5; cursor: default; }
+.cl-add .hint { margin: 9px 0 0; }
 .mpack{margin:16px 0}
 .mpack-head{font-size:15px;margin:0 0 6px;display:flex;align-items:center;gap:8px}
 /* Run controls (ADR-0056): accent for the whole-methodology run, quieter for per-pack. */

@@ -103,7 +103,7 @@ export function MethodologyBuilder({
   return (
     <div className="pbuild">
       <div className="pbuild-h">
-        <b>{edit ? 'Edit methodology' : 'New methodology'}</b>
+        <b>{edit ? 'Edit checklist' : 'New checklist'}</b>
         <span className="grow" />
         <button className="ghost-btn" onClick={onCancel}>Cancel</button>
       </div>
@@ -115,7 +115,7 @@ export function MethodologyBuilder({
       </div>
       <input
         className="pbuild-in"
-        placeholder="Keywords, comma-separated — used to suggest this pack when they appear in a target's knowledge base"
+        placeholder="Keywords, comma-separated — used to suggest this checklist when they appear in a target's knowledge base"
         value={keywords}
         onChange={(e) => setKeywords(e.target.value)}
       />
@@ -156,7 +156,7 @@ export function MethodologyBuilder({
         <button className="ghost-btn" onClick={addItem}>＋ Add item</button>
         <span className="grow" />
         <button className="pbuild-save" disabled={!online || saving || !title.trim()} onClick={save}>
-          {saving ? 'Saving…' : edit ? 'Save changes' : 'Save methodology'}
+          {saving ? 'Saving…' : edit ? 'Save changes' : 'Save checklist'}
         </button>
       </div>
     </div>

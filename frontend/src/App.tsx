@@ -64,7 +64,7 @@ export function App() {
         <button className={`rail-btn ${view === 'home' ? 'active' : ''}`} title="Home" onClick={() => setView('home')}>
           ⌂
         </button>
-        <button className={`rail-btn ${view === 'library' ? 'active' : ''}`} title="Library — playbooks, agents, methodology, report templates, secrets, extensions" onClick={() => setView('library')}>
+        <button className={`rail-btn ${view === 'library' ? 'active' : ''}`} title="Library — playbooks, agents, checklists, report templates, secrets, extensions" onClick={() => setView('library')}>
           📚
         </button>
         <div className="rail-spacer" />
