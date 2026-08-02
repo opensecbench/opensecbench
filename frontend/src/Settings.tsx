@@ -4,12 +4,17 @@ import { applyTheme } from './theme'
 import { Providers } from './Providers'
 import { Tags } from './Tags'
 import { ApprovalPolicy } from './ApprovalPolicy'
+import { GovernanceProfile } from './GovernanceProfile'
+import { ConnectorsLibrary } from './ConnectorsLibrary'
 
 // Custom (bespoke-component) sections, composed alongside declarative ones from the API (ADR-0021).
-// Custom Agents moved to the global Library (build & reuse) — see Library.tsx.
+// Custom Agents moved to the global Library (build & reuse) — see Library.tsx. Governance (LLM egress)
+// and Connectors moved here from the retired "Extensions & Governance" rail / Library.
 const CUSTOM: { id: string; title: string; icon: string; order: number }[] = [
   { id: 'providers', title: 'Models & Providers', icon: '🧠', order: 20 },
   { id: 'approvals', title: 'Approvals', icon: '🛡', order: 30 },
+  { id: 'governance', title: 'Governance', icon: '⧉', order: 35 },
+  { id: 'connectors', title: 'Connectors', icon: '🔌', order: 40 },
 ]
 
 export function Settings({ online }: { online: boolean }) {
@@ -72,6 +77,8 @@ export function Settings({ online }: { online: boolean }) {
           </>
         )}
         {active === 'approvals' && <ApprovalPolicy online={online} />}
+        {active === 'governance' && <GovernanceProfile online={online} />}
+        {active === 'connectors' && <ConnectorsLibrary online={online} />}
         {activeSection && (
           <div className="settings-fields">
             <h2>

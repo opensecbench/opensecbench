@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { api, Connector, ConnectorType } from './api'
 
 // ConnectorsLibrary manages global external-tracker connectors (ADR-0027 / IA declutter): a tracker
-// instance + credential, built once here and bound to projects from their Integrations surface.
+// instance + credential, built once and bound to projects from their Integrations surface. Lives under
+// Settings ▸ Connectors (moved from Library so all instance-level configuration sits together).
 export function ConnectorsLibrary({ online }: { online: boolean }) {
   const [connectors, setConnectors] = useState<Connector[]>([])
   const [types, setTypes] = useState<ConnectorType[]>([])

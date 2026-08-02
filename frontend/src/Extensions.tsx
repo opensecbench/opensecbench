@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { api, ExtensionInfo, HubPackage, PolicyProfile } from './api'
+import { api, ExtensionInfo, HubPackage } from './api'
 
-export function ExtensionsView({ online }: { online: boolean }) {
-  const [profiles, setProfiles] = useState<PolicyProfile[]>([])
-  const [active, setActive] = useState<string>('')
+// Extensions is a global Library ▸ Configure section (IA declutter): installed third-party packages and
+// the community hub to browse and trust-install new ones. Governance posture (the LLM-egress policy that
+// used to sit alongside these) moved to Settings ▸ Governance — see GovernanceProfile.tsx.
+export function Extensions({ online }: { online: boolean }) {
   const [installed, setInstalled] = useState<ExtensionInfo[]>([])
   const [hubURL, setHubURL] = useState('')
   const [pkgs, setPkgs] = useState<HubPackage[]>([])
@@ -18,23 +19,12 @@ export function ExtensionsView({ online }: { online: boolean }) {
     if (!online) return
     void (async () => {
       try {
-        setProfiles((await api.listPolicyProfiles()) ?? [])
-        setActive((await api.getActivePolicy()).name)
         await reloadInstalled()
       } catch (e) {
         setErr((e as Error).message)
       }
     })()
   }, [online])
-
-  async function switchPolicy(name: string) {
-    try {
-      setActive((await api.setActivePolicy(name)).name)
-      setMsg(`Governance profile set to ${name}.`)
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-  }
 
   async function browse() {
     setErr(null)
@@ -59,27 +49,13 @@ export function ExtensionsView({ online }: { online: boolean }) {
   }
 
   return (
-    <div className="content">
-      <div className="hero">
-        <h1>Extensions & Governance</h1>
-        <p>Governance posture, installed packages, and the community hub.</p>
-      </div>
+    <div className="lib-section">
       {err && <div className="banner error">⚠ {err}</div>}
       {msg && <div className="banner">{msg}</div>}
-
-      <section className="panel">
-        <div className="panel-head">Governance profile</div>
-        <p className="hint">Controls whether the Analyst may send private-asset content to an external LLM provider.</p>
-        <div className="rows">
-          {profiles.map((p) => (
-            <label key={p.name} className={`row-item clickable ${active === p.name ? 'on' : ''}`}>
-              <input type="radio" name="policy" checked={active === p.name} onChange={() => switchPolicy(p.name)} disabled={!online} />
-              <span className="row-title">{p.name}</span>
-              <span className="muted">{p.description}</span>
-            </label>
-          ))}
-        </div>
-      </section>
+      <div className="lib-head">
+        <h2>Extensions</h2>
+        <p>Third-party packages installed for the instance, and the community hub to browse and trust-install more.</p>
+      </div>
 
       <section className="panel">
         <div className="panel-head">Installed extensions</div>

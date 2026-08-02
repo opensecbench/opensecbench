@@ -4,7 +4,6 @@ import { Home } from './Home'
 import { Workbench } from './Workbench'
 import { NotificationBell } from './NotificationBell'
 import { ActivityMenu } from './ActivityMenu'
-import { ExtensionsView } from './ExtensionsView'
 import { Settings } from './Settings'
 import { Library } from './Library'
 import { applyTheme, loadTheme } from './theme'
@@ -15,7 +14,7 @@ export function App() {
   const [conn, setConn] = useState<Conn>('connecting')
   const [project, setProject] = useState<Project | null>(null)
   const [target, setTarget] = useState<{ surface?: string; thread?: string } | undefined>()
-  const [view, setView] = useState<'home' | 'library' | 'ext' | 'settings'>('home')
+  const [view, setView] = useState<'home' | 'library' | 'settings'>('home')
 
   const openProject = (p: Project, t?: { surface?: string; thread?: string }) => {
     setTarget(t)
@@ -65,11 +64,8 @@ export function App() {
         <button className={`rail-btn ${view === 'home' ? 'active' : ''}`} title="Home" onClick={() => setView('home')}>
           ⌂
         </button>
-        <button className={`rail-btn ${view === 'library' ? 'active' : ''}`} title="Library — playbooks, agents, methodology, report templates, connectors" onClick={() => setView('library')}>
+        <button className={`rail-btn ${view === 'library' ? 'active' : ''}`} title="Library — playbooks, agents, methodology, report templates, secrets, extensions" onClick={() => setView('library')}>
           📚
-        </button>
-        <button className={`rail-btn ${view === 'ext' ? 'active' : ''}`} title="Extensions & Governance" onClick={() => setView('ext')}>
-          ⧉
         </button>
         <div className="rail-spacer" />
         <button className={`rail-btn ${view === 'settings' ? 'active' : ''}`} title="Settings" onClick={() => setView('settings')}>
@@ -79,7 +75,7 @@ export function App() {
 
       <main className="main">
         <header className="topbar">
-          <div className="crumb">{view === 'settings' ? 'Settings' : view === 'library' ? 'Library' : view === 'ext' ? 'Extensions' : 'Home'}</div>
+          <div className="crumb">{view === 'settings' ? 'Settings' : view === 'library' ? 'Library' : 'Home'}</div>
           <div className="spacer" />
           <ActivityMenu
             online={conn === 'online'}
@@ -101,8 +97,6 @@ export function App() {
           <Settings online={conn === 'online'} />
         ) : view === 'library' ? (
           <Library online={conn === 'online'} />
-        ) : view === 'ext' ? (
-          <ExtensionsView online={conn === 'online'} />
         ) : (
           <Home online={conn === 'online'} onOpen={openProject} />
         )}
