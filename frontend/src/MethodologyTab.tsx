@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { api, CoverageView, Methodology, MethodologyCheck, MethodologySuggestion, Project } from './api'
 
 const STATUSES = ['not_started', 'in_progress', 'covered', 'not_applicable']
+// Human labels for the checklist reframe — the stored states stay the same (not_started/in_progress/
+// covered/not_applicable); only what the user reads changes.
+const STATUS_LABEL: Record<string, string> = { not_started: 'To do', in_progress: 'In progress', covered: 'Done', not_applicable: 'N/A' }
 
 // isManualItem is true when nothing runs automatically for the item — no capability or agent check — so its
 // only path to covered is a human sign-off (ADR-0056 P3).
@@ -116,7 +119,7 @@ export function MethodologyTab({
   }
 
   async function doUnadopt(id: string, title: string) {
-    if (!window.confirm(`Remove the "${title}" methodology from this project? Coverage recorded against it is dropped.`)) return
+    if (!window.confirm(`Remove the "${title}" checklist from this project? Your progress on it is dropped.`)) return
     try {
       await api.unadoptMethodology(project.id, id)
       await reload()
@@ -155,11 +158,11 @@ export function MethodologyTab({
   return (
     <section className="panel">
       <div className="panel-head">
-        Methodology & coverage
+        Checklist
         <span className="grow" />
         {packs.length > 0 && (
-          <button className="mrun-btn" disabled={!online || running} title="Run the adopted packs' capability checks against this project" onClick={() => void run()}>
-            {running ? 'Starting…' : '▶ Run methodology'}
+          <button className="mrun-btn" disabled={!online || running} title="Run the checks that can auto-tick items (scanners, code-analysis agents)" onClick={() => void run()}>
+            {running ? 'Starting…' : '▶ Run auto-checks'}
           </button>
         )}
       </div>
@@ -167,14 +170,18 @@ export function MethodologyTab({
       {runNote && <div className="banner">{runNote}</div>}
 
       {s && s.total > 0 && (
-        <div className="cov-summary">
-          <div className="cov-bar">
-            <div className="cov-fill" style={{ width: `${s.covered_pct}%` }} />
+        <div className="cl-summary">
+          <div className="cl-counts">
+            <span className="c-done"><b>{s.covered}</b> done</span>
+            <span className="c-prog"><b>{s.in_progress}</b> in progress</span>
+            <span className="c-todo"><b>{s.not_started}</b> to do</span>
+            <span className="c-na"><b>{s.not_applicable}</b> N/A</span>
           </div>
-          <div className="cov-nums">
-            <b>{s.covered_pct}%</b> covered · {s.covered} covered · {s.in_progress} in progress ·{' '}
-            {s.not_started} not started · {s.not_applicable} n/a
+          <div className="cl-bar">
+            <i className="b-done" style={{ width: `${(s.covered / s.total) * 100}%` }} />
+            <i className="b-prog" style={{ width: `${(s.in_progress / s.total) * 100}%` }} />
           </div>
+          <div className="cl-barlbl">{s.covered} of {s.total} worked through · not a security score</div>
         </div>
       )}
 
@@ -183,7 +190,7 @@ export function MethodologyTab({
           Suggested from the knowledge base:{' '}
           {suggestions.map((s) => (
             <button key={s.methodology_id} className="link" title={s.reason} onClick={() => { void doAdoptID(s.methodology_id) }}>
-              adopt {s.title}
+              add {s.title}
             </button>
           ))}
         </div>
@@ -191,23 +198,23 @@ export function MethodologyTab({
 
       <div className="create-row">
         <select value={adopt} onChange={(e) => setAdopt(e.target.value)} disabled={!online || available.length === 0}>
-          <option value="">{available.length ? 'Adopt a methodology…' : 'All packs adopted'}</option>
+          <option value="">{available.length ? 'Add a checklist…' : 'All checklists added'}</option>
           {available.map((m) => (
             <option key={m.id} value={m.id}>{m.title} ({m.items?.length ?? 0})</option>
           ))}
         </select>
-        <button onClick={doAdopt} disabled={!online || !adopt}>Adopt</button>
+        <button onClick={doAdopt} disabled={!online || !adopt}>Add</button>
       </div>
 
-      {packs.length === 0 && <div className="empty">No methodology adopted yet.</div>}
+      {packs.length === 0 && <div className="empty">No checklist yet — add one above to start working through it.</div>}
 
       {packs.map((p) => (
         <div key={p.id} className="mpack">
           <h3 className="mpack-head">
             {p.title} <span className="muted">{p.tech}</span>
             <span className="grow" />
-            <button className="mpack-run" title="Run this pack's capability checks" disabled={!online || running} onClick={() => void run(p.id)}>▶ Run</button>
-            <button className="mpack-remove" title="Remove this methodology from the project" disabled={!online} onClick={() => void doUnadopt(p.id, p.title)}>Remove</button>
+            <button className="mpack-run" title="Run this checklist's auto-checks" disabled={!online || running} onClick={() => void run(p.id)}>▶ Run</button>
+            <button className="mpack-remove" title="Remove this checklist from the project" disabled={!online} onClick={() => void doUnadopt(p.id, p.title)}>Remove</button>
           </h3>
           <ul className="mitems">
             {(p.items ?? []).map((ic) => (
@@ -230,7 +237,7 @@ export function MethodologyTab({
                     <span className={`mitem-runstate ${ic.run_state}`}>{ic.run_state === 'running' ? '● running' : '◦ queued'}</span>
                   )}
                   {(ic.finding_count ?? 0) > 0 && (
-                    <span className={`mitem-find sev-${ic.finding_severity || 'info'}`} title="findings linked to this item (separate from coverage)">
+                    <span className={`mitem-find sev-${ic.finding_severity || 'info'}`} title="findings linked to this item (separate from checklist status)">
                       ▲ {ic.finding_count}{ic.finding_severity ? ` ${ic.finding_severity}` : ''}
                     </span>
                   )}
@@ -247,7 +254,7 @@ export function MethodologyTab({
                   )}
                   <select value={ic.status} onChange={(e) => setStatus(ic.item.id, e.target.value)} disabled={!online}>
                     {STATUSES.map((st) => (
-                      <option key={st} value={st}>{st.replace('_', ' ')}</option>
+                      <option key={st} value={st}>{STATUS_LABEL[st] ?? st}</option>
                     ))}
                   </select>
                 </div>

@@ -46,6 +46,8 @@ export function OverviewTab({
     }
   }
   const covered = coverage?.summary.covered_pct ?? 0
+  const clDone = coverage?.summary.covered ?? 0
+  const clTotal = coverage?.summary.total ?? 0
   const adopted = (coverage?.packs ?? []).length > 0
   const hasEngagement = !!engagement
   const openFindings = findings.filter((f) => f.status !== 'resolved' && f.status !== 'closed').length
@@ -76,9 +78,9 @@ export function OverviewTab({
     {
       done: adopted,
       to: 'methodology',
-      t: 'Adopt a methodology',
-      d: adopted ? `Tracking coverage — ${covered}% so far.` : 'Pick a testing standard to track coverage against.',
-      go: 'Methodology',
+      t: 'Add a checklist',
+      d: adopted ? `${clDone} of ${clTotal} worked through.` : 'Add a checklist to work through — WSTG, ASVS, or your own.',
+      go: 'Checklist',
     },
     {
       done: false,
@@ -107,7 +109,7 @@ export function OverviewTab({
       <div className="wb-ov-stats">
         <button className="wb-ov-stat" onClick={() => onJump('assets')} title="View assets"><div className="v">{assets}</div><div className="k">assets</div></button>
         <button className="wb-ov-stat" onClick={() => onJump('findings')} title="View findings"><div className={`v ${findings.length ? 'crit' : ''}`}>{findings.length}</div><div className="k">findings</div></button>
-        <button className="wb-ov-stat" onClick={() => onJump('methodology')} title="View coverage"><div className={`v ${adopted ? (covered >= 80 ? 'good' : 'warn') : ''}`}>{adopted ? `${covered}%` : '—'}</div><div className="k">coverage</div></button>
+        <button className="wb-ov-stat" onClick={() => onJump('methodology')} title="View checklist"><div className={`v ${adopted ? (covered >= 80 ? 'good' : 'warn') : ''}`}>{adopted ? `${clDone}/${clTotal}` : '—'}</div><div className="k">checklist</div></button>
         <button className="wb-ov-stat" onClick={() => onJump('engagement')} title="Scope & engagement"><div className={`v ${hasEngagement ? 'good' : 'warn'}`}>{hasEngagement ? '✓' : '—'}</div><div className="k">engagement</div></button>
       </div>
 

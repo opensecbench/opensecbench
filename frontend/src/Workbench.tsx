@@ -116,7 +116,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
   { key: 'findings', icon: '⚑', label: 'Find' },
   { key: 'routes', icon: '🎯', label: 'Surface', explorer: true },
   { key: 'graph', icon: '📊', label: 'Graph' },
-  { key: 'methodology', icon: '✓', label: 'Method', explorer: true },
+  { key: 'methodology', icon: '✓', label: 'Checklist', explorer: true },
   { key: 'orchestrate', icon: '🤖', label: 'Agents' },
   { key: 'playbooks', icon: '🧩', label: 'Play' },
   { key: 'tasks', icon: '🕘', label: 'Activity' },
@@ -154,6 +154,7 @@ function surfaceTitle(t: Tab): string {
   if (t === 'scan') return 'Scan'
   if (t === 'orchestrate') return 'Agent Playbooks'
   if (t === 'settings') return 'Settings'
+  if (t === 'methodology') return 'Checklist'
   if (t === 'code') return 'Source'
   if (t === 'finding') return 'Finding'
   return t[0].toUpperCase() + t.slice(1)
@@ -217,7 +218,7 @@ const ASSET_ICON: Record<string, string> = {
 }
 
 function explorerTitle(t: Tab | null): string {
-  if (t === 'methodology') return 'Coverage'
+  if (t === 'methodology') return 'Checklist'
   if (t === 'assets') return 'Applications'
   if (t === 'context') return 'Context'
   if (t === 'code') return 'Source'
@@ -1183,7 +1184,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         </span>
         <span className="b good">⛨ egress governed</span>
         {coverage && coverage.summary.total > 0 && (
-          <span className="b">coverage {coverage.summary.covered_pct}%</span>
+          <span className="b">checklist {coverage.summary.covered}/{coverage.summary.total}</span>
         )}
         <span className="sp" />
         {approvals > 0 && (
