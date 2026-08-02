@@ -3,9 +3,8 @@
 // control plane's state through pkg/client, exactly as the GUI does over the same event bus. This file
 // is the Bubble Tea application: a small state machine (pick project → pick/resume thread → converse).
 //
-// It runs INLINE (normal buffer), not the alternate screen: finalized transcript lines are printed into
-// the terminal's own scrollback via tea.Println, so native scrolling and mouse copy-paste keep working;
-// Bubble Tea manages only a small live region (the streaming answer, the input, and a status line).
+// The chat uses a bottom-anchored full-screen layout: a scrolling transcript fills the top, a divider,
+// and a wrapping input pinned at the bottom with a status line below it (like Claude Code's CLI).
 package tui
 
 import (
@@ -16,7 +15,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -36,8 +36,7 @@ func Run(ctx context.Context, c *client.Client) error {
 	// queries the terminal's background over stdin; doing that inside the event loop competes with Bubble
 	// Tea's input reader and can swallow keystrokes, so we detect it up front and use a fixed style.
 	m.style = detectGlamourStyle()
-	// No WithAltScreen: run inline so the transcript lives in native scrollback (see the package doc).
-	p := tea.NewProgram(m, tea.WithContext(ctx))
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	_, err := p.Run()
 	return err
 }
@@ -51,8 +50,10 @@ func detectGlamourStyle() string {
 	return "light"
 }
 
-// slashCommands are the in-chat commands, offered as autocomplete suggestions on the input.
+// slashCommands are the in-chat commands (typed at the input, e.g. "/help").
 var slashCommands = []string{"/help", "/new", "/threads", "/project", "/quit"}
+
+const maxInputRows = 6 // the input grows with wrapped content up to this many rows
 
 type stage int
 
@@ -64,8 +65,7 @@ const (
 
 // line is one transcript entry. Keeping the transcript as flat lines (not model.Message) frees rendering
 // from the message schema and unifies history with streamed events. rendered holds the Glamour-formatted
-// body for assistant lines. Finalized lines are printed to scrollback; the slice is also kept as a
-// journal (for the turn-end idempotency check and for tests).
+// body for assistant lines so a long transcript isn't re-rendered on every delta.
 type line struct {
 	role     string // "user" | "assistant" | "tool" | "event" | "system"
 	text     string
@@ -82,10 +82,11 @@ type app struct {
 	project  model.Project
 
 	// chat
-	input     textinput.Model
+	vp        viewport.Model
+	input     textarea.Model
 	md        *glamour.TermRenderer
 	thread    model.Thread
-	lines     []line // journal of finalized lines (scrollback holds the visible copy)
+	lines     []line
 	streaming string // assistant text as it types out, shown live until the turn's final message lands
 	events    <-chan client.Event
 	sending   bool
@@ -103,12 +104,15 @@ type app struct {
 }
 
 func newApp(ctx context.Context, c *client.Client) app {
-	ti := textinput.New()
-	ti.Placeholder = "Ask the Analyst…  (Enter to send · / for commands)"
-	ti.Prompt = "› "
-	ti.Focus()
-	ti.ShowSuggestions = true
-	ti.SetSuggestions(slashCommands)
+	ta := textarea.New()
+	ta.Placeholder = "Ask the Analyst…  (Enter to send · / for commands)"
+	ta.Prompt = "› "
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 0
+	ta.SetHeight(1)
+	ta.Focus()
+	// Enter is intercepted for send (see handleKey), so the textarea's newline binding never fires; the
+	// textarea is here for its word-wrapping of long input, which a single-line field can't do.
 
 	del := list.NewDefaultDelegate()
 	projects := list.New(nil, del, 0, 0)
@@ -116,7 +120,7 @@ func newApp(ctx context.Context, c *client.Client) app {
 	threads := list.New(nil, del, 0, 0)
 	threads.Title = "Conversations"
 
-	return app{ctx: ctx, c: c, projects: projects, threads: threads, input: ti, style: "dark"}
+	return app{ctx: ctx, c: c, projects: projects, threads: threads, input: ta, style: "dark"}
 }
 
 func (m app) Init() tea.Cmd { return loadProjects(m.ctx, m.c) }
@@ -125,7 +129,10 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.layout()
+		m.md = newRenderer(m.width, m.style)
+		m.projects.SetSize(m.width, m.height)
+		m.threads.SetSize(m.width, m.height)
+		m.resizeChat()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -153,46 +160,37 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case openedMsg:
-		return m.openThreadView(msg)
+		m.thread = msg.thread
+		m.events = msg.events
+		m.lines = m.lines[:0]
+		m.emit(line{role: "event", text: "─── " + threadLabel(msg.thread) + " ───"})
+		for _, h := range msg.history {
+			if h.Role == "system" {
+				continue
+			}
+			m.emit(line{role: h.Role, text: h.Content})
+		}
+		m.streaming, m.sending, m.pending, m.status = "", false, nil, ""
+		m.stage = stageChat
+		m.resizeChat()
+		m.vp.GotoBottom()
+		return m, tea.Batch(m.input.Focus(), waitForEvent(m.events))
 
 	case eventMsg:
 		return m.handleEvent(client.Event(msg))
 
 	case streamClosedMsg:
-		// ctx cancellation closes the stream on exit; nothing to do.
 		return m, nil
 
 	case sentMsg:
 		return m.handleSent(msg)
 	}
 
-	// Delegate anything unclaimed to the active widget.
 	return m.delegate(msg)
 }
 
-// openThreadView enters a thread: it prints a separator and the thread's history into scrollback, then
-// begins draining the live stream.
-func (m app) openThreadView(msg openedMsg) (tea.Model, tea.Cmd) {
-	m.thread = msg.thread
-	m.events = msg.events
-	m.lines = m.lines[:0]
-	m.streaming, m.sending, m.pending, m.status = "", false, nil, ""
-	m.stage = stageChat
-	m.input.Focus()
-
-	cmds := []tea.Cmd{m.emit(line{role: "event", text: "─── " + threadLabel(msg.thread) + " ───"})}
-	for _, h := range msg.history {
-		if h.Role == "system" {
-			continue
-		}
-		cmds = append(cmds, m.emit(line{role: h.Role, text: h.Content}))
-	}
-	cmds = append(cmds, waitForEvent(m.events))
-	return m, tea.Batch(cmds...)
-}
-
 // handleSent reconciles the end of a turn: clears the in-flight flags and, for a normal completion,
-// ensures the answer is committed exactly once (the live stream normally already did).
+// ensures the answer is present exactly once (the live stream normally already added it).
 func (m app) handleSent(msg sentMsg) (tea.Model, tea.Cmd) {
 	if m.cancelSend != nil {
 		m.cancelSend()
@@ -204,9 +202,8 @@ func (m app) handleSent(msg sentMsg) (tea.Model, tea.Cmd) {
 		m.interrupting = false
 		m.status = "⏹ interrupted"
 		if m.streaming != "" {
-			cmd := m.emit(line{role: "assistant", text: m.streaming + " …_[interrupted]_"})
+			m.emit(line{role: "assistant", text: m.streaming + " …_[interrupted]_"})
 			m.streaming = ""
-			return m, cmd
 		}
 		return m, nil
 	}
@@ -222,7 +219,7 @@ func (m app) handleSent(msg sentMsg) (tea.Model, tea.Cmd) {
 	if a := msg.res.Answer; a != "" {
 		m.streaming = ""
 		if n := len(m.lines); n == 0 || !(m.lines[n-1].role == "assistant" && m.lines[n-1].text == a) {
-			return m, m.emit(line{role: "assistant", text: a})
+			m.emit(line{role: "assistant", text: a})
 		}
 	}
 	return m, nil
@@ -281,12 +278,17 @@ func (m app) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "interrupting…"
 			}
 			return m, nil
+		case "pgup", "pgdown", "ctrl+u", "ctrl+d":
+			var cmd tea.Cmd
+			m.vp, cmd = m.vp.Update(k)
+			return m, cmd
 		}
 	}
 	return m.delegate(k)
 }
 
-// delegate forwards a message to the widget owning the current stage.
+// delegate forwards a message to the widget owning the current stage; in chat, a keystroke may grow the
+// wrapped input, so re-size afterward.
 func (m app) delegate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch m.stage {
@@ -296,6 +298,7 @@ func (m app) delegate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.threads, cmd = m.threads.Update(msg)
 	case stageChat:
 		m.input, cmd = m.input.Update(msg)
+		m.resizeChat()
 	}
 	return m, cmd
 }
@@ -312,17 +315,19 @@ func (m app) submit() (tea.Model, tea.Cmd) {
 	sendCtx, cancel := context.WithCancel(m.ctx)
 	m.cancelSend = cancel
 	m.interrupting = false
-	userCmd := m.emit(line{role: "user", text: text})
+	m.emit(line{role: "user", text: text})
 	m.input.SetValue("")
 	m.sending = true
 	m.streaming = ""
 	m.status = "Analyst is working…  (Esc to interrupt)"
-	return m, tea.Batch(userCmd, sendMessage(sendCtx, m.c, m.project.ID, m.thread.ID, text))
+	m.resizeChat()
+	return m, sendMessage(sendCtx, m.c, m.project.ID, m.thread.ID, text)
 }
 
 // runCommand executes an in-chat slash command.
 func (m app) runCommand(text string) (tea.Model, tea.Cmd) {
 	m.input.SetValue("")
+	m.resizeChat()
 	switch strings.Fields(text)[0] {
 	case "/quit":
 		return m, tea.Quit
@@ -336,8 +341,8 @@ func (m app) runCommand(text string) (tea.Model, tea.Cmd) {
 		m.stage = stageProjects
 		return m, loadProjects(m.ctx, m.c)
 	case "/help":
-		m.status = ""
-		return m, tea.Println(hintStyle.Render(helpText())) // print into scrollback so it's unmistakable
+		m.emit(line{role: "event", text: helpText()})
+		return m, nil
 	default:
 		m.status = "unknown command: " + text
 		return m, nil
@@ -353,32 +358,32 @@ func helpText() string {
 		"  /project   switch project",
 		"  /help      show this help",
 		"  /quit      exit",
-		"Keys: Enter send · Esc interrupt turn · Ctrl-C twice quit · Tab accept a suggestion",
+		"Keys: Enter send · Esc interrupt turn · PgUp/PgDn scroll · Ctrl-C twice quit",
 	}, "\n")
 }
 
 func (m app) handleEvent(ev client.Event) (tea.Model, tea.Cmd) {
-	var pr tea.Cmd
 	switch ev.Type {
 	case "analyst.delta":
 		var d client.AnalystDelta
 		if json.Unmarshal(ev.Payload, &d) == nil && d.ThreadID == m.thread.ID {
-			m.streaming += d.Text // shown live in the region; committed on the finalizing message
+			m.streaming += d.Text
+			m.refreshViewport()
 		}
 	case "analyst.message":
 		var am client.AnalystMessage
 		if json.Unmarshal(ev.Payload, &am) == nil && am.ThreadID == m.thread.ID {
-			pr = m.applyStreamedMessage(am)
+			m.applyStreamedMessage(am)
 		}
 	case "task.completed":
 		var tc client.TaskCompleted
 		if json.Unmarshal(ev.Payload, &tc) == nil {
-			pr = m.emit(line{role: "event", text: fmt.Sprintf("┈ scan · %s · %s · %d observations", tc.Task.CapabilityID, tc.Task.Status, tc.ObservationCount)})
+			m.emit(line{role: "event", text: fmt.Sprintf("┈ scan · %s · %s · %d observations", tc.Task.CapabilityID, tc.Task.Status, tc.ObservationCount)})
 		}
 	case "finding.created":
 		var f model.Finding
 		if json.Unmarshal(ev.Payload, &f) == nil {
-			pr = m.emit(line{role: "event", text: fmt.Sprintf("⚑ finding · %s · %s", f.Title, strings.ToUpper(f.Severity))})
+			m.emit(line{role: "event", text: fmt.Sprintf("⚑ finding · %s · %s", f.Title, strings.ToUpper(f.Severity))})
 		}
 	case "approval.requested":
 		var ap client.ApprovalEvent
@@ -393,45 +398,36 @@ func (m app) handleEvent(ev client.Event) (tea.Model, tea.Cmd) {
 			m.status = "approval " + ap.Decision
 		}
 	}
-	return m, tea.Batch(pr, waitForEvent(m.events)) // keep draining
+	return m, waitForEvent(m.events) // keep draining
 }
 
-// applyStreamedMessage commits one finalized turn message to the transcript, returning the print command
-// (or nil). The assistant's completed text supersedes the live-typing buffer; the user echo is skipped
-// (already shown locally on send).
-func (m *app) applyStreamedMessage(am client.AnalystMessage) tea.Cmd {
+// applyStreamedMessage commits one finalized turn message to the transcript. The assistant's completed
+// text supersedes the live-typing buffer; the user echo is skipped (already shown locally on send).
+func (m *app) applyStreamedMessage(am client.AnalystMessage) {
 	switch am.Role {
 	case "assistant":
 		if am.Content != "" {
 			m.streaming = ""
-			return m.emit(line{role: "assistant", text: am.Content})
-		}
-		if len(am.ToolCalls) > 0 {
-			return m.emit(line{role: "tool", text: "calling " + toolCallSummary(am.ToolCalls)})
+			m.emit(line{role: "assistant", text: am.Content})
+		} else if len(am.ToolCalls) > 0 {
+			m.emit(line{role: "tool", text: "calling " + toolCallSummary(am.ToolCalls)})
 		}
 	case "tool":
 		label := "done"
 		if am.ToolError {
 			label = "error"
 		}
-		return m.emit(line{role: "tool", text: "↳ " + label})
+		m.emit(line{role: "tool", text: "↳ " + label})
 	}
-	return nil
 }
 
-// emit journals a finalized line and returns a command to print it into the terminal scrollback. For
-// assistant lines it renders markdown through Glamour first. A blank line precedes each speaker turn
-// (user/assistant) so turns breathe; tool/event sub-lines stay tucked under their turn.
-func (m *app) emit(ln line) tea.Cmd {
+// emit appends a finalized line (rendering assistant markdown once) and refreshes the transcript view.
+func (m *app) emit(ln line) {
 	if ln.role == "assistant" && ln.rendered == "" {
 		ln.rendered = m.renderMarkdown(ln.text)
 	}
 	m.lines = append(m.lines, ln)
-	out := renderLine(ln)
-	if ln.role == "user" || ln.role == "assistant" {
-		out = "\n" + out
-	}
-	return tea.Println(out)
+	m.refreshViewport()
 }
 
 // renderMarkdown formats assistant text as ANSI via Glamour, falling back to the raw text if no renderer
@@ -447,7 +443,7 @@ func (m app) renderMarkdown(s string) string {
 	return strings.TrimRight(out, "\n")
 }
 
-// --- view (live region only; the transcript is in scrollback) ---
+// --- view ---
 
 func (m app) View() string {
 	switch m.stage {
@@ -460,15 +456,11 @@ func (m app) View() string {
 	}
 }
 
+// chatView stacks the scrolling transcript, a divider, the input, and the status line so the input is
+// pinned at the bottom of the screen.
 func (m app) chatView() string {
-	var b strings.Builder
-	if m.streaming != "" {
-		b.WriteString(assistantStyle.Render("Analyst") + "\n" + m.streaming + "\n\n")
-	}
-	b.WriteString(m.input.View())
-	b.WriteString("\n")
-	b.WriteString(m.statusLine())
-	return b.String()
+	divider := hintStyle.Render(strings.Repeat("─", max(1, m.width)))
+	return strings.Join([]string{m.vp.View(), divider, m.input.View(), m.statusLine()}, "\n")
 }
 
 // statusLine is the persistent bottom line: where you are, and either the transient status or the hint.
@@ -478,16 +470,63 @@ func (m app) statusLine() string {
 	if right == "" {
 		right = "Enter send · Esc interrupt · Ctrl-C twice quit · /help"
 	}
-	return hintStyle.Render(left + "  —  " + right)
+	return hintStyle.Render(truncate(left+"  —  "+right, max(1, m.width)))
 }
 
-// layout sizes the widgets to the terminal and (re)builds the Glamour renderer for future prints. Lines
-// already in scrollback keep their original wrap — the terminal owns them now.
-func (m *app) layout() {
-	m.projects.SetSize(m.width, m.height)
-	m.threads.SetSize(m.width, m.height)
-	m.input.Width = max(10, m.width-3)
-	m.md = newRenderer(m.width, m.style)
+// resizeChat sizes the transcript and input to the terminal, growing the input with wrapped content and
+// giving the rest to the viewport. Called on window resize and whenever the input changes.
+func (m *app) resizeChat() {
+	if m.width == 0 || m.height == 0 {
+		return
+	}
+	ih := m.inputRows()
+	m.input.SetWidth(m.width)
+	m.input.SetHeight(ih)
+	// height = total − input − divider(1) − status(1)
+	vpH := max(1, m.height-ih-2)
+	m.vp.Width = m.width
+	m.vp.Height = vpH
+	m.refreshViewport()
+}
+
+// inputRows is the input's height: the number of wrapped rows its content needs, clamped.
+func (m app) inputRows() int {
+	rows := wrappedRows(m.input.Value(), max(1, m.width-2))
+	if rows < 1 {
+		rows = 1
+	}
+	if rows > maxInputRows {
+		rows = maxInputRows
+	}
+	return rows
+}
+
+// refreshViewport re-renders the transcript, keeping the view at the bottom if it was already there so
+// live output follows along but scrolling up to read isn't yanked back down.
+func (m *app) refreshViewport() {
+	if m.vp.Width == 0 {
+		return
+	}
+	atBottom := m.vp.AtBottom()
+	m.vp.SetContent(m.transcript())
+	if atBottom {
+		m.vp.GotoBottom()
+	}
+}
+
+func (m app) transcript() string {
+	var b strings.Builder
+	for i, ln := range m.lines {
+		if i > 0 && (ln.role == "user" || ln.role == "assistant") {
+			b.WriteByte('\n') // blank line before each speaker turn so turns breathe
+		}
+		b.WriteString(renderLine(ln))
+		b.WriteByte('\n')
+	}
+	if m.streaming != "" {
+		b.WriteString("\n" + assistantStyle.Render("Analyst") + "\n" + m.streaming + "\n")
+	}
+	return b.String()
 }
 
 // newRenderer builds a Glamour renderer that word-wraps to the terminal width using a fixed style (see
@@ -543,6 +582,41 @@ func threadLabel(t model.Thread) string {
 	return t.Title
 }
 
+// wrappedRows estimates how many terminal rows a string occupies when soft-wrapped to width.
+func wrappedRows(s string, width int) int {
+	if width < 1 {
+		width = 1
+	}
+	rows := 0
+	for _, logical := range strings.Split(s, "\n") {
+		w := lipgloss.Width(logical)
+		if w == 0 {
+			rows++
+		} else {
+			rows += (w + width - 1) / width
+		}
+	}
+	if rows < 1 {
+		rows = 1
+	}
+	return rows
+}
+
+// truncate clips a single line to width, appending an ellipsis when it overflows.
+func truncate(s string, width int) string {
+	if lipgloss.Width(s) <= width || width < 1 {
+		return s
+	}
+	if width <= 1 {
+		return "…"
+	}
+	r := []rune(s)
+	if len(r) > width-1 {
+		r = r[:width-1]
+	}
+	return string(r) + "…"
+}
+
 // toolCallSummary extracts the called tool names for a terse activity line.
 func toolCallSummary(raw json.RawMessage) string {
 	var calls []struct {
@@ -572,7 +646,7 @@ func toolCallSummary(raw json.RawMessage) string {
 
 type projectItem struct{ p model.Project }
 
-func (i projectItem) Title() string      { return i.p.Name }
+func (i projectItem) Title() string       { return i.p.Name }
 func (i projectItem) Description() string { return i.p.Status + " · " + i.p.ID }
 func (i projectItem) FilterValue() string { return i.p.Name }
 

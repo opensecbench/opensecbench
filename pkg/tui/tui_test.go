@@ -180,16 +180,11 @@ func TestApprovalBadgeViaBus(t *testing.T) {
 	}
 }
 
-// TestSlashCommandsAndAutocomplete confirms in-chat "/" commands route to actions instead of sending,
-// and that the input is wired for autocomplete suggestions.
-func TestSlashCommandsAndAutocomplete(t *testing.T) {
+// TestSlashCommands confirms in-chat "/" commands route to actions instead of sending.
+func TestSlashCommands(t *testing.T) {
 	a := newApp(context.Background(), nil)
 	a = step(t, a, tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
-
-	if !a.input.ShowSuggestions || len(a.input.AvailableSuggestions()) != len(slashCommands) {
-		t.Fatalf("autocomplete not wired: show=%v suggestions=%v", a.input.ShowSuggestions, a.input.AvailableSuggestions())
-	}
 
 	// /threads switches to the thread picker (does not send).
 	a.input.SetValue("/threads")
@@ -206,22 +201,22 @@ func TestSlashCommandsAndAutocomplete(t *testing.T) {
 		t.Fatalf("/project: stage=%d, want projects", a.stage)
 	}
 
-	// /help prints a help block (returns a command) and never sends.
+	// /help adds a help line to the transcript and never sends.
 	a.stage = stageChat
+	before := len(a.lines)
 	a.input.SetValue("/help")
-	m, cmd := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	a = m.(app)
-	if a.sending || cmd == nil {
-		t.Fatalf("/help: sending=%v cmd=%v (want a print command, no send)", a.sending, cmd)
+	a = step(t, a, tea.KeyMsg{Type: tea.KeyEnter})
+	if a.sending || len(a.lines) != before+1 {
+		t.Fatalf("/help should add one help line without sending: sending=%v lines %d→%d", a.sending, before, len(a.lines))
 	}
-	if !strings.Contains(helpText(), "/new") {
-		t.Fatalf("help text missing commands: %q", helpText())
+	if last := a.lines[len(a.lines)-1]; !strings.Contains(last.text, "/new") {
+		t.Fatalf("help line missing commands: %q", last.text)
 	}
 
 	// /quit issues tea.Quit.
 	a.stage = stageChat
 	a.input.SetValue("/quit")
-	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("/quit issued no command")
 	}
