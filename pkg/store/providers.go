@@ -20,7 +20,7 @@ func (db *DB) CreateProvider(ctx context.Context, p model.Provider) (model.Provi
 		p.ID = uuid.NewString()
 	}
 	if p.DataClearance == "" {
-		p.DataClearance = model.DefaultClearance // least-privilege by default; approve higher explicitly
+		p.DataClearance = db.LoadScale(ctx).Min() // least-privilege by default; approve higher explicitly
 	}
 	ts := nowString()
 	if _, err := db.ExecContext(ctx,

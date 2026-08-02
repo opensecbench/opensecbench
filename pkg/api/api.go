@@ -470,6 +470,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/canaries", s.createCanary)
 	s.mux.HandleFunc("DELETE /v1/canaries/{id}", s.deleteCanary)
 	s.mux.HandleFunc("GET /v1/dlp-events", s.listDLPEvents)
+	// Data-classification scale (governance): user-configurable levels driving asset sensitivity + clearance.
+	s.mux.HandleFunc("GET /v1/classification-levels", s.listClassificationLevels)
+	s.mux.HandleFunc("POST /v1/classification-levels", s.createClassificationLevel)
+	s.mux.HandleFunc("PUT /v1/classification-levels/{id}", s.updateClassificationLevel)
+	s.mux.HandleFunc("DELETE /v1/classification-levels/{id}", s.deleteClassificationLevel)
 	s.mux.HandleFunc("GET /v1/extensions", s.listExtensions)
 	s.mux.HandleFunc("POST /v1/extensions/trust", s.trustPublisher)
 	s.mux.HandleFunc("GET /v1/hub/index", s.hubIndex)
@@ -2167,6 +2172,11 @@ func (s *Server) createAsset(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	// An empty sensitivity is inferred at the store layer; a supplied one must be a known level.
+	if req.Sensitivity != "" && !s.global().LoadScale(r.Context()).Has(req.Sensitivity) {
+		writeErr(w, http.StatusBadRequest, "invalid sensitivity "+req.Sensitivity)
+		return
+	}
 	location := s.resolveAssetLocation(r, r.PathValue("id"), req.Location)
 	asset, err := s.pdb(r).CreateAsset(r.Context(), store.NewAsset{
 		ApplicationID: r.PathValue("id"),
@@ -2219,6 +2229,10 @@ func (s *Server) updateAsset(w http.ResponseWriter, r *http.Request) {
 		Sensitivity string `json:"sensitivity"`
 	}
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !s.global().LoadScale(r.Context()).Has(req.Sensitivity) {
+		writeErr(w, http.StatusBadRequest, "invalid sensitivity "+req.Sensitivity)
 		return
 	}
 	asset, err := s.pdb(r).UpdateAssetSensitivity(r.Context(), r.PathValue("id"), req.Sensitivity)

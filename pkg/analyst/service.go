@@ -403,7 +403,7 @@ func (svc *Service) targetForTag(ctx context.Context, tag string) runTarget {
 				// Effective egress clearance for this destination: the connection's clearance, tightened by
 				// any per-model override (a model pinned lower than its vendor — e.g. one with a retention
 				// policy not covered by the DPA).
-				top.Clearance = model.MinClearance(reg.DataClearance, svc.g().ConnectionModelClearance(ctx, ref.ProviderID, ref.Model))
+				top.Clearance = svc.scale(ctx).MinClearance(reg.DataClearance, svc.g().ConnectionModelClearance(ctx, ref.ProviderID, ref.Model))
 			}
 		} else if m != mode {
 			continue // fall-through candidates must share the top's tool mode (consistent rendering)
@@ -529,11 +529,12 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 	if prov != nil {
 		pname = prov.Name()
 	}
-	// Per-engagement tightening (ADR-0051): a "restricted" engagement clamps this destination to
-	// open-source only for the project, regardless of its configured clearance — only ever tighter.
+	sc := svc.scale(context.Background())
+	// Per-engagement tightening (ADR-0051): a "restricted" engagement clamps this destination to the
+	// least-sensitive tier for the project, regardless of its configured clearance — only ever tighter.
 	if projectID != "" {
 		if eng, err := svc.p(projectID).GetEngagement(context.Background(), projectID); err == nil && eng.DataClass == model.DataRestricted {
-			clearance = model.SensitivityOpenSource
+			clearance = sc.Min()
 		}
 	}
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
@@ -551,8 +552,8 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 		// destination's clearance (ADR-0011/0020). Asset-scoped tools use the asset's own sensitivity tier;
 		// every other non-safe tool is private-by-default (see egressSafeTools for what returns no content).
 		if external && !egressSafeTools[call.Tool] {
-			required := model.SensitivityPrivate
-			detail := "returns project content treated as private"
+			required := sc.Max() // private-by-default: only a destination cleared for the top tier passes
+			detail := "returns project content treated as " + sc.Label(required)
 			if assetEgressTools[call.Tool] {
 				if assetID, _ := call.Args["asset"].(string); assetID != "" {
 					asset, err := svc.p(projectID).GetAsset(ctx, assetID)
@@ -561,15 +562,22 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 						return "", fmt.Errorf("blocked by data-egress policy: %q could not resolve asset %q to verify it is cleared for the external provider %q", call.Tool, assetID, pname)
 					}
 					required = asset.Sensitivity
-					detail = fmt.Sprintf("would send %s asset content", model.ClearanceLabel(asset.Sensitivity))
+					detail = fmt.Sprintf("would send %s asset content", sc.Label(asset.Sensitivity))
 				}
 			}
-			if !model.ClearanceAllows(clearance, required) {
-				return "", fmt.Errorf("blocked by data-egress policy: %q %s to %q, which is cleared only for %s; use a local provider (e.g. ollama), raise the destination's clearance, or lower the asset's sensitivity", call.Tool, detail, pname, model.ClearanceLabel(clearance))
+			if !sc.Allows(clearance, required) {
+				return "", fmt.Errorf("blocked by data-egress policy: %q %s to %q, which is cleared only for %s; use a local provider (e.g. ollama), raise the destination's clearance, or lower the asset's sensitivity", call.Tool, detail, pname, sc.Label(clearance))
 			}
 		}
 		return exec(ctx, call)
 	}
+}
+
+// scale loads the data-classification scale (the user-configurable level registry) used for every egress
+// decision. Read per use — the table is tiny and rarely changes; an error yields an empty scale that fails
+// safe (only the least-sensitive tier is permitted).
+func (svc *Service) scale(ctx context.Context) model.Scale {
+	return svc.g().LoadScale(ctx)
 }
 
 // clearedForPrivate reports whether a routed destination may receive private-by-default project content
@@ -580,13 +588,14 @@ func (svc *Service) clearedForPrivate(ctx context.Context, projectID string, tgt
 	if tgt.Provider == nil || llm.IsLocal(tgt.Provider) {
 		return true
 	}
+	sc := svc.scale(ctx)
 	clearance := tgt.Clearance
 	if projectID != "" {
 		if eng, err := svc.p(projectID).GetEngagement(ctx, projectID); err == nil && eng.DataClass == model.DataRestricted {
-			clearance = model.SensitivityOpenSource
+			clearance = sc.Min()
 		}
 	}
-	return model.ClearanceAllows(clearance, model.SensitivityPrivate)
+	return sc.Allows(clearance, sc.Max())
 }
 
 // projectOf returns a thread's project id, or "" if it is a project-less thread.

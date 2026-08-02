@@ -783,57 +783,11 @@ const (
 	AssetCorrespondence  = "correspondence"
 )
 
-// DefaultClearance is what a newly-registered connection is cleared for: the least-privilege tier, so a
-// new vendor can receive only public data until someone explicitly raises its clearance.
+// DefaultClearance is the fallback least-privilege tier for a new connection when the classification scale
+// is unavailable. Normally the effective default is Scale.Min() (the lowest-ranked level), which equals
+// this in the seeded scale. Rank ordering, clearance comparison, and labels now live on Scale
+// (classification.go), driven by the user-configurable classification_levels registry.
 const DefaultClearance = SensitivityOpenSource
-
-// sensitivityRank orders the tiers for clearance comparison. Unknown/empty ranks as open_source (0), so
-// an unset clearance fails safe — it permits only open-source content.
-func sensitivityRank(tier string) int {
-	switch tier {
-	case SensitivityPrivate:
-		return 2
-	case SensitivityInternal:
-		return 1
-	default:
-		return 0 // open_source and unknown/empty
-	}
-}
-
-// ClearanceAllows reports whether a destination cleared for `clearance` may receive content tagged
-// `sensitivity`. Inclusive: a private clearance also permits internal and open_source.
-func ClearanceAllows(clearance, sensitivity string) bool {
-	return sensitivityRank(sensitivity) <= sensitivityRank(clearance)
-}
-
-// MinClearance returns the more restrictive (lower) of two clearance tiers. An empty override means
-// "inherit" and does not tighten; when both are set the lower rank wins.
-func MinClearance(base, override string) string {
-	if override == "" {
-		return base
-	}
-	if base == "" {
-		return override
-	}
-	if sensitivityRank(override) < sensitivityRank(base) {
-		return override
-	}
-	return base
-}
-
-// ClearanceLabel renders a clearance tier for humans (UI / audit / error messages).
-func ClearanceLabel(tier string) string {
-	switch tier {
-	case SensitivityPrivate:
-		return "private (corporate)"
-	case SensitivityInternal:
-		return "internal"
-	case SensitivityOpenSource, "":
-		return "open-source only"
-	default:
-		return tier
-	}
-}
 
 // InferSensitivity guesses an asset's sensitivity from its location, defaulting to private (the
 // safe default for a security tool). Callers may override the result.

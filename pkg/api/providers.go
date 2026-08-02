@@ -172,7 +172,7 @@ func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.DataClearance != "" && !validClearance(req.DataClearance) {
+	if req.DataClearance != "" && !s.knownClearance(r.Context(), req.DataClearance) {
 		writeErr(w, http.StatusBadRequest, "invalid data_clearance "+req.DataClearance)
 		return
 	}
@@ -204,9 +204,10 @@ func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, viewOfProvider(saved, s.activeInfo().ID))
 }
 
-// validClearance reports whether a string is one of the asset-sensitivity tiers usable as a clearance.
-func validClearance(c string) bool {
-	return c == model.SensitivityOpenSource || c == model.SensitivityInternal || c == model.SensitivityPrivate
+// knownClearance reports whether a string is a defined classification level (usable as a clearance),
+// checked against the user-configurable registry.
+func (s *Server) knownClearance(ctx context.Context, c string) bool {
+	return s.global().LoadScale(ctx).Has(c)
 }
 
 // setProviderClearance approves a connection for a data-clearance tier (audited). The note records why —
@@ -220,7 +221,7 @@ func (s *Server) setProviderClearance(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if !validClearance(req.DataClearance) {
+	if !s.knownClearance(r.Context(), req.DataClearance) {
 		writeErr(w, http.StatusBadRequest, "invalid data_clearance "+req.DataClearance)
 		return
 	}
@@ -253,7 +254,7 @@ func (s *Server) setConnectionModelClearance(w http.ResponseWriter, r *http.Requ
 		writeErr(w, http.StatusBadRequest, "model_id required")
 		return
 	}
-	if req.DataClearance != "" && !validClearance(req.DataClearance) {
+	if req.DataClearance != "" && !s.knownClearance(r.Context(), req.DataClearance) {
 		writeErr(w, http.StatusBadRequest, "invalid data_clearance "+req.DataClearance)
 		return
 	}

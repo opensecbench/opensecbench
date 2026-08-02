@@ -118,18 +118,13 @@ func (db *DB) CreateAsset(ctx context.Context, na NewAsset) (model.Asset, error)
 	return a, nil
 }
 
-var validSensitivities = map[string]bool{
-	model.SensitivityPrivate:    true,
-	model.SensitivityInternal:   true,
-	model.SensitivityOpenSource: true,
-}
-
-// UpdateAssetSensitivity changes an asset's sensitivity in place and returns the updated asset. The
-// sensitivity must be one of the known values — unlike create, an empty value is not inferred here,
-// because the caller is editing an existing asset deliberately.
+// UpdateAssetSensitivity changes an asset's sensitivity in place and returns the updated asset. The value
+// must be non-empty (unlike create, it is not inferred — the caller is editing deliberately); it is
+// validated against the classification registry at the API layer, which sees the global scale (the project
+// DB does not hold classification_levels), so the store only guards against an empty value here.
 func (db *DB) UpdateAssetSensitivity(ctx context.Context, id, sensitivity string) (model.Asset, error) {
-	if !validSensitivities[sensitivity] {
-		return model.Asset{}, fmt.Errorf("store: invalid sensitivity %q", sensitivity)
+	if sensitivity == "" {
+		return model.Asset{}, fmt.Errorf("store: sensitivity required")
 	}
 	res, err := db.ExecContext(ctx,
 		`UPDATE assets SET sensitivity = ?, updated_at = ? WHERE id = ?`,

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/opensecbench/opensecbench/pkg/llm"
-	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/report"
 )
 
@@ -30,7 +29,7 @@ func (svc *Service) Narrate(ctx context.Context, d report.Data, audience string)
 	tgt := svc.targetForTag(ctx, reportNarratorTag)
 	// Narration sends finding titles/descriptions + evidence to the model (private-by-default egress).
 	if !svc.clearedForPrivate(ctx, d.Project.ID, tgt) {
-		return report.Narrative{}, fmt.Errorf("report narration blocked by data-egress policy: %q is cleared only for %s, but narration would send finding content; use a local provider (e.g. ollama) or raise the destination's clearance to private", tgt.Provider.Name(), model.ClearanceLabel(tgt.Clearance))
+		return report.Narrative{}, fmt.Errorf("report narration blocked by data-egress policy: %q is cleared only for %s, but narration would send finding content; use a local provider (e.g. ollama) or raise the destination's clearance", tgt.Provider.Name(), svc.scale(ctx).Label(tgt.Clearance))
 	}
 	resp, err := tgt.Provider.Complete(ctx, llm.CompletionRequest{
 		Model:     tgt.SessionModel,
