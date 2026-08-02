@@ -530,7 +530,7 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 		pname = prov.Name()
 	}
 	sc := svc.scale(context.Background())
-	derived := svc.derivedTier(context.Background(), sc) // egress tier for scanner-derived artifacts
+	derived := svc.derivedTier(context.Background(), projectID, sc) // per-project egress tier for derived artifacts
 	// Per-engagement tightening (ADR-0051): a "restricted" engagement clamps this destination to the
 	// least-sensitive tier for the project, regardless of its configured clearance — only ever tighter.
 	if projectID != "" {
@@ -593,18 +593,70 @@ func (svc *Service) scale(ctx context.Context) model.Scale {
 	return svc.g().LoadScale(ctx)
 }
 
-// DerivedEgressTierSetting is the settings key for the classification tier that scanner-DERIVED artifacts
-// (see derivedEgressTools) are treated as for egress. Lowering it lets an engagement send scan OUTPUT to an
-// external model while raw source stays local. Its value is a classification level id.
-const DerivedEgressTierSetting = "egress_derived_tier"
+// Derived-artifact egress policy (ADR-0064/0065). The TIER is the classification level scanner-DERIVED
+// artifacts (see derivedEgressTools) are treated as for egress; the MODE selects whether they get that
+// tier (DerivedModeDerived, the default — an abstraction is less sensitive than the source it came from)
+// or the source's own sensitivity (DerivedModeInherit — the strict view). Both are per-project (project
+// database), and fall back to the global default seed, then private-by-default.
+const (
+	DerivedEgressTierSetting = "egress_derived_tier"
+	DerivedEgressModeSetting = "egress_derived_mode"
+	DerivedModeDerived       = "derived"
+	DerivedModeInherit       = "inherit"
+)
 
-// derivedTier returns the configured egress tier for derived artifacts, defaulting to the most-sensitive
-// tier (private-by-default) and ignoring an unknown/stale level id — so behavior is unchanged until set.
-func (svc *Service) derivedTier(ctx context.Context, sc model.Scale) string {
-	if v, err := svc.g().GetSetting(ctx, DerivedEgressTierSetting); err == nil && sc.Has(v) {
+// DerivedTierKey / DerivedModeKey namespace the per-project derived-egress policy within the GLOBAL
+// settings table — the project database has no settings table under split storage (ADR-0049), so a
+// project's policy is stored as "<base>:<projectID>" beside the unkeyed global default. Empty projectID
+// yields the global default key.
+func DerivedTierKey(projectID string) string { return scopedSettingKey(DerivedEgressTierSetting, projectID) }
+func DerivedModeKey(projectID string) string { return scopedSettingKey(DerivedEgressModeSetting, projectID) }
+func scopedSettingKey(base, projectID string) string {
+	if projectID == "" {
+		return base
+	}
+	return base + ":" + projectID
+}
+
+// derivedTier returns the egress tier for a project's derived artifacts. In "inherit" mode they are as
+// sensitive as the top tier (precise per-artifact source inheritance is a later phase); in "derived" mode
+// (default) they take the per-project tier, else the global default, else the top tier — so behavior is
+// unchanged until an engagement deliberately lowers it.
+func (svc *Service) derivedTier(ctx context.Context, projectID string, sc model.Scale) string {
+	g := svc.g()
+	if g == nil {
+		return sc.Max()
+	}
+	if svc.derivedMode(ctx, projectID) == DerivedModeInherit {
+		return sc.Max()
+	}
+	if projectID != "" {
+		if v, err := g.GetSetting(ctx, DerivedTierKey(projectID)); err == nil && sc.Has(v) {
+			return v
+		}
+	}
+	if v, err := g.GetSetting(ctx, DerivedEgressTierSetting); err == nil && sc.Has(v) {
 		return v
 	}
 	return sc.Max()
+}
+
+// derivedMode returns the effective derived-artifact classification mode: the per-project override, else
+// the global default, else "derived".
+func (svc *Service) derivedMode(ctx context.Context, projectID string) string {
+	g := svc.g()
+	if g == nil {
+		return DerivedModeDerived
+	}
+	if projectID != "" {
+		if v, _ := g.GetSetting(ctx, DerivedModeKey(projectID)); v == DerivedModeInherit {
+			return DerivedModeInherit
+		}
+	}
+	if v, _ := g.GetSetting(ctx, DerivedEgressModeSetting); v == DerivedModeInherit {
+		return DerivedModeInherit
+	}
+	return DerivedModeDerived
 }
 
 // clearedForPrivate reports whether a routed destination may receive private-by-default project content

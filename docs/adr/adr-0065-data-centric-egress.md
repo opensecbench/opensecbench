@@ -1,6 +1,6 @@
 # ADR-0065 — Data-centric egress: gate content, not tools
 
-Status: Proposed. The data-egress boundary stops classifying *tools* and starts scoping the *data* they
+Status: Accepted — building (phased). The data-egress boundary stops classifying *tools* and starts scoping the *data* they
 can reach: a tool's accessible domain is confined at the data-access layer to items the destination is
 cleared for, so sensitive assets are never read into the agent or the model — prevention, not
 post-execution filtering. Whether a scanner-derived artifact (finding/observation) is treated as its own

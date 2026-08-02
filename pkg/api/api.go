@@ -1183,36 +1183,65 @@ func (s *Server) listPlans(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, plans)
 }
 
-// getDerivedEgress returns the classification tier that scanner-derived artifacts (findings, observations,
-// investigations, coverage, dependency inventory) are treated as for egress, plus the scale for context
-// (ADR-0064). Default is the top tier (private-by-default).
+// getDerivedEgress returns the derived-artifact egress policy — mode ("derived" | "inherit") and, in
+// derived mode, the tier scanner-derived artifacts are treated as (ADR-0064/0065). Per-project when
+// X-Project-Id is set (else the global default), with the tier resolved through project → global → top.
 func (s *Server) getDerivedEgress(w http.ResponseWriter, r *http.Request) {
-	sc := s.global().LoadScale(r.Context())
-	tier, _ := s.global().GetSetting(r.Context(), analyst.DerivedEgressTierSetting)
-	if tier == "" || !sc.Has(tier) {
-		tier = sc.Max()
+	pid := projectFromReq(r)
+	g := s.global()
+	sc := g.LoadScale(r.Context())
+	mode, _ := g.GetSetting(r.Context(), analyst.DerivedModeKey(pid))
+	if mode == "" {
+		mode, _ = g.GetSetting(r.Context(), analyst.DerivedEgressModeSetting) // global default
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tier": tier, "levels": sc.Levels()})
+	if mode != analyst.DerivedModeInherit {
+		mode = analyst.DerivedModeDerived
+	}
+	tier, _ := g.GetSetting(r.Context(), analyst.DerivedTierKey(pid))
+	if tier == "" || !sc.Has(tier) {
+		if gd, _ := g.GetSetting(r.Context(), analyst.DerivedEgressTierSetting); sc.Has(gd) {
+			tier = gd
+		} else {
+			tier = sc.Max()
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"mode": mode, "tier": tier, "levels": sc.Levels()})
 }
 
-// setDerivedEgress sets the derived-artifacts egress tier. Lowering it lets scan OUTPUT reach an external
-// model while raw source stays local; the tier must be a known classification level.
+// setDerivedEgress sets the derived-artifact egress policy for the resolved scope (per-project when
+// X-Project-Id is set, else global). mode selects derived-vs-inherit; tier (derived mode) must be a
+// known classification level. Empty fields are left unchanged.
 func (s *Server) setDerivedEgress(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		Mode string `json:"mode"`
 		Tier string `json:"tier"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if !s.global().LoadScale(r.Context()).Has(req.Tier) {
-		writeErr(w, http.StatusBadRequest, "unknown classification level "+req.Tier)
-		return
+	pid := projectFromReq(r)
+	g := s.global()
+	if req.Mode != "" {
+		if req.Mode != analyst.DerivedModeDerived && req.Mode != analyst.DerivedModeInherit {
+			writeErr(w, http.StatusBadRequest, "mode must be 'derived' or 'inherit'")
+			return
+		}
+		if err := g.SetSetting(r.Context(), analyst.DerivedModeKey(pid), req.Mode); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
-	if err := s.global().SetSetting(r.Context(), analyst.DerivedEgressTierSetting, req.Tier); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
+	if req.Tier != "" {
+		if !g.LoadScale(r.Context()).Has(req.Tier) {
+			writeErr(w, http.StatusBadRequest, "unknown classification level "+req.Tier)
+			return
+		}
+		if err := g.SetSetting(r.Context(), analyst.DerivedTierKey(pid), req.Tier); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tier": req.Tier})
+	writeJSON(w, http.StatusOK, map[string]any{"mode": req.Mode, "tier": req.Tier})
 }
 
 // getApprovalPolicy returns the sensitive tools (approve-by-default) and the current override rules

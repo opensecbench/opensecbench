@@ -1286,21 +1286,39 @@ func dlpCmd(ctx context.Context, c *client.Client, args []string) error {
 	return nil
 }
 
-// dlpDerivedCmd shows or sets the egress tier for scanner-derived artifacts (ADR-0064): with no argument it
-// prints the current tier and available levels; with a level id it sets it.
+// dlpDerivedCmd shows or sets the derived-artifact egress policy (ADR-0064/0065). With no level/flags it
+// prints the current mode + tier; --mode and/or a level id set them; --project scopes to a project (else
+// the global default).
 func dlpDerivedCmd(ctx context.Context, c *client.Client, args []string) error {
-	if len(args) > 0 {
-		if err := c.SetDerivedEgress(ctx, args[0]); err != nil {
+	fs := flag.NewFlagSet("dlp derived", flag.ContinueOnError)
+	project := fs.String("project", "", "scope to a project id (default: global)")
+	mode := fs.String("mode", "", "classification mode: derived | inherit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	tier := fs.Arg(0)
+
+	if *mode != "" || tier != "" {
+		if err := c.SetDerivedEgress(ctx, *project, *mode, tier); err != nil {
 			return err
 		}
-		fmt.Printf("derived-artifacts egress tier set to %q — scan output (findings/observations/…) may now reach a provider cleared for that tier; raw source stays gated at its own sensitivity\n", args[0])
+		scope := "global default"
+		if *project != "" {
+			scope = "project " + *project
+		}
+		fmt.Printf("derived-artifact egress policy updated (%s): mode=%q tier=%q\n", scope, *mode, tier)
 		return nil
 	}
-	de, err := c.GetDerivedEgress(ctx)
+
+	de, err := c.GetDerivedEgress(ctx, *project)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("derived-artifacts egress tier: %s\n\navailable levels (least→most sensitive):\n", de.Tier)
+	scope := "global default"
+	if *project != "" {
+		scope = "project " + *project
+	}
+	fmt.Printf("derived-artifact egress policy (%s): mode=%s tier=%s\n\navailable levels (least→most sensitive):\n", scope, de.Mode, de.Tier)
 	for _, l := range de.Levels {
 		mark := " "
 		if l.ID == de.Tier {
@@ -1308,7 +1326,7 @@ func dlpDerivedCmd(ctx context.Context, c *client.Client, args []string) error {
 		}
 		fmt.Printf("  %s %-12s %s\n", mark, l.ID, l.Label)
 	}
-	fmt.Println("\nset with: osb dlp derived <level-id>")
+	fmt.Println("\nset with: osb dlp derived [--project P] [--mode derived|inherit] [<level-id>]")
 	return nil
 }
 
