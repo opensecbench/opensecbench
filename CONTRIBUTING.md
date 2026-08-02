@@ -29,7 +29,7 @@ works. Before a non-trivial change:
   first, so the design is reviewed before the code. New/changed ADRs land in the same PR; run
   `make adr-index` to refresh the generated index.
 
-Many additions don't require touching the core at all: capabilities, methodologies, and report
+Many additions don't require touching the core at all: capabilities, checklists, and report
 templates ship as signed, open-format **extension packages**. See the extension-format ADRs
 (`adr-0003`, `adr-0013`, `adr-0014`) if that's the shape of your contribution.
 
@@ -65,7 +65,7 @@ Additionally:
 - **Never commit secrets, credentials, real targets, or client data** — not in code, fixtures, or
   test data. Mark intentional test-only secrets so the scanner ignores them (e.g. `//gitleaks:allow`).
 - **Don't stub something out silently** — leave a `// TODO:` in code and a matching entry in
-  [`TODO.md`](TODO.md).
+  [`docs/TODO.md`](docs/TODO.md).
 
 ## Commit and PR style
 

@@ -87,4 +87,4 @@ copy [`adr-template.md`](adr-template.md) to start one.
 - The index table above is generated — run `make adr-index` after adding or restatusing an ADR; CI fails if it's stale.
 - Format specs (capability manifest, extension package, playbook, project template) are versioned JSON Schemas under `spec/` once they stabilize; ADR-0003 defines their shape.
 
-Later subsystems get an ADR when their phase begins. See [`../../TODO.md`](../../TODO.md).
+Later subsystems get an ADR when their phase begins. See [`../TODO.md`](../TODO.md).

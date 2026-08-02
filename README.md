@@ -1,7 +1,7 @@
 # OpenSecBench
 
 An open, free, local-first **security assessment workbench** — a unified environment for
-planning and conducting application security assessments: executable methodologies, distributed
+planning and conducting application security assessments: executable checklists, distributed
 tool runners, evidence management with full provenance, and a multi-agent AI assistant (the
 **Analyst**), across the full lifecycle of an assessment.
 
@@ -41,9 +41,9 @@ The recurring principles behind the design — and the bar new features are held
   observation can back a finding — no unaudited leap from a scan to a conclusion.
 - **Human-driven.** The Analyst assists the engineer and acts behind an approval policy; it doesn't
   replace judgment or run unsupervised.
-- **Composable, not hardcoded.** Security operations are isolated, sandboxed capabilities; methodologies,
+- **Composable, not hardcoded.** Security operations are isolated, sandboxed capabilities; checklists,
   templates, and tools are versioned, signed, open-format extensions — extend and share without forking.
-- **Open formats.** Projects, methodologies, reports, and extensions are portable and inspectable, not
+- **Open formats.** Projects, checklists, reports, and extensions are portable and inspectable, not
   proprietary blobs.
 - **Auditable by construction.** An append-only, hash-chained audit trail records what ran, what was sent
   to a model, and what changed.
@@ -77,9 +77,12 @@ An IDE-style workbench shell with an always-present AI dock, organized around th
   with resource limits and scope enforcement. Built-ins: source inventory, SAST (opengrep/Semgrep),
   secret scanning (TruffleHog), SCA (Grype + govulncheck), SBOM (Syft), route mapping, nmap, HTTP
   probe — plus anything shipped as an extension.
-- **HTTP toolset** — an intercepting **Proxy** (capture, history, match/replace), **Replay**
-  (edit/send/diff, save-as-evidence, scope-guarded), and **Intercept** (hold → edit → forward/drop).
-- **Methodology & coverage** — adoptable methodologies; coverage roll-up tied to evidence.
+- **HTTP toolset** — an intercepting **Proxy** (capture, history, and **traffic rules**: a CEL
+  `match → action` engine that can hold, drop, or modify live traffic), **Replay** (edit/send/diff,
+  save-as-evidence, scope-guarded), and the **Intercept** queue (edit → forward/drop the traffic a
+  hold rule paused).
+- **Checklists** — adoptable testing checklists (WSTG, ASVS, or your own); work through them item by
+  item, with progress tracked against evidence and auto-checked where a scan or agent can.
 
 ### Evidence
 
@@ -87,7 +90,7 @@ An IDE-style workbench shell with an always-present AI dock, organized around th
   **observations** with full provenance; triage and promote to **findings** — only confirmed
   observations can back a finding.
 - **Knowledge base** — durable, target-anchored, inherited across engagements; feeds agent context
-  and methodology suggestions.
+  and checklist suggestions.
 
 ### AI — the Analyst
 
@@ -112,7 +115,7 @@ An IDE-style workbench shell with an always-present AI dock, organized around th
 
 ### Extensibility
 
-- **Extensions** — capabilities, methodologies, and report templates ship as **signed, digest-pinned**
+- **Extensions** — capabilities, checklists, and report templates ship as **signed, digest-pinned**
   open-format packages; a community hub (a static, signed index) to browse, publish, and install with
   explicit trust.
 - **Collaboration** — portable, encrypted project export/import with signing.
@@ -131,11 +134,11 @@ An IDE-style workbench shell with an always-present AI dock, organized around th
   (AWS Bedrock, Azure AI Foundry), **local models** (Ollama), and the **Claude CLI** (subscription).
   Tool use is first-class — native tool-use where the backend supports it, a prompted fallback otherwise.
 
-Everything — capabilities, methodologies, project templates, playbooks, report templates — is a
+Everything — capabilities, checklists, project templates, playbooks, report templates — is a
 versioned, signed, open-format **extension package**.
 
 See [`docs/adr/`](docs/adr/) for architecture decision records and format specs, and
-[`TASKS.md`](TASKS.md) / [`TODO.md`](TODO.md) for current work and backlog.
+[`docs/TASKS.md`](docs/TASKS.md) / [`docs/TODO.md`](docs/TODO.md) for current work and backlog.
 
 ## Development
 
@@ -251,7 +254,7 @@ Good places to start:
 - **Report a bug or request a feature** — open an issue with enough detail to reproduce or motivate it.
 - **Read the design first** — the [`docs/adr/`](docs/adr/) ADRs explain why things are the way they are;
   aligning a change with the relevant ADR (or proposing a new one) makes review much faster.
-- **Extensions** — capabilities, methodologies, and report templates ship as signed, open-format
+- **Extensions** — capabilities, checklists, and report templates ship as signed, open-format
   packages, so many additions don't require touching the core (see the extension-format ADRs).
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow and the checks a PR needs to pass.
