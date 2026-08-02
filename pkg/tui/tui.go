@@ -420,13 +420,18 @@ func (m *app) applyStreamedMessage(am client.AnalystMessage) tea.Cmd {
 }
 
 // emit journals a finalized line and returns a command to print it into the terminal scrollback. For
-// assistant lines it renders markdown through Glamour first.
+// assistant lines it renders markdown through Glamour first. A blank line precedes each speaker turn
+// (user/assistant) so turns breathe; tool/event sub-lines stay tucked under their turn.
 func (m *app) emit(ln line) tea.Cmd {
 	if ln.role == "assistant" && ln.rendered == "" {
 		ln.rendered = m.renderMarkdown(ln.text)
 	}
 	m.lines = append(m.lines, ln)
-	return tea.Println(renderLine(ln))
+	out := renderLine(ln)
+	if ln.role == "user" || ln.role == "assistant" {
+		out = "\n" + out
+	}
+	return tea.Println(out)
 }
 
 // renderMarkdown formats assistant text as ANSI via Glamour, falling back to the raw text if no renderer
