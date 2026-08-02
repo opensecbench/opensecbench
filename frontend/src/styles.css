@@ -1115,6 +1115,21 @@ select option {
 .cov-bar{height:10px;background:var(--bg2);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
 .cov-fill{height:100%;background:var(--green);transition:width .3s}
 .cov-nums{font-size:12px;color:var(--tx2);margin-top:6px}
+
+/* Checklist summary (reframed methodology): counts lead, one thin honestly-labeled "worked through" bar. */
+.cl-summary { margin: 6px 0 16px; }
+.cl-counts { display: flex; gap: 18px; font-size: 13px; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+.cl-counts b { font-size: 15px; font-weight: 680; }
+.cl-counts span { color: var(--tx3); }
+.cl-counts .c-done b { color: var(--green); }
+.cl-counts .c-prog b { color: var(--amber); }
+.cl-counts .c-todo b { color: var(--tx); }
+.cl-counts .c-na b { color: var(--tx3); }
+.cl-bar { height: 5px; border-radius: 3px; background: var(--bg4); overflow: hidden; max-width: 520px; margin: 11px 0 5px; display: flex; }
+.cl-bar i { display: block; height: 100%; transition: width .3s; }
+.cl-bar .b-done { background: var(--green); }
+.cl-bar .b-prog { background: var(--amber); }
+.cl-barlbl { font-size: 10.5px; color: var(--tx3); letter-spacing: 0.02em; }
 .mpack{margin:16px 0}
 .mpack-head{font-size:15px;margin:0 0 6px;display:flex;align-items:center;gap:8px}
 /* Run controls (ADR-0056): accent for the whole-methodology run, quieter for per-pack. */

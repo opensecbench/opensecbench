@@ -18,7 +18,7 @@ const fromNow = (iso: string): string => {
   return `in ${m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`}`
 }
 
-// A small donut showing methodology coverage percent on a project card.
+// A small donut showing how much of a project's checklist has been worked through.
 function Ring({ pct }: { pct: number }) {
   const r = 8
   const c = 2 * Math.PI * r
@@ -321,7 +321,7 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
               return (
                 <li key={p.id} className="card" onClick={() => onOpen(p)}>
                   {c && c.adopted > 0 && (
-                    <div className="card-cov" title={`${c.covered_pct}% methodology coverage`}>
+                    <div className="card-cov" title={`${c.covered_pct}% of checklist worked through`}>
                       <Ring pct={c.covered_pct} />
                       <span className="cov-pct">{c.covered_pct}%</span>
                     </div>
