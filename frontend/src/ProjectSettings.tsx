@@ -3,11 +3,12 @@ import { api, Project, ScopeEntry } from './api'
 import { EngagementSettings } from './EngagementSettings'
 import { IntegrationsTab } from './IntegrationsTab'
 import { SecretsLibrary } from './SecretsLibrary'
+import { BundleSettings } from './BundleSettings'
 
 // The per-project config sections, consolidated behind one Settings surface (was four separate
 // activity-bar surfaces: Settings/Scope/Integrations/Secrets). A left sub-nav mirrors the global
 // Settings page; the folded surfaces move here as sections so the activity bar carries only the work.
-export type SettingsSection = 'engagement' | 'scope' | 'integrations' | 'secrets'
+export type SettingsSection = 'engagement' | 'scope' | 'integrations' | 'secrets' | 'bundle'
 
 const SECTION_GROUPS: { group: string; items: { id: SettingsSection; icon: string; label: string }[] }[] = [
   { group: 'Project', items: [
@@ -17,6 +18,9 @@ const SECTION_GROUPS: { group: string; items: { id: SettingsSection; icon: strin
   { group: 'Connections', items: [
     { id: 'integrations', icon: '🔌', label: 'Integrations' },
     { id: 'secrets', icon: '🔒', label: 'Secrets' },
+  ] },
+  { group: 'Data', items: [
+    { id: 'bundle', icon: '📦', label: 'Export / Import' },
   ] },
 ]
 
@@ -58,6 +62,7 @@ export function ProjectSettings({
         {active === 'scope' && <ScopeTab project={project} online={online} onError={onError} />}
         {active === 'integrations' && <IntegrationsTab project={project} online={online} onError={onError} />}
         {active === 'secrets' && <SecretsLibrary online={online} projectId={project.id} />}
+        {active === 'bundle' && <BundleSettings project={project} online={online} onError={onError} onSaved={onSaved} />}
       </div>
     </div>
   )

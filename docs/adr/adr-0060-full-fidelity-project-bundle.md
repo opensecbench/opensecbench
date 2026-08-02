@@ -1,6 +1,6 @@
 # ADR-0060 — Full-fidelity project bundle (demo & backup mode)
 
-Status: Proposed
+Status: Accepted — implemented
 
 ## Context
 
@@ -67,3 +67,20 @@ never produced by accident.
   the demo/backup use case; the shareable mode stays lean.
 - Supersedes ADR-0012's "reports/exchanges/threads deliberately excluded" stance *for full mode only*;
   the exclusion still holds for the default shareable bundle.
+
+## Implementation notes (delivered)
+
+- **Export/import/store/client/CLI/API** all implement full mode: `bundle.Export(..., full)` +
+  `bundle.importFull` (`pkg/bundle/`), `FormatVersion = 2`, CLI `osb project export --full`, and
+  `POST /v1/projects/{id}/export?full=true`. Go round-trip tests cover both the `bundle` layer
+  (`TestExportImportFullRoundTrip`) and the HTTP layer (`TestExportImportFullAPI`), the latter also
+  asserting the shareable export does not leak working state.
+- **Frontend UI** lives in `frontend/src/BundleSettings.tsx`, registered as the "Export / Import" section
+  of the per-project Settings surface (`ProjectSettings.tsx`). It offers a shareable-vs-full mode toggle
+  (full mode warns it is not client-facing), a passphrase field, download of the `.osb` blob, and import
+  of an `.osb` as a new project. API methods `api.exportBundle`/`api.importBundle` carry the passphrase in
+  the `X-OSB-Passphrase` header.
+- **Deliberate scope omissions (not gaps):** vault secrets + `vault.key` never travel (`export.go` TODO —
+  opt-in re-seal is future work); captured traffic is capped at the store's 200-most-recent default;
+  coverage→observation *evidence links* are not restored (only per-item coverage status). Each is
+  documented at its call site.

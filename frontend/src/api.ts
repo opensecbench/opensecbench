@@ -1650,4 +1650,25 @@ export const api = {
   listApprovals: () => request<Approval[]>('GET', '/v1/approvals'),
   decideApproval: (id: string, decision: 'approve' | 'deny') =>
     request<SendResult>('POST', `/v1/approvals/${id}/decide`, { decision }),
+
+  // Project bundles (ADR-0012 / ADR-0060). The passphrase rides in the X-OSB-Passphrase header so it is
+  // never in a URL or audit log. Shareable mode is the client deliverable; full mode (demo/backup) also
+  // carries working state (Analyst threads, traffic, reports, coverage) and is not client-facing.
+  exportBundle: async (projectId: string, passphrase: string, full: boolean): Promise<Blob> => {
+    const res = await fetch(`${baseURL}/v1/projects/${projectId}/export${full ? '?full=true' : ''}`, {
+      method: 'POST',
+      headers: { 'X-OSB-Passphrase': passphrase, ...authHeaders(), ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText)
+    return res.blob()
+  },
+  importBundle: async (file: Blob, passphrase: string): Promise<{ project_id: string }> => {
+    const res = await fetch(`${baseURL}/v1/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-OSB-Passphrase': passphrase, ...authHeaders() },
+      body: file,
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText)
+    return (await res.json()) as { project_id: string }
+  },
 }
