@@ -12,8 +12,10 @@ declare global {
           SelectFile?: () => Promise<string>
           OpenURL?: (url: string) => Promise<void>
           OpenProxyBrowser?: (port: number, spki: string) => Promise<void>
-          // APIToken hands the webview its control-plane bearer token at boot (ADR-0061).
+          // APIToken hands the webview its control-plane bearer token at boot (ADR-0061); APIBase hands
+          // it the control-plane URL, so the window can attach to an external daemon (main.go OSB_API mode).
           APIToken?: () => Promise<string>
+          APIBase?: () => Promise<string>
           // SaveArtifact downloads an API resource to a user-chosen file, Go-side, so the token
           // stays in a header and never touches a URL/system browser (ADR-0061).
           SaveArtifact?: (path: string, suggestedName: string) => Promise<string>

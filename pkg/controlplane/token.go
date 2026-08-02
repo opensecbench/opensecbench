@@ -18,6 +18,20 @@ const apiTokenFile = "api-token"
 // osb CLI, any future local client) read this file to authenticate to the loopback API.
 func APITokenPath(dir string) string { return filepath.Join(dir, apiTokenFile) }
 
+// ReadAPIToken returns the local API token for a data dir WITHOUT creating one — for clients that must
+// use a running daemon's token and never mint a fresh one: the osb CLI, a future CLI/TUI, or the desktop
+// app attaching to an external daemon. Returns ("", nil) when the file is absent.
+func ReadAPIToken(dir string) (string, error) {
+	b, err := os.ReadFile(APITokenPath(dir))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read api token: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
 // LoadOrCreateAPIToken returns the persistent local API token for the data dir, creating it on first
 // use. The token is 32 bytes of crypto/rand, hex-encoded, written 0600 via a temp-file-and-rename so
 // it is never briefly world-readable. It is reused across restarts (ADR-0061: persistent token);

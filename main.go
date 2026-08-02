@@ -17,7 +17,11 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2"
@@ -31,17 +35,16 @@ import (
 var assets embed.FS
 
 func main() {
-	// The frontend defaults to the control plane on 127.0.0.1:7373 (see frontend/src/api.ts),
-	// so we boot it there in-process.
-	cp, err := controlplane.Start(controlplane.Options{Addr: "127.0.0.1:7373"})
+	// Two modes (ADR-0001): by default the desktop app embeds the control plane in-process so it is
+	// self-contained; setting OSB_API attaches the window to an already-running daemon instead (e.g.
+	// `make daemon`), so one shared backend can serve several clients — a future CLI/TUI, or two
+	// windows. The frontend fetches the base URL + token over the Wails bridge at boot (APIBase/APIToken).
+	app, shutdown, err := boot()
 	if err != nil {
-		log.Fatalf("could not start the control plane on 127.0.0.1:7373: %v\n"+
-			"Is another OpenSecBench daemon or desktop instance already running? "+
-			"Free the port (e.g. `lsof -ti tcp:7373 | xargs -r kill`) and retry.", err)
+		log.Fatal(err)
 	}
 
-	app := &App{baseURL: cp.BaseURL, token: cp.Token}
-	err = wails.Run(&options.App{
+	if err := wails.Run(&options.App{
 		Title:            "OpenSecBench",
 		Width:            1280,
 		Height:           820,
@@ -53,11 +56,41 @@ func main() {
 		OnShutdown: func(context.Context) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = cp.Shutdown(ctx)
+			shutdown(ctx)
 		},
 		Bind: []interface{}{app},
-	})
-	if err != nil {
+	}); err != nil {
 		panic(err)
 	}
+}
+
+// boot resolves the App's control-plane connection: an external daemon (OSB_API) or an embedded one.
+// It returns the App plus a shutdown func the window calls on close (a no-op when attaching, since we
+// don't own the external daemon's lifecycle).
+func boot() (*App, func(context.Context), error) {
+	if external := strings.TrimSpace(os.Getenv("OSB_API")); external != "" {
+		// Attach to an already-running control plane. Prefer an explicit OSB_API_TOKEN; otherwise read the
+		// daemon's token file from the default data dir (same host, so the 0600 file is readable — ADR-0061).
+		token := strings.TrimSpace(os.Getenv("OSB_API_TOKEN"))
+		if token == "" {
+			if p, derr := controlplane.DefaultDBPath(); derr == nil {
+				token, _ = controlplane.ReadAPIToken(filepath.Dir(p))
+			}
+		}
+		if token == "" {
+			log.Printf("OSB_API=%s: no API token found — set OSB_API_TOKEN or ensure the daemon's api-token file is readable; requests may be rejected", external)
+		}
+		log.Printf("attaching to external control plane at %s", external)
+		return &App{baseURL: external, token: token}, func(context.Context) {}, nil
+	}
+
+	// The frontend defaults to the control plane on 127.0.0.1:7373 (see frontend/src/api.ts).
+	cp, err := controlplane.Start(controlplane.Options{Addr: "127.0.0.1:7373"})
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not start the control plane on 127.0.0.1:7373: %w\n"+
+			"Is another OpenSecBench daemon or desktop instance already running? "+
+			"Attach to it with OSB_API=http://127.0.0.1:7373, or free the port "+
+			"(e.g. `lsof -ti tcp:7373 | xargs -r kill`) and retry.", err)
+	}
+	return &App{baseURL: cp.BaseURL, token: cp.Token}, func(ctx context.Context) { _ = cp.Shutdown(ctx) }, nil
 }

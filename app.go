@@ -32,6 +32,11 @@ func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 // the webview its credential is a bootstrap concern, not domain logic.
 func (a *App) APIToken() string { return a.token }
 
+// APIBase returns the control-plane base URL for the webview (fetched at boot alongside APIToken). It
+// lets the desktop window attach to an external daemon on a non-default address instead of the embedded
+// one — see main.go's OSB_API attach mode.
+func (a *App) APIBase() string { return a.baseURL }
+
 // SelectDirectory opens a native directory picker and returns the chosen path ("" if cancelled).
 func (a *App) SelectDirectory() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select a source directory"})
