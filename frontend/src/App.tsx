@@ -90,7 +90,6 @@ export function App() {
           <span className={`conn conn-${conn}`}>
             <i /> {conn === 'online' ? 'control plane online' : conn === 'offline' ? 'control plane offline' : 'connecting…'}
           </span>
-          <code className="apiurl">{api.baseURL}</code>
         </header>
 
         {view === 'settings' ? (
