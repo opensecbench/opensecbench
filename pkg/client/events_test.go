@@ -256,6 +256,9 @@ func TestFindingsObservationsEndpoints(t *testing.T) {
 	if _, err := c.ListFindings(ctx); err != nil {
 		t.Fatalf("ListFindings: %v", err)
 	}
+	if _, err := c.ProjectSearch(ctx, p.ID, "anything"); err != nil {
+		t.Fatalf("ProjectSearch: %v", err)
+	}
 }
 
 func recv(t *testing.T, ch <-chan Event) Event {

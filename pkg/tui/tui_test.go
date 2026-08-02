@@ -192,6 +192,32 @@ func TestFindingsCommandRenders(t *testing.T) {
 	}
 }
 
+// TestSearchCommandRenders confirms /search needs a query, and that results (and no-match) render.
+func TestSearchCommandRenders(t *testing.T) {
+	a := newApp(context.Background(), nil)
+	a = step(t, a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
+
+	// Bare /search prompts for a query and does not send.
+	a.input.SetValue("/search")
+	a = step(t, a, tea.KeyMsg{Type: tea.KeyEnter})
+	if a.sending || !strings.Contains(a.status, "usage") {
+		t.Fatalf("bare /search: sending=%v status=%q", a.sending, a.status)
+	}
+
+	before := len(a.lines)
+	a = step(t, a, searchMsg{query: "sqli", items: []model.SearchResult{{Kind: "finding", Title: "SQL injection", Detail: "orders.go"}}})
+	last := a.lines[len(a.lines)-1].text
+	if len(a.lines) != before+1 || !strings.Contains(last, `search "sqli" (1)`) || !strings.Contains(last, "finding") || !strings.Contains(last, "SQL injection") {
+		t.Fatalf("search block malformed: %q", last)
+	}
+
+	a = step(t, a, searchMsg{query: "zzz", items: nil})
+	if !strings.Contains(a.lines[len(a.lines)-1].text, "no matches") {
+		t.Fatalf("empty search should say no matches, got %q", a.lines[len(a.lines)-1].text)
+	}
+}
+
 // TestApprovalBadgeViaBus confirms an approval.requested event raises the non-blocking badge and a
 // matching approval.resolved clears it — the live cross-client approval flow.
 func TestApprovalBadgeViaBus(t *testing.T) {

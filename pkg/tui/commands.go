@@ -50,6 +50,20 @@ func loadObservations(ctx context.Context, c *client.Client, projectID string) t
 	}
 }
 
+// searchMsg carries the results of the /search command (project omni-search) — a local API read.
+type searchMsg struct {
+	query string
+	items []model.SearchResult
+	err   error
+}
+
+func loadSearch(ctx context.Context, c *client.Client, projectID, query string) tea.Cmd {
+	return func() tea.Msg {
+		items, err := c.ProjectSearch(ctx, projectID, query)
+		return searchMsg{query: query, items: items, err: err}
+	}
+}
+
 // sentMsg is a completed send: the turn's final result (answer or a pending approval), or an error. The
 // live text arrives over the event stream; this reconciles the end of the turn.
 type sentMsg struct {

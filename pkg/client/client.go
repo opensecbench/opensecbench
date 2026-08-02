@@ -660,6 +660,13 @@ func (c *Client) Search(ctx context.Context, q string) ([]model.SearchResult, er
 	return out, c.do(ctx, http.MethodGet, "/v1/search?q="+url.QueryEscape(q), nil, &out)
 }
 
+// ProjectSearch runs the omni-search scoped to a project (applications, assets, findings, observations) —
+// the GUI's "search everywhere in this project" — by routing with X-Project-Id. A local read, no LLM.
+func (c *Client) ProjectSearch(ctx context.Context, projectID, q string) ([]model.SearchResult, error) {
+	var out []model.SearchResult
+	return out, c.doHeaders(ctx, http.MethodGet, "/v1/search?q="+url.QueryEscape(q), map[string]string{projectHeader: projectID}, nil, &out)
+}
+
 // SendResult is the outcome of an Analyst message or approval decision.
 type SendResult struct {
 	Thread      model.Thread    `json:"thread"`

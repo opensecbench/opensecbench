@@ -54,7 +54,7 @@ func detectGlamourStyle() string {
 }
 
 // slashCommands are the in-chat commands (typed at the input, e.g. "/help").
-var slashCommands = []string{"/findings", "/observations", "/help", "/new", "/threads", "/project", "/quit"}
+var slashCommands = []string{"/search", "/findings", "/observations", "/help", "/new", "/threads", "/project", "/quit"}
 
 const maxInputRows = 6 // the input grows with wrapped content up to this many rows
 
@@ -191,6 +191,13 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.emit(line{role: "event", text: formatObservations(msg.items)})
+
+	case searchMsg:
+		if msg.err != nil {
+			m.status = "search: " + msg.err.Error()
+			return m, nil
+		}
+		return m, m.emit(line{role: "event", text: formatSearch(msg.query, msg.items)})
 	}
 
 	return m.delegate(msg)
@@ -408,6 +415,13 @@ func (m app) runCommand(text string) (tea.Model, tea.Cmd) {
 		return m, loadFindings(m.ctx, m.c)
 	case "/observations", "/obs":
 		return m, loadObservations(m.ctx, m.c, m.project.ID)
+	case "/search":
+		q := strings.TrimSpace(strings.TrimPrefix(text, "/search"))
+		if q == "" {
+			m.status = "usage: /search <query>"
+			return m, nil
+		}
+		return m, loadSearch(m.ctx, m.c, m.project.ID, q)
 	case "/help":
 		return m, m.emit(line{role: "event", text: helpText()})
 	default:
@@ -420,7 +434,8 @@ func (m app) runCommand(text string) (tea.Model, tea.Cmd) {
 func helpText() string {
 	return strings.Join([]string{
 		"Commands:",
-		"  /findings      list findings (local read — no LLM)",
+		"  /search <q>    search everywhere in this project (local read — no LLM)",
+		"  /findings      list findings",
 		"  /observations  list this project's observations (alias /obs)",
 		"  /new           start a new conversation",
 		"  /threads       switch conversation",
@@ -440,6 +455,23 @@ func formatFindings(fs []model.Finding) string {
 	fmt.Fprintf(&b, "findings (%d):", len(fs))
 	for _, f := range fs {
 		fmt.Fprintf(&b, "\n  %-6s %-10s %s", strings.ToUpper(f.Severity), f.Status, f.Title)
+	}
+	return b.String()
+}
+
+// formatSearch renders omni-search hits (grouped by kind's natural order) as a compact block.
+func formatSearch(query string, hits []model.SearchResult) string {
+	if len(hits) == 0 {
+		return fmt.Sprintf("search %q: no matches", query)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "search %q (%d):", query, len(hits))
+	for _, h := range hits {
+		detail := h.Detail
+		if detail != "" {
+			detail = "  " + detail
+		}
+		fmt.Fprintf(&b, "\n  %-12s %s%s", h.Kind, h.Title, detail)
 	}
 	return b.String()
 }
