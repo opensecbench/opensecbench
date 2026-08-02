@@ -12,9 +12,44 @@ const baseURL: string =
   (import.meta.env.VITE_OSB_API as string | undefined) ||
   'http://127.0.0.1:7373'
 
-// wsURL builds a WebSocket URL against the control plane for a given API path.
+// --- API token (ADR-0061) ---
+// The control plane requires a per-instance bearer token on every request. The desktop app hands it
+// to the webview over the Wails bridge (window.go.main.App.APIToken); a plain browser dev session
+// falls back to VITE_OSB_TOKEN. initAuth() must resolve before the first API call (see main.tsx).
+let authToken = ''
+
+// initAuth fetches the API token once at boot. It is a no-op-safe fallback in the browser (no bridge),
+// where the token comes from VITE_OSB_TOKEN or is simply absent (auth disabled backend / same-origin).
+export async function initAuth(): Promise<void> {
+  const fn = window.go?.main?.App?.APIToken
+  if (fn) {
+    try {
+      authToken = (await fn()) || ''
+    } catch {
+      authToken = ''
+    }
+    return
+  }
+  authToken = (import.meta.env.VITE_OSB_TOKEN as string | undefined) || ''
+}
+
+// authHeaders returns the Authorization header for fetch/XHR calls (empty when no token is known).
+function authHeaders(): Record<string, string> {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {}
+}
+
+// withToken appends the API token as a query param, for URL contexts that cannot send a header:
+// EventSource, WebSocket, <img>/<a> src, and pages the desktop app opens in the system browser. Only
+// baseURL targets are touched, and it is idempotent (won't double-append).
+export function withToken(u: string): string {
+  if (!authToken || !u.startsWith(baseURL) || /[?&]token=/.test(u)) return u
+  return u + (u.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(authToken)
+}
+
+// wsURL builds a WebSocket URL against the control plane for a given API path, carrying the API token
+// as a query param since the browser WebSocket API can't set headers.
 export function wsURL(path: string): string {
-  return baseURL.replace(/^http/, 'ws') + path
+  return withToken(baseURL + path).replace(/^http/, 'ws')
 }
 
 // UICommand is a navigation instruction the Analyst emits (the backend "show" tool) so a running agent can
@@ -973,7 +1008,7 @@ export function setActiveProject(id: string | null | undefined): void {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...authHeaders() }
   if (body) headers['Content-Type'] = 'application/json'
   if (activeProjectId) headers['X-Project-Id'] = activeProjectId
   const res = await fetch(baseURL + path, {
@@ -1010,7 +1045,7 @@ async function postContext(
   if (opts?.pinned) q.set('pinned', 'true')
   const res = await fetch(`${baseURL}/v1/projects/${projectId}/context?${q.toString()}`, {
     method: 'POST',
-    headers: { 'Content-Type': contentType, ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
+    headers: { 'Content-Type': contentType, ...authHeaders(), ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
     body,
   })
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText)
@@ -1022,7 +1057,9 @@ export const api = {
   // artifactContentURL is embedded in <img>/<a> where no header can be set, so it carries the active
   // project as a query param; the backend reads it as a fallback to X-Project-Id (ADR-0049).
   artifactContentURL: (id: string) =>
-    `${baseURL}/v1/artifacts/${id}/content${activeProjectId ? `?project=${encodeURIComponent(activeProjectId)}` : ''}`,
+    withToken(
+      `${baseURL}/v1/artifacts/${id}/content${activeProjectId ? `?project=${encodeURIComponent(activeProjectId)}` : ''}`,
+    ),
 
   health: () => request<Record<string, string>>('GET', '/healthz'),
 
@@ -1156,7 +1193,7 @@ export const api = {
       analystDelta?: (d: StreamDelta) => void
     },
   ): (() => void) => {
-    const es = new EventSource(`${baseURL}/v1/projects/${projectId}/events`)
+    const es = new EventSource(withToken(`${baseURL}/v1/projects/${projectId}/events`))
     const on = (type: string, fn: (payload: unknown) => void) =>
       es.addEventListener(type, (e) => {
         try {
@@ -1246,7 +1283,7 @@ export const api = {
     request<Observation[]>('GET', `/v1/tasks/${taskId}/observations`),
   artifactContent: async (id: string) => {
     const res = await fetch(baseURL + '/v1/artifacts/' + id + '/content', {
-      headers: activeProjectId ? { 'X-Project-Id': activeProjectId } : undefined,
+      headers: { ...authHeaders(), ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
     })
     if (!res.ok) throw new Error(res.statusText)
     return res.text()
@@ -1376,7 +1413,7 @@ export const api = {
   }): Promise<string> => {
     const res = await fetch(baseURL + '/v1/report-templates/preview', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(activeProjectId ? { 'X-Project-Id': activeProjectId } : {}) },
       body: JSON.stringify(body),
     })
     if (!res.ok) {
