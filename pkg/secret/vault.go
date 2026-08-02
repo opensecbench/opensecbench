@@ -39,8 +39,9 @@ func NewVault(key []byte) (*Vault, error) {
 	return &Vault{aead: aead}, nil
 }
 
-// LoadVault resolves the master key (OSB_VAULT_KEY base64, else a 0600 key file in dir, generated on
-// first use) and returns a Vault. See ADR-0011 for the key-custody tradeoff.
+// LoadVault resolves the instance-wide master key (OSB_VAULT_KEY base64, else a 0600 key file in dir,
+// generated on first use) and returns a Vault. See ADR-0011 for the key-custody tradeoff. Per-project
+// vaults use LoadVaultDir instead so each project stays self-contained (ADR-0049).
 func LoadVault(dir string) (*Vault, error) {
 	if env := os.Getenv("OSB_VAULT_KEY"); env != "" {
 		key, err := base64.StdEncoding.DecodeString(env)
@@ -49,6 +50,13 @@ func LoadVault(dir string) (*Vault, error) {
 		}
 		return NewVault(key)
 	}
+	return LoadVaultDir(dir)
+}
+
+// LoadVaultDir loads the vault whose key file (vault.key) lives in dir, generating it 0600 on first use.
+// Unlike LoadVault it never consults OSB_VAULT_KEY, so a project vault is keyed only by its own directory
+// and its secrets do not silently share the instance master key when that env var is set.
+func LoadVaultDir(dir string) (*Vault, error) {
 	keyPath := filepath.Join(dir, "vault.key")
 	if raw, err := os.ReadFile(keyPath); err == nil {
 		key := make([]byte, base64.StdEncoding.DecodedLen(len(raw)))

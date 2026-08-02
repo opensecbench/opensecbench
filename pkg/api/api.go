@@ -56,21 +56,22 @@ import (
 
 // Deps are the control-plane services the API exposes.
 type Deps struct {
-	Store        *store.Manager
-	Engine       *task.Engine
-	CAS          *cas.Store   // single store for tests/combined; production passes CASResolver instead
-	CASResolver  cas.Resolver // per-project CAS (ADR-0049); takes precedence over CAS when set
-	Provider     llm.Provider
-	SessionMgr   *session.Manager
-	ProxyCA      *proxy.CA
-	Vault        *secret.Vault
-	Methods      *methodology.Registry // built-ins + loaded extensions; nil = built-ins only
-	Reports      *report.Registry      // built-ins + loaded extensions; nil = built-ins only
-	Extensions   []extension.Loaded    // loaded extension packages (for listing)
-	TrustStore   *extension.TrustStore // publisher trust store (for hub install / trust)
-	ExtDir       string                // where installed packages are extracted
-	WorkspaceDir string                // root for per-project agent workspaces (ADR-0020)
-	AuthToken    string                // local API bearer token (ADR-0061); empty disables auth (tests only)
+	Store         *store.Manager
+	Engine        *task.Engine
+	CAS           *cas.Store   // single store for tests/combined; production passes CASResolver instead
+	CASResolver   cas.Resolver // per-project CAS (ADR-0049); takes precedence over CAS when set
+	Provider      llm.Provider
+	SessionMgr    *session.Manager
+	ProxyCA       *proxy.CA
+	Vault         *secret.Vault         // instance-wide vault (global secrets)
+	VaultProvider *secret.Provider      // per-project vaults (ADR-0049); nil disables project-scoped secrets
+	Methods       *methodology.Registry // built-ins + loaded extensions; nil = built-ins only
+	Reports       *report.Registry      // built-ins + loaded extensions; nil = built-ins only
+	Extensions    []extension.Loaded    // loaded extension packages (for listing)
+	TrustStore    *extension.TrustStore // publisher trust store (for hub install / trust)
+	ExtDir        string                // where installed packages are extracted
+	WorkspaceDir  string                // root for per-project agent workspaces (ADR-0020)
+	AuthToken     string                // local API bearer token (ADR-0061); empty disables auth (tests only)
 }
 
 // Server routes control-plane HTTP requests against the control-plane services.
@@ -90,6 +91,7 @@ type Server struct {
 	reports        *report.Registry
 	methods        *methodology.Registry
 	vault          *secret.Vault
+	vaultProv      *secret.Provider
 	integr         *integration.Registry
 	trust          *extension.TrustStore
 	extDir         string
@@ -252,6 +254,7 @@ func New(deps Deps) *Server {
 		reports:      deps.Reports,
 		methods:      deps.Methods,
 		vault:        deps.Vault,
+		vaultProv:    deps.VaultProvider,
 		integr:       integration.BuiltIns(),
 		trust:        deps.TrustStore,
 		extDir:       deps.ExtDir,
@@ -655,6 +658,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /v1/projects/{id}/integrations/{connectorId}", s.setBinding)
 	s.mux.HandleFunc("DELETE /v1/projects/{id}/integrations/{connectorId}", s.deleteBinding)
 	s.mux.HandleFunc("POST /v1/projects/{id}/integrations/{connectorId}/pull", s.pullIntegration)
+
+	// Per-project vault secrets (ADR-0011 + ADR-0049): sealed with the project's own key. A project
+	// secret shadows a global one of the same name at run time. Values are never returned.
+	s.mux.HandleFunc("GET /v1/projects/{id}/secrets", s.listProjectSecrets)
+	s.mux.HandleFunc("POST /v1/projects/{id}/secrets", s.setProjectSecret)
+	s.mux.HandleFunc("DELETE /v1/projects/{id}/secrets/{name}", s.deleteProjectSecret)
 	// Post-run disposition routing + investigations (ADR-0028).
 	s.mux.HandleFunc("GET /v1/projects/{id}/observations", s.listProjectObservations)
 	// Knowledge dossier — consolidated "what we know" view (ADR-0042).

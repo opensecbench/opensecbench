@@ -119,7 +119,7 @@ func TestDurableReconstructsSecretRefs(t *testing.T) {
 	const secretVal = "TOKEN-abc-123"
 	cr := &capturingRunner{out: []byte("Authorization: Bearer " + secretVal + "\nok\n")}
 	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), cr)
-	eng.Secrets = func(_ context.Context, name string) (string, error) {
+	eng.Secrets = func(_ context.Context, _ *string, name string) (string, error) {
 		if name == "api_token" {
 			return secretVal, nil
 		}

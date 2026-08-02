@@ -439,7 +439,7 @@ func TestEngineInjectsSecretsAndRedactsOutput(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	eng := NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), cr)
 	t.Cleanup(eng.Close)
-	eng.Secrets = func(_ context.Context, name string) (string, error) {
+	eng.Secrets = func(_ context.Context, _ *string, name string) (string, error) {
 		if name == "api_token" {
 			return secretVal, nil
 		}
