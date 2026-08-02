@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark; /* native controls (checkboxes, date pickers, scrollbars) render dark-appropriate */
   --bg: #0b0e14;
   --bg2: #11151d;
   --bg3: #161b26;
@@ -2394,6 +2395,7 @@ select option {
 
 /* ===== Light theme (ADR-0021) — first-class token set, tuned for legibility/screenshots ===== */
 :root[data-theme="light"] {
+  color-scheme: light;
   --bg: #f5f6f8;
   --bg2: #ffffff;
   --bg3: #eef1f4;
@@ -2478,6 +2480,7 @@ select option {
 .settings-field select, .settings-field input:not([type=color]):not([type=checkbox]), .settings-field textarea {
   background: var(--bg2); border: 1px solid var(--line2); border-radius: 8px; padding: 7px 10px; color: var(--tx); font-size: 13px; min-width: 220px;
 }
+.settings-field input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--acc); cursor: pointer; }
 .settings-desc { font-size: 11.5px; color: var(--tx3); margin-top: 5px; }
 .settings-color { display: inline-flex; align-items: center; gap: 8px; }
 .settings-color input[type=color] { width: 34px; height: 30px; border: 1px solid var(--line2); border-radius: 7px; background: none; cursor: pointer; padding: 2px; }
