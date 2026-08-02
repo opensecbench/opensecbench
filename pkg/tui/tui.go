@@ -822,8 +822,10 @@ func toolCallSummary(raw json.RawMessage) string {
 // createHereItem is the project-picker entry that creates a new dir-local project in the cwd.
 type createHereItem struct{ cwd string }
 
-func (i createHereItem) Title() string       { return "＋ New project in " + filepath.Base(i.cwd) }
-func (i createHereItem) Description() string  { return "create it in " + filepath.Join(i.cwd, projectDirName) }
+func (i createHereItem) Title() string { return "＋ New project in " + filepath.Base(i.cwd) }
+func (i createHereItem) Description() string {
+	return "create it in " + filepath.Join(i.cwd, projectDirName)
+}
 func (i createHereItem) FilterValue() string { return "new project" }
 
 // projectItem and threadItem adapt domain records to list.Item.
