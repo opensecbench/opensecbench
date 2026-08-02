@@ -390,6 +390,24 @@ func (c *Client) ListDLPEvents(ctx context.Context, limit int) ([]model.DLPEvent
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
+// DerivedEgress is the egress tier for scanner-derived artifacts and the classification scale (ADR-0064).
+type DerivedEgress struct {
+	Tier   string                      `json:"tier"`
+	Levels []model.ClassificationLevel `json:"levels"`
+}
+
+// GetDerivedEgress returns the tier that derived artifacts (findings/observations/…) are treated as for
+// egress, plus the available classification levels.
+func (c *Client) GetDerivedEgress(ctx context.Context) (DerivedEgress, error) {
+	var out DerivedEgress
+	return out, c.do(ctx, http.MethodGet, "/v1/analyst/derived-egress", nil, &out)
+}
+
+// SetDerivedEgress sets the derived-artifacts egress tier (a classification level id).
+func (c *Client) SetDerivedEgress(ctx context.Context, tier string) error {
+	return c.do(ctx, http.MethodPut, "/v1/analyst/derived-egress", map[string]string{"tier": tier}, nil)
+}
+
 // ListProjectKB returns the KB a project inherits from its targets.
 func (c *Client) ListProjectKB(ctx context.Context, projectID string) ([]model.KBEntry, error) {
 	var out []model.KBEntry

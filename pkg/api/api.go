@@ -494,6 +494,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/connections/{id}/models/refresh", s.refreshConnectionModelsHandler)
 	s.mux.HandleFunc("GET /v1/analyst/approval-policy", s.getApprovalPolicy)
 	s.mux.HandleFunc("PUT /v1/analyst/approval-policy", s.setApprovalPolicy)
+	s.mux.HandleFunc("GET /v1/analyst/derived-egress", s.getDerivedEgress)
+	s.mux.HandleFunc("PUT /v1/analyst/derived-egress", s.setDerivedEgress)
 	s.mux.HandleFunc("PUT /v1/analyst/autonomy", s.setAutonomy)
 	s.mux.HandleFunc("GET /v1/analyst/playbooks", s.listAgentPlaybooks)
 	s.mux.HandleFunc("POST /v1/analyst/playbooks", s.createSavedPlaybook)
@@ -1179,6 +1181,38 @@ func (s *Server) listPlans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, plans)
+}
+
+// getDerivedEgress returns the classification tier that scanner-derived artifacts (findings, observations,
+// investigations, coverage, dependency inventory) are treated as for egress, plus the scale for context
+// (ADR-0064). Default is the top tier (private-by-default).
+func (s *Server) getDerivedEgress(w http.ResponseWriter, r *http.Request) {
+	sc := s.global().LoadScale(r.Context())
+	tier, _ := s.global().GetSetting(r.Context(), analyst.DerivedEgressTierSetting)
+	if tier == "" || !sc.Has(tier) {
+		tier = sc.Max()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tier": tier, "levels": sc.Levels()})
+}
+
+// setDerivedEgress sets the derived-artifacts egress tier. Lowering it lets scan OUTPUT reach an external
+// model while raw source stays local; the tier must be a known classification level.
+func (s *Server) setDerivedEgress(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Tier string `json:"tier"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !s.global().LoadScale(r.Context()).Has(req.Tier) {
+		writeErr(w, http.StatusBadRequest, "unknown classification level "+req.Tier)
+		return
+	}
+	if err := s.global().SetSetting(r.Context(), analyst.DerivedEgressTierSetting, req.Tier); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tier": req.Tier})
 }
 
 // getApprovalPolicy returns the sensitive tools (approve-by-default) and the current override rules

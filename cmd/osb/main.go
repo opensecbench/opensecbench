@@ -1258,8 +1258,14 @@ func canaryCmd(ctx context.Context, c *client.Client, args []string) error {
 }
 
 func dlpCmd(ctx context.Context, c *client.Client, args []string) error {
-	if len(args) == 0 || args[0] != "events" {
-		return errors.New("usage: osb dlp events [--limit N]")
+	if len(args) == 0 {
+		return errors.New("usage: osb dlp <events|derived>")
+	}
+	if args[0] == "derived" {
+		return dlpDerivedCmd(ctx, c, args[1:])
+	}
+	if args[0] != "events" {
+		return fmt.Errorf("unknown dlp subcommand %q", args[0])
 	}
 	fs := flag.NewFlagSet("dlp events", flag.ContinueOnError)
 	limit := fs.Int("limit", 50, "max events")
@@ -1277,6 +1283,32 @@ func dlpCmd(ctx context.Context, c *client.Client, args []string) error {
 		}
 		fmt.Printf("%s  %-8s %-8s %-10s %s\n", e.CreatedAt.Format("2006-01-02 15:04"), mark, e.Kind, e.Label, e.Location)
 	}
+	return nil
+}
+
+// dlpDerivedCmd shows or sets the egress tier for scanner-derived artifacts (ADR-0064): with no argument it
+// prints the current tier and available levels; with a level id it sets it.
+func dlpDerivedCmd(ctx context.Context, c *client.Client, args []string) error {
+	if len(args) > 0 {
+		if err := c.SetDerivedEgress(ctx, args[0]); err != nil {
+			return err
+		}
+		fmt.Printf("derived-artifacts egress tier set to %q — scan output (findings/observations/…) may now reach a provider cleared for that tier; raw source stays gated at its own sensitivity\n", args[0])
+		return nil
+	}
+	de, err := c.GetDerivedEgress(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("derived-artifacts egress tier: %s\n\navailable levels (least→most sensitive):\n", de.Tier)
+	for _, l := range de.Levels {
+		mark := " "
+		if l.ID == de.Tier {
+			mark = "*"
+		}
+		fmt.Printf("  %s %-12s %s\n", mark, l.ID, l.Label)
+	}
+	fmt.Println("\nset with: osb dlp derived <level-id>")
 	return nil
 }
 

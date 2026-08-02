@@ -39,6 +39,26 @@ var assetEgressTools = map[string]bool{
 	"find_files":     true,
 }
 
+// derivedEgressTools return SCANNER-DERIVED artifacts — findings, observations, investigations, coverage,
+// and the dependency inventory — rather than raw source or captured content. They are classified at the
+// configurable derived-artifacts tier (DerivedEgressTierSetting) instead of always private-by-default, so
+// an engagement can let scan OUTPUT reach an external model while the raw source it was derived from stays
+// local (assetEgressTools keep the source gated at its own sensitivity). Default tier is the top tier, so
+// behavior is unchanged until deliberately lowered.
+//
+// CAVEAT: a derived artifact can still quote sensitive source (a tainted snippet, a redacted secret, a file
+// path), so lowering this tier trusts the scanners' abstraction / accepts that residual leak. Deliberately
+// excluded from the carve-out: context/documents, corpus/KB search, captured HTTP traffic, and artifact
+// bytes — those can return raw content and stay private-by-default.
+var derivedEgressTools = map[string]bool{
+	"list_findings":       true,
+	"get_finding":         true,
+	"list_observations":   true,
+	"list_investigations": true,
+	"get_coverage":        true,
+	"list_dependencies":   true,
+}
+
 // egressSafeTools return NO target/project-specific content to the model, so they may run against any
 // external destination regardless of its data clearance. The egress gate is default-deny (service.executeFor):
 // every tool that is neither here nor in assetEgressTools is treated as private-by-default — it must reach a

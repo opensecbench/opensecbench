@@ -530,6 +530,7 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 		pname = prov.Name()
 	}
 	sc := svc.scale(context.Background())
+	derived := svc.derivedTier(context.Background(), sc) // egress tier for scanner-derived artifacts
 	// Per-engagement tightening (ADR-0051): a "restricted" engagement clamps this destination to the
 	// least-sensitive tier for the project, regardless of its configured clearance — only ever tighter.
 	if projectID != "" {
@@ -554,7 +555,9 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 		if external && !egressSafeTools[call.Tool] {
 			required := sc.Max() // private-by-default: only a destination cleared for the top tier passes
 			detail := "returns project content treated as " + sc.Label(required)
-			if assetEgressTools[call.Tool] {
+			remedy := "raise the destination's clearance"
+			switch {
+			case assetEgressTools[call.Tool]:
 				if assetID, _ := call.Args["asset"].(string); assetID != "" {
 					asset, err := svc.p(projectID).GetAsset(ctx, assetID)
 					if err != nil {
@@ -563,10 +566,17 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 					}
 					required = asset.Sensitivity
 					detail = fmt.Sprintf("would send %s asset content", sc.Label(asset.Sensitivity))
+					remedy = "raise the destination's clearance or lower the asset's sensitivity"
 				}
+			case derivedEgressTools[call.Tool]:
+				// Scanner-derived artifacts: classified at the (configurable) derived tier so scan OUTPUT can
+				// reach the model even when the raw source it came from cannot (ADR-0064).
+				required = derived
+				detail = "returns scanner-derived artifacts treated as " + sc.Label(required)
+				remedy = "raise the destination's clearance or lower the derived-artifacts egress tier"
 			}
 			if !sc.Allows(clearance, required) {
-				return "", fmt.Errorf("blocked by data-egress policy: %q %s to %q, which is cleared only for %s; use a local provider (e.g. ollama), raise the destination's clearance, or lower the asset's sensitivity", call.Tool, detail, pname, sc.Label(clearance))
+				return "", fmt.Errorf("blocked by data-egress policy: %q %s to %q, which is cleared only for %s; use a local provider (e.g. ollama), or %s", call.Tool, detail, pname, sc.Label(clearance), remedy)
 			}
 		}
 		return exec(ctx, call)
@@ -578,6 +588,20 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 // safe (only the least-sensitive tier is permitted).
 func (svc *Service) scale(ctx context.Context) model.Scale {
 	return svc.g().LoadScale(ctx)
+}
+
+// DerivedEgressTierSetting is the settings key for the classification tier that scanner-DERIVED artifacts
+// (see derivedEgressTools) are treated as for egress. Lowering it lets an engagement send scan OUTPUT to an
+// external model while raw source stays local. Its value is a classification level id.
+const DerivedEgressTierSetting = "egress_derived_tier"
+
+// derivedTier returns the configured egress tier for derived artifacts, defaulting to the most-sensitive
+// tier (private-by-default) and ignoring an unknown/stale level id — so behavior is unchanged until set.
+func (svc *Service) derivedTier(ctx context.Context, sc model.Scale) string {
+	if v, err := svc.g().GetSetting(ctx, DerivedEgressTierSetting); err == nil && sc.Has(v) {
+		return v
+	}
+	return sc.Max()
 }
 
 // clearedForPrivate reports whether a routed destination may receive private-by-default project content
