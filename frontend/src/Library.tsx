@@ -3,13 +3,13 @@ import { PlaybookLibrary } from './PlaybookLibrary'
 import { CustomAgents } from './CustomAgents'
 import { CustomActions } from './CustomActions'
 import { MethodologyCatalog } from './MethodologyCatalog'
-import { ConnectorsLibrary } from './ConnectorsLibrary'
 import { SecretsLibrary } from './SecretsLibrary'
+import { Extensions } from './Extensions'
 import { ReportTemplatesLibrary } from './ReportTemplateEditor'
 
 // Library is the global "build & reuse" surface (IA declutter): reusable definitions you build once and
-// use across projects — agent playbooks, custom agents, and (added incrementally) the methodology catalog
-// and integration connectors. It sits at the app level next to Home/Settings, off the per-project menu.
+// use across projects — agent playbooks, custom agents, and (added incrementally) the methodology catalog.
+// It sits at the app level next to Home/Settings, off the per-project menu.
 const SECTIONS: { id: string; title: string; icon: string; group: string }[] = [
   { id: 'playbooks', title: 'Playbooks', icon: '🧩', group: 'Build & reuse' },
   { id: 'agents', title: 'Custom agents', icon: '🤖', group: 'Build & reuse' },
@@ -17,7 +17,7 @@ const SECTIONS: { id: string; title: string; icon: string; group: string }[] = [
   { id: 'methodology', title: 'Methodology', icon: '✓', group: 'Build & reuse' },
   { id: 'report-templates', title: 'Report templates', icon: '📄', group: 'Build & reuse' },
   { id: 'secrets', title: 'Secrets', icon: '🔒', group: 'Configure' },
-  { id: 'connectors', title: 'Connectors', icon: '🔌', group: 'Configure' },
+  { id: 'extensions', title: 'Extensions', icon: '⧉', group: 'Configure' },
 ]
 
 export function Library({ online }: { online: boolean }) {
@@ -53,7 +53,7 @@ export function Library({ online }: { online: boolean }) {
         {active === 'methodology' && <MethodologyCatalog online={online} />}
         {active === 'report-templates' && <ReportTemplatesLibrary online={online} />}
         {active === 'secrets' && <SecretsLibrary online={online} />}
-        {active === 'connectors' && <ConnectorsLibrary online={online} />}
+        {active === 'extensions' && <Extensions online={online} />}
       </div>
     </div>
   )
