@@ -7,7 +7,10 @@ declare global {
   }
 }
 
-const baseURL: string =
+// The base URL is mutable: the desktop app may override it at boot via the Wails bridge (APIBase) so the
+// window can attach to an external daemon on a non-default address. initAuth() resolves before the first
+// API call (see main.tsx), so every request/WebSocket reads the final value.
+let baseURL: string =
   window.__OSB_API__ ||
   (import.meta.env.VITE_OSB_API as string | undefined) ||
   'http://127.0.0.1:7373'
@@ -21,10 +24,15 @@ let authToken = ''
 // initAuth fetches the API token once at boot. It is a no-op-safe fallback in the browser (no bridge),
 // where the token comes from VITE_OSB_TOKEN or is simply absent (auth disabled backend / same-origin).
 export async function initAuth(): Promise<void> {
-  const fn = window.go?.main?.App?.APIToken
-  if (fn) {
+  const app = window.go?.main?.App
+  if (app?.APIToken) {
     try {
-      authToken = (await fn()) || ''
+      // Attach mode: the app may point the window at an external daemon on a non-default address.
+      if (app.APIBase) {
+        const base = (await app.APIBase()) || ''
+        if (base) baseURL = base
+      }
+      authToken = (await app.APIToken()) || ''
     } catch {
       authToken = ''
     }
