@@ -1172,9 +1172,16 @@ export const api = {
   listRunners: () => request<RunnerView[]>('GET', '/v1/runners'),
 
   // Vault secrets (ADR-0011): metadata only — the sealed value is never returned. Set is upsert-by-name.
+  // Global (app-wide) secrets:
   listSecrets: () => request<Secret[]>('GET', '/v1/secrets'),
   setSecret: (name: string, value: string) => request<Secret>('POST', '/v1/secrets', { name, value }),
   deleteSecret: (name: string) => request<void>('DELETE', `/v1/secrets/${encodeURIComponent(name)}`),
+  // Per-project secrets (ADR-0049): sealed with the project's own key; shadow a global name at run time.
+  listProjectSecrets: (projectId: string) => request<Secret[]>('GET', `/v1/projects/${projectId}/secrets`),
+  setProjectSecret: (projectId: string, name: string, value: string) =>
+    request<Secret>('POST', `/v1/projects/${projectId}/secrets`, { name, value }),
+  deleteProjectSecret: (projectId: string, name: string) =>
+    request<void>('DELETE', `/v1/projects/${projectId}/secrets/${encodeURIComponent(name)}`),
 
   // Integrations (ADR-0027 / IA declutter): global connectors (Library) + per-project bindings + pull.
   listConnectorTypes: () => request<ConnectorType[]>('GET', '/v1/integrations'),

@@ -45,6 +45,7 @@ import { RoutesTab } from './RoutesTab'
 import { FindingReachability } from './FindingReachability'
 import { AssetEcosystems } from './AssetEcosystems'
 import { IntegrationsTab } from './IntegrationsTab'
+import { SecretsLibrary } from './SecretsLibrary'
 import { InvestigationsTab } from './InvestigationsTab'
 import { KnowledgeTab } from './KnowledgeTab'
 import { InterceptTab } from './InterceptTab'
@@ -84,6 +85,7 @@ type Tab =
   | 'reports'
   | 'graph'
   | 'integrations'
+  | 'secrets'
   | 'audit'
   | 'settings'
   | 'code'
@@ -126,6 +128,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
   { key: 'tasks', icon: '🕘', label: 'Activity' },
   { key: 'reports', icon: '📄', label: 'Report' },
   { key: 'integrations', icon: '🔌', label: 'Integr', meta: true },
+  { key: 'secrets', icon: '🔒', label: 'Secrets', meta: true },
   { key: 'settings', icon: '⚙', label: 'Settings', meta: true },
   { key: 'audit', icon: '📜', label: 'Audit', meta: true },
 ]
@@ -1028,6 +1031,12 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         return <GraphTab project={project} online={online} onError={setError} />
       case 'integrations':
         return <IntegrationsTab project={project} online={online} onError={setError} />
+      case 'secrets':
+        return (
+          <div className="settings-body">
+            <SecretsLibrary online={online} projectId={project.id} />
+          </div>
+        )
       case 'audit':
         return <AuditTab online={online} onError={setError} />
       case 'settings':
