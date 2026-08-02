@@ -56,9 +56,6 @@ func detectGlamourStyle() string {
 	return "light"
 }
 
-// slashCommands are the in-chat commands (typed at the input, e.g. "/help").
-var slashCommands = []string{"/search", "/findings", "/observations", "/help", "/new", "/threads", "/project", "/quit"}
-
 const maxInputRows = 6 // the input grows with wrapped content up to this many rows
 
 // liveChromeRows is the non-input height of the live region: the divider plus the status line.
@@ -278,7 +275,7 @@ func (m app) handleSent(msg sentMsg) (tea.Model, tea.Cmd) {
 	}
 	if a := msg.res.Answer; a != "" {
 		m.streaming = ""
-		if n := len(m.lines); n == 0 || !(m.lines[n-1].role == "assistant" && m.lines[n-1].text == a) {
+		if n := len(m.lines); n == 0 || m.lines[n-1].role != "assistant" || m.lines[n-1].text != a {
 			cmd := m.emit(line{role: "assistant", text: a})
 			return m, cmd
 		}

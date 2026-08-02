@@ -113,7 +113,7 @@ func TestAttachReconnects(t *testing.T) {
 		mu.Unlock()
 		fl := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprintf(w, "event: tick\ndata: {\"type\":\"tick\",\"payload\":%d}\n\n", k)
+		_, _ = fmt.Fprintf(w, "event: tick\ndata: {\"type\":\"tick\",\"payload\":%d}\n\n", k)
 		fl.Flush()
 		// Return immediately: the connection closes and the client must reconnect for the next tick.
 	}))
@@ -142,7 +142,7 @@ func TestProjectThreadsSendProjectHeader(t *testing.T) {
 	got := map[string]seen{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		got[r.Method+" "+trimID(r.URL.Path)] = seen{r.Method, r.URL.Path, r.Header.Get("X-Project-Id")}
+		got[r.Method+" "+r.URL.Path] = seen{r.Method, r.URL.Path, r.Header.Get("X-Project-Id")}
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{}`)
@@ -164,18 +164,6 @@ func TestProjectThreadsSendProjectHeader(t *testing.T) {
 		} else if s.project != "proj-9" {
 			t.Errorf("%s sent X-Project-Id=%q, want proj-9", key, s.project)
 		}
-	}
-}
-
-// trimID collapses the trailing id segment so the four thread routes map to stable keys.
-func trimID(path string) string {
-	switch {
-	case path == "/v1/threads/th-1/messages":
-		return "/v1/threads/th-1/messages"
-	case path == "/v1/threads/th-1":
-		return "/v1/threads/th-1"
-	default:
-		return path
 	}
 }
 
