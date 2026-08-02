@@ -1856,6 +1856,15 @@ select option {
 .prov-model-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 2px 0; font-size: 11px; }
 .prov-model-row .mono { font-family: var(--mono); color: var(--tx); }
 .prov-model-meta { font-family: var(--mono); font-size: 10.5px; color: var(--tx3); white-space: nowrap; }
+/* Per-destination data clearance (governance) */
+.prov-clearance { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 5px; font-size: 11px; }
+.prov-clearance.local { color: var(--tx3); }
+.prov-clearance-label { color: var(--tx3); text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; font-weight: 700; }
+.prov-clearance select { font-size: 11px; padding: 1px 4px; }
+.prov-clearance-note { font-size: 11px; padding: 1px 5px; min-width: 160px; flex: 1; color: var(--tx2); }
+.prov-model-clearance { display: flex; align-items: center; gap: 5px; }
+.prov-model-clearance select { font-size: 10.5px; padding: 0 3px; }
+.prov-model-clearance .prov-clearance-note { min-width: 120px; font-size: 10.5px; }
 .prov-add { padding: 10px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 7px; }
 .prov-add-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tx3); }
 .prov-add input, .prov-add select {

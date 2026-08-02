@@ -344,6 +344,8 @@ export interface ProviderView {
   has_key: boolean
   active: boolean
   created_at: string
+  data_clearance: DataClearance
+  clearance_note: string
 }
 export interface UsageByModel {
   provider: string
@@ -488,12 +490,8 @@ export interface HubPackage {
   publisher_key?: string
 }
 
-export interface PolicyProfile {
-  name: string
-  description: string
-  allow_external_for_private: boolean
-  agent_sees_private: boolean
-}
+// Data clearance uses the asset sensitivity scale — the highest tier a destination may receive over egress.
+export type DataClearance = 'open_source' | 'internal' | 'private'
 
 export interface Notification {
   id: string
@@ -854,6 +852,8 @@ export interface ConnectionModel {
   tags: string[]
   source: 'live' | 'overlay' | 'custom'
   last_seen: string
+  data_clearance: DataClearance | '' // '' = inherit the connection's clearance
+  clearance_note: string
 }
 export interface ConnectionModels {
   models: ConnectionModel[]
@@ -1455,14 +1455,11 @@ export const api = {
   addReachability: (projectId: string, body: { subject_type: string; subject: string; reachable: string; confidence?: string; rationale?: string }) =>
     request<{ reachable: string; confidence: string; facts: ReachabilityFact[] | null }>('POST', `/v1/projects/${projectId}/reachability`, body),
 
-  // extensions, hub, policy
+  // extensions, hub
   listExtensions: () => request<ExtensionInfo[]>('GET', '/v1/extensions'),
   hubIndex: (url: string) => request<{ packages: HubPackage[] }>('GET', `/v1/hub/index?url=${encodeURIComponent(url)}`),
   hubInstall: (url: string, id: string, trust: boolean, allowUnsigned: boolean) =>
     request<ExtensionInfo>('POST', '/v1/hub/install', { url, id, trust, allow_unsigned: allowUnsigned }),
-  listPolicyProfiles: () => request<PolicyProfile[]>('GET', '/v1/policy/profiles'),
-  getActivePolicy: () => request<PolicyProfile>('GET', '/v1/policy/active'),
-  setActivePolicy: (profile: string) => request<PolicyProfile>('PUT', '/v1/policy/active', { profile }),
 
   // reports
   listReportTemplates: () => request<ReportTemplate[]>('GET', '/v1/report-templates'),
@@ -1522,8 +1519,13 @@ export const api = {
   // Analyst provider / model
   getActiveProvider: () => request<ActiveProvider>('GET', '/v1/analyst/provider'),
   listProviders: () => request<ProviderView[]>('GET', '/v1/analyst/providers'),
-  addProvider: (body: { name: string; type: string; model: string; base_url: string; api_key: string }) =>
+  addProvider: (body: { name: string; type: string; model: string; base_url: string; api_key: string; data_clearance?: DataClearance }) =>
     request<ProviderView>('POST', '/v1/analyst/providers', body),
+  setProviderClearance: (id: string, data_clearance: DataClearance, clearance_note: string) =>
+    request<ProviderView>('PUT', `/v1/analyst/providers/${id}/clearance`, { data_clearance, clearance_note }),
+  // Override a single model's clearance below its connection's; '' clears the override (inherit again).
+  setModelClearance: (connId: string, model_id: string, data_clearance: DataClearance | '', clearance_note: string) =>
+    request<void>('PUT', `/v1/connections/${connId}/models/clearance`, { model_id, data_clearance, clearance_note }),
   activateProvider: (id: string) => request<ActiveProvider>('POST', `/v1/analyst/providers/${id}/activate`, {}),
   testProvider: (id: string) =>
     request<{ ok: boolean; latency_ms?: number; sample?: string; error?: string; requested_model?: string; served_model?: string }>('POST', `/v1/analyst/providers/${id}/test`, {}),
