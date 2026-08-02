@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -160,6 +161,34 @@ func TestAmbientEventsRender(t *testing.T) {
 	}
 	if !strings.Contains(joined, "SQL injection in orders handler") || !strings.Contains(joined, "HIGH") {
 		t.Fatalf("finding.created line missing title/severity: %q", joined)
+	}
+}
+
+// TestFindingsCommandRenders confirms /findings and /observations results render as transcript blocks,
+// with empty and error paths handled.
+func TestFindingsCommandRenders(t *testing.T) {
+	a := newApp(context.Background(), nil)
+	a = step(t, a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
+
+	before := len(a.lines)
+	a = step(t, a, findingsMsg{items: []model.Finding{{Title: "SQLi", Severity: "high", Status: "open"}}})
+	if len(a.lines) != before+1 {
+		t.Fatalf("findings should add one block, lines %d→%d", before, len(a.lines))
+	}
+	last := a.lines[len(a.lines)-1].text
+	if !strings.Contains(last, "findings (1)") || !strings.Contains(last, "SQLi") || !strings.Contains(last, "HIGH") {
+		t.Fatalf("findings block malformed: %q", last)
+	}
+
+	a = step(t, a, observationsMsg{items: nil})
+	if !strings.Contains(a.lines[len(a.lines)-1].text, "observations: none") {
+		t.Fatalf("empty observations should say none, got %q", a.lines[len(a.lines)-1].text)
+	}
+
+	a = step(t, a, findingsMsg{err: errors.New("boom")})
+	if !strings.Contains(a.status, "boom") {
+		t.Fatalf("findings error should surface in status, got %q", a.status)
 	}
 }
 

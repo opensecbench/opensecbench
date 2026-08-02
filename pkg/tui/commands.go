@@ -25,6 +25,31 @@ type openedMsg struct {
 type eventMsg client.Event
 type streamClosedMsg struct{}
 
+// findingsMsg / observationsMsg carry the results of the /findings and /observations commands — local API
+// reads that never touch an LLM (so they work regardless of egress clearance).
+type findingsMsg struct {
+	items []model.Finding
+	err   error
+}
+type observationsMsg struct {
+	items []model.Observation
+	err   error
+}
+
+func loadFindings(ctx context.Context, c *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		items, err := c.ListFindings(ctx)
+		return findingsMsg{items, err}
+	}
+}
+
+func loadObservations(ctx context.Context, c *client.Client, projectID string) tea.Cmd {
+	return func() tea.Msg {
+		items, err := c.ProjectObservations(ctx, projectID)
+		return observationsMsg{items, err}
+	}
+}
+
 // sentMsg is a completed send: the turn's final result (answer or a pending approval), or an error. The
 // live text arrives over the event stream; this reconciles the end of the turn.
 type sentMsg struct {

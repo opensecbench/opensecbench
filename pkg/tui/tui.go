@@ -54,7 +54,7 @@ func detectGlamourStyle() string {
 }
 
 // slashCommands are the in-chat commands (typed at the input, e.g. "/help").
-var slashCommands = []string{"/help", "/new", "/threads", "/project", "/quit"}
+var slashCommands = []string{"/findings", "/observations", "/help", "/new", "/threads", "/project", "/quit"}
 
 const maxInputRows = 6 // the input grows with wrapped content up to this many rows
 
@@ -177,6 +177,20 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sentMsg:
 		return m.handleSent(msg)
+
+	case findingsMsg:
+		if msg.err != nil {
+			m.status = "findings: " + msg.err.Error()
+			return m, nil
+		}
+		return m, m.emit(line{role: "event", text: formatFindings(msg.items)})
+
+	case observationsMsg:
+		if msg.err != nil {
+			m.status = "observations: " + msg.err.Error()
+			return m, nil
+		}
+		return m, m.emit(line{role: "event", text: formatObservations(msg.items)})
 	}
 
 	return m.delegate(msg)
@@ -390,6 +404,10 @@ func (m app) runCommand(text string) (tea.Model, tea.Cmd) {
 	case "/project":
 		m.stage = stageProjects
 		return m, loadProjects(m.ctx, m.c)
+	case "/findings":
+		return m, loadFindings(m.ctx, m.c)
+	case "/observations", "/obs":
+		return m, loadObservations(m.ctx, m.c, m.project.ID)
 	case "/help":
 		return m, m.emit(line{role: "event", text: helpText()})
 	default:
@@ -402,13 +420,45 @@ func (m app) runCommand(text string) (tea.Model, tea.Cmd) {
 func helpText() string {
 	return strings.Join([]string{
 		"Commands:",
-		"  /new       start a new conversation",
-		"  /threads   switch conversation",
-		"  /project   switch project",
-		"  /help      show this help",
-		"  /quit      exit",
+		"  /findings      list findings (local read — no LLM)",
+		"  /observations  list this project's observations (alias /obs)",
+		"  /new           start a new conversation",
+		"  /threads       switch conversation",
+		"  /project       switch project",
+		"  /help          show this help",
+		"  /quit          exit",
 		"Keys: Enter send · Esc interrupt turn · Ctrl-C twice quit",
 	}, "\n")
+}
+
+// formatFindings renders a findings list as a compact block for the transcript.
+func formatFindings(fs []model.Finding) string {
+	if len(fs) == 0 {
+		return "findings: none"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "findings (%d):", len(fs))
+	for _, f := range fs {
+		fmt.Fprintf(&b, "\n  %-6s %-10s %s", strings.ToUpper(f.Severity), f.Status, f.Title)
+	}
+	return b.String()
+}
+
+// formatObservations renders an observations list as a compact block for the transcript.
+func formatObservations(obs []model.Observation) string {
+	if len(obs) == 0 {
+		return "observations: none"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "observations (%d):", len(obs))
+	for _, o := range obs {
+		loc := o.Location
+		if loc != "" {
+			loc = "  " + loc
+		}
+		fmt.Fprintf(&b, "\n  %-6s %-11s %s%s", strings.ToUpper(o.Severity), o.ReviewState, o.Title, loc)
+	}
+	return b.String()
 }
 
 func (m app) handleEvent(ev client.Event) (tea.Model, tea.Cmd) {

@@ -239,6 +239,25 @@ func TestAttachReceivesPublishedEvent(t *testing.T) {
 	t.Fatal("published event never arrived over the stream")
 }
 
+// TestFindingsObservationsEndpoints confirms the /findings and project /observations reads the TUI's
+// /findings and /observations commands depend on are wired and decode against the real handler.
+func TestFindingsObservationsEndpoints(t *testing.T) {
+	c := newServer(t)
+	ctx := context.Background()
+	p, err := c.CreateProject(ctx, CreateProjectRequest{Name: "obs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs, err := c.ProjectObservations(ctx, p.ID); err != nil {
+		t.Fatalf("ProjectObservations: %v", err)
+	} else if len(obs) != 0 {
+		t.Fatalf("want 0 observations for a fresh project, got %d", len(obs))
+	}
+	if _, err := c.ListFindings(ctx); err != nil {
+		t.Fatalf("ListFindings: %v", err)
+	}
+}
+
 func recv(t *testing.T, ch <-chan Event) Event {
 	t.Helper()
 	select {

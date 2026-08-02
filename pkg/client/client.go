@@ -1055,6 +1055,13 @@ func (c *Client) ListFindings(ctx context.Context) ([]model.Finding, error) {
 	return out, c.do(ctx, http.MethodGet, "/v1/findings", nil, &out)
 }
 
+// ProjectObservations returns a project's observations (raw scanner output). This is a local API read —
+// it never routes content to an LLM — so the TUI's /observations works regardless of egress clearance.
+func (c *Client) ProjectObservations(ctx context.Context, projectID string) ([]model.Observation, error) {
+	var out []model.Observation
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/observations", nil, &out)
+}
+
 // GetFinding returns a finding by id.
 func (c *Client) GetFinding(ctx context.Context, id string) (model.Finding, error) {
 	var out model.Finding
