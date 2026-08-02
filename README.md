@@ -160,6 +160,13 @@ Supported provider types:
 - **Ollama** — local, no key, no egress.
 - **Claude via the CLI** — your local Claude subscription login (optionally sandboxed).
 
+**Data-egress trust boundaries.** What the Analyst may send to an *external* model is decided per
+destination: each connection — and each model it serves — carries a **data clearance** on a configurable
+classification scale (Library ▸ Data classification), and project content only leaves the host if the
+destination is cleared for its tier. The gate is **default-deny** (anything not explicitly cleared is
+withheld), a *restricted* engagement can only tighten it, vault secrets and canaries are always redacted,
+and a **local** model is never gated. Full boundary map: [ADR-0062](docs/adr/adr-0062-data-egress-trust-boundaries.md).
+
 The connection, its discovered models, the trust-curve approval policy, and custom agents are all
 managed from the Analyst settings; playbooks are triggered, scheduled, and built from the **Agents**
 surface. The Analyst calls read tools over your data (auto-approved) and gates outbound/mutating
@@ -181,9 +188,6 @@ OSB_LLM_PROVIDER=anthropic OSB_LLM_API_KEY=... go run ./cmd/daemon
 
 Governance & agent env (dev convenience; the desktop UI exposes the same controls):
 
-- `OSB_EGRESS_POLICY` — `strict` (default) blocks sending a **private** asset's contents (a capability's
-  output, or its source/documents read directly) to an **external** provider; `open` allows it. Local
-  providers (Ollama) are never blocked.
 - `OSB_AGENT_MAX_TOKENS` — per-turn token budget (default 200000); the run stops if exceeded.
 - `OSB_AGENT_MAX_CONCURRENT` — cap on concurrent sub-agents (default 4).
 - `OSB_LLM_NATIVE_TOOLS` — native tool-use is on by default for capable backends; set `0` to force the
