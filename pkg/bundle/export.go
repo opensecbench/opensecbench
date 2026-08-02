@@ -21,6 +21,12 @@ import (
 // docs/notes), methodology adoption + coverage, and the engagement record — plus the CAS blobs those
 // reference. A full bundle carries the Analyst's raw reasoning and captured traffic and is NOT a
 // client-facing deliverable.
+//
+// TODO(secrets): a bundle never carries the project's vault secrets or its vault.key (ADR-0011/0049) —
+// export is a typed row/blob allowlist, so the secrets table and key file are simply not included, and an
+// imported project starts with an empty vault. Add an explicit opt-in ("include secrets") that re-seals
+// project secret values under the bundle passphrase and restores them on import, gated so secret material
+// only travels when the operator asks for it.
 func Export(ctx context.Context, mgr *store.Manager, blobs *cas.Store, projectID, passphrase string, full bool) ([]byte, error) {
 	proj, err := mgr.GetProject(ctx, projectID)
 	if err != nil {

@@ -86,6 +86,14 @@ func (db *DB) DeleteSecret(ctx context.Context, name string) error {
 	return nil
 }
 
+// CountSecrets returns how many secrets this database holds. Used to skip opening the vault of a
+// project that has none (avoids materializing a project vault key just to scan an empty set).
+func (db *DB) CountSecrets(ctx context.Context) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT count(*) FROM secrets`).Scan(&n)
+	return n, err
+}
+
 // AllSecretValues opens every secret via the provided opener — used to build the redaction set
 // before persisting task output (ADR-0011). Values that fail to open are skipped.
 func (db *DB) AllSecretValues(ctx context.Context, open func(sealed string) ([]byte, error)) ([]string, error) {
