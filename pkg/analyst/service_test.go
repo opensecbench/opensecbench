@@ -123,9 +123,9 @@ func TestEgressPolicyBlocksPrivateAssetOnExternalProvider(t *testing.T) {
 	const openOnly = model.SensitivityOpenSource
 
 	// A destination cleared only for open-source + external provider: a capability on a PRIVATE asset is blocked.
-	_, err := svc.executeFor("", ext, openOnly)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
-	if err == nil || !strings.Contains(err.Error(), "egress") {
-		t.Fatalf("expected egress block for private asset, got %v", err)
+	out, err := svc.executeFor("", ext, openOnly)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
+	if err != nil || !strings.Contains(out, "withheld") {
+		t.Fatalf("expected withheld for private asset, got out=%s err=%v", out, err)
 	}
 	// An open-source asset is not blocked by egress (it fails later for a different reason).
 	_, err = svc.executeFor("", ext, openOnly)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": oss.ID}})
@@ -155,8 +155,8 @@ func TestDefaultDenyEgress(t *testing.T) {
 
 	// get_finding returns finding content → private-by-default: blocked under internal, allowed under private.
 	call := agent.ToolCall{Tool: "get_finding", Args: map[string]any{"id": "x"}}
-	if _, err := svc.executeFor(proj.ID, ext, model.SensitivityInternal)(ctx, call); err == nil || !strings.Contains(err.Error(), "egress") {
-		t.Fatalf("get_finding should be egress-blocked under internal clearance, got %v", err)
+	if out, err := svc.executeFor(proj.ID, ext, model.SensitivityInternal)(ctx, call); err != nil || !strings.Contains(out, "withheld") {
+		t.Fatalf("get_finding should be withheld under internal clearance, got out=%s err=%v", out, err)
 	}
 	if _, err := svc.executeFor(proj.ID, ext, model.SensitivityPrivate)(ctx, call); err != nil && strings.Contains(err.Error(), "egress") {
 		t.Fatal("get_finding must not be egress-blocked under private clearance")
@@ -192,8 +192,8 @@ func TestRestrictedDataClassForcesStrictEgress(t *testing.T) {
 	private := model.SensitivityPrivate
 
 	// Restricted project: read_context to an external provider is blocked despite the private clearance.
-	if _, err := svc.executeFor(restricted.ID, ext, private)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": "x"}}); err == nil || !strings.Contains(err.Error(), "egress") {
-		t.Fatalf("restricted project should force egress block, got %v", err)
+	if out, err := svc.executeFor(restricted.ID, ext, private)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": "x"}}); err != nil || !strings.Contains(out, "withheld") {
+		t.Fatalf("restricted project should force withhold, got out=%s err=%v", out, err)
 	}
 	// Non-restricted project to the same private-cleared destination: not egress-blocked.
 	if _, err := svc.executeFor(normal.ID, ext, private)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": "x"}}); err != nil && strings.Contains(err.Error(), "egress") {

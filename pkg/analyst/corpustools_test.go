@@ -99,8 +99,8 @@ func TestReadContextEgressBlocked(t *testing.T) {
 
 	svc := &Service{mgr: store.NewCombinedManager(db), casr: cas.Fixed(blobs)}
 	// Open-source-only destination + external provider: ingested corpus content does not leave to the model.
-	if _, err := svc.executeFor(projectID, &llm.AnthropicProvider{}, model.SensitivityOpenSource)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err == nil || !strings.Contains(err.Error(), "egress") {
-		t.Fatalf("read_context should be egress-blocked on an external provider, got %v", err)
+	if out, err := svc.executeFor(projectID, &llm.AnthropicProvider{}, model.SensitivityOpenSource)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err != nil || !strings.Contains(out, "withheld") {
+		t.Fatalf("read_context should be withheld on an external provider, got out=%s err=%v", out, err)
 	}
 	// A local provider reads it fine.
 	if _, err := svc.executeFor(projectID, &llm.MockProvider{}, model.SensitivityOpenSource)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": itemID}}); err != nil {
@@ -145,8 +145,8 @@ func TestListAndReadArtifact(t *testing.T) {
 
 	// Egress-gated: an open-source-only destination + external provider must block reading scan output.
 	svc := &Service{mgr: store.NewCombinedManager(db), casr: cas.Fixed(blobs)}
-	if _, err := svc.executeFor(proj.ID, &llm.AnthropicProvider{}, model.SensitivityOpenSource)(ctx, agent.ToolCall{Tool: "read_artifact", Args: map[string]any{"id": art.ID}}); err == nil || !strings.Contains(err.Error(), "egress") {
-		t.Fatalf("read_artifact should be egress-blocked on an external provider, got %v", err)
+	if out, err := svc.executeFor(proj.ID, &llm.AnthropicProvider{}, model.SensitivityOpenSource)(ctx, agent.ToolCall{Tool: "read_artifact", Args: map[string]any{"id": art.ID}}); err != nil || !strings.Contains(out, "withheld") {
+		t.Fatalf("read_artifact should be withheld on an external provider, got out=%s err=%v", out, err)
 	}
 }
 

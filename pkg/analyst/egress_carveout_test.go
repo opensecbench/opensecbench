@@ -36,31 +36,36 @@ func TestDerivedArtifactEgressCarveOut(t *testing.T) {
 	listFindings := agent.ToolCall{Tool: "list_findings"}
 	readFile := agent.ToolCall{Tool: "read_file"} // raw source; no asset arg ⇒ private-by-default
 
-	blocked := func(call agent.ToolCall, clearance string) error {
-		_, err := svc.executeFor(proj.ID, ext, clearance)(ctx, call)
-		return err
+	// run returns the tool result; over-clearance content is withheld (ADR-0065) — a successful call with
+	// a {"withheld":true} marker, not an error.
+	run := func(call agent.ToolCall, clearance string) string {
+		out, err := svc.executeFor(proj.ID, ext, clearance)(ctx, call)
+		if err != nil {
+			t.Fatalf("%s returned an error (should withhold, not error): %v", call.Tool, err)
+		}
+		return out
 	}
 
-	// Default (top tier): list_findings is blocked to an open-source-cleared external provider.
-	if err := blocked(listFindings, model.SensitivityOpenSource); err == nil || !strings.Contains(err.Error(), "egress") {
-		t.Fatalf("list_findings should be egress-blocked by default, got %v", err)
+	// Default (top tier): list_findings is withheld from an open-source-cleared external provider.
+	if out := run(listFindings, model.SensitivityOpenSource); !strings.Contains(out, "withheld") {
+		t.Fatalf("list_findings should be withheld by default, got %s", out)
 	}
 
 	// Carve-out: lower the derived tier to open-source ⇒ scan output may now reach that provider.
 	if err := db.SetSetting(ctx, DerivedEgressTierSetting, model.SensitivityOpenSource); err != nil {
 		t.Fatal(err)
 	}
-	if err := blocked(listFindings, model.SensitivityOpenSource); err != nil {
-		t.Fatalf("list_findings should be allowed after lowering the derived tier, got %v", err)
+	if out := run(listFindings, model.SensitivityOpenSource); strings.Contains(out, "withheld") {
+		t.Fatalf("list_findings should be allowed after lowering the derived tier, got %s", out)
 	}
 
-	// The carve-out must NOT open raw source: read_file stays private-by-default and blocked.
-	if err := blocked(readFile, model.SensitivityOpenSource); err == nil || !strings.Contains(err.Error(), "egress") {
-		t.Fatalf("read_file (raw source) must stay egress-blocked even with the derived carve-out, got %v", err)
+	// The carve-out must NOT open raw source: read_file stays private-by-default and withheld.
+	if out := run(readFile, model.SensitivityOpenSource); !strings.Contains(out, "withheld") {
+		t.Fatalf("read_file (raw source) must stay withheld even with the derived carve-out, got %s", out)
 	}
 
-	// A local provider was never gated regardless of tier.
-	if _, err := svc.executeFor(proj.ID, &llm.MockProvider{}, model.SensitivityOpenSource)(ctx, listFindings); err != nil {
-		t.Fatalf("local provider list_findings should not be blocked: %v", err)
+	// A local provider is never gated regardless of tier — real result, no withheld marker.
+	if out, err := svc.executeFor(proj.ID, &llm.MockProvider{}, model.SensitivityOpenSource)(ctx, listFindings); err != nil || strings.Contains(out, "withheld") {
+		t.Fatalf("local provider list_findings should return real data: out=%s err=%v", out, err)
 	}
 }

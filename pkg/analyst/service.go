@@ -579,11 +579,27 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance st
 				remedy = "raise the destination's clearance or lower the derived-artifacts egress tier"
 			}
 			if !sc.Allows(clearance, required) {
-				return "", fmt.Errorf("blocked by data-egress policy: %q %s to %q, which is cleared only for %s; use a local provider (e.g. ollama), or %s", call.Tool, detail, pname, sc.Label(clearance), remedy)
+				// Data-centric egress (ADR-0065): the content is withheld, but the call succeeds with a
+				// structured marker instead of erroring — so the agent orients and guides the human ("lower
+				// the derived tier / raise clearance") rather than hitting a wall of errors.
+				return withheldResult(call.Tool, detail, pname, sc.Label(clearance), remedy), nil
 			}
 		}
 		return exec(ctx, call)
 	}
+}
+
+// withheldResult is a successful tool result standing in for content the data-egress gate withheld
+// (ADR-0065). Returning it (rather than an error) keeps the turn moving and hands the agent a
+// machine-readable reason + remedy so it can guide the human instead of failing.
+func withheldResult(tool, detail, provider, clearance, remedy string) string {
+	b, _ := json.Marshal(map[string]any{
+		"withheld": true,
+		"tool":     tool,
+		"reason":   fmt.Sprintf("%s to %q, which is cleared only for %s", detail, provider, clearance),
+		"remedy":   "use a local provider (e.g. ollama), or " + remedy,
+	})
+	return string(b)
 }
 
 // scale loads the data-classification scale (the user-configurable level registry) used for every egress
