@@ -24,7 +24,7 @@ func TestCORSAllowsProjectHeader(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 
 	got := resp.Header.Get("Access-Control-Allow-Headers")
-	if got != "Content-Type, X-Project-Id" {
-		t.Fatalf("Access-Control-Allow-Headers = %q, want it to include X-Project-Id", got)
+	if got != "Content-Type, X-Project-Id, Authorization" {
+		t.Fatalf("Access-Control-Allow-Headers = %q, want it to include X-Project-Id and Authorization", got)
 	}
 }

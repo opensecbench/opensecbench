@@ -5,13 +5,16 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -67,6 +70,7 @@ type Deps struct {
 	TrustStore   *extension.TrustStore // publisher trust store (for hub install / trust)
 	ExtDir       string                // where installed packages are extracted
 	WorkspaceDir string                // root for per-project agent workspaces (ADR-0020)
+	AuthToken    string                // local API bearer token (ADR-0061); empty disables auth (tests only)
 }
 
 // Server routes control-plane HTTP requests against the control-plane services.
@@ -103,6 +107,8 @@ type Server struct {
 	sessions map[string]*liveSession
 
 	selfPort string // control-plane listen port; proxy skips capturing the app's own traffic to it
+
+	authToken string // local API bearer token (ADR-0061); empty disables Host/token enforcement (tests)
 
 	proxyMu sync.Mutex
 	proxies map[string]*liveProxy
@@ -257,6 +263,7 @@ func New(deps Deps) *Server {
 		matchReplace: make(map[string]*ruleEngine),
 		runReg:       analyst.NewRunRegistry(),
 		methAgents:   newMethodologyAgentRuns(),
+		authToken:    deps.AuthToken,
 	}
 	if s.methods == nil {
 		s.methods = methodology.BuiltIns()
@@ -318,24 +325,97 @@ func (s *Server) startScheduler() {
 	go s.sched.Run(ctx)
 }
 
-// Handler returns the root HTTP handler, wrapped with CORS so a browser-based or Wails frontend
-// on another loopback origin can call the API. The API binds to loopback only, so reflecting the
-// request origin is safe for a local single-user workbench.
-func (s *Server) Handler() http.Handler { return withCORS(s.mux) }
+// Handler returns the root HTTP handler, wrapped with the local security middleware (ADR-0061):
+// an Origin allowlist for CORS, plus — when an API token is configured — a Host-header allowlist and
+// a bearer-token gate. The API binds to loopback only, and these layers ensure it is not driven by a
+// browser page the user visits (cross-origin / DNS rebinding) or by another OS user on the host.
+func (s *Server) Handler() http.Handler { return s.withSecurity(s.mux) }
 
-func withCORS(h http.Handler) http.Handler {
+// isPublicPath lists endpoints reachable without the API token: liveness/readiness probes, which
+// carry no data and are used by supervisors that don't hold the token.
+func isPublicPath(p string) bool { return p == "/healthz" || p == "/readyz" }
+
+// loopbackHost reports whether an HTTP Host header names the local machine. A DNS-rebinding attack
+// makes the browser send the attacker's hostname as Host, which this rejects; the loopback bind
+// alone cannot (loopback is not user- or name-scoped).
+func loopbackHost(host string) bool {
+	h := host
+	if hh, _, err := net.SplitHostPort(host); err == nil {
+		h = hh
+	}
+	h = strings.TrimSuffix(strings.TrimPrefix(h, "["), "]") // bare IPv6 literal without a port
+	switch h {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
+// allowedOrigin reports whether a browser Origin may read API responses. Absent/opaque origins and
+// loopback pass; so does the Wails webview (wails:// scheme, *.localhost host). Any other origin
+// (a website the user visited) is denied — no Access-Control-Allow-* is set, so the browser blocks
+// the read. This errs toward not breaking the desktop webview across platforms.
+func allowedOrigin(origin string) bool {
+	if origin == "" || origin == "null" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if u.Scheme == "wails" {
+		return true
+	}
+	h := u.Hostname()
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
+// requestToken extracts the presented API token: `Authorization: Bearer <token>`, or a `?token=`
+// query param for contexts that cannot set a header (EventSource, WebSocket, <img>/<a>, pages opened
+// in the system browser).
+func requestToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimSpace(h[len("Bearer "):])
+	}
+	return r.URL.Query().Get("token")
+}
+
+func (s *Server) withSecurity(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if origin := r.Header.Get("Origin"); origin != "" {
+		if origin := r.Header.Get("Origin"); origin != "" && allowedOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			// X-Project-Id scopes requests to the active project (ADR-0049); it must be allowed here or
-			// the browser's preflight blocks every project-scoped request.
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Project-Id")
+			// X-Project-Id scopes requests to the active project (ADR-0049); Authorization carries the
+			// API token (ADR-0061). Both must be allowed or the browser's preflight blocks the request.
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Project-Id, Authorization")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
+		}
+		// Enforcement is gated on a token being configured: production always sets one (controlplane),
+		// while unit tests that build api.New without one run unauthenticated. There is no runtime
+		// "disable auth" switch on a real instance.
+		if s.authToken != "" {
+			if !loopbackHost(r.Host) {
+				writeErr(w, http.StatusForbidden, "invalid host")
+				return
+			}
+			if !isPublicPath(r.URL.Path) &&
+				subtle.ConstantTimeCompare([]byte(requestToken(r)), []byte(s.authToken)) != 1 {
+				writeErr(w, http.StatusUnauthorized, "missing or invalid API token")
+				return
+			}
 		}
 		h.ServeHTTP(w, r)
 	})

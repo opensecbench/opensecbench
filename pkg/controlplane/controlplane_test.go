@@ -44,22 +44,27 @@ func TestExtensionLoadedAtStartup(t *testing.T) {
 	defer func() { _ = cp.Shutdown(context.Background()) }()
 
 	// The extension's capability is registered (served by /v1/capabilities).
-	caps := getJSON(t, cp.BaseURL+"/v1/capabilities")
+	caps := getJSON(t, cp.Token, cp.BaseURL+"/v1/capabilities")
 	if !containsID(caps, "mytool") {
 		t.Fatalf("extension capability 'mytool' not registered: %v", caps)
 	}
 
 	// And it is listed as a loaded (untrusted, since unsigned) extension.
-	exts := getJSON(t, cp.BaseURL+"/v1/extensions")
+	exts := getJSON(t, cp.Token, cp.BaseURL+"/v1/extensions")
 	if len(exts) != 1 || exts[0]["id"] != "acme.mytool" || exts[0]["trusted"] != false {
 		t.Fatalf("extension not listed as loaded/untrusted: %v", exts)
 	}
 }
 
-func getJSON(t *testing.T, url string) []map[string]any {
+func getJSON(t *testing.T, token, url string) []map[string]any {
 	t.Helper()
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +128,13 @@ func TestHubInstallEndToEnd(t *testing.T) {
 
 	// Install with trust-on-install → verifies signature, hot-registers.
 	body := `{"url":"` + hubSrv.URL + `","id":"acme.scanner","trust":true}`
-	resp, err := http.Post(cp.BaseURL+"/v1/hub/install", "application/json", strings.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, cp.BaseURL+"/v1/hub/install", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cp.Token)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +144,7 @@ func TestHubInstallEndToEnd(t *testing.T) {
 	_ = resp.Body.Close()
 
 	// The capability is live immediately (no restart).
-	caps := getJSON(t, cp.BaseURL+"/v1/capabilities")
+	caps := getJSON(t, cp.Token, cp.BaseURL+"/v1/capabilities")
 	if !containsID(caps, "scanner") {
 		t.Fatalf("installed capability not registered: %v", caps)
 	}

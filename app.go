@@ -14,10 +14,17 @@ import (
 // Wails bindings are used only for OS-native concerns (here, file/directory pickers) — never for
 // domain logic, which goes through the control-plane HTTP API.
 type App struct {
-	ctx context.Context
+	ctx   context.Context
+	token string // local API bearer token (ADR-0061), handed to the webview via APIToken
 }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
+
+// APIToken returns the local API bearer token (ADR-0061). The sandboxed webview can't read the
+// on-disk token file, so it fetches the token over this bridge once at boot and attaches it to every
+// control-plane request. This is the one exception to "Wails bindings are OS-native only": handing
+// the webview its credential is a bootstrap concern, not domain logic.
+func (a *App) APIToken() string { return a.token }
 
 // SelectDirectory opens a native directory picker and returns the chosen path ("" if cancelled).
 func (a *App) SelectDirectory() (string, error) {

@@ -47,7 +47,11 @@ type Options struct {
 type Instance struct {
 	BaseURL   string
 	RunnerURL string
-	mgr       *store.Manager
+	// Token is the local API bearer token (ADR-0061). The desktop app hands it to the webview over
+	// the Wails bridge; the CLI reads it from APITokenPath(dataDir). Clients present it as
+	// `Authorization: Bearer <token>` (or `?token=` where a header can't be set).
+	Token string
+	mgr   *store.Manager
 	srv       *http.Server
 	runnerSrv *http.Server
 	api       *api.Server
@@ -196,6 +200,15 @@ func Start(opts Options) (*Instance, error) {
 		}
 	}
 
+	// Local API bearer token (ADR-0061): loaded/created 0600 beside the DB. Every non-loopback caller
+	// and every other-OS-user process is gated on it; the desktop webview gets it over the Wails
+	// bridge, the CLI reads it from the file. A failure here is fatal — we don't serve an open API.
+	authToken, err := LoadOrCreateAPIToken(dataDir)
+	if err != nil {
+		_ = mgr.Close()
+		return nil, fmt.Errorf("api token: %w", err)
+	}
+
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
 		_ = mgr.Close()
@@ -206,6 +219,7 @@ func Start(opts Options) (*Instance, error) {
 		SessionMgr: sessMgr, ProxyCA: proxyCA, Vault: vault,
 		Methods: methReg, Reports: reportReg, Extensions: loadedExt, TrustStore: trust, ExtDir: extDir,
 		WorkspaceDir: filepath.Join(filepath.Dir(opts.DBPath), "workspace"),
+		AuthToken:    authToken,
 	})
 	// Tell the API its own address so the proxy skips capturing the app's own control-plane traffic (the
 	// desktop webview follows the system proxy and would otherwise flood the capture list).
@@ -216,7 +230,8 @@ func Start(opts Options) (*Instance, error) {
 	}
 	go func() { _ = srv.Serve(ln) }()
 
-	inst := &Instance{BaseURL: "http://" + ln.Addr().String(), mgr: mgr, srv: srv, api: apiSrv, provider: provider}
+	inst := &Instance{BaseURL: "http://" + ln.Addr().String(), Token: authToken, mgr: mgr, srv: srv, api: apiSrv, provider: provider}
+	log.Printf("api: authenticated on %s (token at %s)", inst.BaseURL, APITokenPath(dataDir))
 
 	// Optional network-exposed runner listener (ADR-0024): serves only the authenticated runner protocol.
 	if opts.RunnerAddr != "" {
