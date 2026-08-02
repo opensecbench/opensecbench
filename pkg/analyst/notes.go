@@ -25,8 +25,8 @@ const maxNoteInjectBytes = 8 << 10 // cap per note folded into the run-start con
 // systemPromptFor is the profile's system prompt plus, when the project has any, the run-start analyst-notes
 // preamble (pinned + behaviorally-tagged context). Used wherever a fresh agent run is seeded (main thread and
 // delegated sub-agents) so both honor the analyst's standing guidance.
-func (svc *Service) systemPromptFor(ctx context.Context, projectID, base string, prov llm.Provider) string {
-	if pre := svc.contextNotesPreamble(ctx, projectID, prov); pre != "" {
+func (svc *Service) systemPromptFor(ctx context.Context, projectID, base string, prov llm.Provider, clearance string) string {
+	if pre := svc.contextNotesPreamble(ctx, projectID, prov, clearance); pre != "" {
 		return base + "\n\n" + pre
 	}
 	return base
@@ -40,7 +40,7 @@ func (svc *Service) systemPromptFor(ctx context.Context, projectID, base string,
 // external provider without private-egress permission, only a redacted signal (behavioral tags + counts, no
 // names or bodies) is injected — the cue still lands without leaking the note text. Returns "" when there is
 // nothing to inject.
-func (svc *Service) contextNotesPreamble(ctx context.Context, projectID string, prov llm.Provider) string {
+func (svc *Service) contextNotesPreamble(ctx context.Context, projectID string, prov llm.Provider, clearance string) string {
 	if projectID == "" {
 		return ""
 	}
@@ -58,10 +58,11 @@ func (svc *Service) contextNotesPreamble(ctx context.Context, projectID string, 
 		return ""
 	}
 
-	// Same egress posture read_context resolves: a local provider is never a risk; an external one honors the
-	// governance profile, tightened to strict for a restricted engagement (ADR-0051).
+	// Same egress gate read_context resolves: a local provider is never a risk; an external one honors the
+	// destination's data clearance (note bodies are private ingested corpus), tightened to open-source only
+	// for a restricted engagement (ADR-0051).
 	external := prov != nil && !llm.IsLocal(prov)
-	allowPrivate := svc.egressAllowPrivate
+	allowPrivate := model.ClearanceAllows(clearance, model.SensitivityPrivate)
 	if external {
 		if eng, err := svc.p(projectID).GetEngagement(ctx, projectID); err == nil && eng.DataClass == model.DataRestricted {
 			allowPrivate = false

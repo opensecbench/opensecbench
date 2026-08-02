@@ -19,23 +19,26 @@ func (db *DB) CreateProvider(ctx context.Context, p model.Provider) (model.Provi
 	if p.ID == "" {
 		p.ID = uuid.NewString()
 	}
+	if p.DataClearance == "" {
+		p.DataClearance = model.DefaultClearance // least-privilege by default; approve higher explicitly
+	}
 	ts := nowString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO providers (id, name, type, model, base_url, key_sealed, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Type, p.Model, p.BaseURL, p.KeySealed, ts); err != nil {
+		`INSERT INTO providers (id, name, type, model, base_url, key_sealed, created_at, data_clearance, clearance_note)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Type, p.Model, p.BaseURL, p.KeySealed, ts, p.DataClearance, p.ClearanceNote); err != nil {
 		return model.Provider{}, err
 	}
 	p.CreatedAt = parseTime(ts)
 	return p, nil
 }
 
-const providerCols = `id, name, type, model, base_url, key_sealed, created_at, models_refreshed_at`
+const providerCols = `id, name, type, model, base_url, key_sealed, created_at, models_refreshed_at, data_clearance, clearance_note`
 
 func scanProvider(s interface{ Scan(...any) error }) (model.Provider, error) {
 	var p model.Provider
 	var created, refreshed string
-	if err := s.Scan(&p.ID, &p.Name, &p.Type, &p.Model, &p.BaseURL, &p.KeySealed, &created, &refreshed); err != nil {
+	if err := s.Scan(&p.ID, &p.Name, &p.Type, &p.Model, &p.BaseURL, &p.KeySealed, &created, &refreshed, &p.DataClearance, &p.ClearanceNote); err != nil {
 		return model.Provider{}, err
 	}
 	p.CreatedAt = parseTime(created)
@@ -43,6 +46,19 @@ func scanProvider(s interface{ Scan(...any) error }) (model.Provider, error) {
 		p.ModelsRefreshedAt = parseTime(refreshed)
 	}
 	return p, nil
+}
+
+// SetProviderClearance updates a connection's data-clearance tier and its accompanying note (the reason
+// the tier was chosen, e.g. the governing DPA). The tier is validated by the caller.
+func (db *DB) SetProviderClearance(ctx context.Context, id, clearance, note string) error {
+	res, err := db.ExecContext(ctx, `UPDATE providers SET data_clearance = ?, clearance_note = ? WHERE id = ?`, clearance, note, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ListProviders returns all registered providers, oldest first.

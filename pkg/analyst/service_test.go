@@ -117,29 +117,36 @@ func TestEgressPolicyBlocksPrivateAssetOnExternalProvider(t *testing.T) {
 	priv, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/work/private", Sensitivity: model.SensitivityPrivate})
 	oss, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/oss/pub", Sensitivity: model.SensitivityOpenSource})
 
-	svc := &Service{mgr: store.NewCombinedManager(db), egressAllowInternal: false, egressAllowPrivate: false}
+	svc := &Service{mgr: store.NewCombinedManager(db)}
 	ext := &llm.AnthropicProvider{} // IsLocal → false (external)
 	local := &llm.MockProvider{}    // IsLocal → true
+	const openOnly = model.SensitivityOpenSource
 
-	// Strict egress + external provider: running a capability on a PRIVATE asset is blocked.
-	_, err := svc.executeFor("", ext)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
+	// A destination cleared only for open-source + external provider: a capability on a PRIVATE asset is blocked.
+	_, err := svc.executeFor("", ext, openOnly)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
 	if err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("expected egress block for private asset, got %v", err)
 	}
 	// An open-source asset is not blocked by egress (it fails later for a different reason).
-	_, err = svc.executeFor("", ext)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": oss.ID}})
+	_, err = svc.executeFor("", ext, openOnly)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": oss.ID}})
 	if err != nil && strings.Contains(err.Error(), "egress") {
 		t.Fatal("open-source asset must not be egress-blocked")
 	}
-	// The same private asset on a LOCAL provider is never egress-blocked.
-	_, err = svc.executeFor("", local)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
+	// The same private asset on a LOCAL provider is never egress-blocked, regardless of clearance.
+	_, err = svc.executeFor("", local, openOnly)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
 	if err != nil && strings.Contains(err.Error(), "egress") {
 		t.Fatal("local provider must not be egress-blocked")
+	}
+	// A destination cleared for private lets the private asset through the egress gate.
+	_, err = svc.executeFor("", ext, model.SensitivityPrivate)(ctx, agent.ToolCall{Tool: "run_capability", Args: map[string]any{"capability": "semgrep", "asset": priv.ID}})
+	if err != nil && strings.Contains(err.Error(), "egress") {
+		t.Fatal("private-cleared destination must not egress-block a private asset")
 	}
 }
 
 // TestRestrictedDataClassForcesStrictEgress verifies a project whose engagement data class is "restricted"
-// gets strict egress even when the GLOBAL policy is open (ADR-0051 phase 2) — never looser, only tighter.
+// clamps egress to open-source only even when the destination is cleared for private (ADR-0051 phase 2) —
+// never looser, only tighter.
 func TestRestrictedDataClassForcesStrictEgress(t *testing.T) {
 	db := migratedStore(t)
 	ctx := context.Background()
@@ -149,16 +156,17 @@ func TestRestrictedDataClassForcesStrictEgress(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Global egress is OPEN (personal) — every tier may reach an external provider.
-	svc := &Service{mgr: store.NewCombinedManager(db), egressAllowInternal: true, egressAllowPrivate: true}
+	svc := &Service{mgr: store.NewCombinedManager(db)}
 	ext := &llm.AnthropicProvider{} // external
+	// The destination is cleared for private — the most permissive tier.
+	private := model.SensitivityPrivate
 
-	// Restricted project: read_context to an external provider is blocked despite the open global policy.
-	if _, err := svc.executeFor(restricted.ID, ext)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": "x"}}); err == nil || !strings.Contains(err.Error(), "egress") {
+	// Restricted project: read_context to an external provider is blocked despite the private clearance.
+	if _, err := svc.executeFor(restricted.ID, ext, private)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": "x"}}); err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("restricted project should force egress block, got %v", err)
 	}
-	// Non-restricted project under the same open global policy: not egress-blocked.
-	if _, err := svc.executeFor(normal.ID, ext)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": "x"}}); err != nil && strings.Contains(err.Error(), "egress") {
-		t.Fatal("non-restricted project under open policy must not be egress-blocked")
+	// Non-restricted project to the same private-cleared destination: not egress-blocked.
+	if _, err := svc.executeFor(normal.ID, ext, private)(ctx, agent.ToolCall{Tool: "read_context", Args: map[string]any{"id": "x"}}); err != nil && strings.Contains(err.Error(), "egress") {
+		t.Fatal("non-restricted project to a private-cleared destination must not be egress-blocked")
 	}
 }

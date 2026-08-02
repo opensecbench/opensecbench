@@ -38,12 +38,7 @@ type Service struct {
 	replay        *replay.Client
 	casr          cas.Resolver
 	workspaceRoot string
-	// egress posture by asset tier: whether internal / private content may reach an external provider.
-	// open_source is always allowed. Set from the active governance profile (SetEgressPolicy) or the
-	// OSB_EGRESS_POLICY env fallback.
-	egressAllowInternal bool
-	egressAllowPrivate  bool
-	providerLocal       bool
+	providerLocal bool
 	tokenBudget         int
 	indexer             *rag.Indexer          // semantic corpus index (ADR-0039)
 	methods             *methodology.Registry // catalog the save_methodology tool authors into (ADR-0055)
@@ -235,12 +230,8 @@ func NewService(mgr *store.Manager, engine *task.Engine, casr cas.Resolver, work
 		replay:        replay.New(0),
 		casr:          casr,
 		workspaceRoot: workspaceRoot,
-		// OSB_EGRESS_POLICY=open allows every tier out; anything else is the strict fallback (block
-		// internal + private). The active governance profile normally overrides this via SetEgressPolicy.
-		egressAllowInternal: os.Getenv("OSB_EGRESS_POLICY") == "open",
-		egressAllowPrivate:  os.Getenv("OSB_EGRESS_POLICY") == "open",
-		providerLocal:       provider != nil && llm.IsLocal(provider),
-		tokenBudget:         budget,
+		providerLocal: provider != nil && llm.IsLocal(provider),
+		tokenBudget:   budget,
 		// Semantic corpus index (ADR-0039): a local embedder by default, so corpus text is embedded on-host.
 		indexer: &rag.Indexer{Mgr: mgr, Casr: casr, Embed: llm.EmbedderFromEnv()},
 	}
@@ -282,14 +273,6 @@ func (svc *Service) p(projectID string) *store.DB {
 		return svc.mgr.Global()
 	}
 	return db
-}
-
-// SetEgressPolicy sets the data-egress posture from the active governance profile: whether internal and
-// private asset content may be sent to an external provider (open_source always may). A restricted
-// engagement tightens this further per-project (see executeFor).
-func (svc *Service) SetEgressPolicy(allowInternal, allowPrivate bool) {
-	svc.egressAllowInternal = allowInternal
-	svc.egressAllowPrivate = allowPrivate
 }
 
 // SetProviderResolver injects a function that builds a configured provider by its registry id, enabling
@@ -377,6 +360,10 @@ type runTarget struct {
 	SessionModel string // model id handed to the session (drives the request; unchanged routing behavior)
 	ProviderName string // provider type recorded for usage attribution; "" = active provider
 	AttrModel    string // model recorded for usage; "" = active provider's default
+	// Clearance is the effective data-clearance ceiling for this destination — the connection's clearance
+	// tightened by any per-model override (model.MinClearance). "" (the fallback-provider path, which has
+	// no known connection) fails safe to open-source only. The egress gate reads it in executeFor.
+	Clearance string
 }
 
 // targetForTag resolves the run target for a task with the given tag (ADR-0052): the first resolvable
@@ -413,6 +400,10 @@ func (svc *Service) targetForTag(ctx context.Context, tag string) runTarget {
 				if top.AttrModel == "" {
 					top.AttrModel = reg.Model // no routed model → the connection's configured default
 				}
+				// Effective egress clearance for this destination: the connection's clearance, tightened by
+				// any per-model override (a model pinned lower than its vendor — e.g. one with a retention
+				// policy not covered by the DPA).
+				top.Clearance = model.MinClearance(reg.DataClearance, svc.g().ConnectionModelClearance(ctx, ref.ProviderID, ref.Model))
 			}
 		} else if m != mode {
 			continue // fall-through candidates must share the top's tool mode (consistent rendering)
@@ -474,7 +465,7 @@ func (svc *Service) providerModelForTag(ctx context.Context, tag string) (llm.Pr
 	return t.Provider, t.SessionModel
 }
 
-func (svc *Service) session(projectID, threadID string, profile Profile, policy Policy, prov llm.Provider, modelID string) *agent.Session {
+func (svc *Service) session(projectID, threadID string, profile Profile, policy Policy, prov llm.Provider, modelID, clearance string) *agent.Session {
 	sess := &agent.Session{
 		Provider: prov,
 		Model:    modelID,
@@ -486,7 +477,7 @@ func (svc *Service) session(projectID, threadID string, profile Profile, policy 
 			}
 			return policy.NeedsApproval(c.Tool, profile.ID)
 		},
-		Execute:     svc.executeFor(projectID, prov),
+		Execute:     svc.executeFor(projectID, prov, clearance),
 		MaxSteps:    interactiveMaxSteps(),
 		TokenBudget: svc.tokenBudget,
 		Audit:       svc.Audit,
@@ -525,27 +516,24 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 	return p
 }
 
-// executeFor builds the tool executor for a thread's project, wrapped with the data-egress policy:
-// under a strict policy with an external LLM provider, running a capability on a private asset is
-// blocked, because its output would be summarized by the external model.
-func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context.Context, agent.ToolCall) (string, error) {
+// executeFor builds the tool executor for a thread's project, wrapped with the data-egress gate: a tool
+// that would read asset/corpus content into an EXTERNAL model is blocked unless that destination's data
+// clearance covers the content's sensitivity tier. `clearance` is the effective ceiling for the routed
+// destination (connection ∩ model, resolved in targetForTag); "" fails safe to open-source only.
+func (svc *Service) executeFor(projectID string, prov llm.Provider, clearance string) func(context.Context, agent.ToolCall) (string, error) {
 	exec := Executor(ExecDeps{Mgr: svc.mgr, Engine: svc.engine, Replay: svc.replay, Blobs: svc.casFor(projectID), Runner: runner.LocalRunner{}, WorkspaceRoot: svc.workspaceRoot, ProjectID: projectID, EgressSender: svc.egressSender, Indexer: svc.indexer, Methods: svc.methods, Narrator: svc})
-	// The egress guard keys on the provider that will actually receive the tool output (which, with tag
-	// routing, may differ per task); a local model is never an egress risk.
+	// The gate keys on the provider that will actually receive the tool output (which, with tag routing,
+	// may differ per task); a local model is never an egress risk, so its clearance is irrelevant.
 	external := prov != nil && !llm.IsLocal(prov)
 	pname := "the external provider"
 	if prov != nil {
 		pname = prov.Name()
 	}
-	// Resolve the egress ceiling once here (not per tool call): whether internal / private content may
-	// reach the external provider. Per-engagement tightening (ADR-0051) — a project whose engagement data
-	// class is "restricted" forces the strictest posture regardless of the global/profile setting, only
-	// ever tighter, never looser.
-	allowInternal := svc.egressAllowInternal
-	allowPrivate := svc.egressAllowPrivate
+	// Per-engagement tightening (ADR-0051): a "restricted" engagement clamps this destination to
+	// open-source only for the project, regardless of its configured clearance — only ever tighter.
 	if projectID != "" {
 		if eng, err := svc.p(projectID).GetEngagement(context.Background(), projectID); err == nil && eng.DataClass == model.DataRestricted {
-			allowInternal, allowPrivate = false, false
+			clearance = model.SensitivityOpenSource
 		}
 	}
 	return func(ctx context.Context, call agent.ToolCall) (string, error) {
@@ -561,35 +549,29 @@ func (svc *Service) executeFor(projectID string, prov llm.Provider) func(context
 		}
 		if external {
 			// Reading an asset's contents into an external model is data egress (ADR-0011/0020), gated by
-			// the asset's sensitivity tier: open_source always passes; internal and private are blocked
-			// unless the posture permits their tier.
+			// the asset's sensitivity tier against the destination's clearance.
 			if assetEgressTools[call.Tool] {
 				if assetID, _ := call.Args["asset"].(string); assetID != "" {
-					if asset, err := svc.p(projectID).GetAsset(ctx, assetID); err == nil {
-						switch {
-						case asset.Sensitivity == model.SensitivityPrivate && !allowPrivate:
-							return "", fmt.Errorf("blocked by data-egress policy: %q would send a private asset's contents to the external provider %q; use a local provider (e.g. ollama), switch to a governance profile that permits it, or lower the asset's sensitivity", call.Tool, pname)
-						case asset.Sensitivity == model.SensitivityInternal && !allowInternal:
-							return "", fmt.Errorf("blocked by data-egress policy: %q would send an internal asset's contents to the external provider %q; use a local provider (e.g. ollama) or switch to a governance profile that permits internal egress", call.Tool, pname)
-						}
+					asset, err := svc.p(projectID).GetAsset(ctx, assetID)
+					if err != nil {
+						// Fail closed: if we can't classify the asset we can't prove egress is permitted.
+						return "", fmt.Errorf("blocked by data-egress policy: %q could not resolve asset %q to verify it is cleared for the external provider %q", call.Tool, assetID, pname)
+					}
+					if !model.ClearanceAllows(clearance, asset.Sensitivity) {
+						return "", fmt.Errorf("blocked by data-egress policy: %q would send %s asset content to %q, which is cleared only for %s; use a local provider (e.g. ollama), raise the destination's clearance, or lower the asset's sensitivity", call.Tool, model.ClearanceLabel(asset.Sensitivity), pname, model.ClearanceLabel(clearance))
 					}
 				}
 			}
-			// Ingested corpus (documents, emails, chat) has no per-item sensitivity flag, so it is treated
-			// as private by default: its content does not leave to an external provider unless private egress
-			// is permitted.
-			if !allowPrivate {
-				if call.Tool == "read_context" {
-					return "", fmt.Errorf("blocked by data-egress policy: read_context would send ingested document/correspondence content to the external provider %q; use a local provider (e.g. ollama) or switch to a governance profile that permits it", pname)
-				}
-				// search_corpus returns corpus/KB chunk text to the model — same egress class as read_context.
-				if call.Tool == "search_corpus" {
-					return "", fmt.Errorf("blocked by data-egress policy: search_corpus would send corpus/KB content to the external provider %q; use a local provider (e.g. ollama) or switch to a governance profile that permits it", pname)
-				}
-				// read_artifact returns raw scanner output (SARIF/SBOM/inventory) derived from asset content —
-				// treated as private by default, same egress class as read_context.
-				if call.Tool == "read_artifact" {
-					return "", fmt.Errorf("blocked by data-egress policy: read_artifact would send scanner output derived from asset content to the external provider %q; use a local provider (e.g. ollama) or switch to a governance profile that permits it", pname)
+			// Ingested corpus (documents, emails, chat, scanner output) has no per-item sensitivity flag, so
+			// it is treated as private by default: it egresses only to a destination cleared for private.
+			if !model.ClearanceAllows(clearance, model.SensitivityPrivate) {
+				switch call.Tool {
+				case "read_context":
+					return "", fmt.Errorf("blocked by data-egress policy: read_context would send ingested document/correspondence content to %q, which is cleared only for %s; use a local provider (e.g. ollama) or raise the destination's clearance to private", pname, model.ClearanceLabel(clearance))
+				case "search_corpus":
+					return "", fmt.Errorf("blocked by data-egress policy: search_corpus would send corpus/KB content to %q, which is cleared only for %s; use a local provider (e.g. ollama) or raise the destination's clearance to private", pname, model.ClearanceLabel(clearance))
+				case "read_artifact":
+					return "", fmt.Errorf("blocked by data-egress policy: read_artifact would send scanner output derived from asset content to %q, which is cleared only for %s; use a local provider (e.g. ollama) or raise the destination's clearance to private", pname, model.ClearanceLabel(clearance))
 				}
 			}
 		}
@@ -632,14 +614,14 @@ func (svc *Service) Send(ctx context.Context, projectID, threadID, userMessage, 
 	}
 	profile := svc.resolveProfile(ctx, th.AgentType)
 	tgt := svc.targetForTag(ctx, profile.ModelTag)
-	sess := svc.session(projectOf(th), threadID, profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel)
+	sess := svc.session(projectOf(th), threadID, profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel, tgt.Clearance)
 
 	existing, err := svc.p(projectID).ListMessages(ctx, threadID)
 	if err != nil {
 		return SendResult{}, err
 	}
 	if len(existing) == 0 {
-		sys := svc.systemPromptFor(ctx, projectID, profile.SystemPrompt(), tgt.Provider)
+		sys := svc.systemPromptFor(ctx, projectID, profile.SystemPrompt(), tgt.Provider, tgt.Clearance)
 		if _, err := svc.p(projectID).AppendMessage(ctx, threadID, llm.RoleSystem, sys); err != nil {
 			return SendResult{}, err
 		}
@@ -701,7 +683,7 @@ func (svc *Service) Decide(ctx context.Context, projectID, approvalID, decision 
 	call := agent.ToolCall{Tool: ap.Tool, Args: args}
 
 	tgt := svc.targetForTag(ctx, profile.ModelTag)
-	out, err := svc.session(projectOf(th), ap.ThreadID, profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel).Resume(ctx, prior, call, approved)
+	out, err := svc.session(projectOf(th), ap.ThreadID, profile, svc.loadPolicy(ctx), tgt.Provider, tgt.SessionModel, tgt.Clearance).Resume(ctx, prior, call, approved)
 	if err != nil {
 		_ = svc.p(projectID).UpdateThreadStatus(ctx, ap.ThreadID, model.ThreadError)
 		return SendResult{}, err
