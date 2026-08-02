@@ -37,7 +37,6 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/methodology"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/playbook"
-	"github.com/opensecbench/opensecbench/pkg/policy"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/replay"
 	"github.com/opensecbench/opensecbench/pkg/report"
@@ -471,9 +470,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/canaries", s.createCanary)
 	s.mux.HandleFunc("DELETE /v1/canaries/{id}", s.deleteCanary)
 	s.mux.HandleFunc("GET /v1/dlp-events", s.listDLPEvents)
-	s.mux.HandleFunc("GET /v1/policy/profiles", s.listPolicyProfiles)
-	s.mux.HandleFunc("GET /v1/policy/active", s.getActivePolicy)
-	s.mux.HandleFunc("PUT /v1/policy/active", s.setActivePolicy)
 	s.mux.HandleFunc("GET /v1/extensions", s.listExtensions)
 	s.mux.HandleFunc("POST /v1/extensions/trust", s.trustPublisher)
 	s.mux.HandleFunc("GET /v1/hub/index", s.hubIndex)
@@ -514,6 +510,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/analyst/providers/{id}/activate", s.activateProvider)
 	s.mux.HandleFunc("POST /v1/analyst/providers/{id}/test", s.testProvider)
 	s.mux.HandleFunc("DELETE /v1/analyst/providers/{id}", s.deleteProvider)
+	// Per-destination data clearance (governance rework): approve a connection — and, more finely, a
+	// specific model it serves — for the asset-sensitivity tiers it may receive over external egress.
+	s.mux.HandleFunc("PUT /v1/analyst/providers/{id}/clearance", s.setProviderClearance)
+	s.mux.HandleFunc("PUT /v1/connections/{id}/models/clearance", s.setConnectionModelClearance)
 	s.mux.HandleFunc("GET /v1/projects/{id}/usage", s.projectUsage)
 	s.mux.HandleFunc("GET /v1/methodologies", s.listMethodologies)
 	s.mux.HandleFunc("POST /v1/methodologies", s.createMethodology)
@@ -725,9 +725,6 @@ func (s *Server) analystService() *analyst.Service {
 			"text":      text,
 		}})
 	})
-	// The active policy profile governs data egress (ADR-0006).
-	ap := s.activePolicy()
-	svc.SetEgressPolicy(ap.AllowExternalForInternal, ap.AllowExternalForPrivate)
 	// Cross-provider model routing (ADR-0021): build a configured provider by registry id, DLP-guarded.
 	svc.SetProviderResolver(func(ctx context.Context, id string) (llm.Provider, error) {
 		p, err := s.global().GetProvider(ctx, id)
@@ -743,15 +740,6 @@ func (s *Server) analystService() *analyst.Service {
 	// The send_request tool can egress from a chosen runner's vantage (ADR-0025).
 	svc.SetEgressSender(s.egressSend)
 	return svc
-}
-
-// activePolicy returns the currently selected governance profile (default: personal).
-func (s *Server) activePolicy() policy.Profile {
-	name := policy.Default
-	if v, err := s.global().GetSetting(context.Background(), "active_policy_profile"); err == nil && v != "" {
-		name = v
-	}
-	return policy.Get(name)
 }
 
 // guardedProvider wraps the LLM provider with DLP inspection of outbound content (ADR-0011): vault

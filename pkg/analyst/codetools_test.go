@@ -147,32 +147,32 @@ func TestDLPBlocksPrivateSourceReadOnExternalProvider(t *testing.T) {
 	ctx := context.Background()
 	db, projectID, assetID := seedSourceAsset(t, model.SensitivityPrivate)
 
-	svc := &Service{mgr: store.NewCombinedManager(db), egressAllowInternal: false, egressAllowPrivate: false}
-	// Strict egress + external provider: reading a PRIVATE asset's source is blocked.
-	if _, err := svc.executeFor(projectID, &llm.AnthropicProvider{})(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err == nil || !strings.Contains(err.Error(), "egress") {
+	svc := &Service{mgr: store.NewCombinedManager(db)}
+	// Open-source-cleared destination + external provider: reading a PRIVATE asset's source is blocked.
+	if _, err := svc.executeFor(projectID, &llm.AnthropicProvider{}, model.SensitivityOpenSource)(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err == nil || !strings.Contains(err.Error(), "egress") {
 		t.Fatalf("private source read should be egress-blocked, got %v", err)
 	}
 	// The same read on a LOCAL provider is never egress-blocked.
-	if _, err := svc.executeFor(projectID, &llm.MockProvider{})(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err != nil {
+	if _, err := svc.executeFor(projectID, &llm.MockProvider{}, model.SensitivityOpenSource)(ctx, agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}); err != nil {
 		t.Fatalf("local provider read should not be blocked: %v", err)
 	}
 }
 
-// The middle "internal" tier egresses under corporate (allowInternal) but not under strict.
+// The middle "internal" tier egresses to an internal-cleared destination but not an open-source-only one.
 func TestEgressTierInternal(t *testing.T) {
 	ctx := context.Background()
 	db, projectID, assetID := seedSourceAsset(t, model.SensitivityInternal)
 	read := agent.ToolCall{Tool: "read_file", Args: map[string]any{"asset": assetID, "path": "main.go"}}
 
-	// Corporate: internal egress permitted, private not — an internal read to an external provider passes.
-	corp := &Service{mgr: store.NewCombinedManager(db), egressAllowInternal: true, egressAllowPrivate: false}
-	if _, err := corp.executeFor(projectID, &llm.AnthropicProvider{})(ctx, read); err != nil {
-		t.Fatalf("internal read under corporate should be allowed, got %v", err)
+	// Internal-cleared destination: private not permitted, but an internal read to an external provider passes.
+	corp := &Service{mgr: store.NewCombinedManager(db)}
+	if _, err := corp.executeFor(projectID, &llm.AnthropicProvider{}, model.SensitivityInternal)(ctx, read); err != nil {
+		t.Fatalf("internal read to an internal-cleared destination should be allowed, got %v", err)
 	}
 
-	// Strict: internal egress blocked.
-	strict := &Service{mgr: store.NewCombinedManager(db), egressAllowInternal: false, egressAllowPrivate: false}
-	if _, err := strict.executeFor(projectID, &llm.AnthropicProvider{})(ctx, read); err == nil || !strings.Contains(err.Error(), "egress") {
-		t.Fatalf("internal read under strict should be egress-blocked, got %v", err)
+	// Open-source-only destination: internal egress blocked.
+	strict := &Service{mgr: store.NewCombinedManager(db)}
+	if _, err := strict.executeFor(projectID, &llm.AnthropicProvider{}, model.SensitivityOpenSource)(ctx, read); err == nil || !strings.Contains(err.Error(), "egress") {
+		t.Fatalf("internal read to an open-source-only destination should be egress-blocked, got %v", err)
 	}
 }

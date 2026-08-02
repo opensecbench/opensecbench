@@ -50,7 +50,7 @@ func TestDelegateToolViaExecuteFor(t *testing.T) {
 	}}
 	svc := NewService(store.NewCombinedManager(db), nil, nil, "", mock)
 
-	out, err := svc.executeFor("", nil)(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": "report-writer", "task": "summarize"}})
+	out, err := svc.executeFor("", nil, "")(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": "report-writer", "task": "summarize"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestDelegateRefusesNonSpecialistTarget(t *testing.T) {
 	svc := NewService(store.NewCombinedManager(migratedStore(t)), nil, nil, "", &llm.MockProvider{})
 
 	for _, target := range []string{"lead", "generalist"} {
-		if _, err := svc.executeFor("", nil)(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": target, "task": "x"}}); err == nil || !strings.Contains(err.Error(), "specialist") {
+		if _, err := svc.executeFor("", nil, "")(ctx, agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": target, "task": "x"}}); err == nil || !strings.Contains(err.Error(), "specialist") {
 			t.Fatalf("delegating to %q should be refused, got %v", target, err)
 		}
 	}
@@ -92,7 +92,7 @@ func TestDeeperDelegationBoundedByDepth(t *testing.T) {
 	db := migratedStore(t)
 	mock := &llm.MockProvider{Responses: []string{`{"answer":"done"}`}}
 	svc := NewService(store.NewCombinedManager(db), nil, nil, "", mock)
-	exec := svc.executeFor("", nil)
+	exec := svc.executeFor("", nil, "")
 	call := agent.ToolCall{Tool: "delegate", Args: map[string]any{"agent": "report-writer", "task": "summarize"}}
 
 	atCap := withDelegationDepth(ctx, maxDelegationDepth())

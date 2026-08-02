@@ -125,14 +125,24 @@ func (s *Server) getActiveProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 type providerView struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Type      string    `json:"type"`
-	Model     string    `json:"model"`
-	BaseURL   string    `json:"base_url"`
-	HasKey    bool      `json:"has_key"`
-	Active    bool      `json:"active"`
-	CreatedAt time.Time `json:"created_at"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+	Model         string    `json:"model"`
+	BaseURL       string    `json:"base_url"`
+	HasKey        bool      `json:"has_key"`
+	Active        bool      `json:"active"`
+	CreatedAt     time.Time `json:"created_at"`
+	DataClearance string    `json:"data_clearance"`
+	ClearanceNote string    `json:"clearance_note"`
+}
+
+func viewOfProvider(p model.Provider, activeID string) providerView {
+	return providerView{
+		ID: p.ID, Name: p.Name, Type: p.Type, Model: p.Model, BaseURL: p.BaseURL,
+		HasKey: p.KeySealed != "", Active: p.ID == activeID, CreatedAt: p.CreatedAt,
+		DataClearance: p.DataClearance, ClearanceNote: p.ClearanceNote,
+	}
 }
 
 func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
@@ -144,23 +154,26 @@ func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
 	activeID := s.activeInfo().ID
 	views := make([]providerView, 0, len(ps))
 	for _, p := range ps {
-		views = append(views, providerView{
-			ID: p.ID, Name: p.Name, Type: p.Type, Model: p.Model, BaseURL: p.BaseURL,
-			HasKey: p.KeySealed != "", Active: p.ID == activeID, CreatedAt: p.CreatedAt,
-		})
+		views = append(views, viewOfProvider(p, activeID))
 	}
 	writeJSON(w, http.StatusOK, views)
 }
 
 func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name    string `json:"name"`
-		Type    string `json:"type"`
-		Model   string `json:"model"`
-		BaseURL string `json:"base_url"`
-		APIKey  string `json:"api_key"`
+		Name          string `json:"name"`
+		Type          string `json:"type"`
+		Model         string `json:"model"`
+		BaseURL       string `json:"base_url"`
+		APIKey        string `json:"api_key"`
+		DataClearance string `json:"data_clearance"`
+		ClearanceNote string `json:"clearance_note"`
 	}
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.DataClearance != "" && !validClearance(req.DataClearance) {
+		writeErr(w, http.StatusBadRequest, "invalid data_clearance "+req.DataClearance)
 		return
 	}
 	sealed := ""
@@ -176,7 +189,7 @@ func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 		}
 		sealed = b
 	}
-	p := model.Provider{Name: req.Name, Type: req.Type, Model: req.Model, BaseURL: req.BaseURL, KeySealed: sealed}
+	p := model.Provider{Name: req.Name, Type: req.Type, Model: req.Model, BaseURL: req.BaseURL, KeySealed: sealed, DataClearance: req.DataClearance, ClearanceNote: req.ClearanceNote}
 	// Validate the configuration builds (catches unknown type / missing base URL) before persisting.
 	if _, err := s.buildProvider(p); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -187,11 +200,69 @@ func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.record(r.Context(), actorOf(r), "provider.add", saved.ID, map[string]string{"type": saved.Type, "model": saved.Model})
-	writeJSON(w, http.StatusCreated, providerView{
-		ID: saved.ID, Name: saved.Name, Type: saved.Type, Model: saved.Model, BaseURL: saved.BaseURL,
-		HasKey: saved.KeySealed != "", CreatedAt: saved.CreatedAt,
-	})
+	s.record(r.Context(), actorOf(r), "provider.add", saved.ID, map[string]string{"type": saved.Type, "model": saved.Model, "clearance": saved.DataClearance})
+	writeJSON(w, http.StatusCreated, viewOfProvider(saved, s.activeInfo().ID))
+}
+
+// validClearance reports whether a string is one of the asset-sensitivity tiers usable as a clearance.
+func validClearance(c string) bool {
+	return c == model.SensitivityOpenSource || c == model.SensitivityInternal || c == model.SensitivityPrivate
+}
+
+// setProviderClearance approves a connection for a data-clearance tier (audited). The note records why —
+// e.g. the governing DPA.
+func (s *Server) setProviderClearance(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		DataClearance string `json:"data_clearance"`
+		ClearanceNote string `json:"clearance_note"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !validClearance(req.DataClearance) {
+		writeErr(w, http.StatusBadRequest, "invalid data_clearance "+req.DataClearance)
+		return
+	}
+	if err := s.global().SetProviderClearance(r.Context(), id, req.DataClearance, req.ClearanceNote); err != nil {
+		writeErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	s.record(r.Context(), actorOf(r), "provider.clearance", id, map[string]string{"clearance": req.DataClearance})
+	p, err := s.global().GetProvider(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, viewOfProvider(p, s.activeInfo().ID))
+}
+
+// setConnectionModelClearance overrides a single model's clearance below its connection's (or clears the
+// override with an empty tier so it inherits again). Audited.
+func (s *Server) setConnectionModelClearance(w http.ResponseWriter, r *http.Request) {
+	connID := r.PathValue("id")
+	var req struct {
+		ModelID       string `json:"model_id"`
+		DataClearance string `json:"data_clearance"`
+		ClearanceNote string `json:"clearance_note"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.ModelID == "" {
+		writeErr(w, http.StatusBadRequest, "model_id required")
+		return
+	}
+	if req.DataClearance != "" && !validClearance(req.DataClearance) {
+		writeErr(w, http.StatusBadRequest, "invalid data_clearance "+req.DataClearance)
+		return
+	}
+	if err := s.global().SetConnectionModelClearance(r.Context(), connID, req.ModelID, req.DataClearance, req.ClearanceNote); err != nil {
+		writeErr(w, http.StatusNotFound, "connection model not found (refresh the connection's models first)")
+		return
+	}
+	s.record(r.Context(), actorOf(r), "provider.model_clearance", connID, map[string]string{"model": req.ModelID, "clearance": req.DataClearance})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) activateProvider(w http.ResponseWriter, r *http.Request) {

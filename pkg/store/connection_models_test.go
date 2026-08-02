@@ -59,3 +59,42 @@ func TestConnectionModelsRoundTrip(t *testing.T) {
 		t.Fatalf("replace should shrink to 1, got %d", len(got))
 	}
 }
+
+// A per-model clearance override is operator intent and must survive a re-discovery that doesn't set it.
+func TestConnectionModelClearancePreservedAcrossRefresh(t *testing.T) {
+	db := migratedDB(t)
+	ctx := context.Background()
+
+	// A new connection defaults to the least-privilege clearance.
+	conn, err := db.CreateProvider(ctx, model.Provider{Name: "cloud", Type: "anthropic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conn.DataClearance != model.DefaultClearance {
+		t.Fatalf("new connection clearance = %q, want %q", conn.DataClearance, model.DefaultClearance)
+	}
+
+	discovered := []model.ConnectionModel{{ModelID: "claude-sonnet-5", Source: "live"}, {ModelID: "claude-fable-5", Source: "live"}}
+	if err := db.ReplaceConnectionModels(ctx, conn.ID, discovered); err != nil {
+		t.Fatal(err)
+	}
+	// Pin fable lower than the connection (e.g. retention not covered by the DPA).
+	if err := db.SetConnectionModelClearance(ctx, conn.ID, "claude-fable-5", model.SensitivityInternal, "30-day retention"); err != nil {
+		t.Fatal(err)
+	}
+	if cl := db.ConnectionModelClearance(ctx, conn.ID, "claude-fable-5"); cl != model.SensitivityInternal {
+		t.Fatalf("override not stored: %q", cl)
+	}
+
+	// A refresh re-discovers the same models with no clearance set — the override must persist.
+	if err := db.ReplaceConnectionModels(ctx, conn.ID, discovered); err != nil {
+		t.Fatal(err)
+	}
+	if cl := db.ConnectionModelClearance(ctx, conn.ID, "claude-fable-5"); cl != model.SensitivityInternal {
+		t.Fatalf("override lost across refresh: %q", cl)
+	}
+	// A model with no override inherits (empty).
+	if cl := db.ConnectionModelClearance(ctx, conn.ID, "claude-sonnet-5"); cl != "" {
+		t.Fatalf("un-overridden model should inherit (empty), got %q", cl)
+	}
+}

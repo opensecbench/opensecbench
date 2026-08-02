@@ -272,33 +272,6 @@ type ExtensionInfo struct {
 	Methodologies []string `json:"methodologies"`
 }
 
-// PolicyProfile is a governance posture.
-type PolicyProfile struct {
-	Name                     string `json:"name"`
-	Description              string `json:"description"`
-	AllowExternalForPrivate  bool   `json:"allow_external_for_private"`
-	AllowExternalForInternal bool   `json:"allow_external_for_internal"`
-	AgentSeesPrivate         bool   `json:"agent_sees_private"`
-}
-
-// ListPolicyProfiles returns the available governance profiles.
-func (c *Client) ListPolicyProfiles(ctx context.Context) ([]PolicyProfile, error) {
-	var out []PolicyProfile
-	return out, c.do(ctx, http.MethodGet, "/v1/policy/profiles", nil, &out)
-}
-
-// GetActivePolicy returns the active governance profile.
-func (c *Client) GetActivePolicy(ctx context.Context) (PolicyProfile, error) {
-	var out PolicyProfile
-	return out, c.do(ctx, http.MethodGet, "/v1/policy/active", nil, &out)
-}
-
-// SetActivePolicy switches the active governance profile.
-func (c *Client) SetActivePolicy(ctx context.Context, name string) (PolicyProfile, error) {
-	var out PolicyProfile
-	return out, c.do(ctx, http.MethodPut, "/v1/policy/active", map[string]string{"profile": name}, &out)
-}
-
 // HubPackage is a package listed in a hub index.
 type HubPackage struct {
 	ID           string   `json:"id"`

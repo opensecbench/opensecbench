@@ -210,6 +210,11 @@ type Provider struct {
 	CreatedAt time.Time `json:"created_at"`
 	// ModelsRefreshedAt is when this connection's model set was last discovered (ADR-0052); zero = never.
 	ModelsRefreshedAt time.Time `json:"models_refreshed_at,omitempty"`
+	// DataClearance is the highest asset-sensitivity tier this connection is approved to receive over
+	// external egress (open_source < internal < private). Individual models may override it lower. New
+	// connections default to DefaultClearance. ClearanceNote records why (e.g. the governing DPA).
+	DataClearance string `json:"data_clearance"`
+	ClearanceNote string `json:"clearance_note"`
 }
 
 // ConnectionModel is one model a connection can serve, discovered from the backend and enriched by the
@@ -226,6 +231,11 @@ type ConnectionModel struct {
 	Tags          []string  `json:"tags"`
 	Source        string    `json:"source"`
 	LastSeen      time.Time `json:"last_seen"`
+	// DataClearance overrides the connection's clearance for this specific model; "" means inherit the
+	// connection (a model on a cleared vendor can be pinned lower — e.g. one with a retention policy that
+	// isn't DPA-covered). ClearanceNote records the reason.
+	DataClearance string `json:"data_clearance"`
+	ClearanceNote string `json:"clearance_note"`
 }
 
 // Runner statuses.
@@ -759,8 +769,8 @@ type ReachabilityFact struct {
 }
 
 // Asset sensitivity and type enums (mirrored by CHECK constraints in the schema). Sensitivity is an
-// ordered scale — open_source < internal < private — that gates external-LLM egress (ADR-0011): the
-// corporate profile permits internal but not private egress; strict blocks both.
+// ordered scale — open_source < internal < private — that gates external-LLM egress (ADR-0011): content
+// may reach an external provider only if that provider's (and model's) data clearance covers the tier.
 const (
 	SensitivityOpenSource = "open_source"
 	SensitivityInternal   = "internal"
@@ -772,6 +782,58 @@ const (
 	AssetDocument        = "document"
 	AssetCorrespondence  = "correspondence"
 )
+
+// DefaultClearance is what a newly-registered connection is cleared for: the least-privilege tier, so a
+// new vendor can receive only public data until someone explicitly raises its clearance.
+const DefaultClearance = SensitivityOpenSource
+
+// sensitivityRank orders the tiers for clearance comparison. Unknown/empty ranks as open_source (0), so
+// an unset clearance fails safe — it permits only open-source content.
+func sensitivityRank(tier string) int {
+	switch tier {
+	case SensitivityPrivate:
+		return 2
+	case SensitivityInternal:
+		return 1
+	default:
+		return 0 // open_source and unknown/empty
+	}
+}
+
+// ClearanceAllows reports whether a destination cleared for `clearance` may receive content tagged
+// `sensitivity`. Inclusive: a private clearance also permits internal and open_source.
+func ClearanceAllows(clearance, sensitivity string) bool {
+	return sensitivityRank(sensitivity) <= sensitivityRank(clearance)
+}
+
+// MinClearance returns the more restrictive (lower) of two clearance tiers. An empty override means
+// "inherit" and does not tighten; when both are set the lower rank wins.
+func MinClearance(base, override string) string {
+	if override == "" {
+		return base
+	}
+	if base == "" {
+		return override
+	}
+	if sensitivityRank(override) < sensitivityRank(base) {
+		return override
+	}
+	return base
+}
+
+// ClearanceLabel renders a clearance tier for humans (UI / audit / error messages).
+func ClearanceLabel(tier string) string {
+	switch tier {
+	case SensitivityPrivate:
+		return "private (corporate)"
+	case SensitivityInternal:
+		return "internal"
+	case SensitivityOpenSource, "":
+		return "open-source only"
+	default:
+		return tier
+	}
+}
 
 // InferSensitivity guesses an asset's sensitivity from its location, defaulting to private (the
 // safe default for a security tool). Callers may override the result.
