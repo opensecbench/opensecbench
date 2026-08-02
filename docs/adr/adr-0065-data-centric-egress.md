@@ -76,6 +76,12 @@ one egress-aware executor. A read tool with no declared rule refuses external ac
 same default-deny posture, now at the data-access layer. Write tools (return only an id/status) and
 static catalogs are unaffected.
 
+**6. Scope.** This ADR governs the **governed-tool / prompt** path — content the executor places in the
+model's context. Agents that reach data through a **shell in a sandbox** (run_code and future sandboxed
+agents) are governed separately by **ADR-0066** via mount composition + model locality, because a shell
+bypasses the resolver entirely. Both enforce the same invariant; a capability that can egress must pass
+through one of the two.
+
 ## Consequences
 
 **Easier.** The Analyst is usable out of the box on a least-cleared connection: it always orients and
