@@ -1,17 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, CertSummary, HTTPExchange, ProxyRule, ProxyStatus, Project, RunnerView } from './api'
+import { api, CertSummary, HTTPExchange, ProxyStatus, Project, RunnerView } from './api'
 import { actionsFor, type ActionContext } from './exchangeActions'
 import { ContextMenu, useContextMenu } from './ContextMenu'
 import { hasNativeBrowserLaunch, openProxyBrowser, downloadArtifact } from './native'
+import { TrafficRules } from './TrafficRules'
 
 const METHODS = ['', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
-const RULE_TARGETS: { value: string; label: string }[] = [
-  { value: 'url', label: 'URL' },
-  { value: 'request_header', label: 'Request header' },
-  { value: 'request_body', label: 'Request body' },
-  { value: 'response_header', label: 'Response header' },
-  { value: 'response_body', label: 'Response body' },
-]
 
 // tlsBadge summarizes a captured upstream cert (review #6): a green lock when valid, a red warning listing
 // the problems (expired / self-signed / untrusted CA / hostname mismatch) otherwise. Null for plain HTTP.
@@ -72,51 +66,7 @@ export function ProxyTab({
   const [selected, setSelected] = useState<HTTPExchange | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const rowMenu = useContextMenu<HTTPExchange>()
-  const [rules, setRules] = useState<ProxyRule[]>([])
   const [showRules, setShowRules] = useState(false)
-  const [ruleTarget, setRuleTarget] = useState('response_body')
-  const [ruleMatch, setRuleMatch] = useState('')
-  const [ruleReplace, setRuleReplace] = useState('')
-
-  async function loadRules() {
-    try {
-      setRules((await api.listProxyRules(project.id)) ?? [])
-    } catch (e) {
-      onError((e as Error).message)
-    }
-  }
-  useEffect(() => {
-    if (online) void loadRules()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, project.id])
-
-  async function addRule() {
-    if (!ruleMatch.trim()) return
-    try {
-      await api.createProxyRule(project.id, { target: ruleTarget, match: ruleMatch, replace: ruleReplace })
-      setRuleMatch('')
-      setRuleReplace('')
-      await loadRules()
-    } catch (e) {
-      onError((e as Error).message)
-    }
-  }
-  async function toggleRule(r: ProxyRule) {
-    try {
-      await api.setProxyRuleEnabled(r.id, !r.enabled)
-      await loadRules()
-    } catch (e) {
-      onError((e as Error).message)
-    }
-  }
-  async function removeRule(r: ProxyRule) {
-    try {
-      await api.deleteProxyRule(r.id)
-      await loadRules()
-    } catch (e) {
-      onError((e as Error).message)
-    }
-  }
 
   async function loadList() {
     try {
@@ -309,35 +259,13 @@ export function ProxyTab({
           download CA cert
         </button>
         <button className={`ghost-btn ${showRules ? 'on' : ''}`} onClick={() => setShowRules((v) => !v)}>
-          ⇄ Match &amp; replace{rules.length ? ` (${rules.filter((r) => r.enabled).length}/${rules.length})` : ''}
+          🚦 Traffic rules
         </button>
         <span className="spacer" />
         <span className="muted">{captured.length} request{captured.length === 1 ? '' : 's'}</span>
       </div>
 
-      {showRules && (
-        <div className="proxy-rules">
-          {rules.map((r) => (
-            <div key={r.id} className={`proxy-rule ${r.enabled ? '' : 'off'}`}>
-              <input type="checkbox" checked={r.enabled} onChange={() => toggleRule(r)} title={r.enabled ? 'disable' : 'enable'} />
-              <span className="kind">{RULE_TARGETS.find((t) => t.value === r.target)?.label ?? r.target}</span>
-              <span className="mono match">{r.match}</span>
-              <span className="arrow">→</span>
-              <span className="mono repl">{r.replace || <span className="muted">(remove)</span>}</span>
-              <button className="del" title="Delete rule" onClick={() => removeRule(r)}>✕</button>
-            </div>
-          ))}
-          <div className="proxy-rule add">
-            <select value={ruleTarget} onChange={(e) => setRuleTarget(e.target.value)}>
-              {RULE_TARGETS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-            <input className="mono match" placeholder="match (regex)…" value={ruleMatch} onChange={(e) => setRuleMatch(e.target.value)} />
-            <span className="arrow">→</span>
-            <input className="mono repl" placeholder="replace…" value={ruleReplace} onChange={(e) => setRuleReplace(e.target.value)} />
-            <button className="ghost-btn" disabled={!ruleMatch.trim()} onClick={addRule}>＋ Add</button>
-          </div>
-        </div>
-      )}
+      {showRules && <TrafficRules project={project} online={online} onError={onError} />}
 
       <div className="proxy-filters">
         <select value={method} onChange={(e) => setMethod(e.target.value)}>
