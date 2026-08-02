@@ -26,14 +26,15 @@ type Manager struct {
 	combined bool
 
 	mu       sync.Mutex
-	projects map[string]*DB // lazily opened per-project handles, keyed by project id
+	projects map[string]*DB    // lazily opened per-project handles, keyed by project id
+	dirs     map[string]string // custom on-disk locations, keyed by project id (empty/absent = default)
 }
 
 // NewCombinedManager wraps a single full-schema database as a Manager whose Global() and Project() both
 // return it (ADR-0049 phase 2a). Used by tests and the transitional control-plane wiring so the two-tier
 // API can be adopted before the physical split lands.
 func NewCombinedManager(db *DB) *Manager {
-	return &Manager{global: db, combined: true, projects: map[string]*DB{}}
+	return &Manager{global: db, combined: true, projects: map[string]*DB{}, dirs: map[string]string{}}
 }
 
 // OpenCombined opens a single database at path, applies both schema sets to it (their tables are
@@ -78,12 +79,20 @@ func OpenManager(dir string, globalFS, projectFS fs.FS) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: open global.db: %w", err)
 	}
+	// Custom project locations persisted in the index (ADR-0049 containment) must be known before a
+	// project's database is opened, so load them up front.
+	dirs, err := global.ProjectIndexDirs(context.Background())
+	if err != nil {
+		_ = global.Close()
+		return nil, fmt.Errorf("store: load project locations: %w", err)
+	}
 	return &Manager{
 		root:       dir,
 		global:     global,
 		globalMigs: globalMigs,
 		projMigs:   projMigs,
 		projects:   map[string]*DB{},
+		dirs:       dirs,
 	}, nil
 }
 
@@ -94,9 +103,27 @@ func (m *Manager) Global() *DB { return m.global }
 // Root is the storage tree root directory.
 func (m *Manager) Root() string { return m.root }
 
+// ProjectSubdir is the folder OpenSecBench creates inside a user-designated project location to hold the
+// self-contained project (project.db + cas/ + workspace/), so its files stay in one clearly-owned place
+// alongside the user's own source/docs and a project delete removes only this folder.
+const ProjectSubdir = ".opensecbench"
+
 // ProjectDir is the self-contained directory for a project: project.db + cas/ + workspace/ live here, so
-// it is the unit of purge, backup, and migrate.
-func (m *Manager) ProjectDir(id string) string { return filepath.Join(m.root, "projects", id) }
+// it is the unit of purge, backup, and migrate. It is a custom location if one was set at creation
+// (ADR-0049 containment), otherwise the default <root>/projects/<id>.
+func (m *Manager) ProjectDir(id string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.projectDirLocked(id)
+}
+
+// projectDirLocked resolves the project directory; the caller must hold m.mu.
+func (m *Manager) projectDirLocked(id string) string {
+	if d := m.dirs[id]; d != "" {
+		return d
+	}
+	return filepath.Join(m.root, "projects", id)
+}
 
 // ProjectCASDir and ProjectWorkspaceDir name the sibling stores inside a project's directory. The Manager
 // owns the layout; callers (e.g. the CAS opener) build on these instead of hard-coding paths.
@@ -119,15 +146,27 @@ func (m *Manager) Project(id string) (*DB, error) {
 	if db, ok := m.projects[id]; ok {
 		return db, nil
 	}
-	if err := os.MkdirAll(m.ProjectDir(id), 0o750); err != nil {
+	dir := m.projectDirLocked(id)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
-	db, err := openMigrated(filepath.Join(m.ProjectDir(id), "project.db"), m.projMigs)
+	db, err := openMigrated(filepath.Join(dir, "project.db"), m.projMigs)
 	if err != nil {
 		return nil, fmt.Errorf("store: open project %s: %w", id, err)
 	}
 	m.projects[id] = db
 	return db, nil
+}
+
+// SetProjectDir registers a custom on-disk location for a project before its database is first opened.
+// dir is the project's self-contained directory (project.db + cas/ + workspace/ go inside). No-op for "".
+func (m *Manager) SetProjectDir(id, dir string) {
+	if dir == "" {
+		return
+	}
+	m.mu.Lock()
+	m.dirs[id] = dir
+	m.mu.Unlock()
 }
 
 // PurgeProject closes the project's open handle (if any), removes its entire directory (project.db + cas +
@@ -195,6 +234,31 @@ func (db *DB) UpsertProjectIndex(ctx context.Context, id, name, status string) e
 		 ON CONFLICT(id) DO UPDATE SET name = excluded.name, status = excluded.status, updated_at = excluded.updated_at`,
 		id, name, status, now, now)
 	return err
+}
+
+// SetProjectIndexDir persists a project's custom on-disk location (ADR-0049 containment). Empty clears it.
+func (db *DB) SetProjectIndexDir(ctx context.Context, id, dir string) error {
+	_, err := db.ExecContext(ctx, `UPDATE project_index SET dir = ? WHERE id = ?`, dir, id)
+	return err
+}
+
+// ProjectIndexDirs returns the custom on-disk location for every project that has one (id -> dir). Loaded
+// by the Manager at startup so a project's database opens at its designated path.
+func (db *DB) ProjectIndexDirs(ctx context.Context) (map[string]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT id, dir FROM project_index WHERE dir != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, dir string
+		if err := rows.Scan(&id, &dir); err != nil {
+			return nil, err
+		}
+		out[id] = dir
+	}
+	return out, rows.Err()
 }
 
 // DeleteProjectIndex removes a project from the global directory (part of purge).

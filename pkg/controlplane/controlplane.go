@@ -94,7 +94,7 @@ func Start(opts Options) (*Instance, error) {
 
 	// Per-project content store (ADR-0049): each project's blobs live under projects/<id>/cas, beside its
 	// database, so evidence moves with the project on purge/backup/migrate.
-	casr := cas.NewPerProject(dataDir)
+	casr := cas.NewPerProject(mgr.ProjectCASDir)
 	// Build the capability + methodology registries from built-ins, then load installed extension
 	// packages into them (ADR-0013). Extensions live under <data>/extensions; unsigned packages load
 	// only when OSB_ALLOW_UNSIGNED_EXTENSIONS is set.

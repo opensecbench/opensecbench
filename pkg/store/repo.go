@@ -207,6 +207,10 @@ type NewProject struct {
 	OrganizationID *string
 	GroupID        *string
 	TargetIDs      []string
+	// Location, when set, is a directory the user designates for this project's files. The Manager stores
+	// the project's self-contained dir (project.db + cas/ + workspace/) in a subfolder inside it (ADR-0049
+	// containment). Empty = the default <data>/projects/<id>. Honored only in split mode.
+	Location string
 }
 
 // CreateProject inserts a project and its target links atomically.

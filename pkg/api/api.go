@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -1918,6 +1919,23 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, projects)
 }
 
+// validateProjectLocation checks an opt-in custom project location before creation. Returns "" if OK, or
+// a user-facing message. The chosen directory must exist and not already hold an OpenSecBench project, so
+// we never clobber the user's files and a later delete only removes our own subfolder (ADR-0049).
+func validateProjectLocation(location string) string {
+	if !filepath.IsAbs(location) {
+		return "project location must be an absolute path"
+	}
+	fi, err := os.Stat(location)
+	if err != nil || !fi.IsDir() {
+		return "project location must be an existing directory"
+	}
+	if _, err := os.Stat(filepath.Join(location, store.ProjectSubdir)); err == nil {
+		return "that location already contains an OpenSecBench project (" + store.ProjectSubdir + " already exists there)"
+	}
+	return ""
+}
+
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name           string   `json:"name"`
@@ -1933,6 +1951,9 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 			Value       string `json:"value"`
 			Disposition string `json:"disposition"`
 		} `json:"scope"`
+		// Location, when set, is a directory the user designates to keep this project's files in (opt-in);
+		// OpenSecBench stores the project in a subfolder there instead of the default data dir (ADR-0049).
+		Location string `json:"location"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -1949,11 +1970,19 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	location := strings.TrimSpace(req.Location)
+	if location != "" {
+		if msg := validateProjectLocation(location); msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+	}
 	project, err := s.mgr.CreateProject(r.Context(), store.NewProject{
 		Name:           req.Name,
 		OrganizationID: req.OrganizationID,
 		GroupID:        req.GroupID,
 		TargetIDs:      req.TargetIDs,
+		Location:       location,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

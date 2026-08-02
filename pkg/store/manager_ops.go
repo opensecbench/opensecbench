@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -41,6 +42,14 @@ func (m *Manager) CreateProject(ctx context.Context, np NewProject) (model.Proje
 		return p, m.global.UpsertProjectIndex(ctx, p.ID, p.Name, p.Status)
 	}
 	id := uuid.NewString()
+	// A custom location must be registered before the project's database is opened, so it lands there.
+	// The project's self-contained dir is a subfolder inside the chosen location, so a delete removes only
+	// OpenSecBench's files and never the user's sibling source/docs (ADR-0049 containment).
+	var projDir string
+	if np.Location != "" {
+		projDir = filepath.Join(np.Location, ProjectSubdir)
+		m.SetProjectDir(id, projDir)
+	}
 	pdb, err := m.Project(id)
 	if err != nil {
 		return model.Project{}, err
@@ -49,7 +58,15 @@ func (m *Manager) CreateProject(ctx context.Context, np NewProject) (model.Proje
 	if err != nil {
 		return model.Project{}, err
 	}
-	return p, m.global.UpsertProjectIndex(ctx, p.ID, p.Name, p.Status)
+	if err := m.global.UpsertProjectIndex(ctx, p.ID, p.Name, p.Status); err != nil {
+		return model.Project{}, err
+	}
+	if projDir != "" {
+		if err := m.global.SetProjectIndexDir(ctx, p.ID, projDir); err != nil {
+			return model.Project{}, err
+		}
+	}
+	return p, nil
 }
 
 // GetProject reads a project from its own database (split) or the single database (combined). It checks

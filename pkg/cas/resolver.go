@@ -1,9 +1,6 @@
 package cas
 
-import (
-	"path/filepath"
-	"sync"
-)
+import "sync"
 
 // Resolver returns the content store that owns a project's blobs. In the two-tier layout (ADR-0049) each
 // project keeps its own CAS under projects/<id>/cas, so purge/backup/migrate move a project's evidence with
@@ -12,18 +9,20 @@ type Resolver interface {
 	For(projectID string) (*Store, error)
 }
 
-// PerProject resolves each project to its own store under <root>/projects/<id>/cas, opening lazily and
-// caching handles for the resolver's lifetime.
+// PerProject resolves each project to its own CAS store, opening lazily and caching handles for the
+// resolver's lifetime. The per-project directory comes from casDir so evidence sits beside the project's
+// database and follows a custom project location (ADR-0049 containment) rather than a hard-coded root.
 type PerProject struct {
-	root  string
-	mu    sync.Mutex
-	cache map[string]*Store
+	casDir func(projectID string) string
+	mu     sync.Mutex
+	cache  map[string]*Store
 }
 
-// NewPerProject creates a resolver rooted at the data directory (the same root the store.Manager uses, so
-// projects/<id>/cas sits beside projects/<id>/project.db).
-func NewPerProject(root string) *PerProject {
-	return &PerProject{root: root, cache: map[string]*Store{}}
+// NewPerProject creates a resolver whose per-project CAS directory is casDir(projectID) — pass
+// store.Manager.ProjectCASDir so projects/<id>/cas sits beside projects/<id>/project.db and a project
+// stored at a custom location keeps its evidence there too.
+func NewPerProject(casDir func(projectID string) string) *PerProject {
+	return &PerProject{casDir: casDir, cache: map[string]*Store{}}
 }
 
 // For returns the project's store, opening (and creating) it on first use.
@@ -33,7 +32,7 @@ func (p *PerProject) For(projectID string) (*Store, error) {
 	if s, ok := p.cache[projectID]; ok {
 		return s, nil
 	}
-	s, err := Open(filepath.Join(p.root, "projects", projectID, "cas"))
+	s, err := Open(p.casDir(projectID))
 	if err != nil {
 		return nil, err
 	}

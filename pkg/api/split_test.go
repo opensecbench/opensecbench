@@ -24,7 +24,7 @@ func TestSplitModeEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = mgr.Close() })
-	srv := httptest.NewServer(New(Deps{Store: mgr, CASResolver: cas.NewPerProject(dir)}).Handler())
+	srv := httptest.NewServer(New(Deps{Store: mgr, CASResolver: cas.NewPerProject(mgr.ProjectCASDir)}).Handler())
 	t.Cleanup(srv.Close)
 
 	// do issues a request with the active-project header and decodes the JSON response.
