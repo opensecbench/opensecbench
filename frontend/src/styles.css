@@ -124,16 +124,6 @@ body {
 .conn-offline i {
   background: var(--red);
 }
-.apiurl {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--tx3);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 2px 7px;
-}
-
 .content {
   flex: 1;
   overflow: auto;

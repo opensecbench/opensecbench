@@ -1088,7 +1088,6 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         <OmniSearch online={online} projectId={project.id} onNavigate={navigateTo} onOpenCode={openCodeFile} />
         <ActivityMenu online={online} onOpen={(kind) => activateSurface(kind === 'plan' ? 'orchestrate' : 'tasks')} />
         <NotificationBell online={online} />
-        <code className="apiurl">{api.baseURL}</code>
       </div>
 
       <div className="wb-body">
