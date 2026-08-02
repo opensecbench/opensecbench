@@ -1128,6 +1128,7 @@ export const api = {
     target_ids?: string[]
     engagement?: Engagement
     scope?: ScopeSeed[]
+    location?: string
   }) => request<Project>('POST', '/v1/projects', payload),
   // Organizations & groups (teams) — the association that drives KB inheritance (ADR-0041).
   listOrganizations: () => request<Organization[]>('GET', '/v1/organizations'),

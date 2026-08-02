@@ -88,6 +88,10 @@ export function EngagementModal({
   const [techniques, setTechniques] = useState<Record<string, boolean>>({ intrusive: true })
   // kickstart
   const [basePath, setBasePath] = useState('')
+  // Opt-in: keep this project's OpenSecBench files in a folder the user designates (containment), instead
+  // of the global data dir. Off by default.
+  const [customLoc, setCustomLoc] = useState(false)
+  const [projLoc, setProjLoc] = useState('')
   const [firstRepo, setFirstRepo] = useState('')
   const [adopt, setAdopt] = useState<string[]>([])
   const [tracker, setTracker] = useState('')
@@ -154,7 +158,7 @@ export function EngagementModal({
         contacts: contacts.filter((c) => c.name || c.email),
         test_accounts: testAccounts.filter((a) => a.username || a.role),
       }
-      const project = await api.createEngagement({ name: name.trim(), organization_id: orgId || null, group_id: groupId || null, engagement, scope: hasActive ? scopeSeeds : [] })
+      const project = await api.createEngagement({ name: name.trim(), organization_id: orgId || null, group_id: groupId || null, engagement, scope: hasActive ? scopeSeeds : [], location: customLoc ? projLoc.trim() : '' })
       // Kickstart (best-effort — never block the created project on a seed failure).
       try {
         for (const id of adopt) await api.adoptMethodology(project.id, id)
@@ -343,6 +347,27 @@ export function EngagementModal({
                   <button className="em-btn" onClick={async () => { const p = await pickDirectory(); if (p) setBasePath(p) }}>📁 Browse…</button>
                 )}
               </div>
+            </div>
+            <div className="em-field">
+              <label className="em-check">
+                <input type="checkbox" checked={customLoc} onChange={(e) => setCustomLoc(e.target.checked)} />
+                Store this project&apos;s files in a specific folder <span className="em-opt">keep everything in one place you control</span>
+              </label>
+              {customLoc && (
+                <>
+                  <div className="em-browse">
+                    <input className="em-in" value={projLoc} onChange={(e) => setProjLoc(e.target.value)} placeholder="/home/you/engagements/acme" />
+                    {hasNativePickers() && (
+                      <button className="em-btn" onClick={async () => { const p = await pickDirectory(); if (p) setProjLoc(p) }}>📁 Browse…</button>
+                    )}
+                  </div>
+                  <div className="em-hint">
+                    {projLoc.trim()
+                      ? <>Files go in <code>{projLoc.trim().replace(/\/+$/, '')}/.opensecbench/</code>, alongside your own subfolders. Deleting the project removes only that folder.</>
+                      : <>Pick a folder — OpenSecBench keeps this project (database + evidence) in a <code>.opensecbench</code> subfolder inside it. Leave off to use the default app data directory.</>}
+                  </div>
+                </>
+              )}
             </div>
             <div className="em-field">
               <label>First {hasActive ? 'repo or base URL' : 'repository'} <span className="em-opt">→ asset{basePath ? ', relative to base folder' : ''}</span></label>
