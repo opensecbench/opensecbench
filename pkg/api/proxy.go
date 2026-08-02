@@ -111,6 +111,13 @@ func (s *Server) startProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mgr := newInterceptManager(projectID, s.events)
+	// Arm the proxy with the project's persisted traffic rules (hold/drop/modify). Invalid rules can't
+	// reach here (validated on PUT), so a compile error is best-effort logged and the proxy starts unarmed.
+	if rules, err := s.pdbID(projectID).ListTrafficRules(r.Context(), projectID); err == nil {
+		if compiled, cerr := compileTrafficRules(rules); cerr == nil {
+			mgr.setRules(compiled)
+		}
+	}
 	px := proxy.New(s.proxyCA, s.proxyCapture(projectID, req.RunnerID), s.projectAllows(projectID), mgr, s.ruleEngineFor(projectID), forward)
 	srv := &http.Server{Handler: px, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()

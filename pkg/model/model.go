@@ -137,7 +137,8 @@ type EngagementTestAccount struct {
 	Note      string `json:"note,omitempty"`
 }
 
-// Proxy match/replace rule targets (ADR-0016 Step 4).
+// Proxy match/replace rule targets (ADR-0016 Step 4). Superseded by the unified TrafficRule engine
+// below; retained for the legacy ProxyRule store rows.
 const (
 	RuleTargetURL            = "url"
 	RuleTargetRequestHeader  = "request_header"
@@ -145,6 +146,46 @@ const (
 	RuleTargetResponseHeader = "response_header"
 	RuleTargetResponseBody   = "response_body"
 )
+
+// TrafficRule phases and actions (unified match→action proxy engine). A rule is a CEL match
+// (pkg/httpfilter) plus one action; the proxy evaluates a project's enabled rules top→bottom per phase.
+const (
+	RulePhaseRequest  = "request"
+	RulePhaseResponse = "response"
+	RulePhaseBoth     = "both"
+
+	// Terminal actions stop rule evaluation for the message.
+	ActionHold = "hold" // pause for manual edit → forward/drop (the intercept behavior)
+	ActionDrop = "drop" // block the message
+	// Modify actions mutate the message and fall through to later rules.
+	ActionSetHeader    = "set_header"
+	ActionRemoveHeader = "remove_header"
+	ActionReplaceBody  = "replace_body"
+	ActionSetStatus    = "set_status"
+)
+
+// TrafficRuleParams carries the action-specific fields (only those relevant to the action are set).
+type TrafficRuleParams struct {
+	HeaderName  string `json:"header_name,omitempty"`
+	HeaderValue string `json:"header_value,omitempty"`
+	Pattern     string `json:"pattern,omitempty"`     // regexp, for replace_body
+	Replacement string `json:"replacement,omitempty"` // for replace_body
+	Status      int    `json:"status,omitempty"`      // for set_status
+}
+
+// TrafficRule is one per-project match→action rule for the proxy (ADR-0016). Match is a CEL expression
+// (empty = always); Action is one of the Action* constants; Seq is its position in the ordered list.
+type TrafficRule struct {
+	ID        string            `json:"id"`
+	ProjectID string            `json:"project_id"`
+	Seq       int               `json:"seq"`
+	Enabled   bool              `json:"enabled"`
+	Phase     string            `json:"phase"`
+	Match     string            `json:"match"`
+	Action    string            `json:"action"`
+	Params    TrafficRuleParams `json:"params"`
+	CreatedAt time.Time         `json:"created_at"`
+}
 
 // UsageRecord is one Analyst run's token usage, tagged for per-project, per-model/vendor comparison and
 // per-agent attribution. Provider/Model record the backend that actually ran the request (which, under
