@@ -726,6 +726,14 @@ func (c *Client) DecideApproval(ctx context.Context, id, decision string) (SendR
 	return out, c.do(ctx, http.MethodPost, "/v1/approvals/"+id+"/decide", map[string]string{"decision": decision}, &out)
 }
 
+// DecideThreadApproval decides a gated tool's approval within a project thread (approve|deny), carrying
+// X-Project-Id so the resumed turn routes to that project. Used by the TUI to approve from the terminal.
+func (c *Client) DecideThreadApproval(ctx context.Context, projectID, id, decision string) (SendResult, error) {
+	var out SendResult
+	body := map[string]string{"decision": decision}
+	return out, c.doHeaders(ctx, http.MethodPost, "/v1/approvals/"+id+"/decide", map[string]string{projectHeader: projectID}, body, &out)
+}
+
 // Template is a project archetype reported by the control plane.
 type Template struct {
 	ID                    string   `json:"id"`

@@ -96,3 +96,12 @@ func sendMessage(ctx context.Context, c *client.Client, projectID, threadID, tex
 		return sentMsg{res: res, err: err}
 	}
 }
+
+// decideApproval approves/denies a gated tool and resumes the turn. Like sendMessage, the continuation
+// streams over the event channel and the final result comes back as a sentMsg for reconciliation.
+func decideApproval(ctx context.Context, c *client.Client, projectID, approvalID, decision string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := c.DecideThreadApproval(ctx, projectID, approvalID, decision)
+		return sentMsg{res: res, err: err}
+	}
+}

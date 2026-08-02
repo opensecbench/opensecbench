@@ -98,7 +98,7 @@ func TestPendingApprovalSurfaces(t *testing.T) {
 	a := newApp(context.Background(), nil)
 	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
 	a = step(t, a, sentMsg{res: client.SendResult{Pending: &model.Approval{Tool: "run_script"}}})
-	if a.pending == nil || !strings.Contains(a.status, "approval required") {
+	if a.pending == nil || !strings.Contains(a.status, "needs approval") {
 		t.Fatalf("pending approval not surfaced: pending=%v status=%q", a.pending, a.status)
 	}
 }
@@ -170,13 +170,44 @@ func TestApprovalBadgeViaBus(t *testing.T) {
 	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
 
 	a = step(t, a, eventMsg{Type: "approval.requested", Payload: mustJSON(client.ApprovalEvent{ID: "ap1", Tool: "run_script", ThreadID: "t1"})})
-	if a.pending == nil || a.pending.ID != "ap1" || !strings.Contains(a.status, "approval required") {
+	if a.pending == nil || a.pending.ID != "ap1" || !strings.Contains(a.status, "needs approval") {
 		t.Fatalf("approval.requested did not raise the badge: pending=%v status=%q", a.pending, a.status)
 	}
 
 	a = step(t, a, eventMsg{Type: "approval.resolved", Payload: mustJSON(client.ApprovalEvent{ID: "ap1", Decision: "approve"})})
 	if a.pending != nil || !strings.Contains(a.status, "approve") {
 		t.Fatalf("approval.resolved did not clear the badge: pending=%v status=%q", a.pending, a.status)
+	}
+}
+
+// TestApproveFromTerminal confirms a pending approval is modal and that pressing y decides it: the badge
+// clears, an activity line records the decision, and a resume is in flight.
+func TestApproveFromTerminal(t *testing.T) {
+	a := newApp(context.Background(), nil)
+	a = step(t, a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
+	a = step(t, a, sentMsg{res: client.SendResult{Pending: &model.Approval{ID: "ap1", Tool: "run_script"}}})
+	if a.pending == nil {
+		t.Fatal("expected a pending approval")
+	}
+
+	// While pending, ordinary keys are ignored (modal): typing does not reach the input.
+	a = step(t, a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if a.input.Value() != "" {
+		t.Fatalf("input should be inert while awaiting a decision, got %q", a.input.Value())
+	}
+
+	before := len(a.lines)
+	m, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	a = m.(app)
+	if a.pending != nil {
+		t.Fatal("approval should clear after deciding")
+	}
+	if !a.sending || cmd == nil {
+		t.Fatalf("deciding should resume the turn (sending=%v cmd=%v)", a.sending, cmd)
+	}
+	if len(a.lines) != before+1 || a.lines[len(a.lines)-1].text != "approved run_script" {
+		t.Fatalf("expected an 'approved run_script' activity line, got %+v", a.lines)
 	}
 }
 

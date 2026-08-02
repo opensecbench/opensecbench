@@ -287,6 +287,17 @@ func (m app) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case stageChat:
+		// A pending approval is modal: decide before composing anything else.
+		if m.pending != nil {
+			switch k.String() {
+			case "y", "Y":
+				return m.decide("approve")
+			case "n", "N", "esc":
+				return m.decide("deny")
+			default:
+				return m, nil // awaiting a decision; ignore other input
+			}
+		}
 		switch k.String() {
 		case "enter":
 			return m.submit()
@@ -339,6 +350,28 @@ func (m app) submit() (tea.Model, tea.Cmd) {
 	m.streaming = ""
 	m.status = "Analyst is working…  (Esc to interrupt)"
 	return m, tea.Batch(userCmd, sendMessage(sendCtx, m.c, m.project.ID, m.thread.ID, text))
+}
+
+// decide approves or denies the pending gated tool and resumes the turn from the terminal (ADR-0063), so
+// an SSH-only user never has to switch to the GUI to unblock the agent.
+func (m app) decide(decision string) (tea.Model, tea.Cmd) {
+	if m.pending == nil {
+		return m, nil
+	}
+	id, tool := m.pending.ID, m.pending.Tool
+	m.pending = nil
+	verb := "approved"
+	if decision == "deny" {
+		verb = "denied"
+	}
+	actCmd := m.emit(line{role: "tool", text: verb + " " + tool})
+	sendCtx, cancel := context.WithCancel(m.ctx)
+	m.cancelSend = cancel
+	m.interrupting = false
+	m.sending = true
+	m.streaming = ""
+	m.status = "Analyst is working…  (Esc to interrupt)"
+	return m, tea.Batch(actCmd, decideApproval(sendCtx, m.c, m.project.ID, id, decision))
 }
 
 // runCommand executes an in-chat slash command.
@@ -488,12 +521,36 @@ func (m app) chatView() string {
 	if m.streaming != "" {
 		b.WriteString(assistantStyle.Render("Analyst") + "\n" + m.streaming + "\n\n")
 	}
+	if m.pending != nil {
+		b.WriteString(m.approvalPrompt())
+	}
 	b.WriteString(hintStyle.Render(strings.Repeat("─", max(1, m.width))))
 	b.WriteString("\n")
 	b.WriteString(m.input.View())
 	b.WriteString("\n")
 	b.WriteString(m.statusLine())
 	return b.String()
+}
+
+// approvalPrompt is the modal block shown while a gated tool awaits a decision: the tool, its args, and
+// the y/n keys. Rendered above the divider so it sits right over the input.
+func (m app) approvalPrompt() string {
+	var b strings.Builder
+	b.WriteString(approvalStyle.Render("⏸ Approve  "+m.pending.Tool+"  ?") + "\n")
+	if args := compactArgs(m.pending.Args); args != "" {
+		b.WriteString(hintStyle.Render("  "+truncate(args, max(1, m.width-2))) + "\n")
+	}
+	b.WriteString(hintStyle.Render("  [y] approve   [n] deny") + "\n")
+	return b.String()
+}
+
+// compactArgs renders a tool call's args for the approval prompt, or "" when there's nothing meaningful.
+func compactArgs(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "{}" || s == "null" {
+		return ""
+	}
+	return s
 }
 
 // statusLine is the persistent bottom line: where you are, and either the transient status or the hint.
@@ -561,10 +618,11 @@ var (
 	assistantStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
 	toolStyle      = lipgloss.NewStyle().Faint(true)
 	eventStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Faint(true)
+	approvalStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
 )
 
 func approvalBadge(tool string) string {
-	return "⏸ approval required: " + tool + "  (approve in the GUI or `osb approval` for now)"
+	return "⏸ " + tool + " needs approval — y approve · n deny"
 }
 
 func renderLine(ln line) string {
