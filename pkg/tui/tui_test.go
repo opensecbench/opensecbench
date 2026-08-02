@@ -99,6 +99,40 @@ func TestPendingApprovalSurfaces(t *testing.T) {
 	}
 }
 
+// TestEscInterruptsTurn confirms Esc cancels the in-flight turn: it flags the interrupt and cancels the
+// send request, and when the (cancelled) send returns, the partial answer is finalized as interrupted
+// rather than surfaced as an error.
+func TestEscInterruptsTurn(t *testing.T) {
+	a := newApp(context.Background(), nil)
+	a = step(t, a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
+
+	a.input.SetValue("run the full scan suite")
+	a = step(t, a, tea.KeyMsg{Type: tea.KeyEnter}) // starts a send
+	if !a.sending || a.cancelSend == nil {
+		t.Fatalf("expected an in-flight send with a cancel (sending=%v cancel=%v)", a.sending, a.cancelSend)
+	}
+
+	a = step(t, a, eventMsg{Type: "analyst.delta", Payload: mustJSON(client.AnalystDelta{ThreadID: "t1", Text: "partial answer"})})
+	a = step(t, a, tea.KeyMsg{Type: tea.KeyEsc})
+	if !a.interrupting {
+		t.Fatal("Esc should set interrupting")
+	}
+
+	// The cancelled request returns an error; the interrupt path must swallow it and finalize the partial.
+	a = step(t, a, sentMsg{err: context.Canceled})
+	if a.sending || a.interrupting {
+		t.Fatalf("flags should clear after interrupt (sending=%v interrupting=%v)", a.sending, a.interrupting)
+	}
+	if !strings.Contains(a.status, "interrupted") {
+		t.Fatalf("status = %q, want interrupted", a.status)
+	}
+	last := a.lines[len(a.lines)-1]
+	if last.role != "assistant" || !strings.Contains(last.text, "partial answer") || !strings.Contains(last.text, "interrupted") {
+		t.Fatalf("last line should be the interrupted partial, got %+v", last)
+	}
+}
+
 // TestDoubleCtrlCQuits confirms the first Ctrl-C only arms the quit and the second issues tea.Quit.
 func TestDoubleCtrlCQuits(t *testing.T) {
 	a := newApp(context.Background(), nil)

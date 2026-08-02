@@ -8,13 +8,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/opensecbench/opensecbench/pkg/client"
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -25,9 +28,23 @@ import (
 func Run(ctx context.Context, c *client.Client) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel() // stops the Attach stream goroutine on exit
-	p := tea.NewProgram(newApp(ctx, c), tea.WithAltScreen(), tea.WithContext(ctx))
+	m := newApp(ctx, c)
+	// Resolve the markdown style ONCE here, before Bubble Tea takes over stdin. Glamour's auto-style
+	// queries the terminal's background over stdin; doing that inside the event loop competes with Bubble
+	// Tea's input reader and can swallow keystrokes, so we detect it up front and use a fixed style.
+	m.style = detectGlamourStyle()
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	_, err := p.Run()
 	return err
+}
+
+// detectGlamourStyle picks the Glamour style from the terminal background, queried before the program
+// owns input. Non-terminals resolve to a safe default without blocking.
+func detectGlamourStyle() string {
+	if termenv.NewOutput(os.Stdout).HasDarkBackground() {
+		return "dark"
+	}
+	return "light"
 }
 
 type stage int
@@ -39,10 +56,12 @@ const (
 )
 
 // line is one rendered transcript entry. Keeping the transcript as flat lines (not model.Message) frees
-// rendering from the message schema and unifies history with streamed events.
+// rendering from the message schema and unifies history with streamed events. rendered caches the
+// Glamour-formatted body for assistant lines so a long transcript isn't re-rendered on every delta.
 type line struct {
-	role string // "user" | "assistant" | "tool" | "system"
-	text string
+	role     string // "user" | "assistant" | "tool" | "system"
+	text     string
+	rendered string
 }
 
 type app struct {
@@ -57,6 +76,7 @@ type app struct {
 	// chat
 	vp        viewport.Model
 	input     textinput.Model
+	md        *glamour.TermRenderer
 	thread    model.Thread
 	lines     []line
 	streaming string // assistant text as it types out, before the turn's final message finalizes it
@@ -64,6 +84,12 @@ type app struct {
 	sending   bool
 	pending   *model.Approval
 
+	// cancelSend cancels the in-flight send's HTTP request, which cancels the turn server-side (the
+	// sendMessage handler runs on r.Context()). interrupting distinguishes a user Esc from a real error.
+	cancelSend   context.CancelFunc
+	interrupting bool
+
+	style         string // Glamour style name, resolved once in Run
 	width, height int
 	status        string
 	quitArmed     bool
@@ -83,7 +109,7 @@ func newApp(ctx context.Context, c *client.Client) app {
 	threads.Title = "Conversations"
 	threads.SetShowHelp(true)
 
-	return app{ctx: ctx, c: c, projects: projects, threads: threads, input: ti}
+	return app{ctx: ctx, c: c, projects: projects, threads: threads, input: ti, style: "dark"}
 }
 
 func (m app) Init() tea.Cmd { return loadProjects(m.ctx, m.c) }
@@ -127,7 +153,11 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if h.Role == "system" {
 				continue
 			}
-			m.lines = append(m.lines, line{role: h.Role, text: h.Content})
+			if h.Role == "assistant" && h.Content != "" {
+				m.appendAssistant(h.Content)
+			} else {
+				m.lines = append(m.lines, line{role: h.Role, text: h.Content})
+			}
 		}
 		m.streaming, m.sending, m.pending, m.status = "", false, nil, ""
 		m.stage = stageChat
@@ -143,7 +173,21 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sentMsg:
+		if m.cancelSend != nil {
+			m.cancelSend() // release the request context
+			m.cancelSend = nil
+		}
 		m.sending = false
+		if m.interrupting {
+			m.interrupting = false
+			if m.streaming != "" {
+				m.appendAssistant(m.streaming + " …_[interrupted]_")
+				m.streaming = ""
+			}
+			m.status = "⏹ interrupted"
+			m.refreshViewport()
+			return m, nil
+		}
 		if msg.err != nil {
 			m.status = "send failed: " + msg.err.Error()
 			return m, nil
@@ -158,7 +202,7 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a := msg.res.Answer; a != "" {
 			m.streaming = ""
 			if n := len(m.lines); n == 0 || !(m.lines[n-1].role == "assistant" && m.lines[n-1].text == a) {
-				m.lines = append(m.lines, line{role: "assistant", text: a})
+				m.appendAssistant(a)
 			}
 		}
 		m.refreshViewport()
@@ -214,6 +258,15 @@ func (m app) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch k.String() {
 		case "enter":
 			return m.send()
+		case "esc":
+			// Interrupt the running turn (ADR-0063). Cancelling the send's request cancels the turn
+			// server-side; a quiet chat leaves Esc as a no-op.
+			if m.sending && m.cancelSend != nil {
+				m.interrupting = true
+				m.cancelSend()
+				m.status = "interrupting…"
+			}
+			return m, nil
 		case "pgup", "pgdown", "ctrl+u", "ctrl+d":
 			var cmd tea.Cmd
 			m.vp, cmd = m.vp.Update(k)
@@ -262,13 +315,17 @@ func (m *app) applyStreamedMessage(am client.AnalystMessage) {
 	case "assistant":
 		if am.Content != "" {
 			m.streaming = ""
-			m.lines = append(m.lines, line{role: "assistant", text: am.Content})
+			m.appendAssistant(am.Content)
 		} else if len(am.ToolCalls) > 0 {
-			m.lines = append(m.lines, line{role: "tool", text: toolCallSummary(am.ToolCalls)})
+			m.lines = append(m.lines, line{role: "tool", text: "calling " + toolCallSummary(am.ToolCalls)})
 		}
 	case "tool":
-		// A tool result; keep it terse in the scroll (full rendering is a later phase).
-		m.lines = append(m.lines, line{role: "tool", text: "tool result"})
+		// A tool result landed; keep it terse in the scroll (the detail is the agent's next message).
+		label := "done"
+		if am.ToolError {
+			label = "error"
+		}
+		m.lines = append(m.lines, line{role: "tool", text: "↳ " + label})
 	case "user":
 		// already rendered locally
 	}
@@ -279,13 +336,35 @@ func (m app) send() (tea.Model, tea.Cmd) {
 	if text == "" || m.sending {
 		return m, nil
 	}
+	sendCtx, cancel := context.WithCancel(m.ctx)
+	m.cancelSend = cancel
+	m.interrupting = false
 	m.lines = append(m.lines, line{role: "user", text: text})
 	m.input.SetValue("")
 	m.sending = true
 	m.streaming = ""
-	m.status = "Analyst is working…"
+	m.status = "Analyst is working… (Esc to interrupt)"
 	m.refreshViewport()
-	return m, sendMessage(m.ctx, m.c, m.project.ID, m.thread.ID, text)
+	return m, sendMessage(sendCtx, m.c, m.project.ID, m.thread.ID, text)
+}
+
+// appendAssistant adds an assistant message, caching its Glamour-rendered body so the transcript isn't
+// re-rendered on every subsequent delta.
+func (m *app) appendAssistant(text string) {
+	m.lines = append(m.lines, line{role: "assistant", text: text, rendered: m.renderMarkdown(text)})
+}
+
+// renderMarkdown formats assistant text as ANSI via Glamour, falling back to the raw text if no renderer
+// is ready (before the first window-size) or rendering fails.
+func (m app) renderMarkdown(s string) string {
+	if m.md == nil {
+		return s
+	}
+	out, err := m.md.Render(s)
+	if err != nil {
+		return s
+	}
+	return strings.TrimRight(out, "\n")
 }
 
 // --- view ---
@@ -333,6 +412,7 @@ func (m app) transcript() string {
 }
 
 // layout sizes the widgets to the terminal. Chat reserves a header, an input line, and a status line.
+// A width change rebuilds the Glamour renderer and re-renders cached assistant bodies at the new wrap.
 func (m *app) layout() {
 	m.projects.SetSize(m.width, m.height)
 	m.threads.SetSize(m.width, m.height)
@@ -342,7 +422,28 @@ func (m *app) layout() {
 	} else {
 		m.vp.Width, m.vp.Height = m.width, max(1, m.height-3)
 	}
+	m.md = newRenderer(m.width, m.style)
+	for i := range m.lines {
+		if m.lines[i].role == "assistant" {
+			m.lines[i].rendered = m.renderMarkdown(m.lines[i].text)
+		}
+	}
 	m.refreshViewport()
+}
+
+// newRenderer builds a Glamour renderer that word-wraps to the terminal width using a fixed style (see
+// Run for why the style isn't auto-detected here). Returns nil on failure, in which case rendering falls
+// back to raw text.
+func newRenderer(width int, style string) *glamour.TermRenderer {
+	wrap := width - 2
+	if wrap < 20 {
+		wrap = 20
+	}
+	r, err := glamour.NewTermRenderer(glamour.WithStandardStyle(style), glamour.WithWordWrap(wrap))
+	if err != nil {
+		return nil
+	}
+	return r
 }
 
 // --- styles & helpers ---
@@ -371,7 +472,11 @@ func renderLine(ln line) string {
 	case "user":
 		return userStyle.Render("› ") + ln.text
 	case "assistant":
-		return assistantStyle.Render("Analyst") + "\n" + ln.text
+		body := ln.rendered
+		if body == "" {
+			body = ln.text
+		}
+		return assistantStyle.Render("Analyst") + "\n" + body
 	default: // tool / system
 		return toolStyle.Render("· " + ln.text)
 	}
