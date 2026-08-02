@@ -1,7 +1,7 @@
 // Native OS integration via Wails bindings. These are available only in the desktop app; in a
 // plain browser the helpers no-op so the UI degrades gracefully to manual path entry.
 
-import { withToken } from './api'
+import { api, authHeaders } from './api'
 
 declare global {
   interface Window {
@@ -14,6 +14,9 @@ declare global {
           OpenProxyBrowser?: (port: number, spki: string) => Promise<void>
           // APIToken hands the webview its control-plane bearer token at boot (ADR-0061).
           APIToken?: () => Promise<string>
+          // SaveArtifact downloads an API resource to a user-chosen file, Go-side, so the token
+          // stays in a header and never touches a URL/system browser (ADR-0061).
+          SaveArtifact?: (path: string, suggestedName: string) => Promise<string>
         }
       }
     }
@@ -40,16 +43,38 @@ export async function pickDirectory(): Promise<string | null> {
  * nothing). In a plain browser it falls back to a new tab.
  */
 export function openExternal(url: string): void {
-  // Pages served by the local API (reports, transcripts, CA cert, downloads) need the API token, and
-  // the system browser / new tab can't send a header — carry it in the URL (ADR-0061). No-op for
-  // non-baseURL links.
-  const target = withToken(url)
+  // For genuinely external links only (docs, third-party sites). API resources never go through here
+  // — they are fetched with an Authorization header or downloaded via downloadArtifact (ADR-0061).
   const fn = window.go?.main?.App?.OpenURL
   if (fn) {
-    void fn(target)
+    void fn(url)
     return
   }
-  window.open(target, '_blank', 'noopener')
+  window.open(url, '_blank', 'noopener')
+}
+
+/**
+ * downloadArtifact saves an API resource to a file without the token ever entering a URL (ADR-0061).
+ * In the desktop app, Go fetches it with an Authorization header and writes it via a native save
+ * dialog. In a plain browser it falls back to an authenticated fetch → blob → anchor download.
+ * `path` must be an API-relative path (e.g. "/v1/proxy/ca").
+ */
+export async function downloadArtifact(path: string, suggestedName: string): Promise<void> {
+  const fn = window.go?.main?.App?.SaveArtifact
+  if (fn) {
+    await fn(path, suggestedName)
+    return
+  }
+  const res = await fetch(api.baseURL + path, { headers: { ...authHeaders() } })
+  if (!res.ok) throw new Error(res.statusText)
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = suggestedName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 /** hasNativeBrowserLaunch reports whether the desktop app can launch a preconfigured browser. */

@@ -4,6 +4,11 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -14,8 +19,9 @@ import (
 // Wails bindings are used only for OS-native concerns (here, file/directory pickers) — never for
 // domain logic, which goes through the control-plane HTTP API.
 type App struct {
-	ctx   context.Context
-	token string // local API bearer token (ADR-0061), handed to the webview via APIToken
+	ctx     context.Context
+	baseURL string // control-plane base URL, for server-side downloads that keep the token off the wire
+	token   string // local API bearer token (ADR-0061), handed to the webview via APIToken
 }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
@@ -49,4 +55,48 @@ func (a *App) OpenURL(url string) error {
 // is an OS-native action (launching a local process), which is why it's a Wails binding.
 func (a *App) OpenProxyBrowser(port int, spki string) error {
 	return browser.Launch(port, spki, "about:blank")
+}
+
+// SaveArtifact downloads a control-plane resource to a user-chosen file (ADR-0061). Go holds the API
+// token, so the fetch is authenticated with an Authorization header and the bytes never transit a
+// URL or the system browser — the desktop replacement for opening a download link. path must be an
+// API-relative path (e.g. "/v1/proxy/ca"); it returns the saved path, or "" if the user cancels.
+func (a *App) SaveArtifact(path, suggestedName string) (string, error) {
+	if !strings.HasPrefix(path, "/") {
+		return "", fmt.Errorf("path must be API-relative")
+	}
+	dest, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: suggestedName,
+		Title:           "Save file",
+	})
+	if err != nil || dest == "" {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(a.ctx, http.MethodGet, a.baseURL+path, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+a.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download failed: %s", resp.Status)
+	}
+
+	f, err := os.Create(dest)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	return dest, nil
 }

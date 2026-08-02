@@ -53,9 +53,17 @@ func TestRequestToken(t *testing.T) {
 	if got := requestToken(r); got != "abc123" {
 		t.Errorf("bearer token = %q, want abc123", got)
 	}
-	r2 := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/v1/x?token=q9", nil)
+	// WebSocket handshakes carry the token as the second Sec-WebSocket-Protocol value.
+	r2 := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/v1/sessions/x/ws", nil)
+	r2.Header.Set("Sec-WebSocket-Protocol", "osb.bearer, q9")
 	if got := requestToken(r2); got != "q9" {
-		t.Errorf("query token = %q, want q9", got)
+		t.Errorf("ws subprotocol token = %q, want q9", got)
+	}
+
+	// A URL query token is NOT accepted (ADR-0061: header-only).
+	r3 := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/v1/x?token=nope", nil)
+	if got := requestToken(r3); got != "" {
+		t.Errorf("query token must be ignored, got %q", got)
 	}
 }
 
@@ -92,8 +100,17 @@ func TestSecurityEnforced(t *testing.T) {
 			t.Fatalf("code = %d, want 200", w.Code)
 		}
 	})
-	t.Run("correct ?token= → 200", func(t *testing.T) {
-		if w := do(http.MethodGet, "http://127.0.0.1:7373/v1/capabilities?token=s3cret", "", ""); w.Code != http.StatusOK {
+	t.Run("URL ?token= is rejected → 401", func(t *testing.T) {
+		if w := do(http.MethodGet, "http://127.0.0.1:7373/v1/capabilities?token=s3cret", "", ""); w.Code != http.StatusUnauthorized {
+			t.Fatalf("code = %d, want 401 (query token must not authenticate)", w.Code)
+		}
+	})
+	t.Run("WebSocket subprotocol token → 200", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:7373/v1/sessions/x/ws", nil)
+		r.Header.Set("Sec-WebSocket-Protocol", "osb.bearer, s3cret")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
 			t.Fatalf("code = %d, want 200", w.Code)
 		}
 	})
