@@ -1,6 +1,6 @@
 # ADR-0065 — Data-centric egress: gate content, not tools
 
-Status: Accepted — building (phased). The data-egress boundary stops classifying *tools* and starts scoping the *data* they
+Status: Accepted — implemented (governed-tool path; sandbox path is ADR-0066). The data-egress boundary stops classifying *tools* and starts scoping the *data* they
 can reach: a tool's accessible domain is confined at the data-access layer to items the destination is
 cleared for, so sensitive assets are never read into the agent or the model — prevention, not
 post-execution filtering. Whether a scanner-derived artifact (finding/observation) is treated as its own
@@ -98,12 +98,15 @@ it). This does NOT enable sending *transformed* private content (redacting/obfus
 it can egress); that is a separate, deliberate capability (the sanitize-for-sharing work in docs/TODO.md),
 and is out of scope here — this ADR only ever withholds, never transforms-to-share.
 
-**Migration / phasing.** Large enough to stage: (1) per-project derived policy on the Engagement + the
-sensitivity resolver (seeded from the ADR-0064 global default); (2) sensitivity-scoped list/query reads
-for the orientation tools (fixes the wall-of-errors immediately) — a scoped read replaces a blocked tool;
-(3) per-item access refusal for the specific-item reads + the `run_capability` derived summary, retiring
-the coarse tool-identity gate; (4) a DLP event per withheld access, turning the boundary observable. The
-tool-identity sets (`assetEgressTools` etc.) remain during migration and are removed in (3).
+**Migration / phasing (delivered).** (1) per-project derived policy + resolver (010b907); (2) graceful
+structured *withhold* result instead of an error, so the agent orients + guides (6fc7b66); (3a)
+`run_capability`/`run_playbook` reclassified derived — their summary, not raw output, egresses (2fbcdae);
+(3b) `list_assets` self-scopes to the cleared subset via ExecDeps (ef0105c); (4) a DLP event per withheld
+access (ef0105c). Outcome refinement: the pre-execution gate was **retained, not retired** — it already
+classifies by *data* (each asset's sensitivity, the derived tier, private-by-default), so it is the single
+data-aware enforcement point; `selfScopedTools` (list_assets) are the exception that return a cleared
+subset the gate can't express. `resolveSourceAsset`-level refusal proved redundant (the gate already
+resolves the asset's sensitivity per item), so it was left as possible defense-in-depth, not built.
 
 **Before changing this,** the invariant is: nothing above the destination's clearance is ever read into
 the agent or the model. Enforcement is at the data-access layer (scoped queries, refused item reads), not
