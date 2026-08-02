@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -16,6 +17,12 @@ func mustJSON(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
 }
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// stripANSI removes SGR color codes so assertions match the text regardless of the terminal color
+// profile lipgloss detects under test.
+func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
 
 // step applies one message and returns the concrete app for further assertions.
 func step(t *testing.T, m tea.Model, msg tea.Msg) app {
@@ -130,6 +137,46 @@ func TestEscInterruptsTurn(t *testing.T) {
 	last := a.lines[len(a.lines)-1]
 	if last.role != "assistant" || !strings.Contains(last.text, "partial answer") || !strings.Contains(last.text, "interrupted") {
 		t.Fatalf("last line should be the interrupted partial, got %+v", last)
+	}
+}
+
+// TestAmbientEventsRender confirms domain events (ADR-0063 phase 4) weave into the transcript as event
+// lines: a completed scan and a new finding, with the finding's title and severity.
+func TestAmbientEventsRender(t *testing.T) {
+	a := newApp(context.Background(), nil)
+	a = step(t, a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
+
+	a = step(t, a, eventMsg{Type: "task.completed", Payload: mustJSON(client.TaskCompleted{
+		Task: model.Task{CapabilityID: "grype", Status: "succeeded"}, ObservationCount: 4,
+	})})
+	a = step(t, a, eventMsg{Type: "finding.created", Payload: mustJSON(model.Finding{
+		Title: "SQL injection in orders handler", Severity: "high",
+	})})
+
+	body := stripANSI(a.transcript())
+	if !strings.Contains(body, "grype") || !strings.Contains(body, "4 observations") {
+		t.Fatalf("task.completed line missing: %q", body)
+	}
+	if !strings.Contains(body, "SQL injection in orders handler") || !strings.Contains(body, "HIGH") {
+		t.Fatalf("finding.created line missing title/severity: %q", body)
+	}
+}
+
+// TestApprovalBadgeViaBus confirms an approval.requested event raises the non-blocking badge and a
+// matching approval.resolved clears it — the live cross-client approval flow.
+func TestApprovalBadgeViaBus(t *testing.T) {
+	a := newApp(context.Background(), nil)
+	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
+
+	a = step(t, a, eventMsg{Type: "approval.requested", Payload: mustJSON(client.ApprovalEvent{ID: "ap1", Tool: "run_script", ThreadID: "t1"})})
+	if a.pending == nil || a.pending.ID != "ap1" || !strings.Contains(a.status, "approval required") {
+		t.Fatalf("approval.requested did not raise the badge: pending=%v status=%q", a.pending, a.status)
+	}
+
+	a = step(t, a, eventMsg{Type: "approval.resolved", Payload: mustJSON(client.ApprovalEvent{ID: "ap1", Decision: "approve"})})
+	if a.pending != nil || !strings.Contains(a.status, "approve") {
+		t.Fatalf("approval.resolved did not clear the badge: pending=%v status=%q", a.pending, a.status)
 	}
 }
 

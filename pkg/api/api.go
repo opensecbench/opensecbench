@@ -1533,6 +1533,12 @@ func (s *Server) notifyIfPending(ctx context.Context, res analyst.SendResult) {
 	}
 	s.notify(ctx, model.NotifyApproval, "Approval needed",
 		"The Analyst wants to run "+res.Pending.Tool, pid, "approval:"+res.Pending.ID)
+	// Broadcast the pending approval so any attached client (TUI badge, GUI) surfaces it live (ADR-0063).
+	projectID := ""
+	if pid != nil {
+		projectID = *pid
+	}
+	s.Publish(projectID, "approval.requested", map[string]any{"id": res.Pending.ID, "tool": res.Pending.Tool, "thread_id": res.Thread.ID})
 }
 
 func (s *Server) forkThread(w http.ResponseWriter, r *http.Request) {
@@ -1791,6 +1797,8 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	s.record(r.Context(), actorOf(r), "approval."+req.Decision, approvalID, nil)
 	s.recordUsage(r.Context(), res)
+	// Broadcast the resolution so a second client clears its pending-approval badge live (ADR-0063).
+	s.Publish(projectFromReq(r), "approval.resolved", map[string]any{"id": approvalID, "decision": req.Decision})
 	s.notifyIfPending(r.Context(), res)
 	writeJSON(w, http.StatusOK, res)
 }

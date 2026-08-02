@@ -304,6 +304,32 @@ func (m app) handleEvent(ev client.Event) (tea.Model, tea.Cmd) {
 			m.applyStreamedMessage(am)
 			m.refreshViewport()
 		}
+	case "task.completed":
+		var tc client.TaskCompleted
+		if json.Unmarshal(ev.Payload, &tc) == nil {
+			m.lines = append(m.lines, line{role: "event", text: fmt.Sprintf("┈ scan · %s · %s · %d observations", tc.Task.CapabilityID, tc.Task.Status, tc.ObservationCount)})
+			m.refreshViewport()
+		}
+	case "finding.created":
+		var f model.Finding
+		if json.Unmarshal(ev.Payload, &f) == nil {
+			m.lines = append(m.lines, line{role: "event", text: fmt.Sprintf("⚑ finding · %s · %s", f.Title, strings.ToUpper(f.Severity))})
+			m.refreshViewport()
+		}
+	case "approval.requested":
+		var ap client.ApprovalEvent
+		if json.Unmarshal(ev.Payload, &ap) == nil {
+			m.pending = &model.Approval{ID: ap.ID, Tool: ap.Tool}
+			m.status = "⏸ approval required: " + ap.Tool + "  (approve in the GUI or `osb approval` for now)"
+			m.refreshViewport()
+		}
+	case "approval.resolved":
+		var ap client.ApprovalEvent
+		if json.Unmarshal(ev.Payload, &ap) == nil && m.pending != nil && m.pending.ID == ap.ID {
+			m.pending = nil
+			m.status = "approval " + ap.Decision
+			m.refreshViewport()
+		}
 	}
 	return m, waitForEvent(m.events) // keep draining
 }
@@ -454,6 +480,7 @@ var (
 	userStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
 	assistantStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
 	toolStyle      = lipgloss.NewStyle().Faint(true)
+	eventStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Faint(true)
 )
 
 func roleLabel(role string) string {
@@ -477,6 +504,8 @@ func renderLine(ln line) string {
 			body = ln.text
 		}
 		return assistantStyle.Render("Analyst") + "\n" + body
+	case "event": // ambient domain events (scan done, new finding) woven into the scroll
+		return eventStyle.Render(ln.text)
 	default: // tool / system
 		return toolStyle.Render("· " + ln.text)
 	}

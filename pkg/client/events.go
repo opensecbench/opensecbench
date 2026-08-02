@@ -173,3 +173,19 @@ type AnalystMessage struct {
 	ToolCallID string          `json:"tool_call_id,omitempty"`
 	ToolError  bool            `json:"tool_error,omitempty"`
 }
+
+// TaskCompleted is the payload of a "task.completed" event: a finished scan/capability run and how many
+// observations it produced. The payload of a "finding.created" event is a model.Finding directly.
+type TaskCompleted struct {
+	Task             model.Task `json:"task"`
+	ObservationCount int        `json:"observation_count"`
+}
+
+// ApprovalEvent is the payload of "approval.requested" and "approval.resolved" events. Decision is set
+// only on resolution ("approve" | "deny").
+type ApprovalEvent struct {
+	ID       string `json:"id"`
+	Tool     string `json:"tool"`
+	ThreadID string `json:"thread_id"`
+	Decision string `json:"decision,omitempty"`
+}

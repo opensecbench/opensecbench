@@ -10,6 +10,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/opensecbench/opensecbench/pkg/api"
+	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/store"
+	"github.com/opensecbench/opensecbench/pkg/store/storetest"
 )
 
 // TestBearerTokenOnEveryRequest confirms the transport wrapper attaches the ADR-0061 token to requests
@@ -199,6 +204,39 @@ func TestProjectThreadRoundTrip(t *testing.T) {
 	if err != nil || detail.Thread.ID != th.ID {
 		t.Fatalf("ProjectThread = %+v, err = %v", detail, err)
 	}
+}
+
+// TestAttachReceivesPublishedEvent closes the full loop over the real wire: a domain event published
+// through the API server's Publish seam (the one the engine uses) reaches an Attach subscriber and
+// decodes. Publishing in a loop covers the subscribe/connect race — the hub drops events with no
+// subscriber, so we retry until the stream is live.
+func TestAttachReceivesPublishedEvent(t *testing.T) {
+	db := storetest.New(t)
+	srv := api.New(api.Deps{Store: store.NewCombinedManager(db)})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch := New(ts.URL).Attach(ctx, "p1")
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		srv.Publish("p1", "finding.created", model.Finding{Title: "SQLi", Severity: "high"})
+		select {
+		case e := <-ch:
+			if e.Type != "finding.created" {
+				t.Fatalf("event type = %q, want finding.created", e.Type)
+			}
+			var f model.Finding
+			if err := json.Unmarshal(e.Payload, &f); err != nil || f.Title != "SQLi" {
+				t.Fatalf("payload decode = %+v, err = %v", f, err)
+			}
+			return
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	t.Fatal("published event never arrived over the stream")
 }
 
 func recv(t *testing.T, ch <-chan Event) Event {

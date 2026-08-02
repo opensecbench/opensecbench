@@ -61,6 +61,10 @@ type Engine struct {
 	// back to the item that spawned it and flip coverage. nil in most contexts.
 	onComplete func(ctx context.Context, oc Outcome)
 
+	// publish, if set, emits a live domain event (task completion, a new finding) to the control-plane
+	// event bus so every client reacts without polling (ADR-0063). nil disables it.
+	publish func(projectID, eventType string, payload any)
+
 	notify     chan struct{}   // "there may be work" wakeup, so workers claim immediately on enqueue
 	baseCtx    context.Context // parent context for background runs (survives request cancellation)
 	baseCancel context.CancelFunc
@@ -288,6 +292,10 @@ func (e *Engine) SetOutdatedChecker(d enrich.Doer) { e.outdatedHTTP = d }
 // SetOnComplete registers a callback fired after every task finishes executing (ADR-0056), used by the
 // methodology runner to route a completed task's observations back to its originating item and set coverage.
 func (e *Engine) SetOnComplete(fn func(ctx context.Context, oc Outcome)) { e.onComplete = fn }
+
+// SetPublisher registers a sink for live domain events the engine produces — task completions and the
+// findings its dispositions promote (ADR-0063) — so clients stream them instead of polling. nil disables.
+func (e *Engine) SetPublisher(fn func(projectID, eventType string, payload any)) { e.publish = fn }
 
 // RunRequest asks the engine to run a capability against a target directory.
 type RunRequest struct {
@@ -673,6 +681,12 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p prepared) (oc Outcome, err error) {
 	if e.onComplete != nil {
 		defer func() { e.onComplete(ctx, oc) }()
+	}
+	if e.publish != nil {
+		// Announce the finished task (ADR-0063): clients render "scan X · done · N observations" live.
+		defer func() {
+			e.publish(pidOf(oc.Task), "task.completed", map[string]any{"task": oc.Task, "observation_count": len(oc.Observations)})
+		}()
 	}
 	man := p.man
 	spec := p.spec
@@ -1144,6 +1158,9 @@ func (e *Engine) applyDispositions(ctx context.Context, projectID string, man ca
 			})
 			if err == nil {
 				e.auditDisposition(ctx, "disposition.finding", f.ID, o)
+				if e.publish != nil {
+					e.publish(projectID, "finding.created", f) // stream the new finding to clients (ADR-0063)
+				}
 			}
 		case disposition.ActionInvestigate:
 			if projectID == "" {

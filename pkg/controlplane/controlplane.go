@@ -251,6 +251,9 @@ func Start(opts Options) (*Instance, error) {
 	// Tell the API its own address so the proxy skips capturing the app's own control-plane traffic (the
 	// desktop webview follows the system proxy and would otherwise flood the capture list).
 	apiSrv.SetSelfAddr(ln.Addr().String())
+	// Bridge engine-produced domain events (task completions, new findings) onto the API's event bus so
+	// clients stream them live (ADR-0063). The hub lives in the API server, created just above.
+	engine.SetPublisher(apiSrv.Publish)
 	srv := &http.Server{
 		Handler:           apiSrv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,

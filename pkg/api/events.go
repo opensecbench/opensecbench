@@ -5,7 +5,19 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/opensecbench/opensecbench/pkg/events"
 )
+
+// Publish emits a domain event to the live bus (ADR-0063). It is the seam other subsystems that lack a
+// direct hub reference — notably the task engine — use to stream task completions and new findings, so
+// every client reacts without polling. projectID "" routes globally.
+func (s *Server) Publish(projectID, eventType string, payload any) {
+	if s.events == nil {
+		return
+	}
+	s.events.Publish(events.Event{Type: eventType, ProjectID: projectID, Payload: payload})
+}
 
 // projectEvents streams a project's live domain events (captured exchanges, proxy start/stop, …) as
 // Server-Sent Events, so clients react instead of polling. The event hub (pkg/events) is the source;
