@@ -419,15 +419,18 @@ func (db *DB) ListFindings(ctx context.Context) ([]model.Finding, error) {
 type FindingCount struct {
 	Total int `json:"total"`
 	High  int `json:"high"` // high + critical
+	Open  int `json:"open"` // status='open' — awaiting a human disposition decision
 }
 
-// FindingCountsByProject returns, per project id, the total findings and the high/critical count (via the
-// application → project join). Findings not attached to an application are not attributed to a project.
+// FindingCountsByProject returns, per project id, the total findings, the high/critical count, and the
+// count still in 'open' status (awaiting review) — via the application → project join. Findings not
+// attached to an application are not attributed to a project.
 func (db *DB) FindingCountsByProject(ctx context.Context) (map[string]FindingCount, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT a.project_id,
 		        COUNT(*),
-		        SUM(CASE WHEN f.severity IN ('critical','high') THEN 1 ELSE 0 END)
+		        SUM(CASE WHEN f.severity IN ('critical','high') THEN 1 ELSE 0 END),
+		        SUM(CASE WHEN f.status = 'open' THEN 1 ELSE 0 END)
 		 FROM findings f JOIN applications a ON f.application_id = a.id
 		 GROUP BY a.project_id`)
 	if err != nil {
@@ -437,11 +440,11 @@ func (db *DB) FindingCountsByProject(ctx context.Context) (map[string]FindingCou
 	out := map[string]FindingCount{}
 	for rows.Next() {
 		var pid string
-		var total, high int
-		if err := rows.Scan(&pid, &total, &high); err != nil {
+		var total, high, open int
+		if err := rows.Scan(&pid, &total, &high, &open); err != nil {
 			return nil, err
 		}
-		out[pid] = FindingCount{Total: total, High: high}
+		out[pid] = FindingCount{Total: total, High: high, Open: open}
 	}
 	return out, rows.Err()
 }

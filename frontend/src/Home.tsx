@@ -92,6 +92,16 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
 
   const counts = new Map((home?.projects ?? []).map((p) => [p.id, p]))
   const approvals = home?.approvals ?? []
+  // Review work waiting on a human, flattened to one actionable row per (project, kind). Each row jumps
+  // straight to the surface that clears it — so "nothing waiting on you" only shows when that's true.
+  const reviewItems = (home?.projects ?? []).flatMap((p) => {
+    const rows: { key: string; projectId: string; project: string; icon: string; label: string; surface: string }[] = []
+    if (p.open_findings > 0) rows.push({ key: `${p.id}-f`, projectId: p.id, project: p.name, icon: '⚑', label: `${p.open_findings} finding${p.open_findings === 1 ? '' : 's'} to review`, surface: 'findings' })
+    if (p.to_triage > 0) rows.push({ key: `${p.id}-t`, projectId: p.id, project: p.name, icon: '🧪', label: `${p.to_triage} to triage`, surface: 'observations' })
+    if (p.open_investigations > 0) rows.push({ key: `${p.id}-i`, projectId: p.id, project: p.name, icon: '🔎', label: `${p.open_investigations} open investigation${p.open_investigations === 1 ? '' : 's'}`, surface: 'observations' })
+    return rows
+  })
+  const waitingCount = approvals.length + (home?.projects ?? []).reduce((n, p) => n + p.open_findings + p.to_triage + p.open_investigations, 0)
   const activeThreads = home?.active.threads ?? []
   const runningTasks = home?.active.tasks ?? []
   const usage = home?.usage
@@ -140,18 +150,27 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
       )}
 
       <div className="mc-grid">
-        {/* Waiting on you */}
+        {/* Waiting on you — everything actionable: agent approvals + review backlog across projects */}
         <section className="mc-card">
-          <div className="mc-head">⏸ Waiting on you {approvals.length > 0 && <span className="mc-pill amber">{approvals.length}</span>}</div>
-          {approvals.length === 0 ? (
-            <div className="mc-empty">Nothing needs approval.</div>
+          <div className="mc-head">⏸ Waiting on you {waitingCount > 0 && <span className="mc-pill amber">{waitingCount}</span>}</div>
+          {approvals.length === 0 && reviewItems.length === 0 ? (
+            <div className="mc-empty">Nothing needs your attention.</div>
           ) : (
             <ul className="mc-list">
               {approvals.map((a) => (
                 <li key={a.id} className="mc-row link" onClick={() => open(a.project_id, { thread: a.thread_id })}>
+                  <span className="mc-cue">✋ approve</span>
                   <code>{a.tool}</code>
                   <span className="grow" />
                   <span className="muted">{a.project || 'no project'}</span>
+                </li>
+              ))}
+              {reviewItems.map((it) => (
+                <li key={it.key} className="mc-row link" onClick={() => open(it.projectId, { surface: it.surface })}>
+                  <span className="mc-cue">{it.icon}</span>
+                  <span>{it.label}</span>
+                  <span className="grow" />
+                  <span className="muted">{it.project}</span>
                 </li>
               ))}
             </ul>
@@ -313,6 +332,7 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
                       <span className={`badge ${p.status}`}>{p.status}</span>
                       {c && <span className="mc-stat">{c.findings} finding{c.findings === 1 ? '' : 's'}</span>}
                       {c && c.high > 0 && <span className="mc-stat red">{c.high} high+</span>}
+                      {c && c.open_findings > 0 && <span className="mc-stat amber">{c.open_findings} to review</span>}
                       {c && c.to_triage > 0 && <span className="mc-stat amber">{c.to_triage} to triage</span>}
                     </div>
                   </div>

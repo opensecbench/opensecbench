@@ -1557,7 +1557,9 @@ func (s *Server) forkThread(w http.ResponseWriter, r *http.Request) {
 }
 
 // getHome is the cross-project "mission control" cockpit (plan §Global Home): what's waiting on you,
-// what's running now, and each project's status at a glance.
+// what's running now, and each project's status at a glance. "Waiting on you" spans everything a human
+// must act on — agent approvals plus each project's review backlog (open findings, observations to
+// triage, open investigations), surfaced per project so no review work hides behind a quiet dashboard.
 func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -1632,27 +1634,39 @@ func (s *Server) getHome(w http.ResponseWriter, r *http.Request) {
 	// Projects at a glance.
 	fcounts, _ := s.pdb(r).FindingCountsByProject(ctx)
 	type projView struct {
-		ID         string `json:"id"`
-		Name       string `json:"name"`
-		Status     string `json:"status"`
-		Findings   int    `json:"findings"`
-		High       int    `json:"high"`
-		ToTriage   int    `json:"to_triage"`
-		Adopted    int    `json:"adopted"`     // methodology items in adopted packs (0 = no coverage ring)
-		CoveredPct int    `json:"covered_pct"` // covered / applicable, 0..100
+		ID                 string `json:"id"`
+		Name               string `json:"name"`
+		Status             string `json:"status"`
+		Findings           int    `json:"findings"`
+		High               int    `json:"high"`
+		OpenFindings       int    `json:"open_findings"`       // status='open' — a disposition decision is waiting
+		ToTriage           int    `json:"to_triage"`           // unreviewed observations awaiting triage
+		OpenInvestigations int    `json:"open_investigations"` // open/investigating follow-ups
+		Adopted            int    `json:"adopted"`             // methodology items in adopted packs (0 = no coverage ring)
+		CoveredPct         int    `json:"covered_pct"`         // covered / applicable, 0..100
 	}
 	pvs := []projView{}
 	for _, p := range projects {
 		fc := fcounts[p.ID]
+		// Per-project counts read each project's own DB (ADR-0049), like coverage below.
+		pdb := s.pdbID(p.ID)
 		toTriage := 0
-		if obs, err := s.pdb(r).ListObservationsByProject(ctx, p.ID); err == nil {
+		if obs, err := pdb.ListObservationsByProject(ctx, p.ID); err == nil {
 			for _, o := range obs {
 				if o.ReviewState == model.ReviewUnreviewed {
 					toTriage++
 				}
 			}
 		}
-		pv := projView{ID: p.ID, Name: p.Name, Status: p.Status, Findings: fc.Total, High: fc.High, ToTriage: toTriage}
+		openInv := 0
+		if invs, err := pdb.ListInvestigationsByProject(ctx, p.ID); err == nil {
+			for _, inv := range invs {
+				if inv.Status == model.InvestigationOpen || inv.Status == model.InvestigationInvestigating {
+					openInv++
+				}
+			}
+		}
+		pv := projView{ID: p.ID, Name: p.Name, Status: p.Status, Findings: fc.Total, High: fc.High, OpenFindings: fc.Open, ToTriage: toTriage, OpenInvestigations: openInv}
 		if cov, ok := s.projectCoverage(ctx, p.ID); ok {
 			pv.Adopted = cov.Total
 			pv.CoveredPct = cov.CoveredPct
