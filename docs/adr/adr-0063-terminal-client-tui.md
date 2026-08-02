@@ -1,6 +1,6 @@
 # ADR-0063 — Terminal client: a Claude-Code-style agent REPL
 
-Status: Proposed. We add `osb tui`, a full-screen-optional terminal client built on Bubble Tea, as a
+Status: Accepted — building (phased). We add `osb tui`, a full-screen-optional terminal client built on Bubble Tea, as a
 **peer client** of the desktop GUI over the same control-plane API (ADR-0001) — the interface *is* the
 Analyst conversation, not a reduced CLI or a multi-pane dashboard. The clients own no state, so a session
 started in the GUI and one in the terminal are the same session; getting there requires a bearer-authenticated
