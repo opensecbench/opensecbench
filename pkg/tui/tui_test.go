@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"encoding/json"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -17,12 +16,6 @@ func mustJSON(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
 }
-
-var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-// stripANSI removes SGR color codes so assertions match the text regardless of the terminal color
-// profile lipgloss detects under test.
-func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
 
 // step applies one message and returns the concrete app for further assertions.
 func step(t *testing.T, m tea.Model, msg tea.Msg) app {
@@ -51,8 +44,12 @@ func TestStagePickToChat(t *testing.T) {
 	if a.stage != stageChat {
 		t.Fatalf("stage = %d, want chat", a.stage)
 	}
-	if len(a.lines) != 2 { // system line dropped
-		t.Fatalf("history lines = %d, want 2 (%+v)", len(a.lines), a.lines)
+	// A thread-separator, then the user + assistant history (the system line is dropped).
+	if len(a.lines) != 3 {
+		t.Fatalf("lines = %d, want 3 separator+user+assistant (%+v)", len(a.lines), a.lines)
+	}
+	if a.lines[0].role != "event" || a.lines[1].role != "user" || a.lines[2].role != "assistant" {
+		t.Fatalf("unexpected line roles: %+v", a.lines)
 	}
 }
 
@@ -154,12 +151,15 @@ func TestAmbientEventsRender(t *testing.T) {
 		Title: "SQL injection in orders handler", Severity: "high",
 	})})
 
-	body := stripANSI(a.transcript())
-	if !strings.Contains(body, "grype") || !strings.Contains(body, "4 observations") {
-		t.Fatalf("task.completed line missing: %q", body)
+	var joined string
+	for _, ln := range a.lines {
+		joined += ln.text + "\n"
 	}
-	if !strings.Contains(body, "SQL injection in orders handler") || !strings.Contains(body, "HIGH") {
-		t.Fatalf("finding.created line missing title/severity: %q", body)
+	if !strings.Contains(joined, "grype") || !strings.Contains(joined, "4 observations") {
+		t.Fatalf("task.completed line missing: %q", joined)
+	}
+	if !strings.Contains(joined, "SQL injection in orders handler") || !strings.Contains(joined, "HIGH") {
+		t.Fatalf("finding.created line missing title/severity: %q", joined)
 	}
 }
 
@@ -177,6 +177,52 @@ func TestApprovalBadgeViaBus(t *testing.T) {
 	a = step(t, a, eventMsg{Type: "approval.resolved", Payload: mustJSON(client.ApprovalEvent{ID: "ap1", Decision: "approve"})})
 	if a.pending != nil || !strings.Contains(a.status, "approve") {
 		t.Fatalf("approval.resolved did not clear the badge: pending=%v status=%q", a.pending, a.status)
+	}
+}
+
+// TestSlashCommandsAndAutocomplete confirms in-chat "/" commands route to actions instead of sending,
+// and that the input is wired for autocomplete suggestions.
+func TestSlashCommandsAndAutocomplete(t *testing.T) {
+	a := newApp(context.Background(), nil)
+	a = step(t, a, tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = step(t, a, openedMsg{thread: model.Thread{ID: "t1"}, events: make(chan client.Event)})
+
+	if !a.input.ShowSuggestions || len(a.input.AvailableSuggestions()) != len(slashCommands) {
+		t.Fatalf("autocomplete not wired: show=%v suggestions=%v", a.input.ShowSuggestions, a.input.AvailableSuggestions())
+	}
+
+	// /threads switches to the thread picker (does not send).
+	a.input.SetValue("/threads")
+	a = step(t, a, tea.KeyMsg{Type: tea.KeyEnter})
+	if a.stage != stageThreads || a.sending {
+		t.Fatalf("/threads: stage=%d sending=%v", a.stage, a.sending)
+	}
+
+	// /project switches to the project picker.
+	a.stage = stageChat
+	a.input.SetValue("/project")
+	a = step(t, a, tea.KeyMsg{Type: tea.KeyEnter})
+	if a.stage != stageProjects {
+		t.Fatalf("/project: stage=%d, want projects", a.stage)
+	}
+
+	// /help sets a hint and never sends.
+	a.stage = stageChat
+	a.input.SetValue("/help")
+	a = step(t, a, tea.KeyMsg{Type: tea.KeyEnter})
+	if a.sending || !strings.Contains(a.status, "/new") {
+		t.Fatalf("/help: sending=%v status=%q", a.sending, a.status)
+	}
+
+	// /quit issues tea.Quit.
+	a.stage = stageChat
+	a.input.SetValue("/quit")
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("/quit issued no command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("/quit did not issue tea.Quit")
 	}
 }
 
