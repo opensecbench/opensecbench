@@ -24,6 +24,14 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Serialize all access onto one connection. SQLite allows a single writer at a time; with the default
+	// pool the engine's concurrent workers open separate connections and contend, so a write can exhaust the
+	// busy timeout and fail with SQLITE_BUSY under load (seen flakily in -race CI). One connection makes
+	// database/sql queue callers in-process instead — no lock contention, no busy errors. The real work runs
+	// in Docker containers off the DB, so the short claim/finish/ingest ops that serialize here don't bottleneck
+	// throughput. The store keeps every query inside its transaction (never a bare db.* call mid-tx), so a
+	// single connection cannot self-deadlock.
+	sqldb.SetMaxOpenConns(1)
 	if _, err := sqldb.Exec(`PRAGMA journal_mode = WAL`); err != nil {
 		_ = sqldb.Close()
 		return nil, fmt.Errorf("store: enable WAL: %w", err)
