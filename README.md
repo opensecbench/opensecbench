@@ -17,9 +17,14 @@ dramatically more effective — and that a community can extend and share.
 
 > **Status: early access, under active development.** The local single-user workbench is broadly
 > functional — the assessment lifecycle, sandboxed capabilities, the evidence loop, the HTTP
-> toolset, the multi-agent Analyst, methodology/coverage, the knowledge base, reporting, and signed
-> extensions all work. Platform-reach items (remote runners, hosted hub/team services) are still in
-> progress. Expect rough edges, and see [Contributing](#contributing) if you'd like to help.
+> toolset, the multi-agent Analyst, checklists and coverage tracking, the knowledge base, reporting,
+> and signed extensions all work. Platform-reach items (remote runners, hosted hub/team services) are
+> still in progress.
+>
+> This is **pre-1.0 and moving fast**: it's a work in progress, and interfaces, data formats, and
+> features can still change — sometimes in breaking ways — between releases. There are no stability or
+> backwards-compatibility guarantees yet. Expect rough edges, pin a commit if you need stability, and
+> see [Contributing](#contributing) if you'd like to help shape it.
 
 ## Design philosophy
 
