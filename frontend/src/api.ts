@@ -439,6 +439,13 @@ export interface ExtensionInfo {
 }
 
 // A global external-tracker connection (ADR-0027 / IA declutter) — built in the Library, bound to projects.
+// Vault secret metadata (ADR-0011). The sealed value is never exposed — only that a name is set.
+export interface Secret {
+  id: string
+  name: string
+  created_at: string
+  updated_at: string
+}
 export interface Connector {
   id: string
   name: string
@@ -1164,8 +1171,12 @@ export const api = {
     request<HTTPExchange>('POST', `/v1/exchanges/${id}/send`, runnerId ? { runner_id: runnerId } : {}),
   listRunners: () => request<RunnerView[]>('GET', '/v1/runners'),
 
+  // Vault secrets (ADR-0011): metadata only — the sealed value is never returned. Set is upsert-by-name.
+  listSecrets: () => request<Secret[]>('GET', '/v1/secrets'),
+  setSecret: (name: string, value: string) => request<Secret>('POST', '/v1/secrets', { name, value }),
+  deleteSecret: (name: string) => request<void>('DELETE', `/v1/secrets/${encodeURIComponent(name)}`),
+
   // Integrations (ADR-0027 / IA declutter): global connectors (Library) + per-project bindings + pull.
-  listSecrets: () => request<{ name: string }[]>('GET', '/v1/secrets'),
   listConnectorTypes: () => request<ConnectorType[]>('GET', '/v1/integrations'),
   listConnectors: () => request<Connector[]>('GET', '/v1/connectors'),
   createConnector: (body: { name: string; type: string; base_url: string; credential: string }) =>
