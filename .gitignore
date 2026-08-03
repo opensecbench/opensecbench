@@ -4,6 +4,7 @@
 /dist/
 *.exe
 # Stray binaries from `go build ./cmd/<name>` in the repo root
+/opensecbench
 /osb
 /daemon
 /osb-runner
