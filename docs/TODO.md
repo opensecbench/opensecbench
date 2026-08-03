@@ -186,6 +186,15 @@ and can later ship as plugins.
       exposed pills in the triage view. *Phase 2 remaining: SAST reachability (exposed handler → sink);
       correlate govulncheck reachability onto grype CVEs + parse the SBOM into tables; explicit/periodic
       exposure; multi-language reachability; a prebuilt govulncheck image.*
+- [ ] **JVM / Java reachability** — govulncheck is Go-only, so Java SCA CVEs (e.g. the PetClinic demo) get
+      no reachability verdict — the biggest lever for cutting transitive-medium noise (ADR-0069). Feeds the
+      same `reachable`/`reachable_confirmed` axis + `record_reachability`/`SetReachability` store. Options,
+      cheapest first: (a) **symbol-usage heuristic** — map a CVE → its vulnerable class/method (advisory data
+      or a curated map, e.g. Text4Shell → `StringSubstitutor.createInterpolator`) and grep/AST the source for
+      that call = "is the vulnerable API even used"; not a call graph but a strong signal, and the vuln repos
+      already document the mappings; (b) a real JVM call-graph analyzer (no clean OSS govulncheck-equivalent;
+      CodeQL is heavy, Endor/Snyk are commercial); (c) agent-assisted — the Analyst records a reachability
+      fact after reading the CVE + source. Start with (a).
 - [x] **Cross-tool reachability correlation** (ADR-0031, Phase 2a) — reachability verdicts stored per CVE
       (`reachability` table; `store.SetReachability`/`ReachabilityForCVE`), populated generically by any
       analyzer (govulncheck) and reused to enrich other tools' CVE findings. grype now routes
