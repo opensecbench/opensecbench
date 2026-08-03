@@ -24,6 +24,24 @@ const routeJSON = `{
         "message": "Flask route \"/users/<int:id>\"",
         "metadata": {"osb_route": true, "framework": "flask"}
       }
+    },
+    {
+      "check_id": "rules.osb-route-spring-post",
+      "path": "/src/FormatterController.java",
+      "start": {"line": 20},
+      "extra": {
+        "message": "Spring POST \"/format\"",
+        "metadata": {"osb_route": true, "framework": "spring", "method": "POST"}
+      }
+    },
+    {
+      "check_id": "rules.osb-route-spring-get",
+      "path": "/src/VetController.java",
+      "start": {"line": 33},
+      "extra": {
+        "message": "Spring GET { \"/vets\" }",
+        "metadata": {"osb_route": true, "framework": "spring", "method": "GET"}
+      }
     }
   ]
 }`
@@ -33,8 +51,8 @@ func TestRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 2 {
-		t.Fatalf("got %d routes, want 2", len(routes))
+	if len(routes) != 4 {
+		t.Fatalf("got %d routes, want 4", len(routes))
 	}
 
 	get := routes[0]
@@ -51,6 +69,18 @@ func TestRoutes(t *testing.T) {
 	flask := routes[1]
 	if flask.Path != "/users/<int:id>" || flask.Method != "" { // no method metadata → any; double quotes stripped
 		t.Fatalf("flask route = %+v", flask)
+	}
+
+	// Spring: method from metadata, path from the interpolated literal.
+	spring := routes[2]
+	if spring.Method != "POST" || spring.Path != "/format" || spring.Framework != "spring" {
+		t.Fatalf("spring POST route = %+v", spring)
+	}
+	// Array form (@GetMapping({"/vets"})) → message "Spring GET { \"/vets\" }"; quotedRoute takes the first
+	// quoted literal, so the path resolves to /vets rather than the braces.
+	arr := routes[3]
+	if arr.Method != "GET" || arr.Path != "/vets" {
+		t.Fatalf("spring array-form route = %+v", arr)
 	}
 }
 

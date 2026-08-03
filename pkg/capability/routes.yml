@@ -86,3 +86,77 @@ rules:
     message: "gin POST $ROUTE"
     metadata: {osb_route: true, framework: gin, method: POST}
     pattern: $R.POST($ROUTE, $HANDLER, ...)
+
+  # --- Java: Spring MVC / WebFlux (annotation-declared) ---
+  # Method-level mappings only. A class-level @RequestMapping prefix is NOT composed onto these (semgrep
+  # matches per-annotation with no class context), so a path here may be relative to a controller prefix —
+  # honest partial coverage (ADR-0033: route detection is heuristic). Covers positional ("/x"), value=, and
+  # path= argument forms; the array form (@GetMapping({"/a","/b"})) captures the first path.
+  - id: osb-route-spring-get
+    languages: [java]
+    severity: INFO
+    message: "Spring GET $ROUTE"
+    metadata: {osb_route: true, framework: spring, method: GET}
+    patterns:
+      - pattern-either:
+          - pattern: "@GetMapping($ROUTE)"
+          - pattern: "@GetMapping(value = $ROUTE, ...)"
+          - pattern: "@GetMapping(path = $ROUTE, ...)"
+          - pattern: "@GetMapping({$ROUTE, ...})"
+  - id: osb-route-spring-post
+    languages: [java]
+    severity: INFO
+    message: "Spring POST $ROUTE"
+    metadata: {osb_route: true, framework: spring, method: POST}
+    patterns:
+      - pattern-either:
+          - pattern: "@PostMapping($ROUTE)"
+          - pattern: "@PostMapping(value = $ROUTE, ...)"
+          - pattern: "@PostMapping(path = $ROUTE, ...)"
+          - pattern: "@PostMapping({$ROUTE, ...})"
+  - id: osb-route-spring-put
+    languages: [java]
+    severity: INFO
+    message: "Spring PUT $ROUTE"
+    metadata: {osb_route: true, framework: spring, method: PUT}
+    patterns:
+      - pattern-either:
+          - pattern: "@PutMapping($ROUTE)"
+          - pattern: "@PutMapping(value = $ROUTE, ...)"
+          - pattern: "@PutMapping(path = $ROUTE, ...)"
+          - pattern: "@PutMapping({$ROUTE, ...})"
+  - id: osb-route-spring-delete
+    languages: [java]
+    severity: INFO
+    message: "Spring DELETE $ROUTE"
+    metadata: {osb_route: true, framework: spring, method: DELETE}
+    patterns:
+      - pattern-either:
+          - pattern: "@DeleteMapping($ROUTE)"
+          - pattern: "@DeleteMapping(value = $ROUTE, ...)"
+          - pattern: "@DeleteMapping(path = $ROUTE, ...)"
+          - pattern: "@DeleteMapping({$ROUTE, ...})"
+  - id: osb-route-spring-patch
+    languages: [java]
+    severity: INFO
+    message: "Spring PATCH $ROUTE"
+    metadata: {osb_route: true, framework: spring, method: PATCH}
+    patterns:
+      - pattern-either:
+          - pattern: "@PatchMapping($ROUTE)"
+          - pattern: "@PatchMapping(value = $ROUTE, ...)"
+          - pattern: "@PatchMapping(path = $ROUTE, ...)"
+          - pattern: "@PatchMapping({$ROUTE, ...})"
+  # @RequestMapping is used at both class and method level and its method attribute is optional, so no HTTP
+  # method is asserted here (left blank = any). Matches the common path-bearing forms.
+  - id: osb-route-spring-request
+    languages: [java]
+    severity: INFO
+    message: "Spring route $ROUTE"
+    metadata: {osb_route: true, framework: spring}
+    patterns:
+      - pattern-either:
+          - pattern: "@RequestMapping($ROUTE)"
+          - pattern: "@RequestMapping(value = $ROUTE, ...)"
+          - pattern: "@RequestMapping(path = $ROUTE, ...)"
+          - pattern: "@RequestMapping({$ROUTE, ...})"
