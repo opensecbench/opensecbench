@@ -4,11 +4,24 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"strings"
 
 	"github.com/ledongthuc/pdf"
 )
+
+// safeExtract runs a document parser, turning a panic on malformed input into an error. The ledongthuc/pdf
+// parser panics on some crafted PDFs; without this a hostile document would crash the process instead of
+// degrading to the metadata-note fallback.
+func safeExtract(fn func() (string, error)) (text string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			text, err = "", fmt.Errorf("document parser panicked: %v", r)
+		}
+	}()
+	return fn()
+}
 
 // extractText pulls readable text out of a binary document so the analyst can actually read ingested PDFs and
 // Office files (ADR-0020, review #2). It handles PDF and OOXML (docx/pptx) — both parsed on-host so no
@@ -29,24 +42,30 @@ func extractText(data []byte) (string, bool) {
 }
 
 func extractPDF(data []byte) (string, error) {
-	r, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return "", err
-	}
-	tr, err := r.GetPlainText()
-	if err != nil {
-		return "", err
-	}
-	var b strings.Builder
-	if _, err := io.Copy(&b, tr); err != nil {
-		return "", err
-	}
-	return b.String(), nil
+	return safeExtract(func() (string, error) {
+		r, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			return "", err
+		}
+		tr, err := r.GetPlainText()
+		if err != nil {
+			return "", err
+		}
+		var b strings.Builder
+		if _, err := io.Copy(&b, tr); err != nil {
+			return "", err
+		}
+		return b.String(), nil
+	})
 }
 
 // extractOOXML reads text from the XML parts of a Word (word/document.xml) or PowerPoint (ppt/slides/*.xml)
 // file. It walks the XML and emits character data, breaking a line at each paragraph end (`w:p` / `a:p`).
 func extractOOXML(data []byte) (string, error) {
+	return safeExtract(func() (string, error) { return extractOOXMLInner(data) })
+}
+
+func extractOOXMLInner(data []byte) (string, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return "", err
