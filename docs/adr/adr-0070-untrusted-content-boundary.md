@@ -1,6 +1,6 @@
 # ADR-0070 — Untrusted-content boundary for the AI Analyst
 
-Status: Proposed. Every place attacker-influenceable content reaches the Analyst's model — tool
+Status: Accepted. Every place attacker-influenceable content reaches the Analyst's model — tool
 results, ingested documents, scanner/tracker findings, corpus notes, on-screen context — is marked
 as untrusted through one shared, unforgeable primitive, delivered in a low-trust message role rather
 than the system prompt, over a governance floor that assumes injection can still succeed. Replaces
