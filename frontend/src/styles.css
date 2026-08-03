@@ -2934,6 +2934,7 @@ select.em-in { cursor: pointer; }
 .em-seg button.on { background: var(--amber); color: #1a1205; font-weight: 700; }
 
 .em-check { cursor: pointer; }
+.em-check.em-check-off { opacity: .5; cursor: default; }
 .em-box { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--line2); display: grid; place-items: center; font-size: 10px; color: #04101f; flex: 0 0 auto; }
 .em-box.on { background: var(--acc); border-color: var(--acc); }
 
