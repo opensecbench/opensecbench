@@ -127,6 +127,10 @@ export function EngagementModal({
   const [methodologies, setMethodologies] = useState<Methodology[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // If the project is created but its optional kickstart seeding fails, we stash the project + a warning
+  // rather than swallowing it, so the user can read what went wrong and still proceed into the project.
+  const [created, setCreated] = useState<Project | null>(null)
+  const [seedWarn, setSeedWarn] = useState<string | null>(null)
   const nameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -141,9 +145,10 @@ export function EngagementModal({
     if (online) api.listOrganizations().then((o) => setOrgs(o ?? [])).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online])
-  // Default the base folder to where the app was launched — a real, editable path beats a fake placeholder.
+  // Default the base folder to where the app was launched — a real, editable path beats a fake placeholder —
+  // and point the first repo at that base folder (".") so a base folder alone yields a scannable asset.
   useEffect(() => {
-    workingDir().then((wd) => { if (wd) setBasePath((cur) => cur || wd) }).catch(() => {})
+    workingDir().then((wd) => { if (wd) { setBasePath((cur) => cur || wd); setFirstRepo((cur) => cur || '.') } }).catch(() => {})
   }, [])
   // Reload the org's teams (and reset the selection) whenever the chosen org changes.
   useEffect(() => {
@@ -181,14 +186,21 @@ export function EngagementModal({
         test_accounts: testAccounts.filter((a) => a.username || a.role),
       }
       const project = await api.createEngagement({ name: name.trim(), organization_id: orgId || null, group_id: groupId || null, engagement, scope: hasActive ? scopeSeeds : [], location: customLoc && basePath.trim() ? basePath.trim() : '' })
-      // Kickstart (best-effort — never block the created project on a seed failure).
+      // Kickstart is best-effort — the project already exists — but surface a failure instead of swallowing
+      // it, so a project doesn't silently come up with no assets/checklists. Stash the project and let the
+      // user proceed into it once they've seen the error.
       try {
         for (const id of adopt) await api.adoptMethodology(project.id, id)
         if (firstRepo.trim()) {
           const app = await api.createApplication(project.id, kinds[0] || 'app')
           await api.createAsset(app.id, 'source_repo', firstRepo.trim(), 'private')
         }
-      } catch { /* seeds are optional; the project exists */ }
+      } catch (e) {
+        setCreated(project)
+        setSeedWarn(`Project created, but kickstart seeding failed: ${(e as Error).message}. Finish in the project's Assets / Checklist tabs.`)
+        setBusy(false)
+        return
+      }
       onCreated(project)
     } catch (e) {
       setError((e as Error).message)
@@ -234,6 +246,7 @@ export function EngagementModal({
 
         <div className="em-body">
           {error && <div className="banner error">⚠ {error}</div>}
+          {seedWarn && <div className="banner warn">⚠ {seedWarn}</div>}
 
           {/* 1 ESSENTIALS */}
           <section className="em-sect">
@@ -472,9 +485,11 @@ export function EngagementModal({
         <div className="em-foot">
           <button className="em-btn" onClick={onClose}>Cancel</button>
           <span className="em-sp" />
-          <button className="em-btn pri" disabled={!online || busy || !name.trim()} onClick={submit}>
-            {busy ? 'Creating…' : 'Create engagement'}
-          </button>
+          {created
+            ? <button className="em-btn pri" onClick={() => onCreated(created)}>Continue to project →</button>
+            : <button className="em-btn pri" disabled={!online || busy || !name.trim()} onClick={submit}>
+                {busy ? 'Creating…' : 'Create engagement'}
+              </button>}
         </div>
       </div>
     </div>

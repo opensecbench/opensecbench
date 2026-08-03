@@ -222,6 +222,17 @@ and can later ship as plugins.
       events (published, not yet consumed by the GUI); verify TUI-initiated turns co-drive an attached GUI via
       `ui.command`; deferred by design — glance-panels, headless LLM-provider creation, anchored co-drive
       deep-refs, `osb session attach` raw-terminal streaming.*
+- [ ] **Open/adopt an existing project** — point OpenSecBench at a directory that already contains a
+      `.opensecbench/project.db` (a cloned repo, another machine, or a reset `global.db`) and register+open
+      it. Today only *creation* exists and it refuses a dir that already has `.opensecbench`; the TUI's
+      `DiscoverProject` opens a marker only if its id is already in this instance's `project_index`, so a
+      foreign project.db is silently unreachable. Design (researched): `Manager.AdoptProject(ctx, projDir)`
+      — read the id from the `project.json` marker (fallback: open the db and read the sole `projects` row),
+      `SetProjectDir` + `Project()` to attach/migrate, guard **id collision** (UpsertProjectIndex is
+      ON CONFLICT DO UPDATE — pre-check `projectIndexed`) and **schema-too-new** (`Apply` has no
+      version-ceiling guard — compare `pdb.Version()` vs `len(projMigs)` and refuse), normalize to an
+      absolute dir, then `UpsertProjectIndex` + `SetProjectIndexDir`. Wire `POST /v1/projects/adopt`, a
+      client method, and an "Open existing…" button beside "＋ New engagement" on Home.
 - [ ] Runtime extension **uninstall** + update/version-constraint flow.
 
 ## Plugin / extension ecosystem
