@@ -218,10 +218,11 @@ and can later ship as plugins.
       the GUI over the control-plane bus; `pkg/client` bearer auth + `Attach` SSE primitive; attach(thread)
       resume; streaming conversation, slash commands (`/search` `/findings` `/observations` `/new` `/threads`
       `/project`), terminal approvals, dir-local project create; `task.completed`/`finding.created`/`approval.*`
-      published on the bus. *Remaining: GUI-side React handlers to render the new `task.*`/`finding.*` bus
-      events (published, not yet consumed by the GUI); verify TUI-initiated turns co-drive an attached GUI via
-      `ui.command`; deferred by design — glance-panels, headless LLM-provider creation, anchored co-drive
-      deep-refs, `osb session attach` raw-terminal streaming.*
+      published on the bus. *Remaining: GUI consumption of the new `task.*`/`finding.*` bus events — DONE for
+      triage (Workbench reloads observations/findings on `task.completed`/`finding.created`, 5d380a9); other
+      surfaces (progress bars, task-list live status) still poll; verify TUI-initiated turns co-drive an
+      attached GUI via `ui.command`; deferred by design — glance-panels, headless LLM-provider creation,
+      anchored co-drive deep-refs, `osb session attach` raw-terminal streaming.*
 - [ ] **Open/adopt an existing project** — point OpenSecBench at a directory that already contains a
       `.opensecbench/project.db` (a cloned repo, another machine, or a reset `global.db`) and register+open
       it. Today only *creation* exists and it refuses a dir that already has `.opensecbench`; the TUI's
