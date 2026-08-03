@@ -202,13 +202,18 @@ func (a *agent) tunnel(ctx context.Context) error {
 	wsURL := strings.Replace(a.url, "http", "ws", 1) + path // http->ws, https->wss
 	hdr := http.Header{}
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig, err := runnerhub.Sign(a.id.PrivKey, http.MethodGet, path, ts, nil)
+	nonce, err := runnerhub.Nonce()
+	if err != nil {
+		return err
+	}
+	sig, err := runnerhub.Sign(a.id.PrivKey, http.MethodGet, path, ts, nonce, nil)
 	if err != nil {
 		return err
 	}
 	hdr.Set(runnerhub.HeaderRunnerID, a.id.RunnerID)
 	hdr.Set(runnerhub.HeaderTime, ts)
 	hdr.Set(runnerhub.HeaderSig, sig)
+	hdr.Set(runnerhub.HeaderNonce, nonce)
 
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, hdr)
 	if err != nil {
@@ -324,7 +329,12 @@ func (a *agent) postResult(taskID string, res runner.Result) {
 
 func (a *agent) signHeaders(req *http.Request, method, path string, body []byte) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig, err := runnerhub.Sign(a.id.PrivKey, method, path, ts, body)
+	nonce, err := runnerhub.Nonce()
+	if err != nil {
+		log.Printf("nonce: %v", err)
+		return
+	}
+	sig, err := runnerhub.Sign(a.id.PrivKey, method, path, ts, nonce, body)
 	if err != nil {
 		log.Printf("signing: %v", err)
 		return
@@ -332,6 +342,7 @@ func (a *agent) signHeaders(req *http.Request, method, path string, body []byte)
 	req.Header.Set(runnerhub.HeaderRunnerID, a.id.RunnerID)
 	req.Header.Set(runnerhub.HeaderTime, ts)
 	req.Header.Set(runnerhub.HeaderSig, sig)
+	req.Header.Set(runnerhub.HeaderNonce, nonce)
 }
 
 // loadOrEnroll returns the persisted identity, enrolling first if none exists and a token was supplied.

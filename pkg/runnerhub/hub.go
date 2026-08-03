@@ -89,6 +89,7 @@ type Hub struct {
 	pending     map[string]chan runner.Result    // taskID -> capability-result waiter
 	pendingHTTP map[string]httpWaiter            // requestID -> HTTP-result waiter
 	tunnels     map[string]*runnertunnel.Session // runnerID -> live streaming tunnel (ADR-0026)
+	Replay      *ReplayGuard                     // anti-replay for signed runner requests
 }
 
 // New builds an empty hub.
@@ -98,6 +99,7 @@ func New() *Hub {
 		pending:     map[string]chan runner.Result{},
 		pendingHTTP: map[string]httpWaiter{},
 		tunnels:     map[string]*runnertunnel.Session{},
+		Replay:      NewReplayGuard(),
 	}
 }
 

@@ -33,22 +33,27 @@ type fakeAgent struct {
 	gotDispatch chan string
 }
 
-func (a *fakeAgent) sign(method, path string, body []byte) (id, ts, sig string) {
+func (a *fakeAgent) sign(method, path string, body []byte) (id, ts, sig, nonce string) {
 	ts = strconv.FormatInt(time.Now().Unix(), 10)
-	s, err := runnerhub.Sign(a.priv, method, path, ts, body)
+	nonce, err := runnerhub.Nonce()
 	if err != nil {
 		a.t.Fatal(err)
 	}
-	return a.id, ts, s
+	s, err := runnerhub.Sign(a.priv, method, path, ts, nonce, body)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	return a.id, ts, s, nonce
 }
 
 func (a *fakeAgent) post(t *testing.T, path string, body any) *http.Response {
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPost, a.runnerURL+path, bytes.NewReader(b))
-	id, ts, sig := a.sign(http.MethodPost, path, b)
+	id, ts, sig, nonce := a.sign(http.MethodPost, path, b)
 	req.Header.Set(runnerhub.HeaderRunnerID, id)
 	req.Header.Set(runnerhub.HeaderTime, ts)
 	req.Header.Set(runnerhub.HeaderSig, sig)
+	req.Header.Set(runnerhub.HeaderNonce, nonce)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -61,10 +66,11 @@ func (a *fakeAgent) post(t *testing.T, path string, body any) *http.Response {
 func (a *fakeAgent) stream(ctx context.Context) {
 	const path = "/v1/runners/stream"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, a.runnerURL+path, nil)
-	id, ts, sig := a.sign(http.MethodGet, path, nil)
+	id, ts, sig, nonce := a.sign(http.MethodGet, path, nil)
 	req.Header.Set(runnerhub.HeaderRunnerID, id)
 	req.Header.Set(runnerhub.HeaderTime, ts)
 	req.Header.Set(runnerhub.HeaderSig, sig)
+	req.Header.Set(runnerhub.HeaderNonce, nonce)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		return
@@ -316,11 +322,13 @@ func TestRunnerAuthRejectsBadSignature(t *testing.T) {
 	_, wrongPriv, _ := runnerhub.GenerateKeyPair()
 	const path = "/v1/runners/stream"
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig, _ := runnerhub.Sign(wrongPriv, http.MethodGet, path, ts, nil)
+	nonce, _ := runnerhub.Nonce()
+	sig, _ := runnerhub.Sign(wrongPriv, http.MethodGet, path, ts, nonce, nil)
 	req, _ := http.NewRequest(http.MethodGet, runnerSrv.URL+path, nil)
 	req.Header.Set(runnerhub.HeaderRunnerID, r.ID)
 	req.Header.Set(runnerhub.HeaderTime, ts)
 	req.Header.Set(runnerhub.HeaderSig, sig)
+	req.Header.Set(runnerhub.HeaderNonce, nonce)
 	resp, err := runnerSrv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -328,5 +336,35 @@ func TestRunnerAuthRejectsBadSignature(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("bad-signature stream = %d, want 401", resp.StatusCode)
+	}
+
+	// A validly signed request replayed verbatim is rejected the second time (ADR-0024 anti-replay).
+	goodPub, goodPriv, _ := runnerhub.GenerateKeyPair()
+	gr, err := db.CreateRunner(context.Background(), "replayer", goodPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts2 := strconv.FormatInt(time.Now().Unix(), 10)
+	nonce2, _ := runnerhub.Nonce()
+	sig2, _ := runnerhub.Sign(goodPriv, http.MethodPost, "/v1/runners/result", ts2, nonce2, []byte("{}"))
+	do := func() int {
+		rq, _ := http.NewRequest(http.MethodPost, runnerSrv.URL+"/v1/runners/result", bytes.NewReader([]byte("{}")))
+		rq.Header.Set(runnerhub.HeaderRunnerID, gr.ID)
+		rq.Header.Set(runnerhub.HeaderTime, ts2)
+		rq.Header.Set(runnerhub.HeaderSig, sig2)
+		rq.Header.Set(runnerhub.HeaderNonce, nonce2)
+		rp, err := runnerSrv.Client().Do(rq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = rp.Body.Close()
+		return rp.StatusCode
+	}
+	// First use passes auth (403 = past auth, task not assigned); the replay is stopped at auth (401).
+	if got := do(); got == http.StatusUnauthorized {
+		t.Fatalf("first signed request = 401, want past-auth")
+	}
+	if got := do(); got != http.StatusUnauthorized {
+		t.Fatalf("replayed request = %d, want 401", got)
 	}
 }

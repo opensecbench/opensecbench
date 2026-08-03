@@ -55,7 +55,11 @@ func fakeTunnelAgent(t *testing.T, runnerURL, id, priv string) {
 	const path = "/v1/runners/tunnel"
 	wsURL := strings.Replace(runnerURL, "http", "ws", 1) + path
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	sig, err := runnerhub.Sign(priv, http.MethodGet, path, ts, nil)
+	nonce, err := runnerhub.Nonce()
+	if err != nil {
+		return
+	}
+	sig, err := runnerhub.Sign(priv, http.MethodGet, path, ts, nonce, nil)
 	if err != nil {
 		return
 	}
@@ -63,6 +67,7 @@ func fakeTunnelAgent(t *testing.T, runnerURL, id, priv string) {
 	hdr.Set(runnerhub.HeaderRunnerID, id)
 	hdr.Set(runnerhub.HeaderTime, ts)
 	hdr.Set(runnerhub.HeaderSig, sig)
+	hdr.Set(runnerhub.HeaderNonce, nonce)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, hdr)
 	if err != nil {
 		return

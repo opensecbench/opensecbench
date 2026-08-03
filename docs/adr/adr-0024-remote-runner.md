@@ -23,8 +23,10 @@ through a runner (a per-request forward hop) is a distinct Phase 2.
 off by default) serves only `/v1/runners/{enroll,stream,result}`, so the network-exposed surface is just
 the authenticated runner protocol; the operator fronts it with TLS or a tunnel (how assessment runners
 deploy anyway). Every runner request is authenticated by an **ed25519 signature** over
-`method|path|timestamp|sha256(body)`, verified against the runner's enrolled public key, with a 60s window
-bounding replay. Operator actions (mint token, list, revoke) stay on the trusted loopback API.
+`method|path|timestamp|nonce|sha256(body)`, verified against the runner's enrolled public key, with a 60s
+window bounding validity and a server-side per-runner nonce cache rejecting any signature replayed inside
+that window (so an on-path attacker cannot re-open the dispatch stream and siphon a runner's secret env).
+Operator actions (mint token, list, revoke) stay on the trusted loopback API.
 
 **Enrollment.** The operator mints a one-time token (`osb runner enroll-token`); only its sha256 is stored
 (never the token), consumed atomically at enroll. The runner (`osb-runner --enroll <token>`) generates an

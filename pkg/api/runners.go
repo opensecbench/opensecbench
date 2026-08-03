@@ -151,7 +151,8 @@ func (s *Server) runnerAuth(next http.HandlerFunc) http.HandlerFunc {
 		id := r.Header.Get(runnerhub.HeaderRunnerID)
 		ts := r.Header.Get(runnerhub.HeaderTime)
 		sig := r.Header.Get(runnerhub.HeaderSig)
-		if id == "" || ts == "" || sig == "" {
+		nonce := r.Header.Get(runnerhub.HeaderNonce)
+		if id == "" || ts == "" || sig == "" || nonce == "" {
 			writeErr(w, http.StatusUnauthorized, "missing runner auth headers")
 			return
 		}
@@ -164,8 +165,12 @@ func (s *Server) runnerAuth(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, http.StatusUnauthorized, "unknown or revoked runner")
 			return
 		}
-		if err := runnerhub.Verify(rn.PubKey, r.Method, r.URL.Path, ts, sig, body, time.Now()); err != nil {
+		if err := runnerhub.Verify(rn.PubKey, r.Method, r.URL.Path, ts, nonce, sig, body, time.Now()); err != nil {
 			writeErr(w, http.StatusUnauthorized, "signature verification failed")
+			return
+		}
+		if !s.runners.Replay.Check(id, nonce, time.Now()) {
+			writeErr(w, http.StatusUnauthorized, "replayed runner request")
 			return
 		}
 		_ = s.global().TouchRunner(r.Context(), id)
