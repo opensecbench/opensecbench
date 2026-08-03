@@ -113,10 +113,15 @@ export function OverviewTab({
         <button className="wb-ov-stat" onClick={() => onJump('engagement')} title="Scope & engagement"><div className={`v ${hasEngagement ? 'good' : 'warn'}`}>{hasEngagement ? '✓' : '—'}</div><div className="k">engagement</div></button>
       </div>
 
-      {summary && (summary.findings.total > 0 || summary.dependencies.Total > 0) && (
+      {summary && (summary.findings.total > 0 || summary.dependencies.Total > 0 || summary.queue.Total > 0) && (
         <div className="ov-rollup">
           <div className="ov-rollup-h">What we've found</div>
           <div className="ov-rollup-grid">
+            <button className="ovr-card" onClick={() => onJump('observations')} title="Triage the queue">
+              <div className="ovr-k">Queue</div>
+              <div className={`ovr-big ${summary.queue.HighOrCritical ? 'crit' : ''}`}>{summary.queue.Total} <span className="ovr-unit">to triage</span></div>
+              <div className="ovr-sub"><b className={summary.queue.HighOrCritical ? 'crit' : ''}>{summary.queue.HighOrCritical} high/critical</b> · {summary.queue.Reachable} reachable</div>
+            </button>
             <button className="ovr-card" onClick={() => onJump('findings')} title="View findings">
               <div className="ovr-k">Findings</div>
               <div className="ovr-sevs">

@@ -420,6 +420,7 @@ export interface ProjectSummary {
   findings: Record<string, number>
   reachable: number
   open_investigations: number
+  queue: { Total: number; HighOrCritical: number; Reachable: number }
   routes: { Total: number; Exposed: number; WithFindings: number }
   dependencies: { Total: number; Vulnerabilities: number; Outdated: number }
 }
