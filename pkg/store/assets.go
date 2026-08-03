@@ -139,6 +139,19 @@ func (db *DB) UpdateAssetSensitivity(ctx context.Context, id, sensitivity string
 	return db.GetAsset(ctx, id)
 }
 
+// DeleteAsset removes an asset. Tasks and playbook runs that referenced it keep their rows with a null
+// asset_id (the FK is ON DELETE SET NULL), so prior scan provenance survives the deletion.
+func (db *DB) DeleteAsset(ctx context.Context, id string) error {
+	res, err := db.ExecContext(ctx, `DELETE FROM assets WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListAssetsByApplication returns an application's assets, oldest first.
 func (db *DB) ListAssetsByApplication(ctx context.Context, applicationID string) ([]model.Asset, error) {
 	rows, err := db.QueryContext(ctx,

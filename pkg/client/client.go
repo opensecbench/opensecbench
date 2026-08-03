@@ -814,6 +814,11 @@ func (c *Client) CreateAsset(ctx context.Context, applicationID string, req Crea
 	return out, c.do(ctx, http.MethodPost, "/v1/applications/"+applicationID+"/assets", req, &out)
 }
 
+// DeleteAsset removes an asset from its project.
+func (c *Client) DeleteAsset(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/assets/"+id, nil, nil)
+}
+
 // CapabilityManifest is a capability as reported by the control plane.
 type CapabilityManifest struct {
 	ID          string `json:"id"`

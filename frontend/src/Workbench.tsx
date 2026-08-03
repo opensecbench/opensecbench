@@ -1453,6 +1453,18 @@ function AssetsTab({
     }
   }
 
+  // Removing an asset unlinks it from the project; prior scan tasks keep their rows (asset_id set null),
+  // so provenance survives. Guarded by a confirm since it's destructive.
+  async function removeAsset(as: Asset) {
+    if (!window.confirm(`Remove asset "${as.location}"? Prior scan results are kept; the asset is unlinked.`)) return
+    try {
+      await api.deleteAsset(as.id)
+      await reload()
+    } catch (err) {
+      onError((err as Error).message)
+    }
+  }
+
   return (
     <div>
       <form className="create-row" onSubmit={addApp}>
@@ -1486,6 +1498,7 @@ function AssetsTab({
                         {!levels.some((l) => l.id === as.sensitivity) && <option value={as.sensitivity}>{as.sensitivity}</option>}
                       </select>
                       <span className="mono">{as.location}</span>
+                      <button className="link danger" disabled={!online} title="Remove asset" onClick={() => removeAsset(as)}>remove</button>
                     </div>
                     {as.type === 'source_repo' && <AssetEcosystems assetId={as.id} online={online} onError={onError} />}
                   </li>

@@ -1156,6 +1156,7 @@ export const api = {
     request<Asset>('PUT', `/v1/assets/${assetId}/ecosystems`, { ecosystems }),
   updateAssetSensitivity: (assetId: string, sensitivity: string) =>
     request<Asset>('PUT', `/v1/assets/${assetId}`, { sensitivity }),
+  deleteAsset: (assetId: string) => request<void>('DELETE', `/v1/assets/${assetId}`),
 
   // source viewer (ADR-0050): read a source_repo asset's tree/files, path-confined server-side.
   assetSource: (assetId: string, path: string) =>

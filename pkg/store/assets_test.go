@@ -105,3 +105,24 @@ func TestUpdateAssetSensitivity(t *testing.T) {
 		t.Fatalf("want ErrNotFound for missing asset, got %v", err)
 	}
 }
+
+func TestDeleteAsset(t *testing.T) {
+	db := migratedDB(t)
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, NewProject{Name: "e"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "a")
+	as, err := db.CreateAsset(ctx, NewAsset{ApplicationID: app.ID, Type: model.AssetWebService, Location: "https://shop.acme.com", Sensitivity: model.SensitivityPrivate})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.DeleteAsset(ctx, as.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := db.GetAsset(ctx, as.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("asset still present after delete, err=%v", err)
+	}
+	if err := db.DeleteAsset(ctx, as.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second delete want ErrNotFound, got %v", err)
+	}
+}

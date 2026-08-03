@@ -593,6 +593,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/applications/{id}/assets", s.createAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}", s.getAsset)
 	s.mux.HandleFunc("PUT /v1/assets/{id}", s.updateAsset)
+	s.mux.HandleFunc("DELETE /v1/assets/{id}", s.deleteAsset)
 	s.mux.HandleFunc("GET /v1/assets/{id}/ecosystems", s.getAssetEcosystems)
 	s.mux.HandleFunc("PUT /v1/assets/{id}/ecosystems", s.setAssetEcosystems)
 	// Source viewer (ADR-0050): read a source_repo asset's tree/files for the in-app code viewer and
@@ -2333,6 +2334,19 @@ func (s *Server) getAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, asset)
+}
+
+func (s *Server) deleteAsset(w http.ResponseWriter, r *http.Request) {
+	err := s.pdb(r).DeleteAsset(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "asset not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // updateAsset edits an existing asset's sensitivity in place (ADR-0011: sensitivity gates external
