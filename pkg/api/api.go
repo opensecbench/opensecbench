@@ -1831,6 +1831,11 @@ func (s *Server) listApprovals(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if svc := s.analystService(); svc != nil {
+		for i := range aps {
+			svc.DiscloseApproval(r.Context(), &aps[i])
+		}
+	}
 	writeJSON(w, http.StatusOK, aps)
 }
 

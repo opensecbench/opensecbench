@@ -1029,6 +1029,7 @@ export interface Approval {
   args: Record<string, unknown>
   status: string
   created_at: string
+  authorized_tools?: string[]
 }
 
 export interface SendResult {

@@ -175,8 +175,41 @@ func profileToolNames(p Profile) []string {
 	return names
 }
 
+// delegateAuthorization returns the tools a delegated sub-agent may run without further prompting. A
+// sub-agent is a synchronous Loop that can't pause for a human, so approval is hoisted to the delegation
+// boundary (ADR-0019 §5). Rather than blanket-authorizing the specialist's whole toolset, we narrow it to
+// the intersection of the profile with the human's policy: a tool the policy would run unattended is
+// always authorized; a tool the policy gates is authorized only when a human explicitly approved THIS
+// delegation (informed consent at the boundary). On an unattended path — a scheduled run, or a nested
+// delegation with no human in the loop — policy-gated tools are withheld, so an injected agent can't reach
+// run_code/send_request just by delegating to a specialist that holds them.
+func delegateAuthorization(profile Profile, policy Policy, humanApproved bool) []string {
+	tools := profileToolNames(profile)
+	out := make([]string, 0, len(tools))
+	for _, t := range tools {
+		if humanApproved || !policy.NeedsApproval(t, profile.ID) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// delegateGatedTools lists the profile's tools the policy would gate — the sensitive capabilities a human
+// authorizes by approving a delegation to this specialist. Surfaced on the approval so the consent is
+// informed rather than a blank check.
+func delegateGatedTools(profile Profile, policy Policy) []string {
+	var out []string
+	for _, t := range profileToolNames(profile) {
+		if policy.NeedsApproval(t, profile.ID) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // runDelegate handles the `delegate` tool: spawn the requested specialist on the task. Approving the
-// delegate call authorizes that specialist's full toolset for the sub-task.
+// delegate call authorizes the specialist's policy-gated tools for the sub-task (see delegateAuthorization);
+// unattended delegations get only the tools the policy would already run without a human.
 func (svc *Service) runDelegate(ctx context.Context, projectID string, call agent.ToolCall) (string, error) {
 	target := stringArg(call, "agent")
 	task := stringArg(call, "task")
@@ -190,7 +223,9 @@ func (svc *Service) runDelegate(ctx context.Context, projectID string, call agen
 	if d := delegationDepth(ctx); d >= maxDelegationDepth() {
 		return "", fmt.Errorf("maximum delegation depth (%d) reached — complete this sub-task directly rather than delegating further", maxDelegationDepth())
 	}
-	res, err := svc.Delegate(ctx, projectID, target, task, profileToolNames(svc.resolveProfile(ctx, target)))
+	profile := svc.resolveProfile(ctx, target)
+	authorize := delegateAuthorization(profile, svc.loadPolicy(ctx), agent.Approved(ctx))
+	res, err := svc.Delegate(ctx, projectID, target, task, authorize)
 	if err != nil {
 		return "", err
 	}

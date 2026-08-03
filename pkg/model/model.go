@@ -711,6 +711,10 @@ type Approval struct {
 	Status    string          `json:"status"`
 	CreatedAt time.Time       `json:"created_at"`
 	DecidedAt *time.Time      `json:"decided_at,omitempty"`
+	// AuthorizedTools is computed (not persisted): for a `delegate` approval, the specialist's
+	// policy-gated tools this approval would authorize, so the human consents to a named set rather than
+	// a blank check. Empty/absent for other tools.
+	AuthorizedTools []string `json:"authorized_tools,omitempty"`
 }
 
 // Context item types.

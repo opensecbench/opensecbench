@@ -516,6 +516,22 @@ func (svc *Service) loadPolicy(ctx context.Context) Policy {
 	return p
 }
 
+// DiscloseApproval fills in a pending approval's computed disclosure fields. For a `delegate` approval it
+// lists the specialist's policy-gated tools, so the human sees which sensitive capabilities approving the
+// delegation would authorize (informed consent, ADR-0019 §5). A no-op for other tools. Safe on nil.
+func (svc *Service) DiscloseApproval(ctx context.Context, ap *model.Approval) {
+	if ap == nil || ap.Tool != "delegate" {
+		return
+	}
+	var args map[string]any
+	_ = json.Unmarshal(ap.Args, &args)
+	target, _ := args["agent"].(string)
+	if target == "" {
+		return
+	}
+	ap.AuthorizedTools = delegateGatedTools(svc.resolveProfile(ctx, target), svc.loadPolicy(ctx))
+}
+
 // executeFor builds the tool executor for a thread's project, wrapped with the data-egress gate: a tool
 // that would read asset/corpus content into an EXTERNAL model is blocked unless that destination's data
 // clearance covers the content's sensitivity tier. `clearance` is the effective ceiling for the routed
@@ -865,6 +881,7 @@ func (svc *Service) finish(ctx context.Context, projectID, threadID string, prio
 		if err := svc.p(projectID).UpdateThreadStatus(ctx, threadID, model.ThreadAwaitingApproval); err != nil {
 			return SendResult{}, err
 		}
+		svc.DiscloseApproval(ctx, &ap)
 		res.Pending = &ap
 	} else {
 		res.Answer = out.Answer

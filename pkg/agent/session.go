@@ -8,6 +8,18 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/llm"
 )
 
+// approvedKey marks a context as carrying an explicit human approval for the tool call about to run.
+type approvedKey struct{}
+
+// WithApproved tags ctx as the execution of a tool call a human just explicitly approved. It scopes to
+// exactly that call — not the auto-run steps that follow it in the same Advance.
+func WithApproved(ctx context.Context) context.Context { return context.WithValue(ctx, approvedKey{}, true) }
+
+// Approved reports whether the running tool call was explicitly approved by a human (as opposed to
+// auto-approved by policy or run on an unattended path). Executors use it to decide how far a single
+// approval propagates — e.g. what a delegated sub-agent may run without further prompting.
+func Approved(ctx context.Context) bool { v, _ := ctx.Value(approvedKey{}).(bool); return v }
+
 // Session is a resumable agent run. Unlike Loop (which runs to completion), a Session advances
 // until it produces a final answer or reaches a gated tool call, at which point it pauses so a
 // human can approve or deny. Its entire state is the message history, so it persists to a thread
@@ -129,7 +141,8 @@ func (s *Session) Resume(ctx context.Context, messages []llm.Message, call ToolC
 		messages = append(messages, den)
 		return s.Advance(ctx, messages)
 	}
-	messages = s.runTool(ctx, messages, call)
+	// Only this call carries the human's approval; the auto-run steps that follow in Advance do not.
+	messages = s.runTool(WithApproved(ctx), messages, call)
 	return s.Advance(ctx, messages)
 }
 

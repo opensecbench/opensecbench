@@ -71,6 +71,14 @@ asks first — and actions are promoted to auto **one rule at a time** as they e
 plan + the powers each step needs) is the presentation. The **scope guard and DLP floor never move**: relaxing
 approval removes a prompt, never a wall.
 
+A delegated sub-agent is a synchronous loop that can't pause for a human, so its approval is hoisted to the
+delegation boundary rather than blanket-authorizing the specialist's whole toolset. The authorized set is the
+**intersection of the profile with the policy**: tools the policy would run unattended are always authorized;
+a policy-gated tool is authorized only when a human explicitly approved *that* delegation, and the approval is
+**informed** — it names the sensitive tools it grants (`authorized_tools`). On an unattended path (a scheduled
+run, or a nested delegation with no human) gated tools are withheld, so an injected agent can't reach
+`run_code`/`send_request` merely by delegating to a specialist that holds them.
+
 ### 6. Flexibility invariants
 
 - **Human ⇄ agent parity** (hard invariant): anything an agent does, a person can do by hand, and take over at

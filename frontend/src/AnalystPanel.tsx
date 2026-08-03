@@ -370,6 +370,11 @@ export function AnalystPanel({
               <code>
                 {pending.tool} {JSON.stringify(pending.args)}
               </code>
+              {pending.authorized_tools && pending.authorized_tools.length > 0 && (
+                <div className="ac-authorizes">
+                  Approving authorizes this sub-agent to use: <b>{pending.authorized_tools.join(', ')}</b>
+                </div>
+              )}
               <div className="ac-btns">
                 <button className="ok" disabled={busy} onClick={() => decide('approve')}>
                   ✓ Approve
