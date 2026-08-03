@@ -2241,11 +2241,15 @@ const FINDING_STATUSES = ['open', 'confirmed', 'remediated', 'accepted', 'false_
 
 const SEV_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 }
 // Attribute keys worth surfacing as compact signal chips in the table, most-exploitable first.
+// Per-finding signals worth surfacing as chips/filters, most-exploitable first. NOT `exposed` — that's a
+// coarse project-level flag (any exposed surface → stamped on every observation), so it doesn't discriminate;
+// the finding-specific exposure signal is route_observed / route_reachable (the finding sits on / is reachable
+// from an actual exposed route).
 const OBS_SIGNALS: { key: string; label: string }[] = [
   { key: 'reachable_confirmed', label: 'reachable✓' },
   { key: 'route_reachable', label: 'route→sink' },
+  { key: 'route_observed', label: 'on exposed route' },
   { key: 'reachable', label: 'reachable' },
-  { key: 'exposed', label: 'exposed' },
   { key: 'verified', label: 'verified' },
   { key: 'outdated', label: 'outdated' },
 ]
