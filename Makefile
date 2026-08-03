@@ -4,7 +4,7 @@
 # don't need the webkit/gtk toolchain. Wails must be told that tag explicitly — these targets do
 # it for you. The Analyst's AI provider is configured in the app's settings — no env vars needed.
 
-.PHONY: dev dev-attach build gui tui cli daemon run-daemon test lint fmt frontend images claude-image adr-index check
+.PHONY: dev dev-attach build gui tui cli daemon run-daemon test lint fmt frontend frontend-test images claude-image adr-index check
 
 # Wails build tags. The `webkit2_41` tag selects webkit2gtk-4.1 and is LINUX-ONLY — macOS (native
 # WebKit) and Windows (WebView2) must not get it, so we only add it on Linux. On modern distros
@@ -59,6 +59,11 @@ fmt:
 # Build the frontend once (creates frontend/dist).
 frontend:
 	cd frontend && npm install && npm run build
+
+# Frontend unit/component tests (vitest + testing-library, jsdom). Tests live next to the code as
+# src/**/*.test.tsx; shared setup/helpers in frontend/src/test/.
+frontend-test:
+	cd frontend && npm test
 
 # OSB-built container images (see images/README.md). Each images/<name>/ builds to osb/<name>:latest.
 # The image-% pattern auto-discovers dirs, so a new image needs no Makefile change.

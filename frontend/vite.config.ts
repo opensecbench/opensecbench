@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -8,4 +9,13 @@ export default defineConfig({
   plugins: [react()],
   server: { port: 5173 },
   build: { outDir: 'dist', emptyOutDir: true },
+  // Component/unit tests run under jsdom via vitest (`npm test`). Tests live next to the code they cover
+  // as `*.test.tsx`; shared setup + helpers are in src/test/.
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    css: false, // components style via className strings; skip CSS processing for speed
+    include: ['src/**/*.test.{ts,tsx}'],
+  },
 })

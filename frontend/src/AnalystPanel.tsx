@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { api, ActiveProvider, AgentProfile, Approval, Msg, Project, StreamDelta, StreamMessage, Thread } from './api'
 import { Markdown } from './Markdown'
+import { ApprovalCard } from './ApprovalCard'
 
 export function AnalystPanel({
   project,
@@ -364,27 +365,7 @@ export function AnalystPanel({
             )}
           </div>
 
-          {pending && (
-            <div className="approval-card">
-              <div className="ac-title">⏸ Approval required</div>
-              <code>
-                {pending.tool} {JSON.stringify(pending.args)}
-              </code>
-              {pending.authorized_tools && pending.authorized_tools.length > 0 && (
-                <div className="ac-authorizes">
-                  Approving authorizes this sub-agent to use: <b>{pending.authorized_tools.join(', ')}</b>
-                </div>
-              )}
-              <div className="ac-btns">
-                <button className="ok" disabled={busy} onClick={() => decide('approve')}>
-                  ✓ Approve
-                </button>
-                <button className="no" disabled={busy} onClick={() => decide('deny')}>
-                  ✕ Deny
-                </button>
-              </div>
-            </div>
-          )}
+          {pending && <ApprovalCard approval={pending} busy={busy} onDecide={decide} />}
 
           <form className="composer" onSubmit={send}>
             <input

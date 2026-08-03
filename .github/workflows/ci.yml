@@ -37,7 +37,7 @@ jobs:
           fi
 
   frontend:
-    name: frontend build
+    name: frontend build & test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -51,6 +51,9 @@ jobs:
         working-directory: frontend
       - name: build (tsc + vite)
         run: npm run build
+        working-directory: frontend
+      - name: test (vitest)
+        run: npm test
         working-directory: frontend
 
   lint:
