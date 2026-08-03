@@ -47,8 +47,10 @@ daemon:
 run-daemon:
 	go run ./cmd/daemon
 
+# All unit/component tests — Go and frontend. (Needs the frontend deps installed; run `make frontend` once.)
 test:
 	go test ./...
+	$(MAKE) frontend-test
 
 lint:
 	golangci-lint run ./...
@@ -82,9 +84,9 @@ claude-image: image-claude-cli
 adr-index:
 	go run scripts/gen_adr_index.go
 
-# Run the Go-side CI gates locally before pushing — the exact checks .github/workflows/ci.yml runs
-# (frontend build and the gitleaks secret scan are separate CI jobs; run `make frontend` for the former).
-# Cheap checks first, the -race suite last.
+# Run the CI gates locally before pushing — the checks .github/workflows/ci.yml runs (the gitleaks secret
+# scan is the one job not mirrored here). Needs golangci-lint + the frontend deps (`make frontend` once).
+# Cheap checks first, the slow -race and frontend build/test last.
 check:
 	@echo "==> gofmt" && u="$$(gofmt -l .)"; if [ -n "$$u" ]; then echo "not gofmt-clean:"; echo "$$u"; exit 1; fi
 	@echo "==> go build" && go build ./...
@@ -92,4 +94,5 @@ check:
 	@echo "==> golangci-lint" && golangci-lint run ./...
 	@echo "==> adr index" && go run scripts/gen_adr_index.go && git diff --quiet docs/adr/README.md || { echo "ADR index stale — run 'make adr-index' and commit docs/adr/README.md"; exit 1; }
 	@echo "==> go test -race" && go test -race ./...
-	@echo "==> all Go CI gates passed"
+	@echo "==> frontend build + test" && cd frontend && npm run build && npm test
+	@echo "==> all CI gates passed"
