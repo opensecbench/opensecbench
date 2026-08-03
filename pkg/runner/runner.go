@@ -81,6 +81,11 @@ func (LocalRunner) Run(ctx context.Context, spec RunSpec) (Result, error) {
 		network = "none"
 	}
 	args := []string{"run", "--rm", "--network", network}
+	// Baseline hardening (ADR-0004): block setuid privilege gain and bound process count against a fork
+	// bomb. Both are safe for every scanner image and independent of the mounted content's permissions.
+	// (Dropping capabilities or running non-root also helps but changes what files the scanner can read,
+	// so it needs per-image validation — see TODO.)
+	args = append(args, "--security-opt=no-new-privileges", "--pids-limit=1024")
 	if len(spec.Stdin) > 0 {
 		args = append(args, "-i") // attach stdin so the container can read spec.Stdin
 	}
