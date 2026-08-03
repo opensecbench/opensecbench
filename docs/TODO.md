@@ -295,7 +295,9 @@ bet — generalize it into a "sanitize anything for sharing" capability.
       runner-selection (`RunRequest.RunnerID` → durable `tasks.runner_target`); network capabilities run
       from the runner's vantage; scope enforced control-plane-side before dispatch. *Remaining:* source-scan
       caps on remote runners (ship `/src`), built-in TLS + cert-pinning, split `opensecbench-runner` repo,
-      Runners UI.
+      Runners UI, end-to-end encryption of dispatched secret env to the runner's enrolled key
+      (defense-in-depth alongside the transport), and a guard that refuses a non-loopback `--runner-addr`
+      without an explicit insecure opt-in.
   - [x] **Runners as request-egress endpoints — Phase 2a: Replay** (ADR-0025) — Replay send (UI +
         Analyst `send_request` tool) egresses from a chosen runner's vantage via an HTTP-request job on the
         runner protocol; shared `egressSend` selector; `egress` provenance recorded on the exchange; scope
