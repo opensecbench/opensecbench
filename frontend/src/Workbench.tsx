@@ -2466,6 +2466,22 @@ function ObservationsTab({
   )
   const detail = detailId ? observations.find((o) => o.id === detailId) ?? null : null
 
+  const remediation = useMemo(() => {
+    const deps = new Set<string>()
+    const fixableDeps = new Set<string>()
+    let fixable = 0
+    for (const o of rows) {
+      const a = o.attributes ?? {}
+      if (!a.package) continue
+      deps.add(a.package)
+      if (a.fixed_version) {
+        fixableDeps.add(a.package)
+        fixable++
+      }
+    }
+    return { deps: deps.size, fixableDeps: fixableDeps.size, fixable }
+  }, [rows])
+
   async function runBulk(fn: (id: string) => Promise<unknown>, ids: string[]) {
     setBusy(true)
     try {
@@ -2497,6 +2513,17 @@ function ObservationsTab({
     { key: 'severity', header: 'Sev', width: '64px', sortable: true, sortValue: (o) => SEV_RANK[o.severity] ?? -1, render: (o) => <span className={`sev sev-${o.severity}`}>{o.severity}</span> },
     { key: 'title', header: 'Title', width: '40%', sortable: true, sortValue: (o) => o.title.toLowerCase(), render: (o) => <span className="dt-title dt-ellip">{o.title}</span> },
     { key: 'rule', header: 'Rule', className: 'mono', width: '140px', sortable: true, sortValue: (o) => o.rule_id ?? '', render: (o) => <span className="muted dt-ellip">{o.rule_id}</span> },
+    { key: 'dependency', header: 'Dependency', width: '210px', sortable: true, sortValue: (o) => o.attributes?.package ?? '~', render: (o) => {
+      const a = o.attributes ?? {}
+      if (!a.package) return <span className="muted">—</span>
+      return (
+        <span className="dt-ellip dt-dep">
+          <span className="mono">{a.package}</span>
+          {a.dependency && <span className={`dep-badge ${a.dependency}`}>{a.dependency}</span>}
+          {a.fixed_version && <span className="dep-fix">→ {a.fixed_version}</span>}
+        </span>
+      )
+    } },
     { key: 'location', header: 'Location', className: 'mono', width: '160px', sortable: true, sortValue: (o) => o.location ?? '', render: (o) => <span className="muted dt-ellip">{o.location}</span> },
     { key: 'signals', header: 'Signals', width: '130px', render: (o) => <span className="dt-signals">{obsSignals(o).map((s) => <span key={s} className="sig-chip">{s}</span>)}</span> },
     { key: 'state', header: 'State', width: '88px', sortable: true, sortValue: (o) => o.review_state, render: (o) => <span className={`badge ${o.review_state}`}>{STATE_LABEL[o.review_state] ?? o.review_state}</span> },
@@ -2510,6 +2537,14 @@ function ObservationsTab({
           {triageNote}
           <button className="link" style={{ marginLeft: 10 }} onClick={() => void reload()}>Refresh</button>
           <button className="link" style={{ marginLeft: 10 }} onClick={() => setTriageNote(null)}>dismiss</button>
+        </div>
+      )}
+
+      {remediation.deps > 0 && (
+        <div className="banner remediation">
+          🧩 {remediation.deps} vulnerable {remediation.deps === 1 ? 'dependency' : 'dependencies'} in the queue
+          {remediation.fixable > 0 && <> · <b>{remediation.fixable} finding{remediation.fixable === 1 ? '' : 's'} fixable</b> by upgrading {remediation.fixableDeps} of them</>}
+          <span className="muted"> — sort by Dependency to group them.</span>
         </div>
       )}
 
