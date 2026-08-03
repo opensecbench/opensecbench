@@ -8,7 +8,7 @@ declare global {
     go?: {
       main?: {
         App?: {
-          SelectDirectory?: () => Promise<string>
+          SelectDirectory?: (defaultDir?: string) => Promise<string>
           SelectFile?: () => Promise<string>
           WorkingDir?: () => Promise<string>
           OpenURL?: (url: string) => Promise<void>
@@ -32,10 +32,10 @@ export function hasNativePickers(): boolean {
 }
 
 /** pickDirectory opens a native directory dialog, or returns null in the browser / on cancel. */
-export async function pickDirectory(): Promise<string | null> {
+export async function pickDirectory(defaultDir?: string): Promise<string | null> {
   const fn = window.go?.main?.App?.SelectDirectory
   if (!fn) return null
-  const path = await fn()
+  const path = await fn(defaultDir ?? '')
   return path || null
 }
 

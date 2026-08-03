@@ -35,6 +35,24 @@ function inferKind(value: string): string {
   return 'domain'
 }
 
+// relRepo turns a picked absolute path into one relative to the base folder when it lives inside it, so the
+// asset stays portable (resolved against base_path server-side). A path outside the base folder — or no base
+// folder — stays absolute; both forms are supported downstream.
+function relRepo(base: string, abs: string): string {
+  if (!base) return abs
+  const b = base.replace(/\/+$/, '')
+  if (abs === b) return '.'
+  return abs.startsWith(b + '/') ? abs.slice(b.length + 1) : abs
+}
+
+// repoKind classifies a first-repo value so the form can confirm how it will be stored. A remote URL
+// (git/https) is left as-is; a leading "/" is absolute; anything else is relative to the base folder.
+function repoKind(value: string): 'url' | 'absolute' | 'relative' {
+  const s = value.trim()
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || /^git@/.test(s)) return 'url'
+  return s.startsWith('/') ? 'absolute' : 'relative'
+}
+
 // A chips input: type a value, Enter adds it; each token is removable.
 function ScopeInput({ tokens, onChange, deny }: { tokens: string[]; onChange: (t: string[]) => void; deny?: boolean }) {
   const [v, setV] = useState('')
@@ -348,7 +366,7 @@ export function EngagementModal({
               <div className="em-browse">
                 <input className="em-in" value={basePath} onChange={(e) => setBasePath(e.target.value)} placeholder="/home/you/src/acme" />
                 {hasNativePickers() && (
-                  <button className="em-btn" onClick={async () => { const p = await pickDirectory(); if (p) setBasePath(p) }}>📁 Browse…</button>
+                  <button className="em-btn" onClick={async () => { const p = await pickDirectory(basePath.trim() || undefined); if (p) setBasePath(p) }}>📁 Browse…</button>
                 )}
               </div>
             </div>
@@ -370,9 +388,17 @@ export function EngagementModal({
               <div className="em-browse">
                 <input className="em-in" value={firstRepo} onChange={(e) => setFirstRepo(e.target.value)} placeholder={basePath ? 'services/api  (relative to base folder)' : hasActive ? 'git@github.com:acme/storefront  or  https://shop.acme.com' : '/home/you/src/acme/repo'} />
                 {hasNativePickers() && (
-                  <button className="em-btn" onClick={async () => { const p = await pickDirectory(); if (p) setFirstRepo(p) }}>📁</button>
+                  <button className="em-btn" onClick={async () => { const p = await pickDirectory(basePath.trim() || undefined); if (p) setFirstRepo(relRepo(basePath.trim(), p)) }}>📁</button>
                 )}
               </div>
+              {firstRepo.trim() && repoKind(firstRepo) === 'relative' && (
+                <div className="em-hint">{basePath.trim()
+                  ? <>Relative path — resolves to <code>{basePath.trim().replace(/\/+$/, '')}/{firstRepo.trim().replace(/^\.\/?/, '')}</code>.</>
+                  : <>Relative path — set a base folder above so it resolves.</>}</div>
+              )}
+              {firstRepo.trim() && repoKind(firstRepo) === 'absolute' && (
+                <div className="em-hint">Absolute path{basePath.trim() ? ' — outside the base folder, stored as-is.' : '.'}</div>
+              )}
             </div>
             {methodologies.length > 0 && (
               <div className="em-field">

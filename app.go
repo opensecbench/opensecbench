@@ -38,8 +38,9 @@ func (a *App) APIToken() string { return a.token }
 func (a *App) APIBase() string { return a.baseURL }
 
 // SelectDirectory opens a native directory picker and returns the chosen path ("" if cancelled).
-func (a *App) SelectDirectory() (string, error) {
-	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select a source directory"})
+// defaultDir, if set, is where the dialog opens (e.g. a project's base folder).
+func (a *App) SelectDirectory(defaultDir string) (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select a source directory", DefaultDirectory: defaultDir})
 }
 
 // SelectFile opens a native file picker and returns the chosen path ("" if cancelled).
