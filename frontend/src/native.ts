@@ -10,6 +10,7 @@ declare global {
         App?: {
           SelectDirectory?: () => Promise<string>
           SelectFile?: () => Promise<string>
+          WorkingDir?: () => Promise<string>
           OpenURL?: (url: string) => Promise<void>
           OpenProxyBrowser?: (port: number, spki: string) => Promise<void>
           // APIToken hands the webview its control-plane bearer token at boot (ADR-0061); APIBase hands
@@ -33,6 +34,14 @@ export function hasNativePickers(): boolean {
 /** pickDirectory opens a native directory dialog, or returns null in the browser / on cancel. */
 export async function pickDirectory(): Promise<string | null> {
   const fn = window.go?.main?.App?.SelectDirectory
+  if (!fn) return null
+  const path = await fn()
+  return path || null
+}
+
+/** workingDir returns the desktop app's current working directory, or null in the browser / on error. */
+export async function workingDir(): Promise<string | null> {
+  const fn = window.go?.main?.App?.WorkingDir
   if (!fn) return null
   const path = await fn()
   return path || null

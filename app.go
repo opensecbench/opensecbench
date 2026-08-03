@@ -47,6 +47,17 @@ func (a *App) SelectFile() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select a file"})
 }
 
+// WorkingDir returns the process's current working directory — a real, editable default for path inputs
+// (e.g. a new project's base folder), so the field starts from where the app was launched rather than a
+// fake placeholder. Returns "" on error.
+func (a *App) WorkingDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return wd
+}
+
 // OpenURL opens a URL in the user's default system browser. The native WebKit webview does not honour
 // target="_blank"/window.open (there is no tab strip), so links that must render a page — generated
 // reports, transcripts, downloads served by the local API — go through here instead of an <a target>.

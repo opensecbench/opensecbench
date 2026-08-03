@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { api, Engagement, EngagementContact, EngagementTestAccount, Group, Methodology, Organization, Project, ScopeSeed } from './api'
-import { hasNativePickers, pickDirectory } from './native'
+import { hasNativePickers, pickDirectory, workingDir } from './native'
 
 // The engagement setup modal (ADR-0051): create a project with its properties in one place instead of a bare
 // name field. Captures the frame of an assessment — identity, scope + authorization, rules of engagement,
@@ -123,6 +123,10 @@ export function EngagementModal({
     if (online) api.listOrganizations().then((o) => setOrgs(o ?? [])).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online])
+  // Default the base folder to where the app was launched — a real, editable path beats a fake placeholder.
+  useEffect(() => {
+    workingDir().then((wd) => { if (wd) setBasePath((cur) => cur || wd) }).catch(() => {})
+  }, [])
   // Reload the org's teams (and reset the selection) whenever the chosen org changes.
   useEffect(() => {
     setGroupId('')
