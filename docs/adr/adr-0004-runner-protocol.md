@@ -29,8 +29,12 @@ Runner{ Run(ctx, RunSpec) (Result, error); Name() string }
 
 - `--rm` (ephemeral), `--network none` by default (opt-in network per capability permissions),
 - target sources mounted **read-only**, a writable scratch workdir only where required,
+- runs as the **host user, not the image's root** (`--user`), so a bind mount reads only what that user
+  can — a scan can't reach root-only host files — with `--cap-drop ALL`, `no-new-privileges`, a
+  `--pids-limit`, and a writable `tmpfs /tmp` (+`HOME`) for tool scratch/cache,
 - memory and CPU caps, and a wall-clock timeout (context cancellation kills the container),
-- immutable, digest-pinned images (a capability's manifest declares its image).
+- images declared by a capability's manifest (digest-pinning is the target; built-ins are version-tagged
+  today — see TODO).
 
 The runner captures stdout/stderr and the exit code; the capability decides which stream/file
 becomes an output artifact (e.g. Semgrep's SARIF on stdout).

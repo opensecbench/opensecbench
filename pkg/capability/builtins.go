@@ -365,7 +365,13 @@ func (govulncheck) Plan(in Input) (runner.RunSpec, error) {
 		Image: "golang:1.25",
 		Cmd: []string{"sh", "-c",
 			"go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck -C /src -json ./..."},
-		Mounts:   []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
+		Mounts: []runner.Mount{{Source: in.TargetDir, Target: "/src", ReadOnly: true}},
+		// The container runs as a non-root user (runner hardening), so the Go toolchain's caches and the
+		// installed analyzer must live under the writable tmpfs /tmp rather than the image's root-owned /go.
+		Env: []string{
+			"GOPATH=/tmp/go", "GOCACHE=/tmp/gocache", "GOMODCACHE=/tmp/gomod", "GOBIN=/tmp/gobin",
+			"PATH=/tmp/gobin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin",
+		},
 		Network:  "bridge", // install analyzer + fetch vuln DB and modules
 		Timeout:  15 * time.Minute,
 		MemoryMB: 4096,

@@ -81,11 +81,21 @@ func (LocalRunner) Run(ctx context.Context, spec RunSpec) (Result, error) {
 		network = "none"
 	}
 	args := []string{"run", "--rm", "--network", network}
-	// Baseline hardening (ADR-0004): block setuid privilege gain and bound process count against a fork
-	// bomb. Both are safe for every scanner image and independent of the mounted content's permissions.
-	// (Dropping capabilities or running non-root also helps but changes what files the scanner can read,
-	// so it needs per-image validation — see TODO.)
-	args = append(args, "--security-opt=no-new-privileges", "--pids-limit=1024")
+	// Sandbox hardening (ADR-0004): run as the host user (not the image's root) so a bind mount can only
+	// read what that user already can — a scan can't reach root-only host files. Drop all Linux caps (no
+	// scanner needs them; nmap falls back to a TCP connect scan without NET_RAW), block setuid privilege
+	// gain, and bound the process count. A writable tmpfs /tmp plus HOME give tools their scratch/cache
+	// space since the rest of the container fs stays the image's (read-only to a non-root user).
+	if uid := os.Getuid(); uid >= 0 { // >= 0 only on Unix; leave to the daemon's default elsewhere
+		args = append(args, "--user", fmt.Sprintf("%d:%d", uid, os.Getgid()))
+	}
+	args = append(args,
+		"--cap-drop", "ALL",
+		"--security-opt=no-new-privileges",
+		"--pids-limit=1024",
+		"--tmpfs", "/tmp:rw,exec,mode=1777",
+		"-e", "HOME=/tmp",
+	)
 	if len(spec.Stdin) > 0 {
 		args = append(args, "-i") // attach stdin so the container can read spec.Stdin
 	}

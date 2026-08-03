@@ -155,12 +155,11 @@ and can later ship as plugins.
 
 ## Small / medium follow-ups
 
-- [ ] **Finish runner container hardening (ADR-0004).** Baseline in place: `--network none` default,
-      read-only source mounts, resource/time caps, `no-new-privileges`, `pids-limit`. Still to add, each
-      needing validation against the real scanner images because they change what files a scan can read:
-      run the container as a non-root uid (matching the host user so bind-mounted files read with the API
-      user's authority, not root's), drop Linux capabilities where the scanner doesn't need them (nmap SYN
-      needs NET_RAW), and digest-pin the built-in images per the ADR (currently version-tagged).
+- [ ] **Digest-pin the built-in capability images (ADR-0004).** The runner sandbox now runs non-root
+      (host uid), drops all caps, sets no-new-privileges/pids-limit, and gives tools a writable tmpfs /tmp
+      — all validated against the real scanner images. Remaining ADR-0004 item: pin the built-in images by
+      `@sha256` digest (they're version-tagged today) so a re-pushed tag can't change what runs. Needs a
+      refresh process for version bumps before it's worth the maintenance.
 - [ ] Broaden audit coverage to remaining entity CRUD (project/app/asset/finding create/update).
 - [ ] Decide fail-closed vs best-effort on an audit-append failure (currently logged, not fatal).
 - [x] Interpret TruffleHog JSON output into observations (verified→high/unverified→medium; verified/detector attributes).
