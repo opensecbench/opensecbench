@@ -1,6 +1,6 @@
 # ADR-0067 — `web_service`: a first-class HTTP target primitive
 
-Status: Proposed. Add a `web_service` asset type — a reachable HTTP(S) target at a base URL, in one
+Status: Accepted. Add a `web_service` asset type — a reachable HTTP(S) target at a base URL, in one
 environment — so a live site (browser app *or* API) becomes a first-class, scannable, scope-checked,
 traffic-attributable entity instead of being misfiled as a `source_repo` or lost as an untracked runtime
 `target` param. Per-asset environment and an automation ceiling let the same logical application be tested

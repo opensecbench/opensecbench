@@ -193,7 +193,9 @@ export function EngagementModal({
         for (const id of adopt) await api.adoptMethodology(project.id, id)
         if (firstRepo.trim()) {
           const app = await api.createApplication(project.id, kinds[0] || 'app')
-          await api.createAsset(app.id, 'source_repo', firstRepo.trim(), 'private')
+          // An http(s) URL is a live web target (web_service, ADR-0067); a git remote / path is source code.
+          const assetType = /^https?:\/\//i.test(firstRepo.trim()) ? 'web_service' : 'source_repo'
+          await api.createAsset(app.id, assetType, firstRepo.trim(), 'private')
         }
       } catch (e) {
         setCreated(project)
@@ -411,6 +413,9 @@ export function EngagementModal({
               )}
               {firstRepo.trim() && repoKind(firstRepo) === 'absolute' && (
                 <div className="em-hint">Absolute path{basePath.trim() ? ' — outside the base folder, stored as-is.' : '.'}</div>
+              )}
+              {firstRepo.trim() && /^https?:\/\//i.test(firstRepo.trim()) && (
+                <div className="em-hint">Live web target — added as a <code>web_service</code> asset (scannable, scope-checked).</div>
               )}
             </div>
             {methodologies.length > 0 && (

@@ -818,6 +818,7 @@ const (
 	SensitivityPrivate    = "private"
 
 	AssetSourceRepo      = "source_repo"
+	AssetWebService      = "web_service" // a reachable HTTP(S) target at a base URL (Location), one env (ADR-0067)
 	AssetCloudDeployment = "cloud_deployment"
 	AssetInfrastructure  = "infrastructure"
 	AssetDocument        = "document"

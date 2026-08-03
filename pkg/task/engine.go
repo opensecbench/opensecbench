@@ -335,6 +335,7 @@ type prepared struct {
 	man           capability.Manifest
 	spec          runner.RunSpec
 	applicationID *string
+	params        map[string]any // effective params after asset-derived defaults (e.g. target from a web_service URL)
 }
 
 // prepare validates the request and plans the run without creating a task or touching a container.
@@ -345,8 +346,10 @@ func (e *Engine) prepare(ctx context.Context, req RunRequest) (prepared, error) 
 	}
 	man := c.Manifest()
 
-	// Resolve the target directory from a source-repo asset when not given explicitly, and carry
-	// the asset's application onto the task for provenance.
+	// Resolve the run's subject from its asset, and carry the asset's application onto the task for
+	// provenance. A static capability needs a source directory (source_repo); a network/DAST capability
+	// (TargetParam set) needs a network target, which a web_service asset carries as its base URL in
+	// Location (ADR-0067) — sourced here unless the caller supplied one, and still scope-checked at run.
 	targetDir := req.TargetDir
 	applicationID := req.ApplicationID
 	if targetDir == "" && req.AssetID != nil {
@@ -354,12 +357,20 @@ func (e *Engine) prepare(ctx context.Context, req RunRequest) (prepared, error) 
 		if err != nil {
 			return prepared{}, fmt.Errorf("resolve asset: %w", err)
 		}
-		if asset.Type != model.AssetSourceRepo {
-			return prepared{}, fmt.Errorf("asset %s is %s; only source_repo assets have a target directory", asset.ID, asset.Type)
-		}
-		targetDir = asset.Location
 		if applicationID == nil {
 			applicationID = &asset.ApplicationID
+		}
+		if man.TargetParam != "" {
+			if s, _ := req.Params[man.TargetParam].(string); s == "" {
+				if req.Params == nil {
+					req.Params = map[string]any{}
+				}
+				req.Params[man.TargetParam] = asset.Location
+			}
+		} else if asset.Type != model.AssetSourceRepo {
+			return prepared{}, fmt.Errorf("asset %s is %s; only source_repo assets have a target directory", asset.ID, asset.Type)
+		} else {
+			targetDir = asset.Location
 		}
 	}
 
@@ -373,7 +384,7 @@ func (e *Engine) prepare(ctx context.Context, req RunRequest) (prepared, error) 
 	if err != nil {
 		return prepared{}, err
 	}
-	return prepared{man: man, spec: spec, applicationID: applicationID}, nil
+	return prepared{man: man, spec: spec, applicationID: applicationID, params: req.Params}, nil
 }
 
 // checkTechnique blocks a run whose capability is tagged with a technique the project's engagement does not
@@ -417,7 +428,7 @@ func (e *Engine) createTask(ctx context.Context, req RunRequest, p prepared, que
 	if actor == "" {
 		actor = "human"
 	}
-	paramsJSON, _ := json.Marshal(req.Params)
+	paramsJSON, _ := json.Marshal(p.params) // resolved params (includes asset-derived target, ADR-0067)
 	return e.p(pidPtr(req.ProjectID)).CreateTask(ctx, store.NewTask{
 		CapabilityID:       p.man.ID,
 		CapabilityVersion:  p.man.Version,
@@ -667,6 +678,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
+	req.Params = p.params // carry asset-derived defaults (target from a web_service) into scope-check + exec
 	task, err := e.createTask(ctx, req, p, false)
 	if err != nil {
 		return Outcome{}, err

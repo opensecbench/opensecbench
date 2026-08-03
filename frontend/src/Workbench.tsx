@@ -206,6 +206,7 @@ class SurfaceBoundary extends Component<{ children: ReactNode }, { error: Error 
 
 const ASSET_ICON: Record<string, string> = {
   source_repo: '🗄',
+  web_service: '🌐',
   cloud_deployment: '☁',
   infrastructure: '🖧',
   document: '📄',
@@ -1493,7 +1494,7 @@ function AssetsTab({
             )}
             <div className="create-row sub">
               <select value={inp.type} onChange={(e) => setAssetInputs({ ...assetInputs, [app.id]: { ...inp, type: e.target.value } })}>
-                {['source_repo', 'cloud_deployment', 'infrastructure', 'document', 'correspondence'].map((t) => (
+                {['source_repo', 'web_service', 'cloud_deployment', 'infrastructure', 'document', 'correspondence'].map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>

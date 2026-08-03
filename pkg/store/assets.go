@@ -73,6 +73,7 @@ func (db *DB) GetApplication(ctx context.Context, id string) (model.Application,
 
 var validAssetTypes = map[string]bool{
 	model.AssetSourceRepo:      true,
+	model.AssetWebService:      true,
 	model.AssetCloudDeployment: true,
 	model.AssetInfrastructure:  true,
 	model.AssetDocument:        true,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -187,6 +188,56 @@ func TestEngineScopeGuard(t *testing.T) {
 	})
 	if err != nil || out.Task.Status != model.TaskSucceeded {
 		t.Fatalf("unscoped run should succeed, got status=%s err=%v", out.Task.Status, err)
+	}
+}
+
+func TestEngineWebServiceTargetFromAsset(t *testing.T) {
+	// A network capability run against a web_service asset sources its target from the asset's base URL
+	// (ADR-0067): no explicit target param is needed, the resolved URL is persisted on the task (so the
+	// durable-queue worker reconstructs it), and scope is enforced against that derived target.
+	eng, _ := newEngine(t, fakeRunner{out: []byte("HTTP/2 200\n"), code: 0})
+	ctx := context.Background()
+	proj, err := eng.mgr.Global().CreateProject(ctx, store.NewProject{Name: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.mgr.Global().AddScopeEntry(ctx, proj.ID, "host", "shop.acme.com", "allow"); err != nil {
+		t.Fatal(err)
+	}
+	pdb, err := eng.mgr.Project(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := pdb.CreateApplication(ctx, proj.ID, "Storefront")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset, err := pdb.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetWebService, Location: "https://shop.acme.com", Sensitivity: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No explicit target param — it must be sourced from the asset's Location and succeed (host in scope).
+	out, err := eng.Run(ctx, RunRequest{CapabilityID: "http-probe", ProjectID: &proj.ID, AssetID: &asset.ID})
+	if err != nil {
+		t.Fatalf("web_service run err = %v", err)
+	}
+	if out.Task.Status != model.TaskSucceeded {
+		t.Fatalf("status = %s (err=%q)", out.Task.Status, out.Task.Error)
+	}
+	var params map[string]any
+	_ = json.Unmarshal(out.Task.Params, &params)
+	if params["target"] != "https://shop.acme.com" {
+		t.Fatalf("persisted target = %v, want the asset URL", params["target"])
+	}
+
+	// An asset whose host is out of scope is blocked — scope is enforced on the asset-derived target.
+	evil, err := pdb.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetWebService, Location: "https://evil.example", Sensitivity: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.Run(ctx, RunRequest{CapabilityID: "http-probe", ProjectID: &proj.ID, AssetID: &evil.ID}); !errors.Is(err, ErrOutOfScope) {
+		t.Fatalf("out-of-scope web_service run err = %v, want ErrOutOfScope", err)
 	}
 }
 

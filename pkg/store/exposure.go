@@ -65,7 +65,7 @@ func (db *DB) ProjectExposure(ctx context.Context, projectID string) (Exposure, 
 				continue
 			}
 			for _, a := range assets {
-				if a.Type != model.AssetCloudDeployment && a.Type != model.AssetInfrastructure {
+				if a.Type != model.AssetWebService && a.Type != model.AssetCloudDeployment && a.Type != model.AssetInfrastructure {
 					continue
 				}
 				loc := a.Location

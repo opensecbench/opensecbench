@@ -228,6 +228,9 @@ func (httpProbe) Manifest() Manifest {
 		OutputMediaType: "text/plain",
 		OKExitCodes:     []int{0},
 		TargetParam:     "target",
+		// Auto-run against web_service assets: the scan orchestrator sources the target from the asset's base
+		// URL (ADR-0067). nmap stays opt-out — it needs a host, not a URL (host extraction is a follow-up).
+		AppliesTo: []string{"web_service"},
 	}
 }
 

@@ -233,6 +233,13 @@ and can later ship as plugins.
       version-ceiling guard — compare `pdb.Version()` vs `len(projMigs)` and refuse), normalize to an
       absolute dir, then `UpsertProjectIndex` + `SetProjectIndexDir`. Wire `POST /v1/projects/adopt`, a
       client method, and an "Open existing…" button beside "＋ New engagement" on Home.
+- [x] **`web_service` target primitive — foundation** (ADR-0067 phase 1) — a `web_service` asset type
+      (base URL in `Location`); the create form files an `http(s)` value as `web_service` (not source_repo);
+      `http-probe` gains `AppliesTo: ["web_service"]` and the engine sources its `target` param from the
+      asset URL (scope-enforced, persisted for the durable queue); `web_service` feeds the exposure signal.
+      *Remaining (phase 2): per-asset `environment` (dev/qa/staging/prod) + `automation` ceiling as a second
+      technique gate. Phase 3: proxy exchange→asset attribution by host + service/environment filter. Also:
+      host-oriented tools (nmap) against a web target need host extraction from the URL before auto-running.*
 - [ ] Runtime extension **uninstall** + update/version-constraint flow.
 
 ## Plugin / extension ecosystem
