@@ -12,62 +12,17 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/runner"
 )
 
-// reachableExposed escalates only a vulnerability that govulncheck proved reachable in the call graph AND
-// that sits on a network-exposed service (ADR-0030). Everything else — imported-but-uncalled, or reachable
-// in an internal-only service — falls to manual review, keeping triage focused on real exposure. The
-// `reachable` attribute comes from govulncheck; `exposed` is enriched by the engine from the project's
-// derived exposure.
-var reachableExposed = []disposition.Disposition{
-	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
-}
-
-// sastReachabilityRouting routes semgrep with dataflow reachability (ADR-0032) and route awareness
-// (ADR-0034). Order matters — first match wins:
-//  0. route_reachable: the dataflow trace runs from an HTTP entry point through to the sink — a proven
-//     route→sink path, exploitable at any severity;
-//  1. a finding in a TRAFFIC-CONFIRMED exposed route's handler (route_observed) escalates at medium+ — being
-//     directly on a live endpoint is strong exposure evidence even without a dataflow trace;
-//  2. a taint finding (reachable) on an exposed service escalates at any severity;
-//  3. a high/critical pattern finding still investigates on severity.
+// Queue-first triage (ADR-0068): scanners do NOT auto-open investigations. Interpreted observations land in
+// the review Queue, where reachability / exposure / route / severity are decision-support filters — the
+// operator (or an agent pointed at the whole Queue) decides what to validate, so nothing important hides
+// behind an auto-sorted "worklist". The one auto-route kept is a trufflehog-VERIFIED secret: it was
+// live-checked against its provider, so it is a confirmed finding with no open question.
 //
-// There is no downgrade on the ABSENCE of a route or a dataflow trace — route detection is heuristic and
-// incomplete, so a missing route must never hide a finding.
-var sastReachabilityRouting = []disposition.Disposition{
-	// A verified reachability verdict (a sound tool, or a human/LLM who confirmed it — the resolved aggregate
-	// at high/proven confidence) escalates at any severity, regardless of how the sink was found.
-	{When: map[string]string{"reachable_confirmed": "true"}, Action: disposition.ActionInvestigate},
-	// Strongest static signal (ADR-0034): a traced call-graph path from an HTTP entry point to the sink — the
-	// sink is provably reachable from a route, so escalate at any severity.
-	{When: map[string]string{"route_reachable": "true"}, Action: disposition.ActionInvestigate},
-	{When: map[string]string{"route_observed": "true"}, MinSeverity: "medium", Action: disposition.ActionInvestigate},
-	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
-	{MinSeverity: "high", Action: disposition.ActionInvestigate},
-}
-
-// scaReachabilityRouting routes a general SCA tool (grype) whose CVE findings may be enriched with a shared
-// reachability verdict (ADR-0031) and route association (ADR-0034). Order matters — first match wins:
-//  1. a CVE govulncheck proved uncalled is downgraded to review even if the tool rates it high (authoritative);
-//  2. a finding in a traffic-confirmed exposed route's handler escalates at medium+;
-//  3. a reachable CVE on an exposed service escalates;
-//  4. anything else high/critical (e.g. a non-Go CVE with no reachability verdict) still investigates.
-//
-// Rule 1 precedes the route escalation: if the vulnerable symbol is proven uncalled, sitting in a live
-// handler's file doesn't make it exploitable.
-var scaReachabilityRouting = []disposition.Disposition{
-	// A verified reachable verdict (sound tool / human / LLM) escalates before the reachable=false downgrade,
-	// so a confirmation always beats a stale "uncalled" verdict.
-	{When: map[string]string{"reachable_confirmed": "true"}, Action: disposition.ActionInvestigate},
-	{When: map[string]string{"reachable": "false"}, Action: disposition.ActionReview},
-	{When: map[string]string{"route_observed": "true"}, MinSeverity: "medium", Action: disposition.ActionInvestigate},
-	{When: map[string]string{"reachable": "true", "exposed": "true"}, Action: disposition.ActionInvestigate},
-	{MinSeverity: "high", Action: disposition.ActionInvestigate},
-}
-
-// secretRouting routes trufflehog secret findings (ADR-0028): a VERIFIED secret was live-checked against
-// its provider, so it is auto-confirmed as a finding; an unverified match warrants a tracked investigation.
+// The reachability/exposure enrichment of ADR-0030/0031/0032/0033/0034 still runs — it now informs
+// prioritization (pills + filters) instead of routing. Supersedes the auto-investigate stance of those ADRs
+// (ADR-0028). A team that wants auto-routing back can add project-level disposition overrides.
 var secretRouting = []disposition.Disposition{
 	{When: map[string]string{"verified": "true"}, Action: disposition.ActionFinding},
-	{When: map[string]string{"verified": "false"}, Action: disposition.ActionInvestigate},
 }
 
 // BuiltIns returns the registry of first-party capabilities. Third-party capabilities load as
@@ -139,7 +94,6 @@ func (semgrep) Manifest() Manifest {
 		OutputName:      "semgrep.sarif",
 		OutputMediaType: "application/sarif+json",
 		OKExitCodes:     []int{0, 1}, // 0 = clean, 1 = findings; >=2 is an error
-		Dispositions:    sastReachabilityRouting,
 	}
 }
 
@@ -187,7 +141,6 @@ func (opengrepScan) Manifest() Manifest {
 		OutputName:      "opengrep.sarif",
 		OutputMediaType: "application/sarif+json",
 		OKExitCodes:     []int{0, 1}, // 0 = clean, 1 = findings; >=2 is an error
-		Dispositions:    sastReachabilityRouting,
 	}
 }
 
@@ -298,7 +251,6 @@ func (grypeScan) Manifest() Manifest {
 		OutputName:      "grype.sarif",
 		OutputMediaType: "application/sarif+json",
 		OKExitCodes:     []int{0},
-		Dispositions:    scaReachabilityRouting,
 	}
 }
 
@@ -332,7 +284,6 @@ func (osvScanner) Manifest() Manifest {
 		OutputName:      "osv.sarif",
 		OutputMediaType: "application/sarif+json",
 		OKExitCodes:     []int{0, 1}, // 0 = no vulns, 1 = vulns found; >=2 is an error
-		Dispositions:    scaReachabilityRouting,
 	}
 }
 
@@ -400,7 +351,6 @@ func (govulncheck) Manifest() Manifest {
 		OutputName:      "govulncheck.json",
 		OutputMediaType: "application/vnd.govulncheck+json", // interpret.GovulncheckMediaType
 		OKExitCodes:     []int{0, 3},                        // 3 = vulnerabilities found
-		Dispositions:    reachableExposed,
 	}
 }
 

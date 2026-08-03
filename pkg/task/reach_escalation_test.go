@@ -11,9 +11,9 @@ import (
 )
 
 // A reachability fact (as a human or LLM would add after tracing dynamic code) resolves to a confirmed
-// reachable verdict, which re-evaluation folds onto the finding and disposition escalates — even though
-// the static tools left it as a low-severity, un-routed observation.
-func TestManualReachabilityEscalatesFinding(t *testing.T) {
+// reachable verdict, which re-evaluation folds onto the observation as a filter signal. Queue-first triage
+// (ADR-0068) surfaces it for prioritization but does NOT auto-open an investigation.
+func TestManualReachabilityEnrichesButDoesNotEscalate(t *testing.T) {
 	db, blobs := openStore(t)
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
@@ -47,12 +47,13 @@ func TestManualReachabilityEscalatesFinding(t *testing.T) {
 
 	eng.ReEvaluate(ctx, proj.ID)
 
+	// The verdict is folded onto the observation as reachable_confirmed (the filter signal that lets you sort
+	// reachable issues to the top of the Queue) — but no investigation is auto-opened (queue-first, ADR-0068).
 	got, _ := db.GetObservation(ctx, o.ID)
 	if got.Attributes["reachable_confirmed"] != "true" {
 		t.Fatalf("expected reachable_confirmed=true after the fact; attrs=%v", got.Attributes)
 	}
-	invs, _ := db.ListInvestigationsByProject(ctx, proj.ID)
-	if len(invs) != 1 || invs[0].ObservationID != o.ID {
-		t.Fatalf("confirmed reachability should escalate to an investigation, got %+v", invs)
+	if invs, _ := db.ListInvestigationsByProject(ctx, proj.ID); len(invs) != 0 {
+		t.Fatalf("queue-first: reachability enriches but must not auto-open an investigation, got %+v", invs)
 	}
 }

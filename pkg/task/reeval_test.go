@@ -10,10 +10,10 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
-// A SAST finding recorded before its route was discovered is upgraded retroactively: once route-map adds
-// the route whose handler is on the finding's dataflow path, ReEvaluate marks it route_reachable and
-// opens an investigation — and re-running never duplicates it.
-func TestReEvaluateUpgradesFindingWhenRouteArrivesLater(t *testing.T) {
+// A SAST observation recorded before its route was discovered is enriched retroactively: once route-map
+// adds the route whose handler is on the observation's dataflow path, ReEvaluate marks it route_reachable —
+// a filter signal in the Queue. Queue-first triage (ADR-0068) does not auto-open an investigation from it.
+func TestReEvaluateEnrichesRouteReachableWithoutEscalating(t *testing.T) {
 	db, blobs := openStore(t)
 	ctx := context.Background()
 	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
@@ -52,18 +52,13 @@ func TestReEvaluateUpgradesFindingWhenRouteArrivesLater(t *testing.T) {
 
 	eng.ReEvaluate(ctx, proj.ID)
 
+	// The route link is folded onto the observation as route_reachable (so it sorts to the top of the Queue),
+	// but queue-first triage opens no investigation from it.
 	got, _ := db.GetObservation(ctx, o.ID)
 	if got.Attributes["route_reachable"] != "true" {
 		t.Fatalf("expected route_reachable=true after route arrived; attrs=%v", got.Attributes)
 	}
-	invs, _ := db.ListInvestigationsByProject(ctx, proj.ID)
-	if len(invs) != 1 || invs[0].ObservationID != o.ID {
-		t.Fatalf("expected 1 investigation for the observation, got %+v", invs)
-	}
-
-	// Idempotent: another re-eval must not open a second investigation.
-	eng.ReEvaluate(ctx, proj.ID)
-	if invs, _ := db.ListInvestigationsByProject(ctx, proj.ID); len(invs) != 1 {
-		t.Fatalf("re-eval should be idempotent; got %d investigations", len(invs))
+	if invs, _ := db.ListInvestigationsByProject(ctx, proj.ID); len(invs) != 0 {
+		t.Fatalf("queue-first: route reachability enriches but must not auto-open an investigation, got %+v", invs)
 	}
 }

@@ -15,7 +15,6 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/capability"
 	"github.com/opensecbench/opensecbench/pkg/cas"
-	"github.com/opensecbench/opensecbench/pkg/disposition"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/runner"
 	"github.com/opensecbench/opensecbench/pkg/store"
@@ -189,61 +188,6 @@ func TestEngineScopeGuard(t *testing.T) {
 	})
 	if err != nil || out.Task.Status != model.TaskSucceeded {
 		t.Fatalf("unscoped run should succeed, got status=%s err=%v", out.Task.Status, err)
-	}
-}
-
-func TestMergedSeverityUpgradeReDispositions(t *testing.T) {
-	// The triage bug: a CVE first reported by one tool at a low severity routes to review (queue); a second
-	// tool then reports the same CVE at critical, which mergeVulnObservation upgrades — but the merge used to
-	// skip re-disposition, freezing the now-critical observation in the queue. It must escalate on the merge.
-	eng, _ := newEngine(t, fakeRunner{out: []byte("x"), code: 0})
-	ctx := context.Background()
-	proj, err := eng.mgr.Global().CreateProject(ctx, store.NewProject{Name: "p"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	pdb, err := eng.mgr.Project(proj.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	app, _ := pdb.CreateApplication(ctx, proj.ID, "app")
-	man := capability.Manifest{ID: "sca", Version: "1", Dispositions: []disposition.Disposition{
-		{MinSeverity: "high", Action: disposition.ActionInvestigate},
-	}}
-	route := func(o model.Observation, dispose bool) {
-		if dispose {
-			eng.applyDispositions(ctx, proj.ID, man, &app.ID, []model.Observation{o})
-		}
-	}
-	invCount := func() int { r, _ := pdb.ListInvestigationsByProject(ctx, proj.ID); return len(r) }
-
-	// First tool: same CVE, medium → routes to review (no investigation). Distinct title so the fingerprint
-	// differs and this exercises the cross-tool vuln merge, not the fingerprint-refresh path.
-	o1 := model.Observation{Title: "dep vuln (osv)", Severity: "medium", Origin: model.OriginTool, Attributes: map[string]string{"aliases": "CVE-2022-42889"}}
-	s1, d1, err := eng.IngestObservation(ctx, proj.ID, o1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	route(s1, d1)
-	if n := invCount(); n != 0 {
-		t.Fatalf("medium should not open an investigation, got %d", n)
-	}
-
-	// Second tool: same CVE, critical → merge raises severity → must re-dispose and escalate exactly once.
-	o2 := model.Observation{Title: "dep vuln (grype)", Severity: "critical", Origin: model.OriginTool, Attributes: map[string]string{"aliases": "CVE-2022-42889"}}
-	s2, d2, err := eng.IngestObservation(ctx, proj.ID, o2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !d2 {
-		t.Fatal("a merge that raised severity of an untriaged observation must signal re-disposition")
-	}
-	if s2.Severity != "critical" {
-		t.Fatalf("merged severity = %q, want critical", s2.Severity)
-	}
-	route(s2, d2)
-	if n := invCount(); n != 1 {
-		t.Fatalf("critical merge should open exactly one investigation, got %d", n)
 	}
 }
 

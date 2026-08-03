@@ -11,44 +11,31 @@ func obs(sev string, attrs map[string]string) model.Observation {
 	return model.Observation{Severity: sev, Attributes: attrs}
 }
 
-// The route gate escalates a finding on a traffic-confirmed exposed route, without ever downgrading on the
-// absence of a route or a reachability signal (ADR-0034).
-func TestSastRouting(t *testing.T) {
-	cases := []struct {
-		name string
-		o    model.Observation
-		want string
-	}{
-		{"medium on confirmed route", obs("medium", map[string]string{"route_observed": "true"}), disposition.ActionInvestigate},
-		{"low on confirmed route stays review", obs("low", map[string]string{"route_observed": "true"}), disposition.ActionReview},
-		{"reachable taint any severity", obs("low", map[string]string{"reachable": "true", "exposed": "true"}), disposition.ActionInvestigate},
-		{"high pattern fallback", obs("high", nil), disposition.ActionInvestigate},
-		{"medium pattern, no route", obs("medium", nil), disposition.ActionReview},
-	}
-	for _, c := range cases {
-		if got := disposition.Evaluate(c.o, sastReachabilityRouting); got != c.want {
-			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+// Queue-first triage (ADR-0068): SCA/SAST scanners declare NO dispositions, so their observations land in the
+// Queue for review instead of auto-opening investigations — reachability/severity are filters, not routers.
+// The only surviving auto-route is trufflehog's verified (live-checked) secret → finding.
+func TestQueueFirstDispositions(t *testing.T) {
+	r := BuiltIns()
+	for _, id := range []string{"grype", "osv-scanner", "opengrep", "semgrep", "govulncheck", "route-map"} {
+		c, ok := r.Get(id)
+		if !ok {
+			t.Fatalf("capability %q not registered", id)
+		}
+		if d := c.Manifest().Dispositions; len(d) != 0 {
+			t.Errorf("%s should declare no dispositions (queue-first), got %v", id, d)
 		}
 	}
-}
 
-func TestScaRouting(t *testing.T) {
-	cases := []struct {
-		name string
-		o    model.Observation
-		want string
-	}{
-		// reachable:false is authoritative — even on a live route and rated high, it stays review.
-		{"uncalled on confirmed route", obs("high", map[string]string{"reachable": "false", "route_observed": "true"}), disposition.ActionReview},
-		{"medium on confirmed route", obs("medium", map[string]string{"route_observed": "true"}), disposition.ActionInvestigate},
-		{"low on confirmed route stays review", obs("low", map[string]string{"route_observed": "true"}), disposition.ActionReview},
-		{"reachable+exposed", obs("low", map[string]string{"reachable": "true", "exposed": "true"}), disposition.ActionInvestigate},
-		{"high no verdict fallback", obs("high", nil), disposition.ActionInvestigate},
-		{"medium no verdict, no route", obs("medium", nil), disposition.ActionReview},
+	th, ok := r.Get("trufflehog")
+	if !ok {
+		t.Fatal("trufflehog not registered")
 	}
-	for _, c := range cases {
-		if got := disposition.Evaluate(c.o, scaReachabilityRouting); got != c.want {
-			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
-		}
+	rules := th.Manifest().Dispositions
+	// A verified secret is confirmed → finding; an unverified one has no auto-route → stays in the Queue.
+	if got := disposition.Evaluate(obs("medium", map[string]string{"verified": "true"}), rules); got != disposition.ActionFinding {
+		t.Errorf("verified secret: got %q, want finding", got)
+	}
+	if got := disposition.Evaluate(obs("medium", map[string]string{"verified": "false"}), rules); got != disposition.ActionReview {
+		t.Errorf("unverified secret: got %q, want review (queue)", got)
 	}
 }

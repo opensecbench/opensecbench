@@ -43,9 +43,10 @@ func TestTrufflehogRouting(t *testing.T) {
 	if a := disposition.Evaluate(secretObs(true), rules); a != disposition.ActionFinding {
 		t.Fatalf("verified secret should be a finding, got %q", a)
 	}
-	// An unverified match → open an investigation for a human/agent to validate.
-	if a := disposition.Evaluate(secretObs(false), rules); a != disposition.ActionInvestigate {
-		t.Fatalf("unverified secret should investigate, got %q", a)
+	// An unverified match has no auto-route (queue-first, ADR-0068) — it lands in the review Queue for a
+	// human/agent to validate, rather than auto-opening an investigation.
+	if a := disposition.Evaluate(secretObs(false), rules); a != disposition.ActionReview {
+		t.Fatalf("unverified secret should stay in the queue (review), got %q", a)
 	}
 }
 

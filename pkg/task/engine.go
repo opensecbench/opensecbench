@@ -839,10 +839,8 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 			}
 			o.Attributes["exposed"] = exposedAttr
 		}
-		// A newly-created observation is dispositioned; so is a deduped/merged one whose severity was just
-		// raised while still untriaged (IngestObservation returns true for both) — otherwise a critical
-		// merged in over a lower-severity first report would freeze at that first disposition (ADR-0028/0037).
-		if saved, dispose, err := e.IngestObservation(ctx, projectID, o); err == nil && dispose {
+		// Only newly-created observations are dispositioned; a deduped/merged one keeps its existing triage.
+		if saved, isNew, err := e.IngestObservation(ctx, projectID, o); err == nil && isNew {
 			created = append(created, saved)
 		}
 	}
@@ -887,10 +885,8 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 // reachability correlation, content-fingerprint dedup (an existing match is refreshed, not duplicated), and
 // cross-tool vuln merge (the same CVE from a second source folds into the first). It deliberately does NOT
 // run dispositions — routing is the caller's choice: the scanner auto-routes new observations, an agent's
-// judgment goes to the human triage queue. Returns the saved observation and whether the caller should
-// (re-)run disposition on it: true when newly created, OR when a dedup/merge raised the severity of a
-// still-untriaged observation (see escalatable) so an upgrade past a routing threshold isn't frozen at the
-// first report's disposition. With no project scope it stores the row as-is.
+// judgment goes to the human triage queue. Returns the saved observation and whether it was newly created
+// (false = deduped or merged into an existing one). With no project scope it stores the row as-is.
 //
 // This is the single ingest path; callers must not re-implement dedup/merge/enrichment, or the human and
 // agent views drift apart.
@@ -919,25 +915,18 @@ func (e *Engine) IngestObservation(ctx context.Context, projectID string, o mode
 	e.correlateReachability(ctx, projectID, &o)
 	e.correlateExposedRoute(ctx, projectID, exposedAttr, &o)
 
-	// Content-fingerprint dedup (ADR-0029): an already-recorded finding is refreshed, not duplicated. If the
-	// refresh raises an untriaged observation's severity, it re-routes (see escalatable) so a re-scan that
-	// upgrades severity past a routing threshold is honored, not frozen at the first disposition.
+	// Content-fingerprint dedup (ADR-0029): an already-recorded finding is refreshed, not duplicated.
 	if existingID, dup := db.ObservationByFingerprint(ctx, projectID, o.Fingerprint); dup {
-		before, _ := db.GetObservation(ctx, existingID)
 		_ = db.RefreshObservation(ctx, existingID, o.Severity, o.Detail, o.Attributes)
 		existing, err := db.GetObservation(ctx, existingID)
-		return existing, err == nil && escalatable(before, existing), err
+		return existing, false, err
 	}
 	// Cross-tool merge (ADR-0037): the same vulnerability under a different advisory id folds into the first.
-	// mergeVulnObservation keeps the higher severity; if that raises an untriaged observation's severity, it
-	// re-routes (ADR-0028) — so a critical merged in over a lower-severity first report escalates instead of
-	// freezing at the first tool's disposition (the cause of high/critical SCA findings stuck in the queue).
 	if ids := vulnIDs(&o); len(ids) > 0 {
 		if existingID, dup := db.ObservationForVuln(ctx, projectID, ids); dup {
-			before, _ := db.GetObservation(ctx, existingID)
 			e.mergeVulnObservation(ctx, projectID, existingID, &o, ids)
 			existing, err := db.GetObservation(ctx, existingID)
-			return existing, err == nil && escalatable(before, existing), err
+			return existing, false, err
 		}
 	}
 	saved, err := db.CreateObservation(ctx, o)
@@ -981,14 +970,6 @@ func (e *Engine) mergeVulnObservation(ctx context.Context, projectID, existingID
 var severityOrder = map[string]int{"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
 func severityRank(s string) int { return severityOrder[s] }
-
-// escalatable reports whether an in-place update (cross-tool merge or re-scan refresh) raised the severity of
-// a still-untriaged observation, so it warrants a fresh disposition pass (ADR-0028). Routing only ever
-// escalates (investigate/finding) or leaves in review, so re-dispositioning is safe; guarding on unreviewed
-// means a human's triage decision is never overridden, and the investigate path dedups so no duplicate opens.
-func escalatable(before, after model.Observation) bool {
-	return after.ReviewState == model.ReviewUnreviewed && severityRank(after.Severity) > severityRank(before.Severity)
-}
 
 func firstNonBlank(a, b string) string {
 	if strings.TrimSpace(a) != "" {
