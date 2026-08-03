@@ -782,6 +782,11 @@ func (svc *Service) Send(ctx context.Context, projectID, threadID, userMessage, 
 		if _, err := svc.p(projectID).AppendMessage(ctx, threadID, llm.RoleSystem, sys); err != nil {
 			return SendResult{}, err
 		}
+		// Flagged-note bodies ride the first user turn as untrusted data, never the system prompt (ADR-0070).
+		// Baked in once at thread start, so the fence bytes stay stable across turns.
+		if data := svc.contextNotesData(ctx, projectID, tgt.Provider, tgt.Clearance); data != "" {
+			userMessage = data + "\n\n" + userMessage
+		}
 	}
 	if _, err := svc.p(projectID).AppendMessage(ctx, threadID, llm.RoleUser, userMessage); err != nil {
 		return SendResult{}, err

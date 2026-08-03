@@ -126,6 +126,10 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 	runCtx, done := svc.trackRun(ctx, projectID, profile.ID, profile.ID)
 	defer done()
 
+	// Flagged-note bodies ride the sub-agent's task turn as untrusted data, not its system prompt (ADR-0070).
+	if data := svc.contextNotesData(ctx, projectID, tgt.Provider, tgt.Clearance); data != "" {
+		task = data + "\n\n" + task
+	}
 	// Run the sub-agent one level deeper, so any `delegate` it issues is bounded by maxDelegationDepth.
 	res, err := loop.Run(withDelegationDepth(runCtx, delegationDepth(runCtx)+1), task)
 	if err != nil {
