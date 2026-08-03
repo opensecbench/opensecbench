@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -380,11 +381,49 @@ func (e *Engine) prepare(ctx context.Context, req RunRequest) (prepared, error) 
 		return prepared{}, err
 	}
 
+	if err := validateTargetDir(targetDir, req.RunnerID == ""); err != nil {
+		return prepared{}, err
+	}
+
 	spec, err := c.Plan(capability.Input{TargetDir: targetDir, Params: req.Params})
 	if err != nil {
 		return prepared{}, err
 	}
 	return prepared{man: man, spec: spec, applicationID: applicationID, params: req.Params}, nil
+}
+
+// sensitiveRoots are host paths a source scan must never bind-mount. Scanning one only makes sense as an
+// attempt to read system state through the sandbox; under a rootful Docker daemon the container runs as
+// root and could read files the API user cannot (the raw target_dir is caller-supplied).
+var sensitiveRoots = []string{"/etc", "/root", "/proc", "/sys", "/dev", "/boot", "/run", "/var/run"}
+
+// validateTargetDir rejects a bind-mount source pointing at a sensitive system path. When local is true
+// (the run executes on this host) an existing path is canonicalized through symlinks first, so a symlink
+// into /etc can't slip past the lexical check; a remote runner's dir lives on the runner host, so only the
+// lexical check applies.
+func validateTargetDir(dir string, local bool) error {
+	if dir == "" {
+		return nil
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("target dir: %w", err)
+	}
+	if local {
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = resolved
+		}
+	}
+	abs = filepath.Clean(abs)
+	if abs == "/" {
+		return errors.New("refusing to scan the filesystem root")
+	}
+	for _, root := range sensitiveRoots {
+		if abs == root || strings.HasPrefix(abs, root+"/") {
+			return fmt.Errorf("refusing to scan sensitive system path %q", abs)
+		}
+	}
+	return nil
 }
 
 // checkTechnique blocks a run whose capability is tagged with a technique the project's engagement does not
