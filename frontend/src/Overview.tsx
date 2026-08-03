@@ -13,6 +13,7 @@ export function OverviewTab({
   coverage,
   engagement,
   online,
+  dataVersion,
   onJump,
   onScan,
 }: {
@@ -22,6 +23,7 @@ export function OverviewTab({
   coverage: CoverageView | null
   engagement: Engagement | null
   online: boolean
+  dataVersion?: number
   onJump: (t: string) => void
   onScan: () => Promise<{ enqueued: unknown[]; skipped: unknown[] }>
 }) {
@@ -31,7 +33,7 @@ export function OverviewTab({
   useEffect(() => {
     if (!online) return
     api.projectSummary(project.id).then(setSummary).catch(() => {})
-  }, [online, project.id, findings.length])
+  }, [online, project.id, findings.length, dataVersion])
   async function runScan() {
     setScanBusy(true)
     setScanMsg(null)

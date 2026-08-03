@@ -643,6 +643,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   const [context, setContext] = useState<ContextItem[]>([])
   const [findings, setFindings] = useState<Finding[]>([])
   const [observations, setObservations] = useState<Observation[]>([])
+  const [scanVersion, setScanVersion] = useState(0) // bumps when scan output reloads, so the Overview refetches its summary
   const [actions, setActions] = useState<Action[]>([]) // custom actions (ADR-0059)
   const [engagement, setEngagement] = useState<Engagement | null>(null) // the engagement record (ADR-0051)
   const engTechniques = engagement?.techniques ?? null
@@ -920,6 +921,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   reloadScanRef.current = () => {
     void api.listObservations(project.id).then((o) => setObservations(o ?? [])).catch(() => {})
     void api.listFindings().then((f) => setFindings(f ?? [])).catch(() => {})
+    void loadRoutes().catch(() => {}) // route-map upserts routes (not observations), so refresh them too
+    setScanVersion((v) => v + 1) // signal the Overview to refetch its rollup summary (queue/surface/deps)
   }
   useEffect(() => {
     if (!online) return
@@ -957,6 +960,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
             coverage={coverage}
             engagement={engagement}
             online={online}
+            dataVersion={scanVersion}
             onJump={jumpTo}
             onScan={async () => {
               const res = await api.scanProject(project.id)
