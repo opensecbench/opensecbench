@@ -1260,6 +1260,8 @@ export const api = {
       ui?: (cmd: UICommand) => void
       analystMessage?: (m: StreamMessage) => void
       analystDelta?: (d: StreamDelta) => void
+      taskCompleted?: () => void
+      findingCreated?: () => void
     },
   ): (() => void) => {
     const route: Record<string, ((payload: unknown) => void) | undefined> = {
@@ -1273,6 +1275,8 @@ export const api = {
       'ui.command': handlers.ui as ((p: unknown) => void) | undefined,
       'analyst.message': handlers.analystMessage as ((p: unknown) => void) | undefined,
       'analyst.delta': handlers.analystDelta as ((p: unknown) => void) | undefined,
+      'task.completed': handlers.taskCompleted ? () => handlers.taskCompleted!() : undefined,
+      'finding.created': handlers.findingCreated ? () => handlers.findingCreated!() : undefined,
     }
     // A frame is "event: <type>\ndata: <json>"; ": ..." lines are comments/heartbeats.
     const dispatch = (frame: string) => {

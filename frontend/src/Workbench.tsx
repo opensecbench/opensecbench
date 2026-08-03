@@ -913,12 +913,22 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
   applyRef.current = applyUICommand
   const driveRef = useRef(drive)
   driveRef.current = drive
+  // Refresh the scan outputs when a task finishes or a finding lands on the bus (ADR-0063 events): scanning
+  // is async, so the loadAll() fired at scan-kickoff runs before any observations exist. Held in a ref so the
+  // subscription needn't resubscribe as these closures change.
+  const reloadScanRef = useRef<() => void>(() => {})
+  reloadScanRef.current = () => {
+    void api.listObservations(project.id).then((o) => setObservations(o ?? [])).catch(() => {})
+    void api.listFindings().then((f) => setFindings(f ?? [])).catch(() => {})
+  }
   useEffect(() => {
     if (!online) return
     return api.subscribeProjectEvents(project.id, {
       ui: (cmd) => {
         if (driveRef.current) applyRef.current(cmd)
       },
+      taskCompleted: () => reloadScanRef.current(),
+      findingCreated: () => reloadScanRef.current(),
     })
   }, [online, project.id])
   // Open a context item (note/file) in an in-app detail+editor document. A separate document per item, kept
