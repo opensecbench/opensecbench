@@ -4,7 +4,7 @@
 # don't need the webkit/gtk toolchain. Wails must be told that tag explicitly — these targets do
 # it for you. The Analyst's AI provider is configured in the app's settings — no env vars needed.
 
-.PHONY: dev dev-attach build gui tui cli daemon run-daemon test lint fmt frontend images claude-image adr-index
+.PHONY: dev dev-attach build gui tui cli daemon run-daemon test lint fmt frontend images claude-image adr-index check
 
 # Wails build tags. The `webkit2_41` tag selects webkit2gtk-4.1 and is LINUX-ONLY — macOS (native
 # WebKit) and Windows (WebView2) must not get it, so we only add it on Linux. On modern distros
@@ -76,3 +76,15 @@ claude-image: image-claude-cli
 # CI runs this and fails if the committed index is stale (see .github/workflows/ci.yml).
 adr-index:
 	go run scripts/gen_adr_index.go
+
+# Run the Go-side CI gates locally before pushing — the exact checks .github/workflows/ci.yml runs
+# (frontend build and the gitleaks secret scan are separate CI jobs; run `make frontend` for the former).
+# Cheap checks first, the -race suite last.
+check:
+	@echo "==> gofmt" && u="$$(gofmt -l .)"; if [ -n "$$u" ]; then echo "not gofmt-clean:"; echo "$$u"; exit 1; fi
+	@echo "==> go build" && go build ./...
+	@echo "==> go vet" && go vet ./...
+	@echo "==> golangci-lint" && golangci-lint run ./...
+	@echo "==> adr index" && go run scripts/gen_adr_index.go && git diff --quiet docs/adr/README.md || { echo "ADR index stale — run 'make adr-index' and commit docs/adr/README.md"; exit 1; }
+	@echo "==> go test -race" && go test -race ./...
+	@echo "==> all Go CI gates passed"
