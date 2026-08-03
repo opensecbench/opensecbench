@@ -86,13 +86,13 @@ func TestWrapUntrustedResistsForgery(t *testing.T) {
 	}
 }
 
-// Rendering must be pure: wrapping the same content yields identical bytes for a fixed nonce, so a
-// persisted wrapped block never changes across turns and never busts the prompt cache (ADR-0070).
-func TestWrapUntrustedDeterministicForFixedNonce(t *testing.T) {
-	old := untrustedNonce
-	untrustedNonce = func() string { return "FIXED" }
-	defer func() { untrustedNonce = old }()
-	if wrapUntrusted("s", "x") != wrapUntrusted("s", "x") {
-		t.Fatal("wrap not deterministic for a fixed nonce")
+// wrapUntrusted intentionally mints a fresh nonce per call, so it must be invoked once at produce-time and
+// the result persisted — never re-wrapped in the per-render path, which would change the fence bytes and
+// bust the prompt cache (ADR-0070). This documents that non-idempotence.
+func TestWrapUntrustedFreshNoncePerCall(t *testing.T) {
+	a := wrapUntrusted("s", "x")
+	b := wrapUntrusted("s", "x")
+	if a == b {
+		t.Fatal("expected a fresh nonce per call — wrap once at produce-time, then persist")
 	}
 }
