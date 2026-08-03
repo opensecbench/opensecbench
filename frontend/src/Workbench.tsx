@@ -1408,9 +1408,14 @@ function AssetsTab({
   // Asset sensitivity uses the user-configurable classification scale (governance) — load its levels so the
   // pickers offer the same tiers as provider clearance (Library ▸ Data classification).
   const [levels, setLevels] = useState<ClassificationLevel[]>([])
+  // The engagement's base folder — so the asset directory picker opens there (assets resolve against it).
+  const [basePath, setBasePath] = useState('')
   useEffect(() => {
     if (online) void api.listClassificationLevels().then((ls) => setLevels(ls ?? [])).catch(() => {})
   }, [online])
+  useEffect(() => {
+    if (online) void api.getEngagement(project.id).then((e) => setBasePath(e?.base_path ?? '')).catch(() => {})
+  }, [online, project.id])
 
   async function addApp(e: FormEvent) {
     e.preventDefault()
@@ -1498,7 +1503,7 @@ function AssetsTab({
                   type="button"
                   className="ghost-btn"
                   onClick={async () => {
-                    const p = await pickDirectory()
+                    const p = await pickDirectory(basePath || undefined)
                     if (p) setAssetInputs({ ...assetInputs, [app.id]: { ...inp, location: p } })
                   }}
                 >

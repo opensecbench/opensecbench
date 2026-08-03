@@ -80,7 +80,7 @@ export function EngagementSettings({
           <label>Base folder <span className="em-opt">relative asset paths resolve against it</span></label>
           <div className="em-browse">
             <input className="em-in" value={eng.base_path ?? ''} onChange={(e) => patch({ base_path: e.target.value })} placeholder="/home/you/src/acme" />
-            {hasNativePickers() && <button className="em-btn" onClick={async () => { const p = await pickDirectory(); if (p) patch({ base_path: p }) }}>📁 Browse…</button>}
+            {hasNativePickers() && <button className="em-btn" onClick={async () => { const p = await pickDirectory((eng.base_path ?? '') || undefined); if (p) patch({ base_path: p }) }}>📁 Browse…</button>}
           </div>
         </div>
       </section>
