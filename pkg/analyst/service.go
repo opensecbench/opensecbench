@@ -802,7 +802,10 @@ func (svc *Service) Send(ctx context.Context, projectID, threadID, userMessage, 
 	if vc := strings.TrimSpace(viewContext); vc != "" && len(prior) > 0 {
 		last := &prior[len(prior)-1]
 		if last.Role == llm.RoleUser {
-			last.Content = "(On screen right now: " + vc + ". If I say \"this\" finding/route/file, I mean what's on screen.)\n\n" + last.Content
+			// The on-screen text is scanner-derived; fence it as untrusted data (ADR-0070). This annotation is
+			// ephemeral (fresh copy, not persisted) and rides the newest turn, so a per-turn nonce is cache-safe.
+			last.Content = "On screen right now (if I say \"this\" finding/route/file, I mean what's here):\n" +
+				wrapUntrusted("on-screen", vc) + "\n\n" + last.Content
 		}
 	}
 	out, err := sess.Advance(ctx, prior)
