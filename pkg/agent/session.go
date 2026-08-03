@@ -13,7 +13,9 @@ type approvedKey struct{}
 
 // WithApproved tags ctx as the execution of a tool call a human just explicitly approved. It scopes to
 // exactly that call — not the auto-run steps that follow it in the same Advance.
-func WithApproved(ctx context.Context) context.Context { return context.WithValue(ctx, approvedKey{}, true) }
+func WithApproved(ctx context.Context) context.Context {
+	return context.WithValue(ctx, approvedKey{}, true)
+}
 
 // Approved reports whether the running tool call was explicitly approved by a human (as opposed to
 // auto-approved by policy or run on an unattended path). Executors use it to decide how far a single

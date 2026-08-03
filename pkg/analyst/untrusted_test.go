@@ -65,7 +65,11 @@ func TestWrapUntrustedFences(t *testing.T) {
 // A body that tries to close the fence and inject trusted-looking text must not be able to: the nonce
 // makes the real close unguessable, and the marker literal is neutralized in the body.
 func TestWrapUntrustedResistsForgery(t *testing.T) {
-	pin := func() func() { old := untrustedNonce; untrustedNonce = func() string { return "NONCE1" }; return func() { untrustedNonce = old } }()
+	pin := func() func() {
+		old := untrustedNonce
+		untrustedNonce = func() string { return "NONCE1" }
+		return func() { untrustedNonce = old }
+	}()
 	defer pin()
 
 	closeMarker := "[/" + untrustedMarker + " NONCE1]"
