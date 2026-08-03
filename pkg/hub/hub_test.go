@@ -41,6 +41,7 @@ func TestPublishServeInstallRoundTrip(t *testing.T) {
 	srv := httptest.NewServer(http.FileServer(http.Dir(hubDir)))
 	defer srv.Close()
 	client := NewClient(0)
+	client.allowLoopback = true // httptest serves on loopback
 	ctx := context.Background()
 
 	idx, err := client.FetchIndex(ctx, srv.URL)
@@ -84,7 +85,9 @@ func TestDownloadRejectsTamperedArchive(t *testing.T) {
 	srv := httptest.NewServer(http.FileServer(http.Dir(hubDir)))
 	defer srv.Close()
 
-	if _, err := NewClient(0).DownloadArchive(context.Background(), srv.URL, entry); err == nil {
+	tc := NewClient(0)
+	tc.allowLoopback = true // httptest serves on loopback
+	if _, err := tc.DownloadArchive(context.Background(), srv.URL, entry); err == nil {
 		t.Fatal("tampered archive should fail the digest check")
 	}
 }
