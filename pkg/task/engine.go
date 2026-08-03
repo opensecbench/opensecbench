@@ -1085,6 +1085,8 @@ func reEvalTrigger(capID string) bool {
 	switch capID {
 	case "route-map", "govulncheck", "nmap", "http-probe":
 		return true
+	case "syft", "grype", "osv-scanner": // SBOM/SCA: correlate direct/transitive (ADR-0069)
+		return true
 	}
 	return false
 }
@@ -1109,6 +1111,7 @@ func (e *Engine) ReEvaluate(ctx context.Context, projectID string) {
 	if exp, err := e.p(projectID).ProjectExposure(ctx, projectID); err == nil {
 		exposedAttr = strconv.FormatBool(exp.Exposed)
 	}
+	depGraph := e.loadDepGraph(ctx, projectID) // parsed once per run; nil when there's no SBOM yet
 	for i := range obs {
 		o := obs[i]
 		before := attrsKey(o.Attributes)
@@ -1120,6 +1123,7 @@ func (e *Engine) ReEvaluate(ctx context.Context, projectID string) {
 		}
 		e.correlateReachability(ctx, projectID, &o)
 		e.correlateExposedRoute(ctx, projectID, exposedAttr, &o)
+		correlateDependency(&o, depGraph) // direct/transitive + path from the SBOM (ADR-0069)
 		// Fold the aggregated reachability verdict (including any manual/LLM fact) back onto the observation,
 		// so a human/LLM "reachable" determination flows into disposition and display.
 		e.applyAggregateReachability(ctx, projectID, &o)
