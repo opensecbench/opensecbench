@@ -31,6 +31,12 @@ func triageSignals(a map[string]string) string {
 	if a["reachable"] == "false" {
 		s = append(s, "reachable=false")
 	}
+	if d := a["dependency"]; d == "direct" || d == "transitive" {
+		s = append(s, d)
+	}
+	if a["fixed_version"] != "" {
+		s = append(s, "fix_available")
+	}
 	return strings.Join(s, ",")
 }
 
@@ -188,12 +194,15 @@ func (svc *Service) triageChunk(ctx context.Context, projectID string, tgt runTa
 	return dismissed, flagged, nil
 }
 
-const triageSystemPrompt = "You are a security findings triage analyst. You judge raw scanner observations, " +
-	"deciding for each whether it is noise/false-positive (dismiss) or a genuine issue a human should review " +
-	"(flag). Lean on the reachability/exposure signals first — an unreachable, unexposed finding is usually " +
-	"dismissable; a test/example/placeholder or dev-only match usually is too. Be conservative: when you " +
-	"cannot tell, keep it for manual triage rather than dismiss. You never create findings — a human promotes " +
-	"the flagged ones. Each batch is drawn from the same file/area, so judge them together."
+const triageSystemPrompt = "You are a security findings triage analyst. For each raw scanner observation decide: " +
+	"dismiss (a false positive or noise — a test/example/placeholder, or a rule that clearly does not apply), " +
+	"flag (a genuine issue worth a human's attention now), or keep (genuine but lower priority — leave in the " +
+	"queue). Do NOT dismiss a finding merely for being low/medium severity or unreachable — chained lower-severity " +
+	"issues are often the best findings. Use the signals to PRIORITIZE what to flag: prefer reachable/route_reachable/" +
+	"reachable_confirmed, exposed, direct dependencies, and fix_available. A real but transitive, unreachable, " +
+	"no-fix issue is usually keep, not dismiss. Verified secrets and clearly-real high-impact issues: flag. When " +
+	"unsure, keep. You never create findings — a human promotes the flagged ones. Each batch is from the same " +
+	"file/area, so judge them together."
 
 // triageChunkPrompt renders a chunk into the request: the observations to judge and the exact JSON reply
 // format. The strict "array only" instruction keeps a verbose backend (e.g. claude-cli) parseable.
@@ -202,7 +211,7 @@ func triageChunkPrompt(chunk []model.Observation) string {
 	b.WriteString("Triage these observations. Respond with ONLY a JSON array — no prose, no code fences — ")
 	b.WriteString("one object per observation:\n")
 	b.WriteString(`[{"id":"<id>","disposition":"dismiss|flag|keep","rationale":"<=12 words"}]` + "\n\n")
-	b.WriteString("dismiss = false positive or noise; flag = genuine, needs a human; keep = you can't tell.\n")
+	b.WriteString("dismiss = false positive/noise; flag = genuine, act now; keep = genuine but lower priority.\n")
 	b.WriteString("Judge every observation below.\n\n")
 	for _, o := range chunk {
 		fmt.Fprintf(&b, "- id=%s [%s] %s", o.ID, o.Severity, o.Title)
