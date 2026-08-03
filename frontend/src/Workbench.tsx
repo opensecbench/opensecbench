@@ -2379,6 +2379,7 @@ function ObservationsTab({
   const [status, setStatus] = useState('triage')
   const [search, setSearch] = useState('')
   const [sevFilter, setSevFilter] = useState('all')
+  const [sigFilter, setSigFilter] = useState('all') // filter by a reachability/exposure signal (ADR-0068)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [detailId, setDetailId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -2448,11 +2449,12 @@ function ObservationsTab({
       visible.filter((o) => {
         if (!activeStatus.match(o)) return false
         if (sevFilter !== 'all' && o.severity !== sevFilter) return false
+        if (sigFilter !== 'all' && o.attributes?.[sigFilter] !== 'true') return false
         if (q && !`${o.title} ${o.rule_id ?? ''} ${o.location ?? ''} ${o.detail ?? ''}`.toLowerCase().includes(q)) return false
         return true
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [visible, status, sevFilter, q],
+    [visible, status, sevFilter, sigFilter, q],
   )
   const detail = detailId ? observations.find((o) => o.id === detailId) ?? null : null
 
@@ -2508,6 +2510,10 @@ function ObservationsTab({
         <select value={sevFilter} onChange={(e) => setSevFilter(e.target.value)}>
           <option value="all">All severities</option>
           {['critical', 'high', 'medium', 'low', 'info'].map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={sigFilter} onChange={(e) => setSigFilter(e.target.value)} title="Filter by a reachability / exposure signal">
+          <option value="all">Any signal</option>
+          {OBS_SIGNALS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
         <div className="tt-chips">
           {STATUS.map((s) => (
