@@ -120,6 +120,8 @@ func TestHubInstallEndToEnd(t *testing.T) {
 	hubSrv := httptest.NewServer(http.FileServer(http.Dir(hubDir)))
 	defer hubSrv.Close()
 
+	t.Setenv("OSB_HUB_ALLOW_LOOPBACK", "1") // the test hub serves on loopback; SSRF guard blocks it otherwise
+
 	cp, err := Start(Options{Addr: "127.0.0.1:0", DBPath: dbPath})
 	if err != nil {
 		t.Fatal(err)

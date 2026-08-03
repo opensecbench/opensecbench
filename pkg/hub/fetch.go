@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -30,7 +31,7 @@ func NewClient(timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	c := &Client{}
+	c := &Client{allowLoopback: os.Getenv("OSB_HUB_ALLOW_LOOPBACK") == "1"} // opt-in for local/dev hubs on loopback
 	c.http = &http.Client{
 		Timeout:   timeout,
 		Transport: &http.Transport{DialContext: c.guardedDial},
