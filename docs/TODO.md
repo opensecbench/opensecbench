@@ -281,6 +281,13 @@ bet — generalize it into a "sanitize anything for sharing" capability.
 - [ ] **DLP event on derived egress** (near-term, from ADR-0064). When a derived artifact egresses under a
       lowered tier, log a DLP event (the DLP log already exists, ADR-0062) so there's an audit trail of
       exactly what left and under which tier — turns the "accepted residual leak" into an observable one.
+- [ ] **Put a scope+DLP floor under `run_code` egress** (from the ADR-0070 review). `run_code` runs its
+      sandboxed command on a `bridge` network, so its outbound traffic goes straight to the network and is
+      seen by neither the scope guard nor DLP — unlike `send_request`, which is scope-gated and DLP-covered.
+      Today the approval gate is the only control. Route the sandbox's egress through the same scope + DLP
+      path (or default it to no-network with an explicit per-run network grant), so an approved-but-hijacked
+      run can't reach an arbitrary host. This is the containment half of the ADR-0070 boundary (the envelope
+      work is the integrity half); tracked separately because it's a sandbox/egress change, not a prompt one.
 - [ ] **Sanitize-for-sharing pipeline — whole-document translate / redact / obfuscate** (research /
       large, James's idea 2026-08-02). Vision: assess material you can't send to an LLM, but produce a
       *sanitized rendering* of a whole document (source file, report, ingested doc) that IS shareable —
