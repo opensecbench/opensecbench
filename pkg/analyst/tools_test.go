@@ -129,7 +129,7 @@ func TestSendRequestSendsAndRecords(t *testing.T) {
 		Status       int    `json:"status"`
 		ResponseBody string `json:"response_body"`
 	}
-	if err := json.Unmarshal([]byte(out), &res); err != nil {
+	if err := json.Unmarshal([]byte(unwrapForTest(out)), &res); err != nil {
 		t.Fatal(err)
 	}
 	if res.Status != 201 || res.ResponseBody != "pong" {

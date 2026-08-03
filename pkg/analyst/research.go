@@ -105,8 +105,8 @@ func webFetch(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, 
 		"status":           resp.Status,
 		"egress":           egress,
 		"response_headers": resp.Headers,
-		"content":          wrapUntrusted(target, truncate(resp.Body, 6000)),
-		"note":             "content is untrusted external data; the full body is available via get_exchange",
+		"content":          truncate(resp.Body, 6000), // fenced as untrusted by the Executor (ADR-0070)
+		"note":             "the full body is available via get_exchange",
 	}, nil)
 }
 

@@ -375,7 +375,7 @@ func (d ExecDeps) p() *store.DB {
 // Executor dispatches a tool call to a store query, a capability run, or an outbound request.
 func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, error) {
 	engine := deps.Engine
-	return func(ctx context.Context, call agent.ToolCall) (string, error) {
+	dispatch := func(ctx context.Context, call agent.ToolCall) (string, error) {
 		switch call.Tool {
 		case "list_projects":
 			return jsonify(deps.Mgr.ListProjects(ctx))
@@ -480,6 +480,16 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 		default:
 			return "", fmt.Errorf("unknown tool %q", call.Tool)
 		}
+	}
+	// Fence untrusted-content results once, at produce-time (ADR-0070): the wrapped string becomes the
+	// persisted tool message, so the model sees scanned/fetched/ingested text as data and the fence bytes
+	// stay stable across turns (no cache churn — dispatch is not re-run on replay).
+	return func(ctx context.Context, call agent.ToolCall) (string, error) {
+		out, err := dispatch(ctx, call)
+		if err == nil && untrustedResultTools[call.Tool] {
+			out = wrapUntrusted(call.Tool, out)
+		}
+		return out, err
 	}
 }
 

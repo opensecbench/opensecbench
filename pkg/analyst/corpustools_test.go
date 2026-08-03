@@ -60,7 +60,7 @@ func TestListAndReadContext(t *testing.T) {
 	var res struct {
 		Content string `json:"content"`
 	}
-	if err := json.Unmarshal([]byte(out), &res); err != nil {
+	if err := json.Unmarshal([]byte(unwrapForTest(out)), &res); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(res.Content, "skips rate limiting") {

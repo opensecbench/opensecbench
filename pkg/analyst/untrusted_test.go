@@ -5,6 +5,32 @@ import (
 	"testing"
 )
 
+// Completeness guard (ADR-0070): every tool the model can call must be classified as exactly one of
+// untrusted-content or trusted, so a new content-returning tool cannot ship without a fencing decision.
+func TestEveryToolClassifiedForTrust(t *testing.T) {
+	for _, tl := range Tools() {
+		unt := untrustedResultTools[tl.Name]
+		tr := trustedResultTools[tl.Name]
+		if unt == tr { // both false (unclassified) or both true (contradiction)
+			t.Errorf("tool %q must be in exactly one of untrustedResultTools / trustedResultTools (untrusted=%v trusted=%v)", tl.Name, unt, tr)
+		}
+	}
+}
+
+// unwrapForTest strips a wrapUntrusted fence to recover the inner payload for assertions on fenced
+// tool results.
+func unwrapForTest(s string) string {
+	if !strings.HasPrefix(s, "["+untrustedMarker+" ") {
+		return s
+	}
+	i := strings.IndexByte(s, '\n')
+	j := strings.LastIndexByte(s, '\n')
+	if i < 0 || j <= i {
+		return s
+	}
+	return s[i+1 : j]
+}
+
 func TestWrapUntrustedFences(t *testing.T) {
 	out := wrapUntrusted("https://evil.test", "hello world")
 	if !strings.Contains(out, "hello world") {
