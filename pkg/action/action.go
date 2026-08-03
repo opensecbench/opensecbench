@@ -10,11 +10,41 @@
 package action
 
 import (
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/runner"
 )
+
+// shellInterpreters parse a following argument as a shell command line, where a {{token}} of an
+// attacker-controllable subject field (SARIF titles/locations) is command injection. Plain exec argv is
+// safe — a token stays one argv element — so only this case is dangerous.
+var shellInterpreters = map[string]bool{
+	"sh": true, "bash": true, "dash": true, "ash": true, "zsh": true, "ksh": true,
+	"/bin/sh": true, "/bin/bash": true, "/bin/dash": true, "/bin/ash": true,
+	"/usr/bin/sh": true, "/usr/bin/bash": true,
+}
+
+// ValidateScriptSafety rejects a shell script action that substitutes {{...}} into the command string.
+// Shell actions must reference subject fields via the OSB_SUBJECT_* env vars (passed verbatim, never
+// shell-parsed). No-op for agent actions and non-shell scripts.
+func ValidateScriptSafety(a Action) error {
+	if a.Kind != KindScript || len(a.Cmd) == 0 {
+		return nil
+	}
+	if !shellInterpreters[strings.ToLower(a.Cmd[0])] {
+		return nil
+	}
+	for _, tok := range a.Cmd[1:] {
+		if strings.Contains(tok, "{{") {
+			return errors.New("a shell script action must not use {{...}} substitution inside the shell command: " +
+				"subject fields can be attacker-controlled and would be command-injected. Reference them via the " +
+				"OSB_SUBJECT_* environment variables instead (e.g. \"$OSB_SUBJECT_TITLE\")")
+		}
+	}
+	return nil
+}
 
 // Kind is how an action executes.
 type Kind string

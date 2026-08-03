@@ -146,6 +146,9 @@ func validateAction(a action.Action) error {
 		if a.Image == "" || len(a.Cmd) == 0 {
 			return errors.New("store: a script action needs an image and a command")
 		}
+		if err := action.ValidateScriptSafety(a); err != nil {
+			return err
+		}
 	default:
 		return errors.New("store: action kind must be 'agent' or 'script'")
 	}

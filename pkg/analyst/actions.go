@@ -91,6 +91,10 @@ func (svc *Service) executeScriptAction(ctx context.Context, projectID string, a
 	if svc.workspaceRoot == "" {
 		return "", errors.New("workspace is not configured")
 	}
+	// Defense-in-depth for records that bypassed save-time validation (built-in/imported).
+	if err := action.ValidateScriptSafety(a); err != nil {
+		return "", err
+	}
 	workDir := filepath.Join(svc.workspaceRoot, projectID)
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return "", err
