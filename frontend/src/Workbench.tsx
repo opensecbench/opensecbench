@@ -2265,6 +2265,19 @@ const obsSignals = (o: Observation): string[] => {
 }
 const STATE_LABEL: Record<string, string> = { unreviewed: 'new', confirmed: 'promoted', rejected: 'dismissed' }
 
+const SEV_ABBR: Record<string, string> = { critical: 'crit', high: 'high', medium: 'med', low: 'low', info: 'info' }
+function sevCounts(obs: Observation[]): string {
+  const c: Record<string, number> = {}
+  for (const o of obs) c[o.severity] = (c[o.severity] ?? 0) + 1
+  return ['critical', 'high', 'medium', 'low', 'info'].filter((s) => c[s]).map((s) => `${c[s]} ${SEV_ABBR[s]}`).join(' · ')
+}
+function toggleSet(s: Set<string>, k: string): Set<string> {
+  const n = new Set(s)
+  if (n.has(k)) n.delete(k)
+  else n.add(k)
+  return n
+}
+
 // ObservationsTab is the human triage queue: a compact, spreadsheet-style table of every raw signal the
 // scanners/agents produced. Search/sort/filter to find what matters, select rows for bulk promote/investigate/
 // dismiss, or click a row to inspect it in the side panel. Items already under investigation live on the
@@ -2388,6 +2401,8 @@ function ObservationsTab({
   const [search, setSearch] = useState('')
   const [sevFilter, setSevFilter] = useState('all')
   const [sigFilter, setSigFilter] = useState('all') // filter by a reachability/exposure signal (ADR-0068)
+  const [group, setGroup] = useState<'none' | 'dependency'>('none')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [detailId, setDetailId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -2482,6 +2497,23 @@ function ObservationsTab({
     return { deps: deps.size, fixableDeps: fixableDeps.size, fixable }
   }, [rows])
 
+  const depGroups = useMemo(() => {
+    const m = new Map<string, { pkg: string; dependency: string; fixed: string; obs: Observation[]; worst: number }>()
+    const ungrouped: Observation[] = []
+    for (const o of rows) {
+      const pkg = o.attributes?.package
+      if (!pkg) { ungrouped.push(o); continue }
+      let g = m.get(pkg)
+      if (!g) { g = { pkg, dependency: '', fixed: '', obs: [], worst: -1 }; m.set(pkg, g) }
+      g.obs.push(o)
+      g.worst = Math.max(g.worst, SEV_RANK[o.severity] ?? -1)
+      if (!g.fixed && o.attributes?.fixed_version) g.fixed = o.attributes.fixed_version
+      if (!g.dependency && o.attributes?.dependency) g.dependency = o.attributes.dependency
+    }
+    const groups = [...m.values()].sort((a, b) => b.worst - a.worst || b.obs.length - a.obs.length)
+    return { groups, ungrouped }
+  }, [rows])
+
   async function runBulk(fn: (id: string) => Promise<unknown>, ids: string[]) {
     setBusy(true)
     try {
@@ -2558,6 +2590,10 @@ function ObservationsTab({
           <option value="all">Any signal</option>
           {OBS_SIGNALS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
+        <select value={group} onChange={(e) => setGroup(e.target.value as 'none' | 'dependency')} title="Group the queue">
+          <option value="none">Flat list</option>
+          <option value="dependency">By dependency</option>
+        </select>
         <div className="tt-chips">
           {STATUS.map((s) => (
             <button key={s.key} className={`chip ${status === s.key ? 'on' : ''}`} onClick={() => setStatus(s.key)}>
@@ -2589,17 +2625,68 @@ function ObservationsTab({
       )}
 
       <div className="table-split">
-        <DataTable
-          rows={rows}
-          columns={columns}
-          selectable
-          selected={selected}
-          onSelectChange={setSelected}
-          onRowClick={(o) => setDetailId(o.id)}
-          activeId={detail?.id}
-          defaultSort={{ key: 'severity', dir: 'desc' }}
-          empty={status === 'triage' ? 'Nothing left to triage. 🎉' : 'No observations match.'}
-        />
+        {group === 'dependency' ? (
+          <div className="dep-groups">
+            {depGroups.groups.length === 0 && depGroups.ungrouped.length === 0 && <div className="empty">No observations match.</div>}
+            {depGroups.groups.map((g) => (
+              <div key={g.pkg} className="dep-group">
+                <button className="dep-group-head" onClick={() => setExpanded((s) => toggleSet(s, g.pkg))}>
+                  <span className="car">{expanded.has(g.pkg) ? '▾' : '▸'}</span>
+                  <span className="mono dep-group-pkg">{g.pkg}</span>
+                  {g.dependency && <span className={`dep-badge ${g.dependency}`}>{g.dependency}</span>}
+                  <span className="muted dep-group-counts">{sevCounts(g.obs)}</span>
+                  <span className="grow" />
+                  {g.fixed ? <span className="dep-fix">↑ upgrade to {g.fixed}</span> : <span className="muted">no fix</span>}
+                  <span className="muted dep-group-n">{g.obs.length}</span>
+                </button>
+                {expanded.has(g.pkg) && (
+                  <ul className="dep-group-rows">
+                    {g.obs.map((o) => (
+                      <li key={o.id} className={`dep-row ${detail?.id === o.id ? 'on' : ''}`} onClick={() => setDetailId(o.id)}>
+                        <span className={`sev sev-${o.severity}`}>{o.severity}</span>
+                        <span className="dep-row-title dt-ellip">{o.title}</span>
+                        <span className="dt-signals">{obsSignals(o).map((s) => <span key={s} className="sig-chip">{s}</span>)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+            {depGroups.ungrouped.length > 0 && (
+              <div className="dep-group">
+                <button className="dep-group-head" onClick={() => setExpanded((s) => toggleSet(s, '~other'))}>
+                  <span className="car">{expanded.has('~other') ? '▾' : '▸'}</span>
+                  <span className="dep-group-pkg">Other findings (SAST, secrets, …)</span>
+                  <span className="grow" />
+                  <span className="muted dep-group-n">{depGroups.ungrouped.length}</span>
+                </button>
+                {expanded.has('~other') && (
+                  <ul className="dep-group-rows">
+                    {depGroups.ungrouped.map((o) => (
+                      <li key={o.id} className={`dep-row ${detail?.id === o.id ? 'on' : ''}`} onClick={() => setDetailId(o.id)}>
+                        <span className={`sev sev-${o.severity}`}>{o.severity}</span>
+                        <span className="dep-row-title dt-ellip">{o.title}</span>
+                        <span className="muted mono dt-ellip">{o.rule_id}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <DataTable
+            rows={rows}
+            columns={columns}
+            selectable
+            selected={selected}
+            onSelectChange={setSelected}
+            onRowClick={(o) => setDetailId(o.id)}
+            activeId={detail?.id}
+            defaultSort={{ key: 'severity', dir: 'desc' }}
+            empty={status === 'triage' ? 'Nothing left to triage. 🎉' : 'No observations match.'}
+          />
+        )}
         {detail && (
           <ObservationDetailPanel
             obs={detail}

@@ -2939,6 +2939,17 @@ select.em-in { cursor: pointer; }
 .dep-badge.transitive { background: var(--bg4); color: var(--tx3); }
 .dep-fix { font-size: 10px; color: var(--green); white-space: nowrap; }
 .banner.remediation { background: color-mix(in srgb, var(--accent) 10%, var(--bg2)); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); }
+.dep-groups { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.dep-group { border: 1px solid var(--line); border-radius: 8px; background: var(--bg2); overflow: hidden; }
+.dep-group-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.dep-group-head:hover { background: var(--bg3); }
+.dep-group-pkg { font-weight: 600; }
+.dep-group-counts, .dep-group-n { font-size: 11px; }
+.dep-group-n { min-width: 20px; text-align: right; }
+.dep-group-rows { list-style: none; margin: 0; padding: 0; }
+.dep-row { display: flex; align-items: center; gap: 8px; padding: 5px 10px 5px 24px; cursor: pointer; border-top: 1px solid var(--line); }
+.dep-row:hover, .dep-row.on { background: var(--bg3); }
+.dep-row-title { flex: 1; min-width: 0; }
 .em-check { cursor: pointer; }
 .em-check.em-check-off { opacity: .5; cursor: default; }
 .em-box { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--line2); display: grid; place-items: center; font-size: 10px; color: #04101f; flex: 0 0 auto; }
