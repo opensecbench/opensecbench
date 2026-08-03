@@ -41,6 +41,15 @@ type sarifRule struct {
 	DefaultConfiguration struct {
 		Level string `json:"level"`
 	} `json:"defaultConfiguration"`
+	// FullDescription + Help carry grype's SCA facts (ADR-0069): fullDescription holds the group:artifact
+	// coordinate ("org.postgresql:postgresql vulnerable to …"); help.text has "Package:/Version:/Fix Version:"
+	// lines. osv puts its coordinate in the result message instead (see scaFacts).
+	FullDescription struct {
+		Text string `json:"text"`
+	} `json:"fullDescription"`
+	Help struct {
+		Text string `json:"text"`
+	} `json:"help"`
 }
 
 // sarifProperties carries the bag of extra facts both semgrep and grype emit; we only read the CVSS-like
@@ -102,7 +111,9 @@ func SARIF(data []byte) ([]model.Observation, error) {
 		// both so a result that omits them still gets its severity.
 		ruleSev := make(map[string]string)
 		ruleLevel := make(map[string]string)
+		ruleByID := make(map[string]sarifRule)
 		for _, rule := range run.Tool.Driver.Rules {
+			ruleByID[rule.ID] = rule
 			if rule.Properties.SecuritySeverity != "" {
 				ruleSev[rule.ID] = rule.Properties.SecuritySeverity
 			}
@@ -122,6 +133,18 @@ func SARIF(data []byte) ([]model.Observation, error) {
 			}
 			if secSev != "" {
 				attrs["security_severity"] = secSev
+			}
+			// SCA dependency facts (ADR-0069): the affected package coordinate, its version, and the fixed
+			// version, for grouping by dependency + a remediation view. Tool-specific extraction; SAST results
+			// carry no package, so this is a no-op for them.
+			if pkg, version, fixed := scaFacts(tool, r, ruleByID[r.RuleID]); pkg != "" {
+				attrs["package"] = pkg
+				if version != "" {
+					attrs["version"] = version
+				}
+				if fixed != "" {
+					attrs["fixed_version"] = fixed
+				}
 			}
 			// A dataflow trace means a taint finding — the tool proved a source→sink path, i.e. the sink is
 			// reachable from untrusted input (ADR-0032). Record it as reachable and note where input enters.
@@ -253,6 +276,69 @@ func dataflowPath(flows []sarifCodeFlow) []string {
 		}
 	}
 	return nil
+}
+
+// scaFacts extracts the affected dependency's coordinate, version, and fixed version from an SCA tool's SARIF
+// (ADR-0069) — the axes triage decisions hang on. grype and osv encode these differently, so extraction is
+// tool-specific; a SAST tool (semgrep/opengrep) matches neither branch and returns empty (no package).
+func scaFacts(tool string, r sarifResult, rule sarifRule) (pkg, version, fixed string) {
+	switch {
+	case strings.Contains(tool, "grype"):
+		// grype packs structured fields into the rule help text ("Package:/Version:/Fix Version:"); the
+		// group:artifact coordinate is the first token of fullDescription ("org.postgresql:postgresql …").
+		pkg = helpField(rule.Help.Text, "Package")
+		version = helpField(rule.Help.Text, "Version")
+		fixed = helpField(rule.Help.Text, "Fix Version")
+		if coord := leadingCoordinate(rule.FullDescription.Text); coord != "" {
+			pkg = coord // richer than the bare artifact name from help
+		}
+	case strings.Contains(tool, "osv"):
+		// osv states the coordinate in the result message: "Package 'group:artifact@version' is vulnerable…".
+		pkg, version = osvCoordinate(r.Message.Text)
+		// osv's SARIF does not surface a clean fixed version; leave it blank (follow-on).
+	}
+	if strings.EqualFold(version, "unknown") {
+		version = "" // grype emits "UNKNOWN" when it can't resolve the version — not useful
+	}
+	return pkg, version, fixed
+}
+
+// helpField reads a "Key: value" line from grype's rule help text. Exact key match, so "Version" does not
+// also match "Fix Version".
+func helpField(text, key string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), ": "); ok && strings.EqualFold(strings.TrimSpace(k), key) {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// leadingCoordinate returns the first whitespace-delimited token if it looks like a group:artifact coordinate
+// (contains ':' but is not a URL), e.g. from "org.postgresql:postgresql vulnerable to …".
+func leadingCoordinate(text string) string {
+	f := strings.Fields(text)
+	if len(f) > 0 && strings.Contains(f[0], ":") && !strings.Contains(f[0], "://") {
+		return f[0]
+	}
+	return ""
+}
+
+// osvCoordinate parses "group:artifact@version" from the first single-quoted token of an osv message.
+func osvCoordinate(msg string) (pkg, version string) {
+	i := strings.IndexByte(msg, '\'')
+	if i < 0 {
+		return "", ""
+	}
+	j := strings.IndexByte(msg[i+1:], '\'')
+	if j < 0 {
+		return "", ""
+	}
+	tok := msg[i+1 : i+1+j]
+	if at := strings.LastIndexByte(tok, '@'); at >= 0 {
+		return tok[:at], tok[at+1:]
+	}
+	return tok, ""
 }
 
 func firstLocation(locs []sarifLocation) string {

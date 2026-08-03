@@ -958,6 +958,14 @@ func (e *Engine) mergeVulnObservation(ctx context.Context, projectID, existingID
 	if attrs["reachable"] == "" && o.Attributes["reachable"] != "" {
 		attrs["reachable"] = o.Attributes["reachable"]
 	}
+	// Carry SCA enrichment across tools (ADR-0069): the tools are complementary — osv reports the version,
+	// grype reports the fixed version — so a merged CVE should end up with both. Adopt any field the existing
+	// observation lacks from the incoming one.
+	for _, k := range []string{"package", "version", "fixed_version"} {
+		if attrs[k] == "" && o.Attributes[k] != "" {
+			attrs[k] = o.Attributes[k]
+		}
+	}
 	sev := existing.Severity
 	if severityRank(o.Severity) > severityRank(sev) {
 		sev = o.Severity

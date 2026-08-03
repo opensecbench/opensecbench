@@ -59,7 +59,8 @@ func TestCrossToolMergeCollapsesSameVuln(t *testing.T) {
 	// so without cross-tool merge it would create a second observation.
 	b := model.Observation{
 		Severity: "critical", RuleID: "CVE-2022-41723", Location: "golang.org/x/net",
-		Attributes: map[string]string{"tool": "govulncheck", "reachable": "true", "aliases": "GO-2022-0969"},
+		// Carries the version + fix the first tool lacked — the complementary-enrichment case (ADR-0069).
+		Attributes: map[string]string{"tool": "govulncheck", "reachable": "true", "aliases": "GO-2022-0969", "version": "0.5.0", "fixed_version": "0.7.0"},
 	}
 	ids := vulnIDs(&b)
 	existingID, dup := db.ObservationForVuln(ctx, proj.ID, ids)
@@ -83,6 +84,11 @@ func TestCrossToolMergeCollapsesSameVuln(t *testing.T) {
 	tools := merged.Attributes["tools"]
 	if !strings.Contains(tools, "grype") || !strings.Contains(tools, "govulncheck") {
 		t.Fatalf("merged tools = %q, want both grype and govulncheck", tools)
+	}
+	// SCA enrichment carries across the merge (ADR-0069): the first tool's package + the second's
+	// version/fixed_version combine onto the one observation.
+	if a := merged.Attributes; a["package"] != "golang.org/x/net" || a["version"] != "0.5.0" || a["fixed_version"] != "0.7.0" {
+		t.Fatalf("merged SCA enrichment = %+v", merged.Attributes)
 	}
 	// The CVE still resolves to the merged observation, so any later tool reporting it merges too.
 	if _, dup := db.ObservationForVuln(ctx, proj.ID, []string{"CVE-2022-41723"}); !dup {

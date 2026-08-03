@@ -136,6 +136,54 @@ func TestSARIFGrypeSecuritySeverity(t *testing.T) {
 	}
 }
 
+// SCA dependency facts (ADR-0069). grype encodes the coordinate in fullDescription and Package/Version/Fix
+// Version in the rule help text ("UNKNOWN" version dropped); osv states "group:artifact@version" in the
+// result message and has no fix version. Shapes mirror real grype/osv SARIF output.
+const grypeSCASARIF = `{
+  "runs": [{
+    "tool": {"driver": {"name": "grype", "rules": [
+      {"id": "GHSA-x-postgresql", "properties": {"security-severity": "10.0"},
+       "fullDescription": {"text": "org.postgresql:postgresql vulnerable to SQL Injection"},
+       "help": {"text": "Vulnerability GHSA-x\nSeverity: critical\nPackage: postgresql\nVersion: UNKNOWN\nFix Version: 42.2.28\nType: java-archive"}}
+    ]}},
+    "results": [
+      {"ruleId": "GHSA-x-postgresql", "message": {"text": "A critical vulnerability in java-archive package: postgresql, version UNKNOWN"},
+       "locations": [{"physicalLocation": {"artifactLocation": {"uri": "/pom.xml"}}}]}
+    ]
+  }]
+}`
+
+const osvSCASARIF = `{
+  "runs": [{
+    "tool": {"driver": {"name": "osv-scanner", "rules": [{"id": "CVE-2022-45868"}]}},
+    "results": [
+      {"ruleId": "CVE-2022-45868", "level": "warning",
+       "message": {"text": "Package 'com.h2database:h2@1.4.200' is vulnerable to 'CVE-2022-45868' (also known as 'GHSA-22wj-vf5f-wrvj')."},
+       "locations": [{"physicalLocation": {"artifactLocation": {"uri": "file:///src/pom.xml"}}}]}
+    ]
+  }]
+}`
+
+func TestSARIFSCAFacts(t *testing.T) {
+	g, err := SARIF([]byte(grypeSCASARIF))
+	if err != nil || len(g) != 1 {
+		t.Fatalf("grype: %d obs, err=%v", len(g), err)
+	}
+	// Coordinate from fullDescription; fix from help; "UNKNOWN" version dropped.
+	if a := g[0].Attributes; a["package"] != "org.postgresql:postgresql" || a["version"] != "" || a["fixed_version"] != "42.2.28" {
+		t.Fatalf("grype SCA attrs = %+v", g[0].Attributes)
+	}
+
+	o, err := SARIF([]byte(osvSCASARIF))
+	if err != nil || len(o) != 1 {
+		t.Fatalf("osv: %d obs, err=%v", len(o), err)
+	}
+	// Coordinate + version from the message; no fix version.
+	if a := o[0].Attributes; a["package"] != "com.h2database:h2" || a["version"] != "1.4.200" || a["fixed_version"] != "" {
+		t.Fatalf("osv SCA attrs = %+v", o[0].Attributes)
+	}
+}
+
 // A semgrep taint finding carries a codeFlows dataflow trace (source → sink); a plain pattern finding does
 // not. The interpreter marks the taint finding reachable and records where untrusted input enters (ADR-0032).
 const taintSARIF = `{
