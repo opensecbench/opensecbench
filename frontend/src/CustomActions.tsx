@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, Action, AgentProfile } from './api'
-import { actionIcon } from './customActions'
+import { actionIcon } from './customActionsFilter'
 
 // CustomActions is the Library authoring surface for custom actions (ADR-0059): user-defined operations —
 // an LLM agent or a sandboxed script — that run against a finding or observation, templated from its
