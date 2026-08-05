@@ -53,6 +53,8 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
   const [connModels, setConnModels] = useState<Record<string, ConnectionModel[]>>({})
   const [refreshedAt, setRefreshedAt] = useState<Record<string, string>>({})
   const [modelsBusy, setModelsBusy] = useState<Record<string, boolean>>({})
+  // Per-connection typeahead to filter a long model list (e.g. Bedrock), keyed by connection id.
+  const [modelFilter, setModelFilter] = useState<Record<string, string>>({})
 
   async function loadConnModels(id: string, force: boolean) {
     setModelsBusy((b) => ({ ...b, [id]: true }))
@@ -211,18 +213,33 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
                 <button className="ghost-btn prov-models-toggle" onClick={() => toggleModels(p.id)} disabled={!online}>
                   {expanded === p.id ? '▾' : '▸'} models{connModels[p.id] ? ` (${connModels[p.id].length})` : ''}
                 </button>
-                {expanded === p.id && (
+                {expanded === p.id && (() => {
+                  const all = connModels[p.id] ?? []
+                  const q = (modelFilter[p.id] ?? '').trim().toLowerCase()
+                  const shown = q
+                    ? all.filter((m) => `${m.model_id} ${m.display_name} ${m.family}`.toLowerCase().includes(q))
+                    : all
+                  return (
                   <div className="prov-models">
                     <div className="prov-models-head">
                       <span>
-                        {(connModels[p.id]?.length ?? 0)} models
+                        {q ? `${shown.length} / ${all.length}` : all.length} models
                         {refreshedAt[p.id] ? ` · ${new Date(refreshedAt[p.id]).toLocaleString()}` : ''}
                       </span>
                       <button className="ghost-btn" onClick={() => loadConnModels(p.id, true)} disabled={modelsBusy[p.id]}>
                         {modelsBusy[p.id] ? '…' : '↻ refresh'}
                       </button>
                     </div>
-                    {(connModels[p.id] ?? []).map((m) => (
+                    {all.length > 0 && (
+                      <input
+                        className="prov-model-filter"
+                        placeholder="filter models…"
+                        value={modelFilter[p.id] ?? ''}
+                        onChange={(e) => setModelFilter((f) => ({ ...f, [p.id]: e.target.value }))}
+                      />
+                    )}
+                    {q && shown.length === 0 && <div className="prov-model-empty">no models match “{modelFilter[p.id]}”</div>}
+                    {shown.map((m) => (
                       <div key={m.model_id} className="prov-model-row">
                         <span className="mono">{m.model_id}</span>
                         <span className="prov-model-meta">
@@ -256,7 +273,8 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
                       </div>
                     ))}
                   </div>
-                )}
+                  )
+                })()}
               </div>
               <div className="prov-actions">
                 {!p.active && <button className="ghost-btn" onClick={() => activate(p.id)}>activate</button>}
