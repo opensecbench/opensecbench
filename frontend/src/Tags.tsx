@@ -157,8 +157,13 @@ function AddModelRow({
   const [conn, setConn] = useState('')
   const [model, setModel] = useState('')
   const [custom, setCustom] = useState(false)
+  const [filter, setFilter] = useState('')
   const list = models[conn]
   const loaded = list !== undefined
+  const q = filter.trim().toLowerCase()
+  const shown = q
+    ? (list ?? []).filter((m) => `${m.model_id} ${m.display_name} ${m.family}`.toLowerCase().includes(q))
+    : (list ?? [])
   return (
     <div className="add-model-row">
       <select
@@ -167,6 +172,7 @@ function AddModelRow({
           setConn(e.target.value)
           setModel('')
           setCustom(false)
+          setFilter('')
           loadModels(e.target.value)
         }}
         disabled={!online}
@@ -174,6 +180,14 @@ function AddModelRow({
         <option value="">+ add a model…</option>
         {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
+      {conn && !custom && loaded && (list?.length ?? 0) > 8 && (
+        <input
+          className="add-model-filter"
+          placeholder="filter…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      )}
       {conn && !custom && (
         <select
           value={model}
@@ -185,12 +199,13 @@ function AddModelRow({
           }}
         >
           <option value="">{loaded ? 'connection default' : 'loading models…'}</option>
-          {(list ?? []).map((m) => (
+          {shown.map((m) => (
             <option key={m.model_id} value={m.model_id}>
               {m.display_name || m.model_id}
               {m.input_per_mtok || m.output_per_mtok ? ` · $${m.input_per_mtok}/$${m.output_per_mtok}` : ''}
             </option>
           ))}
+          {q && shown.length === 0 && <option value="" disabled>no models match “{filter}”</option>}
           <option value="__custom__">Custom id…</option>
         </select>
       )}
@@ -205,6 +220,7 @@ function AddModelRow({
             setConn('')
             setModel('')
             setCustom(false)
+            setFilter('')
           }}
         >
           add

@@ -2605,6 +2605,7 @@ select option {
 .pmove .ghost-btn:disabled { opacity: 0.3; }
 .add-model-row { display: flex; gap: 6px; margin-top: 6px; }
 .add-model-row select, .add-model-row input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line2); border-radius: 6px; padding: 5px 8px; color: var(--tx); font-size: 12px; }
+.add-model-row input.add-model-filter { flex: 0 1 120px; }
 .new-tag-row { display: flex; gap: 6px; margin-top: 4px; }
 .new-tag-row input { flex: 1; background: var(--bg); border: 1px dashed var(--line2); border-radius: 6px; padding: 6px 9px; color: var(--tx); font-size: 12px; }
 
