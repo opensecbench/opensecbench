@@ -214,6 +214,7 @@ export interface CapabilityManifest {
   title: string
   description: string
   target_param?: string
+  applies_to?: string[] // asset kinds this capability runs against (empty = source scanner / explicit-target tool)
   technique?: string // rules-of-engagement technique gated by the engagement (ADR-0051)
 }
 

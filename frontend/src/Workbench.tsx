@@ -1969,6 +1969,19 @@ function statusClass(status?: number): string {
   return 'active'
 }
 
+// Asset kinds a network/DAST capability can point at (its TargetParam is filled from the asset's Location).
+const NETWORK_ASSET_KINDS = ['web_service', 'cloud_deployment', 'infrastructure']
+
+// capApplicableKinds mirrors the engine's manual-run resolution (task.prepare): a capability with declared
+// applies_to runs against those asset kinds; one with a target_param but no applies_to (e.g. nmap) takes any
+// network target; everything else is a source scanner and needs a source_repo. Keep this in sync with the
+// backend so the picker only offers assets the run will actually accept.
+function capApplicableKinds(c: CapabilityManifest): string[] {
+  if (c.applies_to && c.applies_to.length > 0) return c.applies_to
+  if (c.target_param) return NETWORK_ASSET_KINDS
+  return ['source_repo']
+}
+
 function ScanTab({
   assets,
   capabilities,
@@ -1986,13 +1999,23 @@ function ScanTab({
   afterFinding: () => Promise<void>
   onError: (m: string) => void
 }) {
-  const repoAssets = assets.filter((a) => a.asset.type === 'source_repo')
   // A capability is blocked when its technique isn't permitted by the engagement's rules (ADR-0051). When no
   // engagement/techniques are configured, nothing is gated (fail-open, matching the engine).
   const roeConfigured = !!techniques && Object.keys(techniques).length > 0
   const blockedCap = (c: CapabilityManifest) => !!c.technique && roeConfigured && !techniques![c.technique]
   const [capId, setCapId] = useState('')
   const [assetId, setAssetId] = useState('')
+  // The asset picker follows the selected capability's applicable kinds: a SAST tool offers source repos, a
+  // DAST/network tool offers web services (ADR-0067). Before a capability is chosen, offer everything so the
+  // list isn't mysteriously empty.
+  const selectedCap = capabilities.find((c) => c.id === capId)
+  const applicableKinds = selectedCap ? capApplicableKinds(selectedCap) : null
+  const applicableAssets = applicableKinds ? assets.filter((a) => applicableKinds.includes(a.asset.type)) : assets
+  // Drop a stale asset selection when it no longer fits the chosen capability's kinds.
+  useEffect(() => {
+    if (assetId && !applicableAssets.some((a) => a.asset.id === assetId)) setAssetId('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capId])
   const [config, setConfig] = useState('')
   const [running, setRunning] = useState(false)
   const [phase, setPhase] = useState('') // 'pending' | 'running' while polling an async task
@@ -2079,15 +2102,19 @@ function ScanTab({
             ))}
           </select>
           <select value={assetId} onChange={(e) => setAssetId(e.target.value)}>
-            <option value="">source-repo asset…</option>
-            {repoAssets.map((a) => (
+            <option value="">{applicableKinds ? applicableKinds.join(' / ') + ' asset…' : 'asset…'}</option>
+            {applicableAssets.map((a) => (
               <option key={a.asset.id} value={a.asset.id}>{a.appName}: {a.asset.location}</option>
             ))}
           </select>
           <input placeholder="param: config (optional)" value={config} onChange={(e) => setConfig(e.target.value)} />
           <button disabled={!online || running || !capId || !assetId} onClick={run}>{running ? (phase === 'pending' ? 'Queued…' : 'Running…') : '▷ Run'}</button>
         </div>
-        {repoAssets.length === 0 && <div className="empty">Add a source_repo asset first (Applications &amp; Assets).</div>}
+        {capId && applicableAssets.length === 0 && (
+          <div className="empty">
+            No {applicableKinds!.join(' / ')} asset for {selectedCap?.title}. Add one in Applications &amp; Assets.
+          </div>
+        )}
       </section>
 
       {outcome && (
