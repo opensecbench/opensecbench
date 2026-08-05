@@ -3034,6 +3034,14 @@ func (s *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "capability_id is required")
 		return
 	}
+	// Scope the run to the request's active project (X-Project-Id, ADR-0049) unless the body names one
+	// explicitly. Without this the engine resolves the asset against the global store and fails, so a
+	// manual single-tool run (which doesn't send project_id in the body) never starts.
+	if req.ProjectID == nil {
+		if pid := projectFromReq(r); pid != "" {
+			req.ProjectID = &pid
+		}
+	}
 	// Enqueue and return immediately (ADR-0022): the run executes on the worker pool and the client
 	// polls GET /v1/tasks/{id}. A validation/plan error fails fast here with no task created.
 	t, err := s.engine.Enqueue(r.Context(), task.RunRequest{
