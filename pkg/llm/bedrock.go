@@ -3,6 +3,8 @@ package llm
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,16 +12,23 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 )
 
 // BedrockProvider talks to Amazon Bedrock — a gateway that serves many model families (Anthropic, Llama,
 // Mistral, …) behind one credential (ADR-0052). Inference uses the Converse API; discovery uses the
-// control-plane ListFoundationModels. Auth is AWS SigV4 (see sigv4.go). This adapter uses the prompted
-// tool protocol (NativeTools=false): messages arrive pre-flattened to text, so Converse plain-text
-// completion covers the loop; native Converse tool-use is a later refinement.
+// control-plane ListFoundationModels. Auth is AWS SigV4, signed with the vendor SDK's signer over
+// credentials resolved from a CredentialsProvider (an explicit pasted key, or the AWS default chain —
+// env / ~/.aws / SSO / IMDS — see newBedrockCredentials). This adapter uses the prompted tool protocol
+// (NativeTools=false): messages arrive pre-flattened to text, so Converse plain-text completion covers
+// the loop; native Converse tool-use is a later refinement.
 type BedrockProvider struct {
 	Region string
-	Creds  awsCreds
+	Creds  aws.CredentialsProvider
 	Model  string
 	HTTP   *http.Client
 	// now is injectable for tests; nil uses time.Now.
@@ -99,7 +108,9 @@ func (b *BedrockProvider) Complete(ctx context.Context, req CompletionRequest) (
 		return CompletionResponse{}, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	signV4(httpReq, body, "bedrock", b.Region, b.Creds, b.clock())
+	if err := b.sign(ctx, httpReq, body); err != nil {
+		return CompletionResponse{}, err
+	}
 
 	resp, err := b.client().Do(httpReq)
 	if err != nil {
@@ -150,7 +161,9 @@ func (b *BedrockProvider) ListModels(ctx context.Context) ([]DiscoveredModel, er
 	if err != nil {
 		return nil, err
 	}
-	signV4(req, nil, "bedrock", b.Region, b.Creds, b.clock())
+	if err := b.sign(ctx, req, nil); err != nil {
+		return nil, err
+	}
 	body, err := doDiscovery(b.client(), req, "bedrock")
 	if err != nil {
 		return nil, err
@@ -174,13 +187,36 @@ func (b *BedrockProvider) ListModels(ctx context.Context) ([]DiscoveredModel, er
 	return models, nil
 }
 
-// parseBedrockCreds decodes the sealed credential blob for a Bedrock connection. Two forms are accepted:
-// JSON {"access_key_id","secret_access_key","session_token"} or the shorthand
-// "ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN]".
-func parseBedrockCreds(sealed string) (awsCreds, error) {
+// sign signs the request with AWS SigV4 using the vendor SDK. It retrieves credentials from the provider
+// on each call (the provider caches and refreshes, so temporary/SSO/role tokens stay current) and signs
+// over the exact request body (nil for GET).
+func (b *BedrockProvider) sign(ctx context.Context, req *http.Request, body []byte) error {
+	if b.Region == "" {
+		return errors.New("llm bedrock: region not set")
+	}
+	if b.Creds == nil {
+		return errors.New("llm bedrock: credentials not configured")
+	}
+	creds, err := b.Creds.Retrieve(ctx)
+	if err != nil {
+		return fmt.Errorf("llm bedrock: resolve AWS credentials: %w", err)
+	}
+	return v4.NewSigner().SignHTTP(ctx, creds, req, sha256Hex(body), "bedrock", b.Region, b.clock())
+}
+
+func sha256Hex(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+// parseBedrockCreds decodes an explicit (pasted) credential blob into static AWS credentials. Two forms
+// are accepted: JSON {"access_key_id","secret_access_key","session_token"} or the shorthand
+// "ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN]". Empty/ambient resolution is handled upstream in
+// newBedrockCredentials; this only parses a caller-supplied static key.
+func parseBedrockCreds(sealed string) (aws.Credentials, error) {
 	sealed = strings.TrimSpace(sealed)
 	if sealed == "" {
-		return awsCreds{}, errors.New("llm bedrock: credentials required (access key + secret)")
+		return aws.Credentials{}, errors.New("llm bedrock: credentials required (access key + secret)")
 	}
 	if strings.HasPrefix(sealed, "{") {
 		var c struct {
@@ -189,20 +225,47 @@ func parseBedrockCreds(sealed string) (awsCreds, error) {
 			SessionToken    string `json:"session_token"`
 		}
 		if err := json.Unmarshal([]byte(sealed), &c); err != nil {
-			return awsCreds{}, fmt.Errorf("llm bedrock: bad credential JSON: %w", err)
+			return aws.Credentials{}, fmt.Errorf("llm bedrock: bad credential JSON: %w", err)
 		}
 		if c.AccessKeyID == "" || c.SecretAccessKey == "" {
-			return awsCreds{}, errors.New("llm bedrock: access_key_id and secret_access_key required")
+			return aws.Credentials{}, errors.New("llm bedrock: access_key_id and secret_access_key required")
 		}
-		return awsCreds{AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken}, nil
+		return aws.Credentials{AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken}, nil
 	}
 	parts := strings.SplitN(sealed, ":", 3)
 	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		return awsCreds{}, errors.New("llm bedrock: credentials must be ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN] or JSON")
+		return aws.Credentials{}, errors.New("llm bedrock: credentials must be ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN] or JSON")
 	}
-	c := awsCreds{AccessKeyID: parts[0], SecretAccessKey: parts[1]}
+	c := aws.Credentials{AccessKeyID: parts[0], SecretAccessKey: parts[1]}
 	if len(parts) == 3 {
 		c.SessionToken = parts[2]
 	}
 	return c, nil
+}
+
+// newBedrockCredentials resolves a Bedrock connection's key field into an AWS credentials provider, so one
+// connection form serves every AWS auth style:
+//
+//   - empty       → the AWS default credential chain (env vars, ~/.aws/credentials & AWS_PROFILE, SSO,
+//     IMDS/ECS roles), auto-refreshed. The common case on a workstation configured with `aws`.
+//   - "profile:X" → the named shared-config profile X (multiple profiles without exporting AWS_PROFILE).
+//   - otherwise   → an explicit static key: JSON or ACCESS:SECRET[:TOKEN] (parseBedrockCreds).
+func newBedrockCredentials(sealed, region string) (aws.CredentialsProvider, error) {
+	sealed = strings.TrimSpace(sealed)
+	if sealed == "" || strings.HasPrefix(sealed, "profile:") {
+		opts := []func(*config.LoadOptions) error{config.WithRegion(region)}
+		if p := strings.TrimSpace(strings.TrimPrefix(sealed, "profile:")); p != "" {
+			opts = append(opts, config.WithSharedConfigProfile(p))
+		}
+		cfg, err := config.LoadDefaultConfig(context.Background(), opts...)
+		if err != nil {
+			return nil, fmt.Errorf("llm bedrock: load AWS config: %w", err)
+		}
+		return cfg.Credentials, nil
+	}
+	creds, err := parseBedrockCreds(sealed)
+	if err != nil {
+		return nil, err
+	}
+	return credentials.StaticCredentialsProvider{Value: creds}, nil
 }

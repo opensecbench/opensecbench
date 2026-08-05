@@ -57,13 +57,14 @@ func New(cfg Config) (Provider, error) {
 	case "grok", "xai":
 		return openAICompat("grok", orDefault(cfg.BaseURL, "https://api.x.ai/v1"), cfg.APIKey, orDefault(cfg.Model, "grok-4-fast"), cfg.NativeTools), nil
 	case "bedrock":
-		// A gateway serving many families behind one credential (ADR-0052). BaseURL carries the AWS
-		// region; APIKey carries the sealed AWS credentials (JSON or ACCESS:SECRET[:TOKEN]).
+		// A gateway serving many families behind one credential (ADR-0052). BaseURL carries the AWS region;
+		// APIKey selects the credential source: blank uses the AWS default chain (~/.aws, env, SSO, IMDS),
+		// "profile:NAME" a named profile, else an explicit key (JSON or ACCESS:SECRET[:TOKEN]).
 		region := strings.TrimSpace(cfg.BaseURL)
 		if region == "" {
 			return nil, fmt.Errorf("llm: bedrock requires an AWS region (in the base URL / region field)")
 		}
-		creds, err := parseBedrockCreds(cfg.APIKey)
+		creds, err := newBedrockCredentials(cfg.APIKey, region)
 		if err != nil {
 			return nil, err
 		}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/credentials"
 )
 
 // roundTripFunc lets a test intercept the outbound request and return a canned response.
@@ -28,7 +30,7 @@ func TestBedrockComplete(t *testing.T) {
 	var capturedBody []byte
 	b := &BedrockProvider{
 		Region: "us-east-1",
-		Creds:  awsCreds{AccessKeyID: "AKID", SecretAccessKey: "secret"},
+		Creds:  credentials.NewStaticCredentialsProvider("AKID", "secret", ""),
 		Model:  "anthropic.claude-sonnet-4-5-v1:0",
 		now:    func() time.Time { return time.Unix(0, 0) },
 		HTTP: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -86,7 +88,7 @@ func TestBedrockComplete(t *testing.T) {
 func TestBedrockListModels(t *testing.T) {
 	b := &BedrockProvider{
 		Region: "us-east-1",
-		Creds:  awsCreds{AccessKeyID: "AKID", SecretAccessKey: "secret"},
+		Creds:  credentials.NewStaticCredentialsProvider("AKID", "secret", ""),
 		now:    func() time.Time { return time.Unix(0, 0) },
 		HTTP: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			if !strings.Contains(r.URL.String(), "bedrock.us-east-1.amazonaws.com/foundation-models") {
@@ -121,5 +123,32 @@ func TestParseBedrockCreds(t *testing.T) {
 	}
 	if _, err := parseBedrockCreds("AKonly"); err == nil {
 		t.Error("missing secret should error")
+	}
+}
+
+func TestNewBedrockCredentials(t *testing.T) {
+	// Explicit static key → a provider that retrieves exactly those credentials.
+	p, err := newBedrockCredentials("AK:SK:TK", "us-east-1")
+	if err != nil {
+		t.Fatalf("static: %v", err)
+	}
+	got, err := p.Retrieve(context.Background())
+	if err != nil {
+		t.Fatalf("retrieve static: %v", err)
+	}
+	if got.AccessKeyID != "AK" || got.SecretAccessKey != "SK" || got.SessionToken != "TK" {
+		t.Fatalf("static creds not resolved: %+v", got)
+	}
+
+	// Blank key → the AWS default chain: a non-nil provider is returned without error (actual credential
+	// retrieval is deferred and environment-dependent, so it isn't exercised here).
+	p, err = newBedrockCredentials("", "us-east-1")
+	if err != nil || p == nil {
+		t.Fatalf("default chain: provider=%v err=%v", p, err)
+	}
+
+	// A named profile that doesn't exist surfaces a clear error rather than silently falling back.
+	if _, err := newBedrockCredentials("profile:no-such-profile-xyz", "us-east-1"); err == nil {
+		t.Error("unknown profile should error")
 	}
 }

@@ -22,7 +22,7 @@ export const PROVIDER_TYPES = [
   { value: 'claude-cli', label: 'Claude CLI (subscription)', needsKey: false, needsBase: false, modelHint: 'claude-sonnet-5', baseHint: '', keyHint: '' },
   { value: 'deepseek', label: 'DeepSeek', needsKey: true, needsBase: false, modelHint: 'deepseek-v4-flash', baseHint: '', keyHint: '' },
   { value: 'grok', label: 'xAI Grok', needsKey: true, needsBase: false, modelHint: 'grok-4-fast', baseHint: '', keyHint: '' },
-  { value: 'bedrock', label: 'AWS Bedrock (gateway)', needsKey: true, needsBase: true, modelHint: 'default model (optional)', baseHint: 'AWS region · e.g. us-east-1', keyHint: 'ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN]' },
+  { value: 'bedrock', label: 'AWS Bedrock (gateway)', needsKey: true, needsBase: true, modelHint: 'default model (optional)', baseHint: 'AWS region · e.g. us-east-1', keyHint: 'blank = use ~/.aws / env / SSO · profile:NAME · or ACCESS_KEY_ID:SECRET[:TOKEN]' },
   { value: 'azure-foundry', label: 'Azure AI Foundry (gateway)', needsKey: true, needsBase: true, modelHint: 'default model (optional)', baseHint: 'endpoint · e.g. https://<res>.services.ai.azure.com/models', keyHint: '' },
 ]
 
@@ -323,7 +323,9 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
             ? 'Uses your local `claude` login (a Claude subscription) as a native Anthropic API backend via its OAuth token — full tool-use, like an API key. Run `claude` once to log in.'
             : type === 'ollama'
               ? 'Local models — no key, nothing leaves your machine.'
-              : 'An API key is the most reliable path. Keys are sealed in the vault, never stored in the clear.'}
+              : type === 'bedrock'
+                ? 'Leave the key blank to use your ambient AWS credentials (the standard chain: ~/.aws/credentials & AWS_PROFILE, env vars, SSO, IAM roles) — refreshed automatically. Use profile:NAME for a specific profile, or paste a static access key. Region is required.'
+                : 'An API key is the most reliable path. Keys are sealed in the vault, never stored in the clear.'}
         </div>
       </div>
     </div>

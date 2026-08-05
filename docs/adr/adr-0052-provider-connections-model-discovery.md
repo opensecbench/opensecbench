@@ -90,10 +90,14 @@ against real, current models with real prices.
 
 ### 5. Bedrock & Foundry adapters (first-class this pass)
 
-- **Bedrock** — connection config `{ region, credential }` (access-key/secret or a profile/role); auth via
-  AWS SigV4. Discovery via `ListFoundationModels` + `ListInferenceProfiles`; inference via the Bedrock
-  **Converse** API mapped onto the `Provider`/tool-use contract (ADR-0017). Classified non-local for egress
-  policy (ADR-0006/0011).
+- **Bedrock** — connection config `{ region, credential }`; auth via AWS SigV4. The credential field selects
+  the source: **blank** uses the AWS default credential chain (env, `~/.aws/credentials` & `AWS_PROFILE`,
+  SSO, IMDS/ECS roles — auto-refreshed), `profile:NAME` a named profile, and an explicit `access-key/secret`
+  a static key. Resolved and signed via `aws-sdk-go-v2` (`config` + `aws/signer/v4`) — the initial pass
+  hand-rolled SigV4 to stay dependency-free, but that only supported a pasted static key; adopting the
+  vendor SDK is what makes the ambient-credential paths above work. Discovery via `ListFoundationModels`
+  (+ `ListInferenceProfiles`); inference via the Bedrock **Converse** API mapped onto the `Provider`/tool-use
+  contract (ADR-0017). Classified non-local for egress policy (ADR-0006/0011).
 - **Azure AI Foundry** — connection config `{ endpoint, credential, (deployment map) }`; discovery via the
   Foundry catalog/deployments API; inference via the Azure AI Inference / Azure-OpenAI-shaped endpoint.
 
