@@ -201,6 +201,15 @@ func (s *Server) addProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.record(r.Context(), actorOf(r), "provider.add", saved.ID, map[string]string{"type": saved.Type, "model": saved.Model, "clearance": saved.DataClearance})
+	// If nothing is active yet, make this the active (fallback) provider so a fresh setup is usable without
+	// a separate activate step — the common "added my first connection" case. An existing active provider is
+	// left alone: adding a connection shouldn't silently hijack the default.
+	if s.activeInfo().ID == "" {
+		if built, err := s.buildProvider(saved); err == nil {
+			s.setProvider(built, infoFor(saved.ID, saved, built))
+			_ = s.global().SetSetting(r.Context(), activeProviderSetting, saved.ID)
+		}
+	}
 	writeJSON(w, http.StatusCreated, viewOfProvider(saved, s.activeInfo().ID))
 }
 
@@ -300,8 +309,14 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
+	// A gateway connection (Bedrock/Foundry) may have no default model — it serves many. Rather than fail
+	// the connectivity check with "model not set", test against a discovered model (ADR-0052).
+	testModel := p.Model
+	if testModel == "" {
+		testModel = s.discoveredTestModel(ctx, p)
+	}
 	start := time.Now()
-	resp, err := built.Complete(ctx, llm.CompletionRequest{Messages: []llm.Message{
+	resp, err := built.Complete(ctx, llm.CompletionRequest{Model: testModel, Messages: []llm.Message{
 		{Role: llm.RoleSystem, Content: "You are a connectivity check. Reply with the single word: OK"},
 		{Role: llm.RoleUser, Content: "ping"},
 	}})
@@ -317,9 +332,32 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 		"ok":              true,
 		"latency_ms":      time.Since(start).Milliseconds(),
 		"sample":          sample,
-		"requested_model": p.Model, // the connection's default model (blank = backend's own default)
+		"requested_model": testModel, // the connection's default, or a discovered model for a gateway
 		"served_model":    resp.Model,
 	})
+}
+
+// discoveredTestModel picks a model to exercise a connection that has no configured default, so the Test
+// button works on a gateway right after it's added. It prefers a "default"-tagged model, else the first
+// discovered one (cached, or lazily discovered), and returns "" if discovery yields nothing.
+func (s *Server) discoveredTestModel(ctx context.Context, p model.Provider) string {
+	models, err := s.global().ListConnectionModels(ctx, p.ID)
+	if err != nil || len(models) == 0 {
+		if models, err = s.refreshConnectionModels(ctx, p); err != nil {
+			return ""
+		}
+	}
+	for _, m := range models {
+		for _, t := range m.Tags {
+			if t == "default" {
+				return m.ModelID
+			}
+		}
+	}
+	if len(models) > 0 {
+		return models[0].ModelID
+	}
+	return ""
 }
 
 // projectUsage returns a project's Analyst token usage grouped by provider/model, for comparison.

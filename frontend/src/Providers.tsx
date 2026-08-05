@@ -112,6 +112,7 @@ export function Providers({ online, projectId, onChanged }: { online: boolean; p
       setClearance(levels[0]?.id ?? '')
       setError(null)
       await load()
+      onChanged?.() // a first connection auto-activates server-side — refresh any active-provider indicator
     } catch (e) {
       setError((e as Error).message)
     }
