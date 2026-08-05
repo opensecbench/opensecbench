@@ -1,0 +1,67 @@
+name: publish images
+
+# Build the self-built OSB images (images/<name>) as multi-arch (amd64 + arm64) manifests and push them to
+# GHCR, so remote runners and fresh installs pull them on demand instead of needing `make images` locally.
+# Everything else in OSB already pulls pinned public images; only opengrep + claude-cli are ours to publish.
+#
+# Trigger manually (Actions ▸ publish images ▸ Run workflow, pick an image), or by pushing a tag `image-v*`.
+# NOTE: after the first push, set each package's visibility to Public in GHCR (Packages ▸ settings) so
+# unauthenticated runners can pull it — GHCR packages start private.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: which image to publish
+        type: choice
+        options: [all, opengrep, claude-cli]
+        default: all
+  push:
+    tags: ['image-v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [opengrep, claude-cli]
+    # Skip images the manual run didn't select; a tag push publishes all.
+    if: >-
+      github.event_name == 'push' ||
+      github.event.inputs.image == 'all' ||
+      github.event.inputs.image == matrix.image
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version-tag opengrep from the Dockerfile's pinned OPENGREP_VERSION (single source of truth, kept in
+      # step with the code reference); claude-cli tracks :latest. Both always also get :latest.
+      - name: Compute image tags
+        id: meta
+        run: |
+          repo="ghcr.io/$(echo '${{ github.repository_owner }}' | tr 'A-Z' 'a-z')/${{ matrix.image }}"
+          tags="$repo:latest"
+          if [ '${{ matrix.image }}' = 'opengrep' ]; then
+            ver="$(grep -oE 'OPENGREP_VERSION=v[0-9]+\.[0-9]+\.[0-9]+' images/opengrep/Dockerfile | head -1 | cut -d= -f2)"
+            [ -n "$ver" ] && tags="$repo:$ver,$tags"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: images/${{ matrix.image }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          provenance: false

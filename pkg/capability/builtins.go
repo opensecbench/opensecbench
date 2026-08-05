@@ -129,7 +129,19 @@ func (semgrep) Plan(in Input) (runner.RunSpec, error) {
 // dataflow reachability (ADR-0032) works with a fully open tool. It is the default SAST engine (ADR-0036).
 type opengrepScan struct{}
 
-const opengrepImage = "osb/opengrep:latest" // OSB-built (images/opengrep); ships the pinned opengrep binary
+// opengrepImage is the OSB-built SAST image (images/opengrep), published multi-arch to GHCR so remote
+// runners and fresh installs pull it on demand. Override OSB_OPENGREP_IMAGE to use a locally-built tag
+// (`make image-opengrep` → osb/opengrep:latest) or a private mirror. Keep the version tag in step with the
+// pinned OPENGREP_VERSION in the Dockerfile.
+var opengrepImage = envOr("OSB_OPENGREP_IMAGE", "ghcr.io/opensecbench/opengrep:v1.25.0")
+
+// envOr returns the environment value for key, or def when unset/empty.
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
 
 func (opengrepScan) Manifest() Manifest {
 	return Manifest{

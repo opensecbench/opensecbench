@@ -46,9 +46,10 @@ type CLISandbox struct {
 	Timeout       time.Duration // default 120s
 }
 
-// DefaultCLIImage is the conventional tag `make claude-image` builds (images/claude-cli); the sandbox
-// uses it when no image is configured.
-const DefaultCLIImage = "osb/claude-cli:latest"
+// DefaultCLIImage is the sandbox image used when OSB_LLM_CLI_IMAGE is unset — published multi-arch to GHCR
+// so it's pullable on any host. Override the env var to use a locally-built tag (`make claude-image` →
+// osb/claude-cli:latest) or a private mirror.
+const DefaultCLIImage = "ghcr.io/opensecbench/claude-cli:latest"
 
 // disabledCLITools stops the CLI from acting as an agent — it must only return text for our loop.
 var disabledCLITools = []string{

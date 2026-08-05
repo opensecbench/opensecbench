@@ -1,7 +1,7 @@
 # OSB image — the `claude` CLI as a sandboxed inference backend (ADR-0018).
 #
-# This is the only image OpenSecBench builds itself; everything else pulls pinned public images. It is
-# referenced via OSB_LLM_CLI_IMAGE (default: osb/claude-cli:latest). Nothing sensitive is baked in — at
+# Published multi-arch to ghcr.io/opensecbench/claude-cli by .github/workflows/images.yml and referenced via
+# OSB_LLM_CLI_IMAGE (default: ghcr.io/opensecbench/claude-cli:latest). Nothing sensitive is baked in — at
 # runtime the sandbox mounts ONLY ~/.claude/.credentials.json (read-only) at /root/.claude and grants the
 # container egress so the CLI can reach the Anthropic API.
 #

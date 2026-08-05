@@ -3,7 +3,9 @@
 # dataflow trace + metavariables that Semgrep moved behind a commercial login — so SAST reachability
 # (ADR-0032) works with a fully open tool. Nothing sensitive is baked in.
 #
-#   Build:      make image-opengrep      (→ osb/opengrep:latest)
+# Published multi-arch to ghcr.io/opensecbench/opengrep by .github/workflows/images.yml; the capability
+# pulls it on demand (override with OSB_OPENGREP_IMAGE). Build locally for dev with:
+#   Build:      make image-opengrep      (→ osb/opengrep:latest; then set OSB_OPENGREP_IMAGE=osb/opengrep:latest)
 #   Pin:        docker build --build-arg OPENGREP_VERSION=vX.Y.Z -t osb/opengrep:vX.Y.Z images/opengrep
 #
 # The capability invokes `opengrep scan …` directly (no ENTRYPOINT). git is present because opengrep
