@@ -77,6 +77,33 @@ func TestRunnerStartUnknownPlaybook(t *testing.T) {
 	}
 }
 
+// TestRunnerRunsWebPlaybookAgainstWebService guards that a DAST playbook runs against a web_service asset,
+// not just source_repo: its http-probe step takes the asset's base URL as a target (ADR-0067). Before the
+// picker/runner supported non-source assets there was no way to point a playbook at a live service.
+func TestRunnerRunsWebPlaybookAgainstWebService(t *testing.T) {
+	db := storetest.New(t)
+	blobs, _ := cas.Open(filepath.Join(t.TempDir(), "cas"))
+	engine := task.NewEngine(store.NewCombinedManager(db), cas.Fixed(blobs), capability.BuiltIns(), fakePBRunner{})
+	defer engine.Close()
+
+	ctx := context.Background()
+	proj, _ := db.CreateProject(ctx, store.NewProject{Name: "P"})
+	app, _ := db.CreateApplication(ctx, proj.ID, "a")
+	// A live web service carries its base URL in Location — it has no source directory to bind-mount.
+	asset, _ := db.CreateAsset(ctx, store.NewAsset{ApplicationID: app.ID, Type: model.AssetWebService, Location: "http://example.test"})
+
+	res, err := NewRunner(engine, store.NewCombinedManager(db)).Run(ctx, proj.ID, "web-recon", asset.ID, "human")
+	if err != nil {
+		t.Fatalf("web-recon against a web_service asset should run, got: %v", err)
+	}
+	if len(res.Run.TaskIDs) == 0 {
+		t.Fatal("web-recon recorded no step task — the web_service asset was rejected")
+	}
+	if res.Run.Status != model.PlaybookSucceeded {
+		t.Fatalf("run status = %s, want succeeded", res.Run.Status)
+	}
+}
+
 func TestBuiltInsAndGet(t *testing.T) {
 	if len(BuiltIns()) == 0 {
 		t.Fatal("no built-in playbooks")

@@ -39,6 +39,12 @@ var builtins = []Playbook{
 			{Capability: "semgrep"},
 		},
 	},
+	{
+		ID:          "web-recon",
+		Name:        "Web recon",
+		Description: "Probe a live web service for basic fingerprinting.",
+		Steps:       []Step{{Capability: "http-probe"}},
+	},
 }
 
 // BuiltIns returns the built-in playbooks.

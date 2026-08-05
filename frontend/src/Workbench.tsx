@@ -1004,7 +1004,7 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
           </Suspense>
         )
       case 'playbooks':
-        return <PlaybooksTab assets={allAssets} online={online} onError={setError} />
+        return <PlaybooksTab assets={allAssets} capabilities={capabilities} online={online} onError={setError} />
       case 'orchestrate':
         return <OrchestrateTab project={project} online={online} onError={setError} />
       case 'tasks':
@@ -1982,6 +1982,21 @@ function capApplicableKinds(c: CapabilityManifest): string[] {
   return ['source_repo']
 }
 
+// pbApplicableKinds is the asset kinds a whole playbook can run against: every step runs against the SAME
+// asset, so the asset must satisfy all steps — the intersection of each step's capApplicableKinds. Steps
+// whose capability isn't in the manifest list are skipped rather than over-constraining. Returns null when
+// nothing constrains the choice (no resolvable step), [] when steps genuinely conflict (source vs network).
+function pbApplicableKinds(pb: Playbook, capabilities: CapabilityManifest[]): string[] | null {
+  let kinds: string[] | null = null
+  for (const s of pb.steps) {
+    const cap = capabilities.find((c) => c.id === s.capability)
+    if (!cap) continue
+    const k = capApplicableKinds(cap)
+    kinds = kinds === null ? k : kinds.filter((x) => k.includes(x))
+  }
+  return kinds
+}
+
 function ScanTab({
   assets,
   capabilities,
@@ -2168,20 +2183,33 @@ function ScanTab({
 
 function PlaybooksTab({
   assets,
+  capabilities,
   online,
   onError,
 }: {
   assets: { asset: Asset; appName: string }[]
+  capabilities: CapabilityManifest[]
   online: boolean
   onError: (m: string) => void
 }) {
-  const repoAssets = assets.filter((a) => a.asset.type === 'source_repo')
   const [playbooks, setPlaybooks] = useState<Playbook[]>([])
   const [pbId, setPbId] = useState('')
   const [assetId, setAssetId] = useState('')
   const [running, setRunning] = useState(false)
   const [pbRun, setPbRun] = useState<PlaybookRun | null>(null)
   const [steps, setSteps] = useState<Task[]>([])
+
+  // The asset picker follows the selected playbook's steps: a SAST playbook offers source repos, a DAST one
+  // offers web services (ADR-0067). Before a playbook is chosen, offer everything. `[]` means the playbook's
+  // steps need different kinds and can't share one asset.
+  const selectedPb = playbooks.find((p) => p.id === pbId)
+  const applicableKinds = selectedPb ? pbApplicableKinds(selectedPb, capabilities) : null
+  const applicableAssets = applicableKinds ? assets.filter((a) => applicableKinds.includes(a.asset.type)) : assets
+  // Drop a stale asset selection when it no longer fits the chosen playbook.
+  useEffect(() => {
+    if (assetId && !applicableAssets.some((a) => a.asset.id === assetId)) setAssetId('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pbId])
 
   useEffect(() => {
     if (!online) return
@@ -2227,8 +2255,8 @@ function PlaybooksTab({
             ))}
           </select>
           <select value={assetId} onChange={(e) => setAssetId(e.target.value)}>
-            <option value="">source-repo asset…</option>
-            {repoAssets.map((a) => (
+            <option value="">{applicableKinds && applicableKinds.length > 0 ? applicableKinds.join(' / ') + ' asset…' : 'asset…'}</option>
+            {applicableAssets.map((a) => (
               <option key={a.asset.id} value={a.asset.id}>
                 {a.appName}: {a.asset.location}
               </option>
@@ -2238,7 +2266,12 @@ function PlaybooksTab({
             {running ? 'Running…' : '▷ Run'}
           </button>
         </div>
-        {repoAssets.length === 0 && <div className="empty">Add a source_repo asset first (Applications &amp; Assets).</div>}
+        {pbId && applicableKinds?.length === 0 && (
+          <div className="empty">This playbook's steps need different asset kinds and can't share one asset.</div>
+        )}
+        {pbId && applicableKinds && applicableKinds.length > 0 && applicableAssets.length === 0 && (
+          <div className="empty">No {applicableKinds.join(' / ')} asset for {selectedPb?.name}. Add one in Applications &amp; Assets.</div>
+        )}
       </section>
 
       {pbRun && (
