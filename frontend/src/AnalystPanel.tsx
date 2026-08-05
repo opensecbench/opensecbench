@@ -396,10 +396,16 @@ function showLabel(args: Record<string, unknown>): string {
 }
 
 function Message({ m }: { m: Msg }) {
-  // A tool-result turn (canonical, ADR-0017): its content is the tool's output or an error.
+  // A tool-result turn (canonical, ADR-0017): its content is the tool's output or an error — collapsed by
+  // default, expandable so you can read exactly what the tool returned (parity with the Activity transcript).
   if (m.role === 'tool') {
     const label = m.content.startsWith('Tool ') ? m.content.split('\n')[0] : 'tool result'
-    return <div className={'msg tool' + (m.tool_error ? ' error' : '')}>🔧 {label}</div>
+    return (
+      <details className={'msg tool' + (m.tool_error ? ' error' : '')}>
+        <summary>🔧 {label}</summary>
+        <pre className="msg-toolout">{m.content}</pre>
+      </details>
+    )
   }
   if (m.role === 'assistant') {
     // An assistant turn that requested a tool. It may also carry prose — the agent narrating what it's about
