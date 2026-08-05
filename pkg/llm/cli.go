@@ -47,9 +47,10 @@ type CLISandbox struct {
 }
 
 // DefaultCLIImage is the sandbox image used when OSB_LLM_CLI_IMAGE is unset — published multi-arch to GHCR
-// so it's pullable on any host. Override the env var to use a locally-built tag (`make claude-image` →
-// osb/claude-cli:latest) or a private mirror.
-const DefaultCLIImage = "ghcr.io/opensecbench/claude-cli:latest"
+// so it's pullable on any host. Pinned to the CLAUDE_VERSION in images/claude-cli/Dockerfile (keep in step
+// when bumping). Override the env var to use a locally-built tag (`make claude-image` → osb/claude-cli:latest)
+// or a private mirror.
+const DefaultCLIImage = "ghcr.io/opensecbench/claude-cli:2.1.222"
 
 // disabledCLITools stops the CLI from acting as an agent — it must only return text for our loop.
 var disabledCLITools = []string{

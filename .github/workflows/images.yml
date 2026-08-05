@@ -4,8 +4,9 @@ name: publish images
 # GHCR, so remote runners and fresh installs pull them on demand instead of needing `make images` locally.
 # Everything else in OSB already pulls pinned public images; only opengrep + claude-cli are ours to publish.
 #
-# Trigger manually (Actions ▸ publish images ▸ Run workflow, pick an image), or by pushing a tag `image-v*`.
-# NOTE: after the first push, set each package's visibility to Public in GHCR (Packages ▸ settings) so
+# Runs automatically when an image's build inputs change on main (bump the pinned version in a Dockerfile →
+# rebuild + publish), or manually (Actions ▸ publish images ▸ Run workflow, pick an image).
+# NOTE: after the first publish, set each package's visibility to Public in GHCR (Packages ▸ settings) so
 # unauthenticated runners can pull it — GHCR packages start private.
 
 on:
@@ -17,7 +18,10 @@ on:
         options: [all, opengrep, claude-cli]
         default: all
   push:
-    tags: ['image-v*']
+    branches: [main]
+    paths:
+      - 'images/**'
+      - '.github/workflows/images.yml'
 
 permissions:
   contents: read
@@ -37,17 +41,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Version-tag opengrep from the Dockerfile's pinned OPENGREP_VERSION (single source of truth, kept in
-      # step with the code reference); claude-cli tracks :latest. Both always also get :latest.
+      # Version-tag each image from the pinned version ARG in its Dockerfile (single source of truth, kept in
+      # step with the code reference). Both also get :latest. A Dockerfile with no pinned version → :latest only.
       - name: Compute image tags
         id: meta
         run: |
           repo="ghcr.io/$(echo '${{ github.repository_owner }}' | tr 'A-Z' 'a-z')/${{ matrix.image }}"
+          case '${{ matrix.image }}' in
+            opengrep)   ver="$(grep -oE 'OPENGREP_VERSION=v[0-9.]+' images/opengrep/Dockerfile | head -1 | cut -d= -f2)" ;;
+            claude-cli) ver="$(grep -oE 'CLAUDE_VERSION=[0-9][0-9.]*' images/claude-cli/Dockerfile | head -1 | cut -d= -f2)" ;;
+          esac
           tags="$repo:latest"
-          if [ '${{ matrix.image }}' = 'opengrep' ]; then
-            ver="$(grep -oE 'OPENGREP_VERSION=v[0-9]+\.[0-9]+\.[0-9]+' images/opengrep/Dockerfile | head -1 | cut -d= -f2)"
-            [ -n "$ver" ] && tags="$repo:$ver,$tags"
-          fi
+          [ -n "$ver" ] && tags="$repo:$ver,$tags"
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3

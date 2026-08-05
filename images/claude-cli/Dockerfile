@@ -1,7 +1,7 @@
 # OSB image — the `claude` CLI as a sandboxed inference backend (ADR-0018).
 #
 # Published multi-arch to ghcr.io/opensecbench/claude-cli by .github/workflows/images.yml and referenced via
-# OSB_LLM_CLI_IMAGE (default: ghcr.io/opensecbench/claude-cli:latest). Nothing sensitive is baked in — at
+# OSB_LLM_CLI_IMAGE (default: ghcr.io/opensecbench/claude-cli:<CLAUDE_VERSION>). Nothing sensitive is baked in — at
 # runtime the sandbox mounts ONLY ~/.claude/.credentials.json (read-only) at /root/.claude and grants the
 # container egress so the CLI can reach the Anthropic API.
 #
@@ -17,9 +17,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git \
  && rm -rf /var/lib/apt/lists/*
 
-# The Claude Code CLI (npm). Defaults to 'latest'; pin to your local `claude --version` for reproducibility
-# (the rest of OSB pins every image — do the same here in a real deployment).
-ARG CLAUDE_VERSION=latest
+# The Claude Code CLI (npm). Pinned for reproducibility (the rest of OSB pins every image). Bump this to
+# update — the publish workflow derives the image tag from it and rebuilds on any images/** change.
+ARG CLAUDE_VERSION=2.1.222
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_VERSION} \
  && claude --version
 
