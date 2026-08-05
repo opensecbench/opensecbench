@@ -17,6 +17,8 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
+      - name: case-insensitive filename collisions
+        run: make check-case-collisions
       - name: gofmt
         run: |
           unformatted="$(gofmt -l .)"

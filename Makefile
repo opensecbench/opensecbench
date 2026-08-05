@@ -5,7 +5,7 @@
 # it for you. The Analyst's AI provider is configured in the app's settings — no env vars needed.
 
 .PHONY: dev dev-attach build gui tui cli daemon run-daemon test lint fmt frontend frontend-test images claude-image adr-index check \
-        check-deps check-go check-wails check-node check-docker
+        check-deps check-go check-wails check-node check-docker check-case-collisions
 
 # Preflight tool checks. `$(call need,<tool>,<install hint>)` fails with a readable message and an
 # install hint instead of a raw "command not found" mid-build. Build targets depend on just the
@@ -110,10 +110,22 @@ claude-image: image-claude-cli
 adr-index:
 	go run scripts/gen_adr_index.go
 
+# Fail on filenames that collide on case-insensitive filesystems (macOS/Windows), which Linux CI
+# would otherwise let through. Two classes: (1) tracked paths differing only in case; (2) TS/JS
+# modules whose basename (sans extension) collides case-insensitively — e.g. customActions.ts vs
+# CustomActions.tsx — which breaks TypeScript module resolution off-Linux. See commit d9b2e63.
+check-case-collisions:
+	@echo "==> case-insensitive filename collisions"
+	@dup="$$(git ls-files | tr 'A-Z' 'a-z' | sort | uniq -d)"; \
+	if [ -n "$$dup" ]; then echo "paths differ only in case:"; echo "$$dup"; exit 1; fi
+	@stem="$$(git ls-files 'frontend/src/*.ts' 'frontend/src/*.tsx' 'frontend/src/*.js' 'frontend/src/*.jsx' \
+	  | sed -E 's/\.(ts|tsx|js|jsx)$$//' | tr 'A-Z' 'a-z' | sort | uniq -d)"; \
+	if [ -n "$$stem" ]; then echo "module basenames collide case-insensitively (rename one):"; echo "$$stem"; exit 1; fi
+
 # Run the CI gates locally before pushing — the checks .github/workflows/ci.yml runs (the gitleaks secret
 # scan is the one job not mirrored here). Needs golangci-lint + the frontend deps (`make frontend` once).
 # Cheap checks first, the slow -race and frontend build/test last.
-check:
+check: check-case-collisions
 	@echo "==> gofmt" && u="$$(gofmt -l .)"; if [ -n "$$u" ]; then echo "not gofmt-clean:"; echo "$$u"; exit 1; fi
 	@echo "==> go build" && go build ./...
 	@echo "==> go vet" && go vet ./...
