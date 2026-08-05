@@ -4,7 +4,33 @@
 # don't need the webkit/gtk toolchain. Wails must be told that tag explicitly — these targets do
 # it for you. The Analyst's AI provider is configured in the app's settings — no env vars needed.
 
-.PHONY: dev dev-attach build gui tui cli daemon run-daemon test lint fmt frontend frontend-test images claude-image adr-index check
+.PHONY: dev dev-attach build gui tui cli daemon run-daemon test lint fmt frontend frontend-test images claude-image adr-index check \
+        check-deps check-go check-wails check-node check-docker
+
+# Preflight tool checks. `$(call need,<tool>,<install hint>)` fails with a readable message and an
+# install hint instead of a raw "command not found" mid-build. Build targets depend on just the
+# tools they use, so e.g. `make daemon` doesn't demand node and `make tui` doesn't demand wails.
+define need
+	@command -v $(1) >/dev/null 2>&1 || { printf '\n  missing required tool: %s\n  install: %s\n\n' '$(1)' '$(2)'; exit 1; }
+endef
+
+WAILS_HINT := go install github.com/wailsapp/wails/v2/cmd/wails@latest  (then add "$$(go env GOPATH)/bin" to PATH; run 'wails doctor' to check system libs)
+NODE_HINT  := install Node.js 18+ — macOS: brew install node  |  https://nodejs.org
+GO_HINT    := install Go — macOS: brew install go  |  https://go.dev/dl/
+
+check-go:
+	$(call need,go,$(GO_HINT))
+check-wails: check-go
+	$(call need,wails,$(WAILS_HINT))
+check-node:
+	$(call need,node,$(NODE_HINT))
+	$(call need,npm,comes with Node.js — see above)
+check-docker:
+	$(call need,docker,install Docker Desktop — https://docs.docker.com/get-docker/)
+
+# Verify the full toolchain up front (GUI + CLI + frontend). Run this after a fresh checkout.
+check-deps: check-wails check-node
+	@echo "==> all required tools present"
 
 # Wails build tags. The `webkit2_41` tag selects webkit2gtk-4.1 and is LINUX-ONLY — macOS (native
 # WebKit) and Windows (WebView2) must not get it, so we only add it on Linux. On modern distros
@@ -19,19 +45,19 @@ else
 endif
 
 # Live-reload desktop app (embeds its own control plane).
-dev:
+dev: check-wails
 	wails dev -tags "$(WAILS_TAGS)"
 
 # Live-reload desktop app attached to a separately-run `make run-daemon` (OSB_API), so the backend can
 # be restarted independently of the window. Reads the daemon's token from the default data dir.
-dev-attach:
+dev-attach: check-wails
 	OSB_API=http://127.0.0.1:7373 wails dev -tags "$(WAILS_TAGS)"
 
 # Build everything: the desktop GUI, the osb CLI/TUI, and the headless daemon.
 build: gui tui daemon
 
 # Desktop GUI (Wails) → ./build/bin. Needs the webkit/gtk toolchain and a built frontend.
-gui:
+gui: check-wails
 	wails build -tags "$(WAILS_TAGS)"
 
 # osb CLI + TUI → ./bin/osb. One binary: `osb <command>` is the CLI; bare `osb` (or `osb tui`) opens
@@ -59,7 +85,7 @@ fmt:
 	gofmt -w .
 
 # Build the frontend once (creates frontend/dist).
-frontend:
+frontend: check-node
 	cd frontend && npm install && npm run build
 
 # Frontend unit/component tests (vitest + testing-library, jsdom). Tests live next to the code as
@@ -73,7 +99,7 @@ IMAGES := $(patsubst images/%/,%,$(wildcard images/*/))
 
 images: $(addprefix image-,$(IMAGES))
 
-image-%:
+image-%: check-docker
 	docker build -t osb/$*:latest images/$*
 
 # Convenience alias for the one image most people build.
