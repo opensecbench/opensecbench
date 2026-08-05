@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { api, Engagement, EngagementContact, EngagementTestAccount, Group, Methodology, Organization, Project, ScopeSeed } from './api'
+import { api, Engagement, EngagementContact, EngagementTestAccount, Group, Methodology, Organization, Project, ScopeSeed, setActiveProject } from './api'
 import { hasNativePickers, pickDirectory, workingDir } from './native'
 
 // The engagement setup modal (ADR-0051): create a project with its properties in one place instead of a bare
@@ -186,6 +186,10 @@ export function EngagementModal({
         test_accounts: testAccounts.filter((a) => a.username || a.role),
       }
       const project = await api.createEngagement({ name: name.trim(), organization_id: orgId || null, group_id: groupId || null, engagement, scope: hasActive ? scopeSeeds : [], location: customLoc && basePath.trim() ? basePath.trim() : '' })
+      // Scope subsequent requests to the new project so kickstart writes land in its database. In split mode
+      // (ADR-0049) flat routes like POST /applications/{id}/assets resolve the per-project DB from the
+      // X-Project-Id header; without this the seeds hit the wrong/empty DB and fail the FK to the app/project.
+      setActiveProject(project.id)
       // Kickstart is best-effort — the project already exists — but surface a failure instead of swallowing
       // it, so a project doesn't silently come up with no assets/checklists. Stash the project and let the
       // user proceed into it once they've seen the error.
