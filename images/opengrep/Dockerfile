@@ -14,10 +14,18 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git \
  && rm -rf /var/lib/apt/lists/*
 
-# The standalone opengrep binary (glibc/manylinux x86-64). Pin to a released version for reproducibility.
+# The standalone opengrep binary (glibc/manylinux). Fetch the asset matching the build platform's arch so
+# the image builds and runs natively on both x86-64 and arm64 (e.g. Apple Silicon) — no emulation. TARGETARCH
+# is set automatically by BuildKit/buildx. Pin to a released version for reproducibility.
 ARG OPENGREP_VERSION=v1.25.0
-RUN curl -fsSL -o /usr/local/bin/opengrep \
-      "https://github.com/opengrep/opengrep/releases/download/${OPENGREP_VERSION}/opengrep_manylinux_x86" \
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+      amd64) asset=opengrep_manylinux_x86 ;; \
+      arm64) asset=opengrep_manylinux_aarch64 ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH:-<unset>} (need amd64 or arm64)" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL -o /usr/local/bin/opengrep \
+      "https://github.com/opengrep/opengrep/releases/download/${OPENGREP_VERSION}/${asset}" \
  && chmod +x /usr/local/bin/opengrep \
  && opengrep --version
 
