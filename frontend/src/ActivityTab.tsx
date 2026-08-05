@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, ActivityItem, Artifact, Msg, Observation, Plan, PlaybookRun, Task } from './api'
+import { MessageTurn } from './MessageTurn'
 
 // ActivityTab is the unified, cross-project run history (ADR-0015 successor to the Tasks tab): scanner
 // tasks, agent threads, agent plans, and playbook runs interleaved newest-first. Each row opens the
@@ -289,49 +290,11 @@ function ThreadDetail({ item, onError }: { item: ActivityItem; onError: (m: stri
       ) : (
         <div className="act-transcript">
           {turns.map((m) => (
-            <TranscriptTurn key={m.id} m={m} />
+            <MessageTurn key={m.id} m={m} variant="transcript" />
           ))}
         </div>
       )}
     </section>
-  )
-}
-
-function TranscriptTurn({ m }: { m: Msg }) {
-  if (m.role === 'tool') {
-    // A tool-result turn (ADR-0017): its content is the tool's output or an error — collapsed by default,
-    // expandable so you can read exactly what a tool returned to the agent.
-    const first = m.content.split('\n')[0]
-    const label = m.content.startsWith('Tool ') ? first : 'tool result'
-    return (
-      <details className={`act-msg tool${m.tool_error ? ' error' : ''}`}>
-        <summary>🔧 {label}</summary>
-        <pre className="act-toolout">{m.content}</pre>
-      </details>
-    )
-  }
-  if (m.role === 'assistant') {
-    if (m.tool_calls && m.tool_calls.length > 0) {
-      const c = m.tool_calls[0]
-      return (
-        <details className="act-msg propose">
-          <summary>⚙ ran <b>{c.tool}</b></summary>
-          <pre className="act-toolout">{JSON.stringify(c.args ?? {}, null, 2)}</pre>
-        </details>
-      )
-    }
-    return (
-      <div className="act-msg analyst">
-        <b>Agent</b>
-        <div className="act-msg-body">{m.content}</div>
-      </div>
-    )
-  }
-  return (
-    <div className="act-msg user">
-      <b>You</b>
-      <div className="act-msg-body">{m.content}</div>
-    </div>
   )
 }
 
