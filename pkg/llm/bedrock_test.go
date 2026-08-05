@@ -126,6 +126,31 @@ func TestParseBedrockCreds(t *testing.T) {
 	}
 }
 
+func TestBedrockInvocationID(t *testing.T) {
+	cases := []struct {
+		name     string
+		id       string
+		region   string
+		infTypes []string
+		want     string
+	}{
+		{"on-demand keeps bare id", "anthropic.claude-3-haiku", "us-east-1", []string{"ON_DEMAND"}, "anthropic.claude-3-haiku"},
+		{"both keeps bare id", "anthropic.claude-3-5-sonnet", "us-east-1", []string{"ON_DEMAND", "INFERENCE_PROFILE"}, "anthropic.claude-3-5-sonnet"},
+		{"profile-only gets us prefix", "anthropic.claude-sonnet-4-6", "us-east-1", []string{"INFERENCE_PROFILE"}, "us.anthropic.claude-sonnet-4-6"},
+		{"profile-only eu region", "anthropic.claude-sonnet-4-6", "eu-west-1", []string{"INFERENCE_PROFILE"}, "eu.anthropic.claude-sonnet-4-6"},
+		{"profile-only apac region", "anthropic.claude-sonnet-4-6", "ap-southeast-2", []string{"INFERENCE_PROFILE"}, "apac.anthropic.claude-sonnet-4-6"},
+		{"gov region", "anthropic.claude-sonnet-4-6", "us-gov-west-1", []string{"INFERENCE_PROFILE"}, "us-gov.anthropic.claude-sonnet-4-6"},
+		{"already prefixed untouched", "us.anthropic.claude-sonnet-4-6", "us-east-1", []string{"INFERENCE_PROFILE"}, "us.anthropic.claude-sonnet-4-6"},
+		{"unknown region left bare", "anthropic.claude-sonnet-4-6", "ca-central-1", []string{"INFERENCE_PROFILE"}, "anthropic.claude-sonnet-4-6"},
+		{"unknown inference types dont guess", "anthropic.claude-sonnet-4-6", "us-east-1", nil, "anthropic.claude-sonnet-4-6"},
+	}
+	for _, c := range cases {
+		if got := bedrockInvocationID(c.id, c.region, c.infTypes); got != c.want {
+			t.Errorf("%s: bedrockInvocationID(%q,%q,%v) = %q, want %q", c.name, c.id, c.region, c.infTypes, got, c.want)
+		}
+	}
+}
+
 func TestNewBedrockCredentials(t *testing.T) {
 	// Explicit static key → a provider that retrieves exactly those credentials.
 	p, err := newBedrockCredentials("AK:SK:TK", "us-east-1")

@@ -170,8 +170,9 @@ func (b *BedrockProvider) ListModels(ctx context.Context) ([]DiscoveredModel, er
 	}
 	var out struct {
 		ModelSummaries []struct {
-			ModelID   string `json:"modelId"`
-			ModelName string `json:"modelName"`
+			ModelID                 string   `json:"modelId"`
+			ModelName               string   `json:"modelName"`
+			InferenceTypesSupported []string `json:"inferenceTypesSupported"`
 		} `json:"modelSummaries"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
@@ -182,9 +183,55 @@ func (b *BedrockProvider) ListModels(ctx context.Context) ([]DiscoveredModel, er
 		if m.ModelID == "" {
 			continue
 		}
-		models = append(models, DiscoveredModel{ID: m.ModelID, DisplayName: m.ModelName})
+		id := bedrockInvocationID(m.ModelID, b.Region, m.InferenceTypesSupported)
+		models = append(models, DiscoveredModel{ID: id, DisplayName: m.ModelName})
 	}
 	return models, nil
+}
+
+// bedrockInvocationID returns the id to actually invoke a discovered model with. Newer models (e.g. the
+// Claude 4 family) are inference-profile-only: the bare foundation-model id "anthropic.claude-..." is not
+// invocable and Bedrock rejects it — you must call the cross-region inference profile, which is the same id
+// with a geo prefix for the account's region ("us."/"eu."/"apac."). When a model advertises ON_DEMAND we
+// keep the bare id; when it only supports INFERENCE_PROFILE we prepend the region's geo prefix (if known,
+// and not already present). Models can still be entered by hand with an explicit profile id, which is used
+// verbatim.
+func bedrockInvocationID(modelID, region string, inferenceTypes []string) string {
+	onDemand := false
+	profileOnly := false
+	for _, t := range inferenceTypes {
+		switch strings.ToUpper(t) {
+		case "ON_DEMAND":
+			onDemand = true
+		case "INFERENCE_PROFILE":
+			profileOnly = true
+		}
+	}
+	if onDemand || !profileOnly {
+		return modelID // directly invocable (or unknown — don't guess)
+	}
+	geo := bedrockGeoPrefix(region)
+	if geo == "" || strings.HasPrefix(modelID, geo+".") {
+		return modelID
+	}
+	return geo + "." + modelID
+}
+
+// bedrockGeoPrefix maps an AWS region to the geo prefix of its cross-region inference profiles, or "" when
+// the region has no such profile family (leave the id untouched rather than fabricate an invalid one).
+func bedrockGeoPrefix(region string) string {
+	switch {
+	case strings.HasPrefix(region, "us-gov-"):
+		return "us-gov"
+	case strings.HasPrefix(region, "us-"):
+		return "us"
+	case strings.HasPrefix(region, "eu-"):
+		return "eu"
+	case strings.HasPrefix(region, "ap-"):
+		return "apac"
+	default:
+		return ""
+	}
 }
 
 // sign signs the request with AWS SigV4 using the vendor SDK. It retrieves credentials from the provider
