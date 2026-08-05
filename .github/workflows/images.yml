@@ -28,16 +28,29 @@ permissions:
   packages: write
 
 jobs:
+  # Resolve which images to build into a matrix. A manual run may pick one; a push (or "all") does both.
+  # This is a separate job because the matrix can't be filtered by a job-level `if` (the `matrix` context
+  # isn't available there), so we compute the list up front and feed it in via fromJSON.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.pick.outputs.images }}
+    steps:
+      - id: pick
+        run: |
+          sel='${{ github.event.inputs.image }}'
+          if [ -z "$sel" ] || [ "$sel" = 'all' ]; then
+            echo 'images=["opengrep","claude-cli"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "images=[\"$sel\"]" >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: [opengrep, claude-cli]
-    # Skip images the manual run didn't select; a tag push publishes all.
-    if: >-
-      github.event_name == 'push' ||
-      github.event.inputs.image == 'all' ||
-      github.event.inputs.image == matrix.image
+        image: ${{ fromJSON(needs.prepare.outputs.images) }}
     steps:
       - uses: actions/checkout@v4
 
