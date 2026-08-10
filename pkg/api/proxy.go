@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/events"
 	"github.com/opensecbench/opensecbench/pkg/model"
 	"github.com/opensecbench/opensecbench/pkg/proxy"
 	"github.com/opensecbench/opensecbench/pkg/scope"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 // liveProxy is a running per-project intercepting proxy plus its intercept manager (holds live with
@@ -179,7 +181,123 @@ func (s *Server) proxyCapture(projectID, runnerID string) func(proxy.Exchange) {
 			log.Printf("proxy capture response: %v", err)
 		}
 		s.publishExchange(ctx, projectID, ex.ID)
+		go s.discoverFromExchange(projectID, e)
 	}
+}
+
+// discoverFromExchange upserts web_service and endpoint assets from proxy traffic (ADR-0071).
+func (s *Server) discoverFromExchange(projectID string, e proxy.Exchange) {
+	u, err := url.Parse(e.URL)
+	if err != nil || u.Host == "" {
+		return
+	}
+	ctx := context.Background()
+	pdb := s.pdbID(projectID)
+
+	apps, err := pdb.ListApplicationsByProject(ctx, projectID)
+	if err != nil || len(apps) == 0 {
+		return
+	}
+	appID := apps[0].ID
+
+	origin := store.NewAsset{
+		ApplicationID:     appID,
+		Type:              model.AssetWebService,
+		Location:          u.Scheme + "://" + u.Host,
+		Origin:            model.AssetOriginProxy,
+		VerificationState: model.AssetVerificationObserved,
+	}
+	ws, wsNew, err := pdb.UpsertAsset(ctx, origin)
+	if err != nil {
+		log.Printf("proxy discover web_service: %v", err)
+		return
+	}
+
+	if wsNew || len(ws.Tags) == 0 {
+		if tags := techTagsFromRawHeaders(e.ResponseHeaders); len(tags) > 0 {
+			existing := make(map[string]bool, len(ws.Tags))
+			for _, t := range ws.Tags {
+				existing[t] = true
+			}
+			merged := ws.Tags
+			for _, t := range tags {
+				if !existing[t] {
+					merged = append(merged, t)
+				}
+			}
+			if len(merged) > len(ws.Tags) {
+				if _, err := pdb.SetAssetTags(ctx, ws.ID, merged); err != nil {
+					log.Printf("proxy discover tags: %v", err)
+				}
+			}
+		}
+	}
+
+	path := u.Path
+	if path == "" {
+		path = "/"
+	}
+	epLoc := e.Method + " " + path
+	ep, epNew, err := pdb.UpsertAsset(ctx, store.NewAsset{
+		ApplicationID:     appID,
+		Type:              model.AssetEndpoint,
+		Location:          epLoc,
+		Origin:            model.AssetOriginProxy,
+		VerificationState: model.AssetVerificationObserved,
+	})
+	if err != nil {
+		log.Printf("proxy discover endpoint: %v", err)
+		return
+	}
+
+	if wsNew || epNew {
+		_, _ = pdb.CreateLink(ctx, model.EntityLink{
+			SourceType:   "asset",
+			SourceID:     ws.ID,
+			Relationship: "contains",
+			TargetType:   "asset",
+			TargetID:     ep.ID,
+		})
+	}
+}
+
+func techTagsFromRawHeaders(raw string) []string {
+	headers := make(map[string]string)
+	for _, line := range strings.Split(raw, "\n") {
+		i := strings.IndexByte(line, ':')
+		if i < 0 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(line[:i]))
+		val := strings.TrimSpace(line[i+1:])
+		headers[key] = val
+	}
+
+	var tags []string
+	if v := strings.ToLower(headers["server"]); v != "" {
+		switch {
+		case strings.Contains(v, "nginx"):
+			tags = append(tags, "nginx")
+		case strings.Contains(v, "apache"):
+			tags = append(tags, "apache")
+		case strings.Contains(v, "cloudflare"):
+			tags = append(tags, "cloudflare")
+		}
+	}
+	if v := strings.ToLower(headers["x-powered-by"]); v != "" {
+		switch {
+		case strings.Contains(v, "express"):
+			tags = append(tags, "express")
+		case strings.Contains(v, "php"):
+			tags = append(tags, "php")
+		case strings.Contains(v, "asp.net"):
+			tags = append(tags, "asp.net")
+		}
+	}
+	if ct := strings.ToLower(headers["content-type"]); strings.Contains(ct, "graphql") {
+		tags = append(tags, "graphql")
+	}
+	return tags
 }
 
 // SetSelfAddr records the control-plane's own listen address so the proxy can skip capturing the app's

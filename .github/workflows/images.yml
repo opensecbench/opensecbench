@@ -2,7 +2,8 @@ name: publish images
 
 # Build the self-built OSB images (images/<name>) as multi-arch (amd64 + arm64) manifests and push them to
 # GHCR, so remote runners and fresh installs pull them on demand instead of needing `make images` locally.
-# Everything else in OSB already pulls pinned public images; only opengrep + claude-cli are ours to publish.
+# Everything else in OSB already pulls pinned public images; only opengrep, claude-cli, and
+# pentest-workstation are ours to publish.
 #
 # Runs automatically when an image's build inputs change on main (bump the pinned version in a Dockerfile →
 # rebuild + publish), or manually (Actions ▸ publish images ▸ Run workflow, pick an image).
@@ -15,7 +16,7 @@ on:
       image:
         description: which image to publish
         type: choice
-        options: [all, opengrep, claude-cli]
+        options: [all, opengrep, claude-cli, pentest-workstation]
         default: all
   push:
     branches: [main]
@@ -40,7 +41,7 @@ jobs:
         run: |
           sel='${{ github.event.inputs.image }}'
           if [ -z "$sel" ] || [ "$sel" = 'all' ]; then
-            echo 'images=["opengrep","claude-cli"]' >> "$GITHUB_OUTPUT"
+            echo 'images=["opengrep","claude-cli","pentest-workstation"]' >> "$GITHUB_OUTPUT"
           else
             echo "images=[\"$sel\"]" >> "$GITHUB_OUTPUT"
           fi
@@ -61,8 +62,9 @@ jobs:
         run: |
           repo="ghcr.io/$(echo '${{ github.repository_owner }}' | tr 'A-Z' 'a-z')/${{ matrix.image }}"
           case '${{ matrix.image }}' in
-            opengrep)   ver="$(grep -oE 'OPENGREP_VERSION=v[0-9.]+' images/opengrep/Dockerfile | head -1 | cut -d= -f2)" ;;
-            claude-cli) ver="$(grep -oE 'CLAUDE_VERSION=[0-9][0-9.]*' images/claude-cli/Dockerfile | head -1 | cut -d= -f2)" ;;
+            opengrep)              ver="$(grep -oE 'OPENGREP_VERSION=v[0-9.]+' images/opengrep/Dockerfile | head -1 | cut -d= -f2)" ;;
+            claude-cli)            ver="$(grep -oE 'CLAUDE_VERSION=[0-9][0-9.]*' images/claude-cli/Dockerfile | head -1 | cut -d= -f2)" ;;
+            pentest-workstation)   ver="sha-${GITHUB_SHA::7}" ;;
           esac
           tags="$repo:latest"
           [ -n "$ver" ] && tags="$repo:$ver,$tags"

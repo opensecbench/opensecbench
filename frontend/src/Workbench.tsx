@@ -52,6 +52,7 @@ import { OrchestrateTab } from './OrchestrateTab'
 import { OverviewTab } from './Overview'
 import { ProxyTab } from './ProxyTab'
 import { ActivityTab } from './ActivityTab'
+import { ResearchTab } from './ResearchTab'
 import { ReportTemplateEditor } from './ReportTemplateEditor'
 import { hasNativePickers, pickDirectory } from './native'
 import { ArtifactViewer } from './ArtifactViewer'
@@ -78,6 +79,7 @@ type Tab =
   | 'tasks'
   | 'observations'
   | 'findings'
+  | 'research'
   | 'routes'
   | 'reports'
   | 'graph'
@@ -106,6 +108,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
   { key: 'overview', icon: '◆', label: 'Overview' },
   { key: 'assets', icon: '🗂', label: 'Assets', explorer: true },
   { key: 'context', icon: '🔬', label: 'Context', explorer: true },
+  { key: 'research', icon: '🔍', label: 'Research' },
   { key: 'knowledge', icon: '📚', label: 'Know' },
   { key: 'replay', icon: '↔', label: 'Replay' },
   { key: 'proxy', icon: '📡', label: 'Proxy' },
@@ -132,7 +135,7 @@ const SURFACES: { key: Tab; icon: string; label: string; meta?: boolean; explore
 // below a divider; Settings now consolidates the per-project config (engagement, scope, integrations,
 // secrets) behind one sub-nav (see ProjectSettings). Global config/library lives outside the project.
 const SURFACE_GROUPS: { label: string; keys: Tab[] }[] = [
-  { label: 'Evidence', keys: ['assets', 'context', 'knowledge'] },
+  { label: 'Evidence', keys: ['assets', 'context', 'research', 'knowledge'] },
   { label: 'Analysis', keys: ['observations', 'findings', 'routes', 'graph'] },
   { label: 'Testing', keys: ['replay', 'proxy', 'intercept', 'terminal', 'scan'] },
   { label: 'Run', keys: ['orchestrate', 'playbooks', 'tasks'] },
@@ -977,6 +980,8 @@ export function Workbench({ project, conn, initial, onHome }: { project: Project
         return <MethodologyTab project={project} online={online} onError={setError} onTestItem={openBoundReplay} reloadSignal={methodReload} />
       case 'knowledge':
         return <KnowledgeTab project={project} online={online} onError={setError} />
+      case 'research':
+        return <ResearchTab project={project} online={online} onError={setError} />
       case 'context':
         return doc.ctx ? (
           <ContextView

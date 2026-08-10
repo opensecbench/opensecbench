@@ -3201,3 +3201,23 @@ select.em-in { cursor: pointer; }
 .act-run-body.err { color: var(--red); }
 .act-run > .md { padding: 4px 13px 11px; }
 .act-run pre { overflow-x: auto; }
+
+/* --- Research tab (ADR-0071) --- */
+.ri-capture { margin-bottom: 12px; }
+.ri-input { width: 100%; font-size: 13.5px; }
+.ri-card { margin-bottom: 6px; padding: 8px 12px; transition: background 0.1s; }
+.ri-card:hover { background: var(--line1); }
+.ri-header { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12.5px; }
+.ri-type { font-size: 10.5px; padding: 1px 7px; border-radius: 9px; color: #fff; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; flex: none; }
+.ri-title { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ri-status { font-size: 10.5px; padding: 1px 6px; border-radius: 3px; background: var(--line2); color: var(--tx2); }
+.ri-status-resolved { background: var(--green); color: #fff; }
+.ri-status-discarded { opacity: 0.5; }
+.ri-status-active { background: var(--amber); color: #000; }
+.ri-assessment { font-size: 10.5px; padding: 1px 6px; border-radius: 3px; background: var(--line1); color: var(--tx2); font-style: italic; }
+.ri-tag { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--line1); color: var(--tx3); }
+.ri-time { font-size: 11px; color: var(--tx3); margin-left: auto; flex: none; }
+.ri-by { font-size: 10px; color: var(--tx3); opacity: 0.7; }
+.ri-body { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line1); }
+.ri-actions { display: flex; gap: 8px; margin-top: 10px; }
+.ri-delete { color: var(--red); }
