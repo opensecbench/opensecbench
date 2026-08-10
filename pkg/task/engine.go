@@ -851,24 +851,31 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	// Resolve the project once: it scopes both fingerprint dedup and disposition routing.
 	projectID := e.projectOfTask(ctx, task, p.applicationID)
 	// Recon interpreters emit asset candidates, not observations (ADR-0071): upsert discovered
-	// assets into the inventory and create entity links.
+	// assets into the inventory and create entity links. Passive chains auto-enqueue the next tool.
+	var reconResult *interpret.ReconResult
 	switch man.OutputMediaType {
 	case interpret.SubfinderMediaType:
 		if rr, err := interpret.Subfinder(res.Stdout); err == nil {
 			e.ingestReconAssets(ctx, task, p.applicationID, projectID, rr)
+			reconResult = &rr
 		}
 	case interpret.DnsxMediaType:
 		if rr, err := interpret.Dnsx(res.Stdout); err == nil {
 			e.ingestReconAssets(ctx, task, p.applicationID, projectID, rr)
+			reconResult = &rr
 		}
 	case interpret.HttpxMediaType:
 		if rr, err := interpret.Httpx(res.Stdout); err == nil {
 			e.ingestReconAssets(ctx, task, p.applicationID, projectID, rr)
+			reconResult = &rr
 		}
 	case interpret.FfufMediaType:
 		if rr, err := interpret.Ffuf(res.Stdout); err == nil {
 			e.ingestReconAssets(ctx, task, p.applicationID, projectID, rr)
 		}
+	}
+	if reconResult != nil && man.ExitOK(res.ExitCode) {
+		go e.chainRecon(context.Background(), man.ID, *reconResult, task, p)
 	}
 	// Route-map output is an entry-point inventory, not observations (ADR-0033): upsert the declared routes
 	// and confirm their exposure against captured traffic, then we're done — there are no observations.
@@ -1610,6 +1617,58 @@ func (e *Engine) ingestReconAssets(ctx context.Context, task model.Task, appID *
 			TargetType:   "asset",
 			TargetID:     tgtID,
 		})
+	}
+}
+
+// chainRecon auto-enqueues the next passive recon step after a successful tool run (ADR-0071):
+//   - subfinder → dnsx (resolve discovered domains)
+//   - dnsx → httpx (probe resolved domains for live HTTP)
+//
+// Active tools (ffuf) are never auto-chained — they require explicit approval. Each chained run
+// inherits the parent task's project/application/actor context.
+func (e *Engine) chainRecon(ctx context.Context, capID string, rr interpret.ReconResult, task model.Task, p prepared) {
+	var nextCap string
+	var targets []string
+
+	switch capID {
+	case "subfinder":
+		nextCap = "dnsx"
+		for _, a := range rr.Assets {
+			if a.Type == "domain" {
+				targets = append(targets, a.Location)
+			}
+		}
+	case "dnsx":
+		nextCap = "httpx"
+		seen := map[string]bool{}
+		for _, a := range rr.Assets {
+			if a.Type == "domain" && !seen[a.Location] {
+				seen[a.Location] = true
+				targets = append(targets, a.Location)
+			}
+		}
+	default:
+		return
+	}
+
+	if len(targets) == 0 {
+		return
+	}
+	if _, ok := e.registry.Get(nextCap); !ok {
+		return
+	}
+
+	for _, t := range targets {
+		req := RunRequest{
+			CapabilityID:  nextCap,
+			Actor:         "chain:" + capID,
+			ApplicationID: p.applicationID,
+			ProjectID:     task.ProjectID,
+			Params:        map[string]any{"target": t},
+		}
+		if _, err := e.Enqueue(ctx, req); err != nil {
+			log.Printf("recon chain %s→%s target=%s: %v", capID, nextCap, t, err)
+		}
 	}
 }
 
