@@ -418,7 +418,8 @@ func (s *Server) getMethodologyCoverage(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, view)
 }
 
-// methodologySuggestions recommends packs to adopt based on the project's inherited knowledge base.
+// methodologySuggestions recommends packs to adopt based on the project's knowledge base and
+// discovered assets (ADR-0071). Asset-based suggestions are merged with KB-based ones.
 func (s *Server) methodologySuggestions(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	kb, err := s.mgr.ListKBForProject(r.Context(), projectID)
@@ -438,7 +439,25 @@ func (s *Server) methodologySuggestions(w http.ResponseWriter, r *http.Request) 
 		sb.WriteByte('\n')
 	}
 	adopted, _ := s.pdb(r).ListAdoptedMethodologies(r.Context(), projectID)
-	writeJSON(w, http.StatusOK, methodology.Suggest(s.methods, sb.String(), adopted))
+	kbSuggestions := methodology.Suggest(s.methods, sb.String(), adopted)
+
+	seen := map[string]bool{}
+	for _, s := range kbSuggestions {
+		seen[s.MethodologyID] = true
+	}
+	apps, _ := s.pdb(r).ListApplicationsByProject(r.Context(), projectID)
+	for _, app := range apps {
+		assets, _ := s.pdb(r).ListAssetsByApplication(r.Context(), app.ID)
+		for _, a := range assets {
+			for _, sg := range methodology.SuggestForAsset(s.methods, a.Type, a.Tags, adopted) {
+				if !seen[sg.MethodologyID] {
+					seen[sg.MethodologyID] = true
+					kbSuggestions = append(kbSuggestions, sg)
+				}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, kbSuggestions)
 }
 
 func (s *Server) adoptMethodology(w http.ResponseWriter, r *http.Request) {

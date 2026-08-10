@@ -2096,6 +2096,9 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 			log.Printf("createProject: scope %q for %s not saved: %v", sc.Value, project.ID, err)
 		}
 	}
+	if _, err := pdb.CreateApplication(r.Context(), project.ID, "Targets"); err != nil {
+		log.Printf("createProject: default application for %s: %v", project.ID, err)
+	}
 	writeJSON(w, http.StatusCreated, project)
 }
 

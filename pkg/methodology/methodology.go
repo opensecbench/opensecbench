@@ -47,7 +47,13 @@ type Methodology struct {
 	// Keywords let the pack self-describe applicability: if any appears in a target's knowledge
 	// base, the pack is suggested for adoption (ADR-0009/ADR-0010 tie-in).
 	Keywords []string `json:"keywords,omitempty"`
-	Items    []Item   `json:"items"`
+	// AppliesTo lists asset types this methodology is relevant to (ADR-0071). When an asset of a
+	// matching type is created, the pack is suggested for adoption. Empty = no asset-type filter.
+	AppliesTo []string `json:"applies_to,omitempty"`
+	// AppliesTags lists tags that make this methodology relevant (ADR-0071). When an asset carries
+	// any matching tag, the pack is suggested. Empty = no tag filter.
+	AppliesTags []string `json:"applies_tags,omitempty"`
+	Items       []Item   `json:"items"`
 	// Builtin marks a pack the operator can't edit (a code-defined or extension pack). It is not stored;
 	// the API sets it per-request from the saved-pack set (ADR-0055) so the editor can show built-ins
 	// read-only, exactly as the playbook library does.
@@ -124,7 +130,8 @@ func BuiltIns() *Registry {
 
 var webApp = Methodology{
 	ID: "web-app", Title: "Web Application", Tech: "web", Version: "1.0.0",
-	Keywords: []string{"web", "http", "https", "browser", "cookie", "xss", "csrf", "html", "frontend", "webapp"},
+	Keywords:  []string{"web", "http", "https", "browser", "cookie", "xss", "csrf", "html", "frontend", "webapp"},
+	AppliesTo: []string{"web_service", "source_repo"},
 	Items: []Item{
 		{ID: "web-app/access-control-idor", Title: "Broken access control / IDOR",
 			Objective: "Confirm object-level and function-level authorization is enforced server-side.",
@@ -166,7 +173,9 @@ var webApp = Methodology{
 
 var restAPI = Methodology{
 	ID: "rest-api", Title: "REST API", Tech: "api", Version: "1.0.0",
-	Keywords: []string{"rest", "api", "graphql", "openapi", "swagger", "endpoint", "microservice", "grpc"},
+	Keywords:    []string{"rest", "api", "graphql", "openapi", "swagger", "endpoint", "microservice", "grpc"},
+	AppliesTo:   []string{"web_service", "source_repo"},
+	AppliesTags: []string{"graphql", "express", "asp.net"},
 	Items: []Item{
 		{ID: "rest-api/authz-per-endpoint", Title: "Per-endpoint authorization",
 			Objective: "Every endpoint enforces authentication and authorization.",
