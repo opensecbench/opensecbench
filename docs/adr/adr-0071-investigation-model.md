@@ -1,6 +1,6 @@
 # ADR-0071 — Investigation model: assets, entity graph, research state & operator tooling
 
-Status: Proposed. OSB gains an investigation-first data model — new asset types (domain, host,
+Status: Accepted. OSB gains an investigation-first data model — new asset types (domain, host,
 endpoint), a generic entity-link graph for topology and evidence chains, a research-state primitive
 for investigator notes/hypotheses/experiments, and a pentest workstation with bridge networking —
 so that external-target workflows (bug bounty, pentesting, CTF, red team) are first-class alongside
