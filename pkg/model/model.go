@@ -863,6 +863,20 @@ const (
 	AssetStatusTested        = "tested"
 )
 
+// Technique effects — capabilities declare which effects they produce; the engagement's
+// Techniques map gates them. Existing technique strings (intrusive, brute_force, …) remain
+// valid; these are the expanded vocabulary (ADR-0071).
+const (
+	EffectNetworkConnect        = "network_connect"
+	EffectEnumeration           = "enumeration"
+	EffectBruteForce            = "brute_force"
+	EffectAuthenticationAttempt = "authentication_attempt"
+	EffectContentSubmission     = "content_submission"
+	EffectStateChange           = "state_change"
+	EffectDestructive           = "destructive"
+	EffectHighVolume            = "high_volume"
+)
+
 // DefaultClearance is the fallback least-privilege tier for a new connection when the classification scale
 // is unavailable. Normally the effective default is Scale.Min() (the lowest-ranked level), which equals
 // this in the seeded scale. Rank ordering, clearance comparison, and labels now live on Scale

@@ -430,7 +430,7 @@ func validateTargetDir(dir string, local bool) error {
 // permit. It fails open — no project context, no engagement, or no techniques configured means no restriction
 // — so it only ever tightens once an operator has set rules of engagement.
 func (e *Engine) checkTechnique(ctx context.Context, req RunRequest, applicationID *string, man capability.Manifest) error {
-	if man.Technique == "" {
+	if man.Technique == "" && len(man.Effects) == 0 {
 		return nil
 	}
 	projectID := ""
@@ -455,8 +455,13 @@ func (e *Engine) checkTechnique(ctx context.Context, req RunRequest, application
 	if len(eng.Techniques) == 0 {
 		return nil // rules of engagement not configured → unconstrained
 	}
-	if !eng.Techniques[man.Technique] {
+	if man.Technique != "" && !eng.Techniques[man.Technique] {
 		return fmt.Errorf("%w: capability %q uses technique %q", ErrTechniqueNotPermitted, man.ID, man.Technique)
+	}
+	for _, effect := range man.Effects {
+		if !eng.Techniques[effect] {
+			return fmt.Errorf("%w: capability %q requires effect %q", ErrTechniqueNotPermitted, man.ID, effect)
+		}
 	}
 	return nil
 }

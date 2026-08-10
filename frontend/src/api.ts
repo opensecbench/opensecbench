@@ -246,6 +246,12 @@ export interface ScopeSeed {
   disposition: string
 }
 
+export interface ScopeParseResult {
+  seeds: ScopeSeed[]
+  complex: boolean
+  reason?: string
+}
+
 export interface CapabilityManifest {
   id: string
   version: string
@@ -254,6 +260,7 @@ export interface CapabilityManifest {
   target_param?: string
   applies_to?: string[] // asset kinds this capability runs against (empty = source scanner / explicit-target tool)
   technique?: string // rules-of-engagement technique gated by the engagement (ADR-0051)
+  effects?: string[] // fine-grained effect tags (ADR-0071)
 }
 
 export interface AuditEvent {
@@ -1221,6 +1228,9 @@ export const api = {
   updateResearch: (itemId: string, updates: Partial<Pick<ResearchItem, 'title' | 'body' | 'status' | 'assessment' | 'tags'>>) =>
     request<ResearchItem>('PUT', `/v1/research/${itemId}`, updates),
   deleteResearch: (itemId: string) => request<void>('DELETE', `/v1/research/${itemId}`),
+
+  importScope: (projectId: string, text: string) =>
+    request<ScopeParseResult>('POST', `/v1/projects/${projectId}/scope/import`, { text }),
 
   // source viewer (ADR-0050): read a source_repo asset's tree/files, path-confined server-side.
   assetSource: (assetId: string, path: string) =>

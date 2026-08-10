@@ -11,6 +11,9 @@ export const TECHNIQUES = [
   { k: 'intrusive', label: 'Intrusive scanning' }, { k: 'automated_exploit', label: 'Automated exploitation' },
   { k: 'brute_force', label: 'Brute force / cred stuffing' }, { k: 'dos', label: 'DoS / stress' },
   { k: 'social', label: 'Social engineering' }, { k: 'destructive', label: 'Destructive / data-altering' },
+  { k: 'network_connect', label: 'Network connections' }, { k: 'enumeration', label: 'Enumeration / discovery' },
+  { k: 'authentication_attempt', label: 'Auth attempts' }, { k: 'content_submission', label: 'Content submission' },
+  { k: 'state_change', label: 'State-changing requests' }, { k: 'high_volume', label: 'High-volume requests' },
 ]
 
 function inferKind(value: string): string {

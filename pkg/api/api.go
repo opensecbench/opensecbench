@@ -566,6 +566,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /v1/context/{id}", s.deleteContext)
 	s.mux.HandleFunc("GET /v1/projects/{id}/scope", s.listScope)
 	s.mux.HandleFunc("POST /v1/projects/{id}/scope", s.addScope)
+	s.mux.HandleFunc("POST /v1/projects/{id}/scope/import", s.importScope)
 	s.mux.HandleFunc("GET /v1/projects/{id}/engagement", s.getEngagement)
 	s.mux.HandleFunc("PUT /v1/projects/{id}/engagement", s.setEngagement)
 	s.mux.HandleFunc("DELETE /v1/scope/{id}", s.deleteScope)

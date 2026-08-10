@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/opensecbench/opensecbench/pkg/model"
+	"github.com/opensecbench/opensecbench/pkg/scope"
 	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
@@ -65,6 +66,23 @@ func (s *Server) setAssetVerification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, asset)
+}
+
+// --- Scope import ---
+
+func (s *Server) importScope(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Text string `json:"text"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Text == "" {
+		writeErr(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	result := scope.ParseScopeDocument(req.Text)
+	writeJSON(w, http.StatusOK, result)
 }
 
 // --- Entity links ---
