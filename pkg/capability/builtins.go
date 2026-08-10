@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/disposition"
@@ -42,6 +43,10 @@ func BuiltIns() *Registry {
 	r.Register(routeMap{})
 	r.Register(opengrepScan{})
 	r.Register(trufflehog{})
+	r.Register(subfinderRecon{})
+	r.Register(dnsxRecon{})
+	r.Register(httpxRecon{})
+	r.Register(ffufRecon{})
 	return r
 }
 
@@ -484,4 +489,149 @@ func (trufflehog) Plan(in Input) (runner.RunSpec, error) {
 		MemoryMB: 2048,
 		CPUs:     2,
 	}, nil
+}
+
+// pentestImage is the investigation sandbox image with recon tools.
+var pentestImage = envOr("OSB_PENTEST_IMAGE", "ghcr.io/opensecbench/pentest-workstation:latest")
+
+// subfinderRecon enumerates subdomains for a domain using passive sources (ADR-0071).
+type subfinderRecon struct{}
+
+func (subfinderRecon) Manifest() Manifest {
+	return Manifest{
+		ID:              "subfinder",
+		AppliesTo:       []string{"domain"},
+		Version:         "1.0.0",
+		Title:           "Subfinder (subdomain enumeration)",
+		Description:     "Passive subdomain enumeration using certificate transparency, DNS datasets, and search engines. Network capability (queries external APIs, not the target).",
+		OutputName:      "subfinder.jsonl",
+		OutputMediaType: "application/x-subfinder-jsonl",
+		OKExitCodes:     []int{0},
+		TargetParam:     "target",
+		Effects:         []string{"network_connect", "enumeration"},
+	}
+}
+
+func (subfinderRecon) Plan(in Input) (runner.RunSpec, error) {
+	target, _ := in.Params["target"].(string)
+	if target == "" {
+		return runner.RunSpec{}, errors.New("subfinder: a 'target' param (domain) is required")
+	}
+	return runner.RunSpec{
+		Image:    pentestImage,
+		Cmd:      []string{"subfinder", "-d", target, "-silent", "-json", "-all"},
+		Network:  "bridge",
+		Timeout:  5 * time.Minute,
+		MemoryMB: 512,
+		CPUs:     1,
+	}, nil
+}
+
+// dnsxRecon resolves DNS records for a list of domains (ADR-0071).
+type dnsxRecon struct{}
+
+func (dnsxRecon) Manifest() Manifest {
+	return Manifest{
+		ID:              "dnsx",
+		Version:         "1.0.0",
+		Title:           "dnsx (DNS resolution)",
+		Description:     "Resolves A/AAAA/CNAME records for domains; emits JSONL with IP mappings. Network capability.",
+		OutputName:      "dnsx.jsonl",
+		OutputMediaType: "application/x-dnsx-jsonl",
+		OKExitCodes:     []int{0},
+		TargetParam:     "target",
+		Effects:         []string{"network_connect", "enumeration"},
+	}
+}
+
+func (dnsxRecon) Plan(in Input) (runner.RunSpec, error) {
+	target, _ := in.Params["target"].(string)
+	if target == "" {
+		return runner.RunSpec{}, errors.New("dnsx: a 'target' param (domain or file of domains) is required")
+	}
+	return runner.RunSpec{
+		Image:    pentestImage,
+		Cmd:      []string{"sh", "-c", "echo " + shellQuote(target) + " | dnsx -silent -json -a -aaaa -cname -resp"},
+		Network:  "bridge",
+		Timeout:  5 * time.Minute,
+		MemoryMB: 512,
+		CPUs:     1,
+	}, nil
+}
+
+// httpxRecon probes hosts/domains for live HTTP services (ADR-0071).
+type httpxRecon struct{}
+
+func (httpxRecon) Manifest() Manifest {
+	return Manifest{
+		ID:              "httpx",
+		AppliesTo:       []string{"domain"},
+		Version:         "1.0.0",
+		Title:           "httpx (HTTP service discovery)",
+		Description:     "Probes domains/IPs for live HTTP(S) services; reports status, title, technology. Network capability — sends HTTP requests to targets.",
+		OutputName:      "httpx.jsonl",
+		OutputMediaType: "application/x-httpx-jsonl",
+		OKExitCodes:     []int{0},
+		TargetParam:     "target",
+		Effects:         []string{"network_connect", "enumeration"},
+	}
+}
+
+func (httpxRecon) Plan(in Input) (runner.RunSpec, error) {
+	target, _ := in.Params["target"].(string)
+	if target == "" {
+		return runner.RunSpec{}, errors.New("httpx: a 'target' param (domain, IP, or URL) is required")
+	}
+	return runner.RunSpec{
+		Image:    pentestImage,
+		Cmd:      []string{"sh", "-c", "echo " + shellQuote(target) + " | httpx -silent -json -title -tech-detect -status-code -follow-redirects"},
+		Network:  "bridge",
+		Timeout:  5 * time.Minute,
+		MemoryMB: 512,
+		CPUs:     1,
+	}, nil
+}
+
+// ffufRecon discovers content by fuzzing paths against a target URL (ADR-0071).
+type ffufRecon struct{}
+
+func (ffufRecon) Manifest() Manifest {
+	return Manifest{
+		ID:              "ffuf",
+		Version:         "1.0.0",
+		Title:           "ffuf (content discovery)",
+		Description:     "Fuzzes URL paths with a wordlist to discover endpoints. Active — sends many HTTP requests to the target. Requires explicit technique approval.",
+		OutputName:      "ffuf.json",
+		OutputMediaType: "application/x-ffuf-json",
+		OKExitCodes:     []int{0},
+		TargetParam:     "target",
+		Effects:         []string{"network_connect", "enumeration", "brute_force", "high_volume"},
+	}
+}
+
+func (ffufRecon) Plan(in Input) (runner.RunSpec, error) {
+	target, _ := in.Params["target"].(string)
+	if target == "" {
+		return runner.RunSpec{}, errors.New("ffuf: a 'target' param (base URL) is required")
+	}
+	wordlist := "/wordlists/common.txt"
+	if wl, ok := in.Params["wordlist"].(string); ok && wl != "" {
+		wordlist = wl
+	}
+	url := target
+	if !strings.Contains(url, "FUZZ") {
+		url = strings.TrimRight(url, "/") + "/FUZZ"
+	}
+	return runner.RunSpec{
+		Image:    pentestImage,
+		Cmd:      []string{"ffuf", "-u", url, "-w", wordlist, "-mc", "200,201,301,302,307,401,403", "-o", "/dev/stdout", "-of", "json", "-s"},
+		Network:  "bridge",
+		Timeout:  10 * time.Minute,
+		MemoryMB: 512,
+		CPUs:     1,
+	}, nil
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }

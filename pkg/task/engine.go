@@ -850,6 +850,26 @@ func (e *Engine) execute(ctx context.Context, task model.Task, req RunRequest, p
 	}
 	// Resolve the project once: it scopes both fingerprint dedup and disposition routing.
 	projectID := e.projectOfTask(ctx, task, p.applicationID)
+	// Recon interpreters emit asset candidates, not observations (ADR-0071): upsert discovered
+	// assets into the inventory and create entity links.
+	switch man.OutputMediaType {
+	case interpret.SubfinderMediaType:
+		if rr, err := interpret.Subfinder(res.Stdout); err == nil {
+			e.ingestReconAssets(ctx, task, p.applicationID, projectID, rr)
+		}
+	case interpret.DnsxMediaType:
+		if rr, err := interpret.Dnsx(res.Stdout); err == nil {
+			e.ingestReconAssets(ctx, task, p.applicationID, projectID, rr)
+		}
+	case interpret.HttpxMediaType:
+		if rr, err := interpret.Httpx(res.Stdout); err == nil {
+			e.ingestReconAssets(ctx, task, p.applicationID, projectID, rr)
+		}
+	case interpret.FfufMediaType:
+		if rr, err := interpret.Ffuf(res.Stdout); err == nil {
+			e.ingestReconAssets(ctx, task, p.applicationID, projectID, rr)
+		}
+	}
 	// Route-map output is an entry-point inventory, not observations (ADR-0033): upsert the declared routes
 	// and confirm their exposure against captured traffic, then we're done — there are no observations.
 	if man.OutputMediaType == interpret.RouteMediaType && projectID != "" {
@@ -1539,6 +1559,58 @@ func (e *Engine) outcome(ctx context.Context, projectID, taskID string) Outcome 
 	a, _ := e.p(projectID).ListArtifactsByTask(ctx, taskID)
 	o, _ := e.p(projectID).ListObservationsByTask(ctx, taskID)
 	return Outcome{Task: t, Artifacts: a, Observations: o}
+}
+
+// ingestReconAssets upserts discovered assets from a recon tool into the asset inventory (ADR-0071).
+// Scope-checks each candidate's location before upserting; out-of-scope candidates are silently dropped.
+func (e *Engine) ingestReconAssets(ctx context.Context, task model.Task, appID *string, projectID string, rr interpret.ReconResult) {
+	if projectID == "" || appID == nil {
+		return
+	}
+	pdb := e.p(projectID)
+
+	entries, _ := pdb.ListScopeEntries(ctx, projectID)
+	var rules []scope.Entry
+	for _, en := range entries {
+		rules = append(rules, scope.Entry{Kind: en.Kind, Value: en.Value, Disposition: en.Disposition})
+	}
+	hasScope := len(rules) > 0
+
+	upserted := map[string]string{} // "type:location" → asset ID
+	for _, c := range rr.Assets {
+		if hasScope && scope.Check(rules, c.Location) != nil {
+			continue
+		}
+		a, _, err := pdb.UpsertAsset(ctx, store.NewAsset{
+			ApplicationID:     *appID,
+			Type:              c.Type,
+			Location:          c.Location,
+			Tags:              c.Tags,
+			Metadata:          c.Metadata,
+			Origin:            model.AssetOriginTool,
+			VerificationState: model.AssetVerificationObserved,
+		})
+		if err != nil {
+			log.Printf("recon ingest asset %s %s: %v", c.Type, c.Location, err)
+			continue
+		}
+		upserted[c.Type+":"+c.Location] = a.ID
+	}
+
+	for _, l := range rr.Links {
+		srcID := upserted[l.SourceType+":"+l.SourceLoc]
+		tgtID := upserted[l.TargetType+":"+l.TargetLoc]
+		if srcID == "" || tgtID == "" {
+			continue
+		}
+		_, _ = pdb.CreateLink(ctx, model.EntityLink{
+			SourceType:   "asset",
+			SourceID:     srcID,
+			Relationship: l.Relationship,
+			TargetType:   "asset",
+			TargetID:     tgtID,
+		})
+	}
 }
 
 func tail(b []byte, n int) string {

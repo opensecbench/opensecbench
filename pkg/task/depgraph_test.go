@@ -24,6 +24,7 @@ func TestDepGraphClassifyAndPath(t *testing.T) {
 	g := buildDepGraph([]byte(cdxFixture))
 	if g == nil {
 		t.Fatal("buildDepGraph returned nil")
+		return
 	}
 	// Directly declared by the root.
 	if g.class["org.example:api"] != "direct" {
