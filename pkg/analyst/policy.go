@@ -29,12 +29,16 @@ const (
 // workspace writes, show, …) — is Reversible and runs freely for agent and human alike. This map, not an
 // "is it an agent" flag, is what the gate consults.
 var toolConsequence = map[string]Consequence{
-	"send_request":   External, // leaves the host (scope-guarded regardless); you can't un-send a request
-	"web_fetch":      External, // outbound fetch (a preapproved research source bypasses the gate earlier)
-	"run_code":       Execute,  // runs a command in a sandbox
-	"run_capability": Execute,  // runs a scanner against an asset
-	"run_playbook":   Execute,  // runs a sequence of capabilities
-	"delegate":       Execute,  // spawns a sub-agent that runs work and widens the toolset
+	"send_request":       External, // leaves the host (scope-guarded regardless); you can't un-send a request
+	"web_fetch":          External, // outbound fetch (a preapproved research source bypasses the gate earlier)
+	"run_code":           Execute,  // runs a command in a sandbox
+	"run_capability":     Execute,  // runs a scanner against an asset
+	"run_playbook":       Execute,  // runs a sequence of capabilities
+	"delegate":           Execute,  // spawns a sub-agent that runs work and widens the toolset
+	"create_asset":       Execute,  // mutates the asset inventory
+	"update_asset_status": Execute, // changes asset lifecycle state
+	"tag_asset":          Execute,  // modifies asset tags (drives methodology binding)
+	"create_link":        Execute,  // creates a relationship in the entity graph
 }
 
 // consequenceOf returns a tool's class (Reversible when unlisted).

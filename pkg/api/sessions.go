@@ -75,9 +75,19 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = decodeJSONOptional(r, &req)
 
+	var opts session.OpenOpts
+	if eng, err := s.pdb(r).GetEngagement(r.Context(), projectID); err == nil {
+		if eng.RuntimeImage != "" {
+			opts.Image = eng.RuntimeImage
+		}
+		if eng.RuntimeNetwork != "" {
+			opts.Network = eng.RuntimeNetwork
+		}
+	}
+
 	id := uuid.NewString()
 	container := "osb-sess-" + id
-	h, err := s.sessMgr.Open(r.Context(), container)
+	h, err := s.sessMgr.OpenWith(r.Context(), container, opts)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "open session: "+err.Error())
 		return
@@ -86,7 +96,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		ID:        id,
 		ProjectID: projectID,
 		Container: container,
-		Image:     s.sessMgr.Image(),
+		Image:     s.sessMgr.EffectiveImage(opts),
 		Runner:    "local-docker",
 		Actor:     req.Actor,
 	})

@@ -29,7 +29,7 @@ func NewManager(image string) *Manager {
 	return &Manager{image: image}
 }
 
-// Image reports the image sessions open into.
+// Image reports the default image sessions open into.
 func (m *Manager) Image() string { return m.image }
 
 // Available reports whether the local Docker daemon is reachable.
@@ -37,17 +37,56 @@ func Available() bool {
 	return exec.Command("docker", "info").Run() == nil
 }
 
-// Open starts a sandboxed container named `container` and attaches a shell to it over a PTY. The
-// container has no network by default (a local sandbox); scoped network access comes later.
+// OpenOpts overrides per-session defaults.
+type OpenOpts struct {
+	Image   string // empty = manager default
+	Network string // empty = "none"
+	Memory  string // empty = "512m"
+	CPUs    string // empty = "1"
+	Env     map[string]string
+}
+
+// EffectiveImage returns the image that will be used.
+func (m *Manager) EffectiveImage(o OpenOpts) string {
+	if o.Image != "" {
+		return o.Image
+	}
+	return m.image
+}
+
+// Open starts a sandboxed container with default settings.
 func (m *Manager) Open(ctx context.Context, container string) (*Handle, error) {
+	return m.OpenWith(ctx, container, OpenOpts{})
+}
+
+// OpenWith starts a sandboxed container with the given options and attaches a shell over a PTY.
+func (m *Manager) OpenWith(ctx context.Context, container string, opts OpenOpts) (*Handle, error) {
+	img := m.EffectiveImage(opts)
+	network := opts.Network
+	if network == "" {
+		network = "none"
+	}
+	memory := opts.Memory
+	if memory == "" {
+		memory = "512m"
+	}
+	cpus := opts.CPUs
+	if cpus == "" {
+		cpus = "1"
+	}
+
 	runArgs := []string{
 		"run", "-d", "--rm",
 		"--name", container,
-		"--network", "none",
-		"--memory", "512m",
-		"--cpus", "1",
-		m.image, "sleep", "infinity",
+		"--network", network,
+		"--memory", memory,
+		"--cpus", cpus,
 	}
+	for k, v := range opts.Env {
+		runArgs = append(runArgs, "-e", k+"="+v)
+	}
+	runArgs = append(runArgs, img, "sleep", "infinity")
+
 	if out, err := exec.CommandContext(ctx, "docker", runArgs...).CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("start session container: %w: %s", err, strings.TrimSpace(string(out)))
 	}

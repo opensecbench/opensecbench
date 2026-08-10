@@ -7,6 +7,7 @@ import (
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/runner"
+	"github.com/opensecbench/opensecbench/pkg/store"
 )
 
 // run_code (ADR-0020) lets an agent run a command in a sandbox with the project workspace mounted — to
@@ -33,7 +34,14 @@ func runCode(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, e
 	}
 	image := stringArg(call, "image")
 	if image == "" {
-		image = defaultRunboxImage
+		image = projectRuntimeImage(ctx, deps)
+	}
+
+	timeout := runCodeTimeout
+	memoryMB := 512
+	if image != defaultRunboxImage {
+		timeout = 10 * time.Minute
+		memoryMB = 2048
 	}
 
 	res, err := deps.Runner.Run(ctx, runner.RunSpec{
@@ -41,9 +49,9 @@ func runCode(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, e
 		Cmd:      []string{"sh", "-c", command},
 		Mounts:   []runner.Mount{{Source: root, Target: "/work", ReadOnly: false}},
 		Workdir:  "/work",
-		Network:  "bridge", // a PoC/test needs to reach the network; the approval gate is the control
-		Timeout:  runCodeTimeout,
-		MemoryMB: 512,
+		Network:  "bridge",
+		Timeout:  timeout,
+		MemoryMB: memoryMB,
 		CPUs:     1,
 	})
 	if err != nil {
@@ -55,3 +63,21 @@ func runCode(ctx context.Context, deps ExecDeps, call agent.ToolCall) (string, e
 		"stderr":    truncate(string(res.Stderr), 2000),
 	}, nil)
 }
+
+func projectRuntimeImage(ctx context.Context, deps ExecDeps) string {
+	if deps.ProjectID != "" && deps.Mgr != nil {
+		if pdb, err := deps.Mgr.Project(deps.ProjectID); err == nil && pdb != nil {
+			if eng, err := pdb.GetEngagement(ctx, deps.ProjectID); err == nil && eng.RuntimeImage != "" {
+				return eng.RuntimeImage
+			}
+		}
+	}
+	if deps.Mgr != nil {
+		if v, err := deps.Mgr.Global().GetSetting(ctx, "runtime.session_image"); err == nil && v != "" {
+			return v
+		}
+	}
+	return defaultRunboxImage
+}
+
+var _ = store.ErrNotFound // keep import used

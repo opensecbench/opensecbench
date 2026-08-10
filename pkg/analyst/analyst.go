@@ -276,7 +276,48 @@ func Tools() []agent.Tool {
 			{Name: "status", Type: agent.TypeEnum, Required: true, Description: "the new status", Enum: []string{"open", "confirmed", "remediated", "accepted", "false_positive"}},
 			{Name: "note", Type: agent.TypeString, Description: "one-line rationale for the disposition (recorded with the change)"},
 		}},
-		{Name: "run_code", Description: "Run a shell command in a sandbox (with network) with the project workspace mounted at /work — to build and run a test case or PoC over files you staged there. GATED.", Params: []agent.Param{
+		{Name: "create_asset", Description: "Create a discovered asset (domain, host, endpoint, web_service) in the project. GATED.", Params: []agent.Param{
+			{Name: "type", Type: agent.TypeEnum, Required: true, Description: "asset type", Enum: []string{"domain", "host", "endpoint", "web_service"}},
+			{Name: "location", Type: agent.TypeString, Required: true, Description: "asset location (e.g. example.com, 10.0.0.1, POST /api/users, https://api.example.com)"},
+			{Name: "tags", Type: agent.TypeArray, Description: "optional tags (e.g. rest-api, graphql, admin-panel)"},
+		}},
+		{Name: "update_asset_status", Description: "Update an asset's lifecycle status. GATED.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "asset id"},
+			{Name: "status", Type: agent.TypeEnum, Required: true, Description: "new status", Enum: []string{"discovered", "confirmed", "investigating", "tested"}},
+		}},
+		{Name: "tag_asset", Description: "Set tags on an asset (replaces existing tags). GATED.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "asset id"},
+			{Name: "tags", Type: agent.TypeArray, Required: true, Description: "tags to set"},
+		}},
+		{Name: "get_asset_graph", Description: "Get entity links for an asset — its relationships (resolves_to, contains, related_to, etc.).", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "asset id"},
+		}},
+		{Name: "create_link", Description: "Create a typed relationship between two entities (asset, finding, observation, research_item, exchange). GATED.", Params: []agent.Param{
+			{Name: "source_type", Type: agent.TypeString, Required: true, Description: "source entity type"},
+			{Name: "source_id", Type: agent.TypeString, Required: true, Description: "source entity id"},
+			{Name: "relationship", Type: agent.TypeString, Required: true, Description: "relationship (resolves_to, contains, derived_from, tests, supported_by, evidence, related_to, etc.)"},
+			{Name: "target_type", Type: agent.TypeString, Required: true, Description: "target entity type"},
+			{Name: "target_id", Type: agent.TypeString, Required: true, Description: "target entity id"},
+			{Name: "note", Type: agent.TypeString, Description: "optional note explaining the link"},
+		}},
+		{Name: "create_research_item", Description: "Record a research item (note, hypothesis, lead, question, experiment, result, conclusion). Quick capture: just pass a title.", Params: []agent.Param{
+			{Name: "title", Type: agent.TypeString, Required: true, Description: "the research note (can be the full content for quick entries)"},
+			{Name: "type", Type: agent.TypeEnum, Description: "item type (default: note)", Enum: []string{"note", "hypothesis", "lead", "question", "experiment", "result", "conclusion"}},
+			{Name: "body", Type: agent.TypeString, Description: "optional longer description"},
+			{Name: "status", Type: agent.TypeString, Description: "status (default: open)"},
+			{Name: "assessment", Type: agent.TypeString, Description: "optional: low/medium/high/confirmed (for hypotheses/conclusions)"},
+			{Name: "tags", Type: agent.TypeArray, Description: "optional tags"},
+		}},
+		{Name: "list_research_items", Description: "List the current project's research items (notes, hypotheses, experiments, etc.)."},
+		{Name: "update_research_item", Description: "Update a research item's title, body, status, assessment, or tags.", Params: []agent.Param{
+			{Name: "id", Type: agent.TypeString, Required: true, Description: "research item id"},
+			{Name: "title", Type: agent.TypeString, Description: "new title"},
+			{Name: "body", Type: agent.TypeString, Description: "new body"},
+			{Name: "status", Type: agent.TypeString, Description: "new status"},
+			{Name: "assessment", Type: agent.TypeString, Description: "new assessment"},
+			{Name: "tags", Type: agent.TypeArray, Description: "new tags"},
+		}},
+		{Name: "run_code", Description: "Run a shell command in a sandbox (with network) with the project workspace mounted at /work — to build and run a test case or PoC over files you staged there. Uses the project's runtime image when configured. GATED.", Params: []agent.Param{
 			{Name: "command", Type: agent.TypeString, Required: true, Description: "shell command, run via sh -c in /work"},
 			{Name: "image", Type: agent.TypeString, Description: "container image (default alpine:3; override for python/node/etc.)"},
 		}},
@@ -477,6 +518,22 @@ func Executor(deps ExecDeps) func(context.Context, agent.ToolCall) (string, erro
 			return runCapability(ctx, engine, call)
 		case "run_playbook":
 			return runPlaybook(ctx, deps.Mgr, deps.ProjectID, engine, call)
+		case "create_asset":
+			return createAsset(ctx, deps, call)
+		case "update_asset_status":
+			return updateAssetStatus(ctx, deps, call)
+		case "tag_asset":
+			return tagAsset(ctx, deps, call)
+		case "get_asset_graph":
+			return getAssetGraph(ctx, deps, call)
+		case "create_link":
+			return createLink(ctx, deps, call)
+		case "create_research_item":
+			return createResearchItem(ctx, deps, call)
+		case "list_research_items":
+			return listResearchItems(ctx, deps, call)
+		case "update_research_item":
+			return updateResearchItem(ctx, deps, call)
 		default:
 			return "", fmt.Errorf("unknown tool %q", call.Tool)
 		}

@@ -50,6 +50,8 @@ var trustedResultTools = map[string]bool{
 	"save_context": true, "save_methodology": true, "generate_report": true,
 	"run_capability": true, "run_playbook": true, "workspace_write": true, "workspace_list": true,
 	"show": true, "delegate": true,
+	"create_asset": true, "update_asset_status": true, "tag_asset": true, "get_asset_graph": true, "create_link": true,
+	"create_research_item": true, "list_research_items": true, "update_research_item": true,
 }
 
 // wrapUntrusted fences body as untrusted external data attributed to source. Generate this ONCE at
