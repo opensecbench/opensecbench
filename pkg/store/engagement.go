@@ -25,11 +25,15 @@ func (db *DB) GetEngagement(ctx context.Context, projectID string) (model.Engage
 	err := db.QueryRowContext(ctx,
 		`SELECT project_id, base_path, kinds, objective, reference, environment, data_class, standard, compliance,
 		        severity_scale, authorized, authorizer, auth_ref, auth_from, auth_to,
-		        window_start, window_end, report_due, techniques, notes, created_at, updated_at
+		        window_start, window_end, report_due, techniques, notes,
+		        program_url, platform, scope_doc_ref, runtime_image, runtime_network,
+		        created_at, updated_at
 		 FROM engagement WHERE project_id = ?`, projectID).
 		Scan(&e.ProjectID, &e.BasePath, &kinds, &e.Objective, &e.Reference, &e.Environment, &e.DataClass, &e.Standard,
 			&e.Compliance, &e.SeverityScale, &authorized, &e.Authorizer, &e.AuthRef, &e.AuthFrom, &e.AuthTo,
-			&e.WindowStart, &e.WindowEnd, &e.ReportDue, &techniques, &e.Notes, &created, &updated)
+			&e.WindowStart, &e.WindowEnd, &e.ReportDue, &techniques, &e.Notes,
+			&e.ProgramURL, &e.Platform, &e.ScopeDocRef, &e.RuntimeImage, &e.RuntimeNetwork,
+			&created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Engagement{}, ErrNotFound
 	}
@@ -87,8 +91,10 @@ func (db *DB) SetEngagement(ctx context.Context, e model.Engagement) (model.Enga
 		`INSERT INTO engagement
 		 (project_id, base_path, kinds, objective, reference, environment, data_class, standard, compliance,
 		  severity_scale, authorized, authorizer, auth_ref, auth_from, auth_to,
-		  window_start, window_end, report_due, techniques, notes, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		  window_start, window_end, report_due, techniques, notes,
+		  program_url, platform, scope_doc_ref, runtime_image, runtime_network,
+		  created_at, updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(project_id) DO UPDATE SET
 		  base_path=excluded.base_path, kinds=excluded.kinds, objective=excluded.objective, reference=excluded.reference,
 		  environment=excluded.environment, data_class=excluded.data_class, standard=excluded.standard,
@@ -96,10 +102,14 @@ func (db *DB) SetEngagement(ctx context.Context, e model.Engagement) (model.Enga
 		  authorizer=excluded.authorizer, auth_ref=excluded.auth_ref, auth_from=excluded.auth_from,
 		  auth_to=excluded.auth_to, window_start=excluded.window_start, window_end=excluded.window_end,
 		  report_due=excluded.report_due, techniques=excluded.techniques, notes=excluded.notes,
+		  program_url=excluded.program_url, platform=excluded.platform, scope_doc_ref=excluded.scope_doc_ref,
+		  runtime_image=excluded.runtime_image, runtime_network=excluded.runtime_network,
 		  updated_at=excluded.updated_at`,
 		e.ProjectID, e.BasePath, strings.Join(e.Kinds, ","), e.Objective, e.Reference, e.Environment, e.DataClass,
 		e.Standard, e.Compliance, e.SeverityScale, authorized, e.Authorizer, e.AuthRef, e.AuthFrom, e.AuthTo,
-		e.WindowStart, e.WindowEnd, e.ReportDue, techniques, e.Notes, created, now); err != nil {
+		e.WindowStart, e.WindowEnd, e.ReportDue, techniques, e.Notes,
+		e.ProgramURL, e.Platform, e.ScopeDocRef, e.RuntimeImage, e.RuntimeNetwork,
+		created, now); err != nil {
 		return model.Engagement{}, err
 	}
 

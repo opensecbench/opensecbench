@@ -14,6 +14,7 @@ const (
 	KindHost   = "host"   // exact host or IP, e.g. api.acme.com or 10.0.0.5
 	KindDomain = "domain" // a domain and its subdomains, e.g. acme.com matches api.acme.com
 	KindCIDR   = "cidr"   // an IP range, e.g. 10.0.0.0/24
+	KindURL    = "url"    // scheme+host+path prefix, e.g. https://api.example.com/v2/* (ADR-0071)
 )
 
 // Dispositions (ADR-0051). Any value other than Deny is treated as an allow rule, so entries built without a
@@ -48,7 +49,7 @@ func Check(entries []Entry, target string) error {
 
 	hasAllow, matchedAllow := false, false
 	for _, e := range entries {
-		match := matchEntry(e, host, ip)
+		match := matchEntry(e, host, ip, target)
 		if e.Disposition == Deny {
 			if match {
 				return fmt.Errorf("scope: target %q is out of scope (excluded)", host)
@@ -67,7 +68,8 @@ func Check(entries []Entry, target string) error {
 }
 
 // matchEntry reports whether an entry matches the given host (ip may be nil for non-IP hosts).
-func matchEntry(e Entry, host string, ip net.IP) bool {
+// rawTarget is the original (pre-normalized) value, needed for path-level URL matching.
+func matchEntry(e Entry, host string, ip net.IP, rawTarget string) bool {
 	switch e.Kind {
 	case KindHost:
 		return strings.EqualFold(host, e.Value)
@@ -81,8 +83,41 @@ func matchEntry(e Entry, host string, ip net.IP) bool {
 				return network.Contains(ip)
 			}
 		}
+	case KindURL:
+		return matchURL(e.Value, host, rawTarget)
 	}
 	return false
+}
+
+// matchURL matches a URL scope entry against a target. The entry value is a URL pattern like
+// https://api.example.com/v2/*. Host matching uses domain-style subdomain matching; path is
+// prefix-matched with an optional trailing * wildcard. When the target is a bare host (no URL),
+// only the host portion matches (correct for proxy CONNECT gating).
+func matchURL(pattern, host, rawTarget string) bool {
+	pu, err := url.Parse(pattern)
+	if err != nil || pu.Host == "" {
+		return false
+	}
+	patHost := strings.ToLower(pu.Hostname())
+	h := strings.ToLower(host)
+	if h != patHost && !strings.HasSuffix(h, "."+patHost) {
+		return false
+	}
+	patPath := strings.TrimSuffix(pu.Path, "*")
+	if patPath == "" || patPath == "/" {
+		return true
+	}
+	if !strings.Contains(rawTarget, "://") {
+		return true
+	}
+	tu, err := url.Parse(rawTarget)
+	if err != nil {
+		return true
+	}
+	if pu.Scheme != "" && tu.Scheme != "" && !strings.EqualFold(pu.Scheme, tu.Scheme) {
+		return false
+	}
+	return strings.HasPrefix(tu.Path, patPath)
 }
 
 // normalizeTarget extracts a bare host from a host, IP, or URL.

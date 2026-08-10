@@ -600,6 +600,21 @@ func (s *Server) routes() {
 	// click-to-file from findings. Reads are path-confined to the asset root (pkg/srcfile).
 	s.mux.HandleFunc("GET /v1/assets/{id}/source", s.getAssetSource)
 	s.mux.HandleFunc("GET /v1/assets/{id}/tree", s.getAssetTree)
+	s.mux.HandleFunc("PUT /v1/assets/{id}/tags", s.setAssetTags)
+	s.mux.HandleFunc("PUT /v1/assets/{id}/status", s.setAssetStatus)
+	s.mux.HandleFunc("PUT /v1/assets/{id}/verification", s.setAssetVerification)
+
+	// Entity links (ADR-0071).
+	s.mux.HandleFunc("GET /v1/links", s.listLinks)
+	s.mux.HandleFunc("POST /v1/links", s.createLink)
+	s.mux.HandleFunc("DELETE /v1/links/{id}", s.deleteLink)
+
+	// Research items (ADR-0071).
+	s.mux.HandleFunc("GET /v1/projects/{id}/research", s.listResearchItems)
+	s.mux.HandleFunc("POST /v1/projects/{id}/research", s.createResearchItem)
+	s.mux.HandleFunc("GET /v1/research/{id}", s.getResearchItem)
+	s.mux.HandleFunc("PUT /v1/research/{id}", s.updateResearchItem)
+	s.mux.HandleFunc("DELETE /v1/research/{id}", s.deleteResearchItem)
 
 	s.mux.HandleFunc("GET /v1/capabilities", s.listCapabilities)
 	s.mux.HandleFunc("GET /v1/tasks", s.listTasks)

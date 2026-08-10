@@ -130,6 +130,39 @@ export interface Asset {
   location: string
   sensitivity: string
   ecosystems?: string[]
+  status: string
+  tags?: string[]
+  metadata?: Record<string, string>
+  origin: string
+  verification_state: string
+  first_seen: string
+  last_seen: string
+  created_at: string
+  updated_at: string
+}
+
+export interface EntityLink {
+  id: string
+  source_type: string
+  source_id: string
+  relationship: string
+  target_type: string
+  target_id: string
+  metadata?: Record<string, string>
+  note?: string
+  created_at: string
+}
+
+export interface ResearchItem {
+  id: string
+  project_id: string
+  type: string
+  title: string
+  body?: string
+  status: string
+  assessment?: string
+  created_by: string
+  tags?: string[]
   created_at: string
   updated_at: string
 }
@@ -197,6 +230,11 @@ export interface Engagement {
   report_due?: string
   techniques?: Record<string, boolean>
   notes?: string
+  program_url?: string
+  platform?: string
+  scope_doc_ref?: string
+  runtime_image?: string
+  runtime_network?: string
   contacts?: EngagementContact[]
   test_accounts?: EngagementTestAccount[]
 }
@@ -1160,6 +1198,29 @@ export const api = {
   updateAssetSensitivity: (assetId: string, sensitivity: string) =>
     request<Asset>('PUT', `/v1/assets/${assetId}`, { sensitivity }),
   deleteAsset: (assetId: string) => request<void>('DELETE', `/v1/assets/${assetId}`),
+  setAssetTags: (assetId: string, tags: string[]) =>
+    request<Asset>('PUT', `/v1/assets/${assetId}/tags`, { tags }),
+  setAssetStatus: (assetId: string, status: string) =>
+    request<Asset>('PUT', `/v1/assets/${assetId}/status`, { status }),
+  setAssetVerification: (assetId: string, state: string) =>
+    request<Asset>('PUT', `/v1/assets/${assetId}/verification`, { state }),
+
+  // entity links (ADR-0071)
+  listLinks: (entityType: string, entityId: string) =>
+    request<EntityLink[]>('GET', `/v1/links?type=${encodeURIComponent(entityType)}&id=${encodeURIComponent(entityId)}`),
+  createLink: (link: Omit<EntityLink, 'id' | 'created_at'>) =>
+    request<EntityLink>('POST', '/v1/links', link),
+  deleteLink: (linkId: string) => request<void>('DELETE', `/v1/links/${linkId}`),
+
+  // research items (ADR-0071)
+  listResearch: (projectId: string) =>
+    request<ResearchItem[]>('GET', `/v1/projects/${projectId}/research`),
+  createResearch: (projectId: string, item: { type: string; title: string; body?: string; tags?: string[] }) =>
+    request<ResearchItem>('POST', `/v1/projects/${projectId}/research`, item),
+  getResearch: (itemId: string) => request<ResearchItem>('GET', `/v1/research/${itemId}`),
+  updateResearch: (itemId: string, updates: Partial<Pick<ResearchItem, 'title' | 'body' | 'status' | 'assessment' | 'tags'>>) =>
+    request<ResearchItem>('PUT', `/v1/research/${itemId}`, updates),
+  deleteResearch: (itemId: string) => request<void>('DELETE', `/v1/research/${itemId}`),
 
   // source viewer (ADR-0050): read a source_repo asset's tree/files, path-confined server-side.
   assetSource: (assetId: string, path: string) =>

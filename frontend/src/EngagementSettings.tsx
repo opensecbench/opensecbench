@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, Engagement, Project } from './api'
 import { hasNativePickers, pickDirectory } from './native'
-import { KINDS, TECHNIQUES } from './EngagementModal'
+import { TECHNIQUES } from './EngagementModal'
 
 // Project Settings surface (ADR-0051): edit an engagement's record after creation — the modal is create-only,
 // but scope/data-class/rules-of-engagement/authorization must be revisable mid-engagement since they drive
@@ -29,12 +29,9 @@ export function EngagementSettings({
   if (!eng) return <div className="content"><div className="empty">{online ? 'Loading engagement…' : 'Offline.'}</div></div>
 
   const patch = (p: Partial<Engagement>) => { setEng({ ...eng, ...p }); setSaved(false) }
-  const kinds = eng.kinds ?? []
   const techniques = eng.techniques ?? {}
   const contacts = eng.contacts ?? []
   const accounts = eng.test_accounts ?? []
-  const toggleKind = (k: string) => patch({ kinds: kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k] })
-  const hasActive = kinds.some((k) => KINDS.find((x) => x.k === k)?.active)
 
   async function save() {
     if (!eng) return
@@ -63,14 +60,6 @@ export function EngagementSettings({
       <section className="panel es">
         <div className="panel-head">Identity</div>
         <div className="em-field">
-          <label>Assessment type</label>
-          <div className="em-chiprow">
-            {KINDS.map((t) => (
-              <button key={t.k} className={`em-chip ${kinds.includes(t.k) ? 'on' : ''}`} onClick={() => toggleKind(t.k)}>{t.label}</button>
-            ))}
-          </div>
-        </div>
-        <div className="em-field">
           <label>Objective &amp; success criteria</label>
           <textarea className="em-in" rows={2} value={eng.objective ?? ''} onChange={(e) => patch({ objective: e.target.value })} />
         </div>
@@ -83,17 +72,27 @@ export function EngagementSettings({
             {hasNativePickers() && <button className="em-btn" onClick={async () => { const p = await pickDirectory((eng.base_path ?? '') || undefined); if (p) patch({ base_path: p }) }}>📁 Browse…</button>}
           </div>
         </div>
+        <div className="em-two">
+          <div className="em-field"><label>Program URL <span className="em-opt">bug bounty program page</span></label>
+            <input className="em-in" value={eng.program_url ?? ''} onChange={(e) => patch({ program_url: e.target.value })} placeholder="https://hackerone.com/acme" /></div>
+          <div className="em-field"><label>Platform</label>
+            <select className="em-in" value={eng.platform ?? ''} onChange={(e) => patch({ platform: e.target.value })}>
+              <option value="">— None —</option>
+              <option value="hackerone">HackerOne</option>
+              <option value="bugcrowd">Bugcrowd</option>
+              <option value="intigriti">Intigriti</option>
+              <option value="independent">Independent</option>
+            </select></div>
+        </div>
       </section>
 
       <section className="panel es">
         <div className="panel-head">Scope &amp; authorization <span className="es-note">enforced</span></div>
         <div className="em-two">
-          {hasActive && (
-            <div className="em-field"><label>Environment</label>
-              <div className="em-seg">{['production', 'staging', 'dev'].map((e) => (
-                <button key={e} className={eng.environment === e ? 'on' : ''} onClick={() => patch({ environment: e })}>{e === 'production' ? 'Prod' : e === 'staging' ? 'Staging' : 'Dev'}</button>
-              ))}</div></div>
-          )}
+          <div className="em-field"><label>Environment</label>
+            <div className="em-seg">{['production', 'staging', 'dev'].map((e) => (
+              <button key={e} className={eng.environment === e ? 'on' : ''} onClick={() => patch({ environment: e })}>{e === 'production' ? 'Prod' : e === 'staging' ? 'Staging' : 'Dev'}</button>
+            ))}</div></div>
           <div className="em-field"><label>Data sensitivity <span className="em-opt">gates external AI</span></label>
             <div className="em-seg">{['open', 'private', 'restricted'].map((d) => (
               <button key={d} className={eng.data_class === d ? 'on' : ''} onClick={() => patch({ data_class: d })}>{d[0].toUpperCase() + d.slice(1)}</button>
@@ -109,16 +108,14 @@ export function EngagementSettings({
             <label className="em-inline">valid until <input className="em-in" type="date" value={eng.auth_to ?? ''} onChange={(e) => patch({ auth_to: e.target.value })} /></label>
           </div>
         </div>
-        {hasActive && (
-          <div className="em-field">
-            <label>Allowed techniques <span className="em-opt">disallowed ones are blocked</span></label>
-            <div className="em-toggles">{TECHNIQUES.map((t) => (
-              <button key={t.k} className="em-tog" onClick={() => patch({ techniques: { ...techniques, [t.k]: !techniques[t.k] } })}>
-                <span className={`em-sw ${techniques[t.k] ? 'on' : ''}`}><i /></span> {t.label}
-              </button>
-            ))}</div>
-          </div>
-        )}
+        <div className="em-field">
+          <label>Allowed techniques <span className="em-opt">disallowed ones are blocked</span></label>
+          <div className="em-toggles">{TECHNIQUES.map((t) => (
+            <button key={t.k} className="em-tog" onClick={() => patch({ techniques: { ...techniques, [t.k]: !techniques[t.k] } })}>
+              <span className={`em-sw ${techniques[t.k] ? 'on' : ''}`}><i /></span> {t.label}
+            </button>
+          ))}</div>
+        </div>
       </section>
 
       <section className="panel es">

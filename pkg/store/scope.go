@@ -9,7 +9,7 @@ import (
 	"github.com/opensecbench/opensecbench/pkg/model"
 )
 
-var validScopeKinds = map[string]bool{"host": true, "domain": true, "cidr": true}
+var validScopeKinds = map[string]bool{"host": true, "domain": true, "cidr": true, "url": true}
 
 // AddScopeEntry adds a scope rule to a project. disposition is "allow" (in-scope) or "deny" (out-of-scope,
 // ADR-0051); an empty or unknown value defaults to allow.
@@ -18,7 +18,7 @@ func (db *DB) AddScopeEntry(ctx context.Context, projectID, kind, value, disposi
 		return model.ScopeEntry{}, fmt.Errorf("store: scope entry project id and value required")
 	}
 	if !validScopeKinds[kind] {
-		return model.ScopeEntry{}, fmt.Errorf("store: invalid scope kind %q (host|domain|cidr)", kind)
+		return model.ScopeEntry{}, fmt.Errorf("store: invalid scope kind %q (host|domain|cidr|url)", kind)
 	}
 	if disposition != model.ScopeDeny {
 		disposition = model.ScopeAllow

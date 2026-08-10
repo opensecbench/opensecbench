@@ -7,22 +7,6 @@ import { hasNativePickers, pickDirectory, workingDir } from './native'
 // kickstart, and (collapsed) the long tail — then creates the project with its engagement record + scope in
 // one call, and best-effort seeds methodology adoption + a first asset.
 
-// Each assessment type also says whether it involves live/dynamic testing (`active`). Active types get the
-// network-scope + rules-of-engagement sections; static/advisory ones (code audit, secrets, threat model)
-// don't — that's what keeps the form from reading pentest-heavy for a code review. `tech` maps to a
-// methodology pack so the type drives kickstart (there is no separate archetype picker).
-export const KINDS: { k: string; label: string; active: boolean; tech?: string }[] = [
-  { k: 'web', label: 'Web app', active: true, tech: 'web' },
-  { k: 'api', label: 'REST API', active: true, tech: 'api' },
-  { k: 'graphql', label: 'GraphQL', active: true, tech: 'api' },
-  { k: 'mobile', label: 'Mobile', active: true },
-  { k: 'cloud', label: 'Cloud', active: true },
-  { k: 'network', label: 'Network / infra', active: true },
-  { k: 'red-team', label: 'Red team', active: true },
-  { k: 'code', label: 'Code / SAST', active: false },
-  { k: 'secrets', label: 'Secrets audit', active: false },
-  { k: 'threat-model', label: 'Threat model', active: false },
-]
 export const TECHNIQUES = [
   { k: 'intrusive', label: 'Intrusive scanning' }, { k: 'automated_exploit', label: 'Automated exploitation' },
   { k: 'brute_force', label: 'Brute force / cred stuffing' }, { k: 'dos', label: 'DoS / stress' },
@@ -30,8 +14,11 @@ export const TECHNIQUES = [
 ]
 
 function inferKind(value: string): string {
+  if (/^https?:\/\//i.test(value)) return 'url'
+  if (/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(value)) return value.includes('/') ? 'cidr' : 'host'
   if (value.includes('/')) return 'cidr'
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) return 'host'
+  const v = value.startsWith('*.') ? value.slice(2) : value
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) return 'host'
   return 'domain'
 }
 
@@ -71,7 +58,7 @@ function ScopeInput({ tokens, onChange, deny }: { tokens: string[]; onChange: (t
         <span key={t} className={`em-tok ${deny ? 'no' : ''}`}>{t}<button onClick={() => onChange(tokens.filter((x) => x !== t))}>×</button></span>
       ))}
       <input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={key} onBlur={add}
-        placeholder={tokens.length ? '' : deny ? 'exclude a host / domain / CIDR…' : 'host, domain, or CIDR…'} />
+        placeholder={tokens.length ? '' : deny ? 'exclude a host / domain / CIDR / URL…' : 'host, domain, CIDR, or URL…'} />
     </div>
   )
 }
@@ -93,8 +80,9 @@ export function EngagementModal({
   const [groupId, setGroupId] = useState('')
   const [newOrg, setNewOrg] = useState('')
   const [newGroup, setNewGroup] = useState('')
-  const [kinds, setKinds] = useState<string[]>([])
   const [objective, setObjective] = useState('')
+  const [programUrl, setProgramUrl] = useState('')
+  const [platform, setPlatform] = useState('')
   const [reference, setReference] = useState('')
   const [inScope, setInScope] = useState<string[]>([])
   const [outScope, setOutScope] = useState<string[]>([])
@@ -158,14 +146,6 @@ export function EngagementModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online, orgId])
 
-  // The assessment type drives the form: active types reveal network scope + rules of engagement, and their
-  // methodology packs are suggested for adoption. No separate archetype picker.
-  const hasActive = useMemo(() => kinds.some((k) => KINDS.find((x) => x.k === k)?.active), [kinds])
-  useEffect(() => {
-    const techs = new Set(kinds.map((k) => KINDS.find((x) => x.k === k)?.tech).filter(Boolean))
-    setAdopt(methodologies.filter((m) => techs.has(m.tech)).map((m) => m.id))
-  }, [kinds, methodologies])
-
   const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
   const scopeSeeds = useMemo<ScopeSeed[]>(() => [
     ...inScope.map((v) => ({ kind: inferKind(v), value: v, disposition: 'allow' })),
@@ -178,14 +158,15 @@ export function EngagementModal({
     setError(null)
     try {
       const engagement: Engagement = {
-        project_id: '', base_path: basePath.trim(), kinds, objective: objective.trim(), reference: reference.trim(),
+        project_id: '', base_path: basePath.trim(), objective: objective.trim(), reference: reference.trim(),
         environment, data_class: dataClass, authorized, authorizer: authorizer.trim(), auth_to: authTo,
         techniques, window_start: windowStart, window_end: windowEnd, report_due: reportDue,
         standard, compliance, severity_scale: severity,
+        program_url: programUrl.trim(), platform: platform || undefined,
         contacts: contacts.filter((c) => c.name || c.email),
         test_accounts: testAccounts.filter((a) => a.username || a.role),
       }
-      const project = await api.createEngagement({ name: name.trim(), organization_id: orgId || null, group_id: groupId || null, engagement, scope: hasActive ? scopeSeeds : [], location: customLoc && basePath.trim() ? basePath.trim() : '' })
+      const project = await api.createEngagement({ name: name.trim(), organization_id: orgId || null, group_id: groupId || null, engagement, scope: scopeSeeds, location: customLoc && basePath.trim() ? basePath.trim() : '' })
       // Scope subsequent requests to the new project so kickstart writes land in its database. In split mode
       // (ADR-0049) flat routes like POST /applications/{id}/assets resolve the per-project DB from the
       // X-Project-Id header; without this the seeds hit the wrong/empty DB and fail the FK to the app/project.
@@ -196,7 +177,7 @@ export function EngagementModal({
       try {
         for (const id of adopt) await api.adoptMethodology(project.id, id)
         if (firstRepo.trim()) {
-          const app = await api.createApplication(project.id, kinds[0] || 'app')
+          const app = await api.createApplication(project.id, name.trim() || 'Targets')
           // An http(s) URL is a live web target (web_service, ADR-0067); a git remote / path is source code.
           const assetType = /^https?:\/\//i.test(firstRepo.trim()) ? 'web_service' : 'source_repo'
           await api.createAsset(app.id, assetType, firstRepo.trim(), 'private')
@@ -295,14 +276,6 @@ export function EngagementModal({
               )}
             </div>
             <div className="em-field">
-              <label>Assessment type</label>
-              <div className="em-chiprow">
-                {KINDS.map((t) => (
-                  <button key={t.k} className={`em-chip ${kinds.includes(t.k) ? 'on' : ''}`} onClick={() => setKinds(toggle(kinds, t.k))}>{t.label}</button>
-                ))}
-              </div>
-            </div>
-            <div className="em-field">
               <label>Objective &amp; success criteria</label>
               <textarea className="em-in" rows={2} value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="What are we assessing, and what does done look like?" />
             </div>
@@ -310,38 +283,48 @@ export function EngagementModal({
               <label>Reference <span className="em-opt">SOW / ticket</span></label>
               <input className="em-in" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="SOW-2026-0417 / JIRA SEC-812" />
             </div>
+            <div className="em-two">
+              <div className="em-field">
+                <label>Program URL <span className="em-opt">bug bounty program page</span></label>
+                <input className="em-in" value={programUrl} onChange={(e) => setProgramUrl(e.target.value)} placeholder="https://hackerone.com/acme" />
+              </div>
+              <div className="em-field">
+                <label>Platform</label>
+                <select className="em-in" value={platform} onChange={(e) => setPlatform(e.target.value)}>
+                  <option value="">— None —</option>
+                  <option value="hackerone">HackerOne</option>
+                  <option value="bugcrowd">Bugcrowd</option>
+                  <option value="intigriti">Intigriti</option>
+                  <option value="independent">Independent</option>
+                </select>
+              </div>
+            </div>
           </section>
 
           {/* 2 SCOPE & AUTHORIZATION — adapts to the assessment type */}
           <section className="em-sect">
             <div className="em-sh">
               <span className="em-n">2</span>
-              <span className="em-t req">{hasActive ? 'Scope & authorization' : 'Authorization & data handling'}</span>
-              <span className="em-note">{hasActive ? 'enforced' : ''}</span>
+              <span className="em-t req">Scope &amp; authorization</span>
+              <span className="em-note">enforced</span>
             </div>
-            {hasActive && (
-              <>
-                <div className="em-field">
-                  <label>In-scope targets <span className="em-opt">host · domain · CIDR</span></label>
-                  <ScopeInput tokens={inScope} onChange={setInScope} />
-                </div>
-                <div className="em-field">
-                  <label>Out of scope — do not touch</label>
-                  <ScopeInput tokens={outScope} onChange={setOutScope} deny />
-                </div>
-              </>
-            )}
+            <div className="em-field">
+              <label>In-scope targets <span className="em-opt">host · domain · CIDR · URL</span></label>
+              <ScopeInput tokens={inScope} onChange={setInScope} />
+            </div>
+            <div className="em-field">
+              <label>Out of scope — do not touch</label>
+              <ScopeInput tokens={outScope} onChange={setOutScope} deny />
+            </div>
             <div className="em-two">
-              {hasActive && (
-                <div className="em-field">
-                  <label>Environment</label>
-                  <div className="em-seg">
-                    {['production', 'staging', 'dev'].map((e) => (
-                      <button key={e} className={environment === e ? 'on' : ''} onClick={() => setEnvironment(e)}>{e === 'production' ? 'Prod' : e === 'staging' ? 'Staging' : 'Dev'}</button>
-                    ))}
-                  </div>
+              <div className="em-field">
+                <label>Environment</label>
+                <div className="em-seg">
+                  {['production', 'staging', 'dev'].map((e) => (
+                    <button key={e} className={environment === e ? 'on' : ''} onClick={() => setEnvironment(e)}>{e === 'production' ? 'Prod' : e === 'staging' ? 'Staging' : 'Dev'}</button>
+                  ))}
                 </div>
-              )}
+              </div>
               <div className="em-field">
                 <label>Data sensitivity <span className="em-opt">gates external AI</span></label>
                 <div className="em-seg">
@@ -363,18 +346,16 @@ export function EngagementModal({
                 </div>
               )}
             </div>
-            {hasActive && (
-              <div className="em-field">
-                <label>Allowed techniques <span className="em-opt">disallowed ones are blocked</span></label>
-                <div className="em-toggles">
-                  {TECHNIQUES.map((t) => (
-                    <button key={t.k} className="em-tog" onClick={() => setTechniques({ ...techniques, [t.k]: !techniques[t.k] })}>
-                      <span className={`em-sw ${techniques[t.k] ? 'on' : ''}`}><i /></span> {t.label}
-                    </button>
-                  ))}
-                </div>
+            <div className="em-field">
+              <label>Allowed techniques <span className="em-opt">disallowed ones are blocked</span></label>
+              <div className="em-toggles">
+                {TECHNIQUES.map((t) => (
+                  <button key={t.k} className="em-tog" onClick={() => setTechniques({ ...techniques, [t.k]: !techniques[t.k] })}>
+                    <span className={`em-sw ${techniques[t.k] ? 'on' : ''}`}><i /></span> {t.label}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
           </section>
 
           {/* 3 KICKSTART */}
@@ -403,9 +384,9 @@ export function EngagementModal({
               </div>
             </div>
             <div className="em-field">
-              <label>First {hasActive ? 'repo or base URL' : 'repository'} <span className="em-opt">→ asset{basePath ? ', relative to base folder' : ''}</span></label>
+              <label>First asset <span className="em-opt">repo, URL, or domain{basePath ? ' — relative to base folder' : ''}</span></label>
               <div className="em-browse">
-                <input className="em-in" value={firstRepo} onChange={(e) => setFirstRepo(e.target.value)} placeholder={basePath ? 'services/api  (relative to base folder)' : hasActive ? 'git@github.com:acme/storefront  or  https://shop.acme.com' : '/home/you/src/acme/repo'} />
+                <input className="em-in" value={firstRepo} onChange={(e) => setFirstRepo(e.target.value)} placeholder={basePath ? 'services/api  (relative to base folder)' : 'git@github.com:acme/storefront · https://shop.acme.com · example.com'} />
                 {hasNativePickers() && (
                   <button className="em-btn" onClick={async () => { const p = await pickDirectory(basePath.trim() || undefined); if (p) setFirstRepo(relRepo(basePath.trim(), p)) }}>📁</button>
                 )}

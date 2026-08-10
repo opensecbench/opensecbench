@@ -107,9 +107,14 @@ type Engagement struct {
 	WindowStart   string                  `json:"window_start,omitempty"`
 	WindowEnd     string                  `json:"window_end,omitempty"`
 	ReportDue     string                  `json:"report_due,omitempty"`
-	Techniques    map[string]bool         `json:"techniques,omitempty"`
-	Notes         string                  `json:"notes,omitempty"`
-	Contacts      []EngagementContact     `json:"contacts,omitempty"`
+	Techniques      map[string]bool         `json:"techniques,omitempty"`
+	Notes           string                  `json:"notes,omitempty"`
+	ProgramURL      string                  `json:"program_url,omitempty"`
+	Platform        string                  `json:"platform,omitempty"`
+	ScopeDocRef     string                  `json:"scope_doc_ref,omitempty"`
+	RuntimeImage    string                  `json:"runtime_image,omitempty"`
+	RuntimeNetwork  string                  `json:"runtime_network,omitempty"`
+	Contacts        []EngagementContact     `json:"contacts,omitempty"`
 	TestAccounts  []EngagementTestAccount `json:"test_accounts,omitempty"`
 	CreatedAt     time.Time               `json:"created_at"`
 	UpdatedAt     time.Time               `json:"updated_at"`
@@ -827,6 +832,35 @@ const (
 	AssetInfrastructure  = "infrastructure"
 	AssetDocument        = "document"
 	AssetCorrespondence  = "correspondence"
+	AssetDomain          = "domain"   // DNS namespace object, e.g. api.example.com (ADR-0071)
+	AssetHost            = "host"     // network identity (IP), e.g. 93.184.216.34 (ADR-0071)
+	AssetEndpoint        = "endpoint" // application route, e.g. POST /v2/users (ADR-0071)
+)
+
+// Asset origin values — how an asset entered the model (ADR-0071).
+const (
+	AssetOriginManual = "manual"
+	AssetOriginTool   = "tool"
+	AssetOriginAgent  = "agent"
+	AssetOriginProxy  = "proxy"
+	AssetOriginImport = "import"
+)
+
+// Asset verification state — epistemic confidence, separate from origin (ADR-0071).
+const (
+	AssetVerificationUnverified   = "unverified"
+	AssetVerificationObserved     = "observed"
+	AssetVerificationCorroborated = "corroborated"
+	AssetVerificationVerified     = "verified"
+	AssetVerificationDisputed     = "disputed"
+)
+
+// Asset status lifecycle (ADR-0071).
+const (
+	AssetStatusDiscovered    = "discovered"
+	AssetStatusConfirmed     = "confirmed"
+	AssetStatusInvestigating = "investigating"
+	AssetStatusTested        = "tested"
 )
 
 // DefaultClearance is the fallback least-privilege tier for a new connection when the classification scale
@@ -858,10 +892,56 @@ type Asset struct {
 	Sensitivity   string `json:"sensitivity"`
 	// Ecosystems are the asset's manual technology/ecosystem tags (python, go, rust, node, …). The scan
 	// auto-run gate unions these with what it detects from the repo, so an operator can correct detection.
-	Ecosystems []string  `json:"ecosystems,omitempty"`
+	Ecosystems        []string          `json:"ecosystems,omitempty"`
+	Status            string            `json:"status"`
+	Tags              []string          `json:"tags,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+	Origin            string            `json:"origin"`
+	VerificationState string            `json:"verification_state"`
+	FirstSeen         time.Time         `json:"first_seen"`
+	LastSeen          time.Time         `json:"last_seen"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+}
+
+// EntityLink connects two entities via a typed relationship (ADR-0071).
+type EntityLink struct {
+	ID           string            `json:"id"`
+	SourceType   string            `json:"source_type"`
+	SourceID     string            `json:"source_id"`
+	Relationship string            `json:"relationship"`
+	TargetType   string            `json:"target_type"`
+	TargetID     string            `json:"target_id"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	Note         string            `json:"note,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+}
+
+// ResearchItem models investigator reasoning — distinct from triage observations (ADR-0071).
+type ResearchItem struct {
+	ID         string    `json:"id"`
+	ProjectID  string    `json:"project_id"`
+	Type       string    `json:"type"`
+	Title      string    `json:"title"`
+	Body       string    `json:"body,omitempty"`
+	Status     string    `json:"status"`
+	Assessment string    `json:"assessment,omitempty"`
+	CreatedBy  string    `json:"created_by"`
+	Tags       []string  `json:"tags,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
+
+// Research item type constants (ADR-0071).
+const (
+	ResearchNote       = "note"
+	ResearchHypothesis = "hypothesis"
+	ResearchLead       = "lead"
+	ResearchQuestion   = "question"
+	ResearchExperiment = "experiment"
+	ResearchResult     = "result"
+	ResearchConclusion = "conclusion"
+)
 
 // Task status values (mirrored by a CHECK constraint in the schema).
 const (

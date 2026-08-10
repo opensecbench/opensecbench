@@ -35,11 +35,15 @@ func assetLinkPreservationCase(t *testing.T, fsys fs.FS, cutoff int) {
 
 	proj, _ := db.CreateProject(ctx, NewProject{Name: "P"})
 	app, _ := db.CreateApplication(ctx, proj.ID, "app")
-	asset, err := db.CreateAsset(ctx, NewAsset{ApplicationID: app.ID, Type: model.AssetSourceRepo, Location: "/work/x", Sensitivity: model.SensitivityPrivate})
-	if err != nil {
+	ts := nowString()
+	assetID := "test-asset-1"
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO assets (id, application_id, type, location, sensitivity, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		assetID, app.ID, model.AssetSourceRepo, "/work/x", model.SensitivityPrivate, ts, ts); err != nil {
 		t.Fatal(err)
 	}
-	ts := nowString()
+	asset := model.Asset{ID: assetID}
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO tasks (id, capability_id, capability_version, asset_id, actor, runner, created_at) VALUES ('t1','cap','1',?,'human','local',?)`,
 		asset.ID, ts); err != nil {
