@@ -90,34 +90,34 @@ type Engagement struct {
 	ProjectID string `json:"project_id"`
 	// BasePath is the project's root directory on disk (ADR-0051). Relative asset locations resolve against
 	// it, so an operator points at the codebase once and adds assets by relative path. Empty = unset.
-	BasePath      string                  `json:"base_path,omitempty"`
-	Kinds         []string                `json:"kinds,omitempty"`
-	Objective     string                  `json:"objective,omitempty"`
-	Reference     string                  `json:"reference,omitempty"`
-	Environment   string                  `json:"environment,omitempty"`
-	DataClass     string                  `json:"data_class,omitempty"`
-	Standard      string                  `json:"standard,omitempty"`
-	Compliance    string                  `json:"compliance,omitempty"`
-	SeverityScale string                  `json:"severity_scale,omitempty"`
-	Authorized    bool                    `json:"authorized"`
-	Authorizer    string                  `json:"authorizer,omitempty"`
-	AuthRef       string                  `json:"auth_ref,omitempty"`
-	AuthFrom      string                  `json:"auth_from,omitempty"` // ISO date (YYYY-MM-DD)
-	AuthTo        string                  `json:"auth_to,omitempty"`
-	WindowStart   string                  `json:"window_start,omitempty"`
-	WindowEnd     string                  `json:"window_end,omitempty"`
-	ReportDue     string                  `json:"report_due,omitempty"`
-	Techniques      map[string]bool         `json:"techniques,omitempty"`
-	Notes           string                  `json:"notes,omitempty"`
-	ProgramURL      string                  `json:"program_url,omitempty"`
-	Platform        string                  `json:"platform,omitempty"`
-	ScopeDocRef     string                  `json:"scope_doc_ref,omitempty"`
-	RuntimeImage    string                  `json:"runtime_image,omitempty"`
-	RuntimeNetwork  string                  `json:"runtime_network,omitempty"`
-	Contacts        []EngagementContact     `json:"contacts,omitempty"`
-	TestAccounts  []EngagementTestAccount `json:"test_accounts,omitempty"`
-	CreatedAt     time.Time               `json:"created_at"`
-	UpdatedAt     time.Time               `json:"updated_at"`
+	BasePath       string                  `json:"base_path,omitempty"`
+	Kinds          []string                `json:"kinds,omitempty"`
+	Objective      string                  `json:"objective,omitempty"`
+	Reference      string                  `json:"reference,omitempty"`
+	Environment    string                  `json:"environment,omitempty"`
+	DataClass      string                  `json:"data_class,omitempty"`
+	Standard       string                  `json:"standard,omitempty"`
+	Compliance     string                  `json:"compliance,omitempty"`
+	SeverityScale  string                  `json:"severity_scale,omitempty"`
+	Authorized     bool                    `json:"authorized"`
+	Authorizer     string                  `json:"authorizer,omitempty"`
+	AuthRef        string                  `json:"auth_ref,omitempty"`
+	AuthFrom       string                  `json:"auth_from,omitempty"` // ISO date (YYYY-MM-DD)
+	AuthTo         string                  `json:"auth_to,omitempty"`
+	WindowStart    string                  `json:"window_start,omitempty"`
+	WindowEnd      string                  `json:"window_end,omitempty"`
+	ReportDue      string                  `json:"report_due,omitempty"`
+	Techniques     map[string]bool         `json:"techniques,omitempty"`
+	Notes          string                  `json:"notes,omitempty"`
+	ProgramURL     string                  `json:"program_url,omitempty"`
+	Platform       string                  `json:"platform,omitempty"`
+	ScopeDocRef    string                  `json:"scope_doc_ref,omitempty"`
+	RuntimeImage   string                  `json:"runtime_image,omitempty"`
+	RuntimeNetwork string                  `json:"runtime_network,omitempty"`
+	Contacts       []EngagementContact     `json:"contacts,omitempty"`
+	TestAccounts   []EngagementTestAccount `json:"test_accounts,omitempty"`
+	CreatedAt      time.Time               `json:"created_at"`
+	UpdatedAt      time.Time               `json:"updated_at"`
 }
 
 // EngagementContact is a point of contact for an engagement (technical POC, authorizer, or break-glass).
