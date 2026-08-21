@@ -167,6 +167,13 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.enterProject(p)
 				}
 			}
+			// The marker points to a project this instance doesn't know — adopt it.
+			if m.opts.Cwd != "" {
+				cwd := m.opts.Cwd
+				m.opts.OpenProjectID = ""
+				m.status = "adopting project from " + cwd + "..."
+				return m, adoptLocalProject(m.ctx, m.c, cwd)
+			}
 		}
 		return m, nil
 

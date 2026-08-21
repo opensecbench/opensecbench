@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -67,6 +70,121 @@ func (m *Manager) CreateProject(ctx context.Context, np NewProject) (model.Proje
 		}
 	}
 	return p, nil
+}
+
+// AdoptProject registers an existing project directory (one that already contains a .opensecbench/
+// project.db) in this instance's global index, so a foreign project — cloned, backed up, or created by
+// another OSB instance — becomes openable here without re-creating it.
+func (m *Manager) AdoptProject(ctx context.Context, location string) (model.Project, error) {
+	if m.combined {
+		return model.Project{}, fmt.Errorf("store: adopt not supported in combined mode")
+	}
+
+	projDir := filepath.Join(location, ProjectSubdir)
+	dbPath := filepath.Join(projDir, "project.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return model.Project{}, fmt.Errorf("store: no project.db at %s", projDir)
+	}
+
+	// Read the project id from the marker (fast, avoids opening the db for just the id).
+	// Fall back to reading the projects table if the marker is absent or malformed.
+	id := readMarkerID(projDir)
+	if id == "" {
+		rid, err := readProjectIDFromDB(dbPath)
+		if err != nil {
+			return model.Project{}, fmt.Errorf("store: cannot determine project id: %w", err)
+		}
+		id = rid
+	}
+
+	// Guard: schema too new — refuse if the project.db has migrations we don't know about.
+	tmpDB, err := Open(dbPath)
+	if err != nil {
+		return model.Project{}, fmt.Errorf("store: open project.db for version check: %w", err)
+	}
+	ver, err := tmpDB.Version()
+	_ = tmpDB.Close()
+	if err != nil {
+		return model.Project{}, fmt.Errorf("store: read schema version: %w", err)
+	}
+	if ver > len(m.projMigs) {
+		return model.Project{}, fmt.Errorf("store: project schema version %d is newer than this build supports (%d) — upgrade OpenSecBench first", ver, len(m.projMigs))
+	}
+
+	// Guard: id collision — if this id is already in the index, it must point to the same dir.
+	if known, err := m.projectIndexed(ctx, id); err != nil {
+		return model.Project{}, err
+	} else if known {
+		existing := m.ProjectDir(id)
+		if existing == projDir {
+			// Already adopted at this location — just open and return it.
+			pdb, err := m.Project(id)
+			if err != nil {
+				return model.Project{}, err
+			}
+			return pdb.GetProject(ctx, id)
+		}
+		return model.Project{}, fmt.Errorf("store: a project with id %s is already registered at %s", id, existing)
+	}
+
+	// Guard: dir collision — check no other project already claims this directory.
+	m.mu.Lock()
+	for oid, d := range m.dirs {
+		if d == projDir && oid != id {
+			m.mu.Unlock()
+			return model.Project{}, fmt.Errorf("store: directory %s is already registered to project %s", projDir, oid)
+		}
+	}
+	m.mu.Unlock()
+
+	// Register the custom dir, open+migrate the project database, read the project row.
+	m.SetProjectDir(id, projDir)
+	pdb, err := m.Project(id)
+	if err != nil {
+		return model.Project{}, fmt.Errorf("store: open adopted project: %w", err)
+	}
+	p, err := pdb.GetProject(ctx, id)
+	if err != nil {
+		return model.Project{}, fmt.Errorf("store: read project from adopted db: %w", err)
+	}
+
+	if err := m.global.UpsertProjectIndex(ctx, p.ID, p.Name, p.Status); err != nil {
+		return model.Project{}, err
+	}
+	if err := m.global.SetProjectIndexDir(ctx, p.ID, projDir); err != nil {
+		return model.Project{}, err
+	}
+	return p, nil
+}
+
+// readMarkerID reads the project id from a .opensecbench/project.json marker file.
+func readMarkerID(projDir string) string {
+	b, err := os.ReadFile(filepath.Join(projDir, "project.json"))
+	if err != nil {
+		return ""
+	}
+	var m struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(b, &m) != nil {
+		return ""
+	}
+	return m.ID
+}
+
+// readProjectIDFromDB opens a project.db just enough to read the sole project id.
+func readProjectIDFromDB(dbPath string) (string, error) {
+	db, err := Open(dbPath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = db.Close() }()
+	var id string
+	err = db.QueryRow(`SELECT id FROM projects LIMIT 1`).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("no project row in %s: %w", dbPath, err)
+	}
+	return id, nil
 }
 
 // GetProject reads a project from its own database (split) or the single database (combined). It checks

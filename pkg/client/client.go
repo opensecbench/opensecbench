@@ -94,6 +94,12 @@ func (c *Client) CreateProject(ctx context.Context, req CreateProjectRequest) (m
 	return out, c.do(ctx, http.MethodPost, "/v1/projects", req, &out)
 }
 
+// AdoptProject registers an existing project directory in this instance so it becomes openable.
+func (c *Client) AdoptProject(ctx context.Context, location string) (model.Project, error) {
+	var out model.Project
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/adopt", map[string]string{"location": location}, &out)
+}
+
 // DeleteProject deletes a project by id.
 func (c *Client) DeleteProject(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+id, nil, nil)

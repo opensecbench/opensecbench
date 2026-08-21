@@ -34,6 +34,8 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
   const [projects, setProjects] = useState<Project[]>([])
   const [home, setHome] = useState<HomeData | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+  const [showAdopt, setShowAdopt] = useState(false)
+  const [adoptPath, setAdoptPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [, setBusy] = useState(false)
   const [query, setQuery] = useState('')
@@ -87,6 +89,24 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
       setResults((await api.search(query.trim())) ?? [])
     } catch (err) {
       setError((err as Error).message)
+    }
+  }
+
+  async function adoptExisting(e: FormEvent) {
+    e.preventDefault()
+    const loc = adoptPath.trim()
+    if (!loc) return
+    setBusy(true)
+    try {
+      const p = await api.adoptProject(loc)
+      setShowAdopt(false)
+      setAdoptPath('')
+      await refresh()
+      onOpen(p)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -310,6 +330,7 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
         <div className="panel-head">Projects</div>
         <div className="create-row">
           <button className="create-open" onClick={() => setShowCreate(true)} disabled={!online}>＋ New engagement</button>
+          <button className="create-open secondary" onClick={() => setShowAdopt(true)} disabled={!online}>Open existing</button>
         </div>
 
         {projects.length === 0 ? (
@@ -350,6 +371,31 @@ export function Home({ online, onOpen }: { online: boolean; onOpen: (p: Project,
           onClose={() => setShowCreate(false)}
           onCreated={(p) => { setShowCreate(false); void refresh(); onOpen(p) }}
         />
+      )}
+
+      {showAdopt && (
+        <div className="em-backdrop" onClick={() => setShowAdopt(false)}>
+          <div className="em-modal adopt-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="em-head">
+              <span className="em-dot" />
+              <span className="em-title">Open existing project</span>
+              <button className="em-x" onClick={() => setShowAdopt(false)}>esc ✕</button>
+            </div>
+            <div className="em-body">
+              <p className="adopt-hint">Point to a directory that contains a <code>.opensecbench</code> folder &mdash; a cloned repo, a backup, or a project created by another instance.</p>
+              <form onSubmit={adoptExisting}>
+                <div className="em-field">
+                  <label>Directory path</label>
+                  <input className="em-in" type="text" value={adoptPath} onChange={(e) => setAdoptPath(e.target.value)} placeholder="/home/user/my-project" autoFocus />
+                </div>
+                <div className="adopt-actions">
+                  <button type="button" className="create-open secondary" onClick={() => setShowAdopt(false)}>Cancel</button>
+                  <button type="submit" className="create-open" disabled={!adoptPath.trim()}>Open</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

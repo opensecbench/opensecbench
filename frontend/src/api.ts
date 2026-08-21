@@ -1188,6 +1188,7 @@ export const api = {
   getEngagement: (projectId: string) => request<Engagement>('GET', `/v1/projects/${projectId}/engagement`),
   setEngagement: (projectId: string, engagement: Engagement) =>
     request<Engagement>('PUT', `/v1/projects/${projectId}/engagement`, engagement),
+  adoptProject: (location: string) => request<Project>('POST', '/v1/projects/adopt', { location }),
   deleteProject: (id: string) => request<void>('DELETE', '/v1/projects/' + id),
 
   // applications & assets

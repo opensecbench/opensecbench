@@ -1939,7 +1939,7 @@ func bundlePassphrase(flag string) string {
 
 func projectCmd(ctx context.Context, c *client.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: osb project <list|create|get|delete|export|import>")
+		return errors.New("usage: osb project <list|create|adopt|get|delete|export|import>")
 	}
 	switch args[0] {
 	case "export":
@@ -2041,6 +2041,20 @@ func projectCmd(ctx context.Context, c *client.Client, args []string) error {
 		}
 		fmt.Println("deleted", args[1])
 		return nil
+	case "adopt":
+		if len(args) < 2 {
+			return errors.New("usage: osb project adopt <directory>")
+		}
+		loc, err := filepath.Abs(args[1])
+		if err != nil {
+			return err
+		}
+		p, err := c.AdoptProject(ctx, loc)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("adopted project %s (%s)\n", p.Name, p.ID)
+		return nil
 	case "create":
 		fs := flag.NewFlagSet("project create", flag.ContinueOnError)
 		name := fs.String("name", "", "project name (required)")
@@ -2090,6 +2104,7 @@ Commands:
   project list                list projects
   project get <id>            show a project
   project create --name NAME [--template ID]  create a project
+  project adopt <directory>   open an existing project from a directory
   project delete <id>         delete a project
   project export --id ID --out FILE [--passphrase P] [--full]  encrypted project bundle (--full = demo/backup clone)
   project import --file FILE [--passphrase P]          import a bundle (new project)

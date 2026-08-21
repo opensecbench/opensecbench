@@ -550,6 +550,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /v1/projects", s.listProjects)
 	s.mux.HandleFunc("POST /v1/projects", s.createProject)
+	s.mux.HandleFunc("POST /v1/projects/adopt", s.adoptProject)
 	s.mux.HandleFunc("GET /v1/projects/{id}", s.getProject)
 	s.mux.HandleFunc("DELETE /v1/projects/{id}", s.deleteProject)
 	s.mux.HandleFunc("POST /v1/projects/{id}/export", s.exportProject)
@@ -2100,6 +2101,30 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		log.Printf("createProject: default application for %s: %v", project.ID, err)
 	}
 	writeJSON(w, http.StatusCreated, project)
+}
+
+func (s *Server) adoptProject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Location string `json:"location"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	location := strings.TrimSpace(req.Location)
+	if location == "" {
+		writeErr(w, http.StatusBadRequest, "location is required")
+		return
+	}
+	if !filepath.IsAbs(location) {
+		writeErr(w, http.StatusBadRequest, "location must be an absolute path")
+		return
+	}
+	p, err := s.mgr.AdoptProject(r.Context(), location)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 // getEngagement returns a project's engagement record, or an empty one (with just the project id) when none

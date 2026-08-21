@@ -114,6 +114,17 @@ func createLocalProject(ctx context.Context, c *client.Client, cwd string) tea.C
 	}
 }
 
+// adoptLocalProject registers an existing .opensecbench project directory in this instance's index.
+func adoptLocalProject(ctx context.Context, c *client.Client, cwd string) tea.Cmd {
+	return func() tea.Msg {
+		p, err := c.AdoptProject(ctx, cwd)
+		if err != nil {
+			return errMsg{err}
+		}
+		return projectCreatedMsg{project: p}
+	}
+}
+
 // openThread readies a conversation: for an empty threadID it first creates a thread, then fetches
 // history and attaches the project's live event stream. The stream is bound to ctx, so it stops when
 // the program's context is cancelled on exit.
