@@ -17,6 +17,16 @@ type PlaybookStep struct {
 	// Gate marks a human-approval checkpoint (ADR-0044): once its dependencies complete the plan pauses
 	// until a human approves, before this step runs. A gate step has no profile/instruction — it's a pause.
 	Gate bool `json:"gate,omitempty"`
+	// PerAsset, when set, expands this step into one copy per project asset of the named type (e.g.
+	// "source_repo"). Each copy gets the asset's id/location injected into its instruction and runs
+	// independently, so multi-repo projects fan scanners out per repo in parallel.
+	PerAsset string `json:"per_asset,omitempty"`
+	// SkipIf names a condition that is evaluated before the step runs. If the condition is met, the step
+	// is skipped with a reason (treated as done so dependents proceed). Supported conditions:
+	//   "no_go_modules"        — no source_repo asset has Go ecosystem tag or a go.mod file
+	//   "no_ecosystem:<name>"  — no source_repo asset has the named ecosystem tag
+	//   "no_assets:<type>"     — no asset of the named type exists in the project
+	SkipIf string `json:"skip_if,omitempty"`
 }
 
 // Playbook is a triggerable, engagement-shaped process.
@@ -26,6 +36,10 @@ type Playbook struct {
 	Description string
 	Goal        string
 	Steps       []PlaybookStep
+	// MaxConcurrency overrides the global default for how many steps run in parallel. 0 means use the
+	// global default (OSB_PLAN_MAX_PARALLEL, which itself defaults to 4). A playbook that drives heavy
+	// Docker scanners might set this lower; one with many lightweight read steps might set it higher.
+	MaxConcurrency int `json:"max_concurrency,omitempty"`
 }
 
 var builtinPlaybooks = []Playbook{
@@ -133,6 +147,11 @@ var builtinPlaybooks = []Playbook{
 			"draft report. Proposes issues for human confirmation — it never confirms findings itself.",
 		Goal: "Drive a full source assessment and hand back a prioritized, evidence-backed draft the human " +
 			"confirms — reachable, exposed issues first.",
+		// The four scanners fan out per source_repo asset (PerAsset), so multi-repo projects scan each
+		// repo in parallel. Conditional steps (SkipIf) avoid wasting tokens on scanners whose ecosystem
+		// is absent. The pipelined scheduler starts each step the moment its deps finish, without waiting
+		// for the rest of the wave, so the triage step begins as soon as all scanners are done — even if
+		// one finishes much earlier than the others.
 		Steps: []PlaybookStep{
 			{
 				Key:     "recon",
@@ -141,37 +160,39 @@ var builtinPlaybooks = []Playbook{
 					"route-map over each source_repo (it inventories HTTP routes). Check the knowledge base and " +
 					"prior context first so you don't repeat work. Note the exposed surface to analysis/recon.md.",
 			},
-			// The scanners are independent, so they fan out into parallel steps — the plan runner executes
-			// this whole wave concurrently (ADR-0046), so the scan phase takes the slowest scanner's time,
-			// not the sum. The platform routes and enriches each tool's results automatically.
 			{
-				Key:     "scan-sast",
-				Profile: "code-analysis",
-				Instruction: "Run the SAST scanner via run_capability against the in-scope source assets: " +
+				Key:      "scan-sast",
+				Profile:  "code-analysis",
+				PerAsset: "source_repo",
+				Instruction: "Run the SAST scanner via run_capability against the target asset: " +
 					"opengrep (with dataflow reachability). Skip anything the knowledge base shows was run " +
 					"recently. Note what you ran to analysis/scan-sast.md.",
 				DependsOn: []string{"recon"},
 			},
 			{
-				Key:     "scan-sca-grype",
-				Profile: "code-analysis",
-				Instruction: "Run the dependency/SCA scanner via run_capability against the in-scope assets: " +
+				Key:      "scan-sca-grype",
+				Profile:  "code-analysis",
+				PerAsset: "source_repo",
+				Instruction: "Run the dependency/SCA scanner via run_capability against the target asset: " +
 					"grype. Skip it if the knowledge base shows it was run recently. Note what you ran to " +
 					"analysis/scan-sca-grype.md.",
 				DependsOn: []string{"recon"},
 			},
 			{
-				Key:     "scan-sca-govulncheck",
-				Profile: "code-analysis",
-				Instruction: "Run the Go reachability scanner via run_capability against the in-scope Go assets: " +
-					"govulncheck (call-graph reachability). Skip it if there are no Go assets or the knowledge " +
-					"base shows it was run recently. Note what you ran to analysis/scan-sca-govulncheck.md.",
+				Key:      "scan-sca-govulncheck",
+				Profile:  "code-analysis",
+				PerAsset: "source_repo",
+				SkipIf:   "no_go_modules",
+				Instruction: "Run the Go reachability scanner via run_capability against the target Go asset: " +
+					"govulncheck (call-graph reachability). Note what you ran to " +
+					"analysis/scan-sca-govulncheck.md.",
 				DependsOn: []string{"recon"},
 			},
 			{
-				Key:     "scan-secrets",
-				Profile: "code-analysis",
-				Instruction: "Run the secrets scanner via run_capability against the in-scope assets: " +
+				Key:      "scan-secrets",
+				Profile:  "code-analysis",
+				PerAsset: "source_repo",
+				Instruction: "Run the secrets scanner via run_capability against the target asset: " +
 					"trufflehog. Skip it if the knowledge base shows it was run recently. Note what you ran to " +
 					"analysis/scan-secrets.md.",
 				DependsOn: []string{"recon"},
@@ -186,8 +207,6 @@ var builtinPlaybooks = []Playbook{
 				DependsOn: []string{"scan-sast", "scan-sca-grype", "scan-sca-govulncheck", "scan-secrets"},
 			},
 			{
-				// Human-approval gate: pause after triage so a person reviews the ranked plan of attack
-				// before the agent runs PoCs / sends test traffic in the validate step (ADR-0044).
 				Key:       "approve-validation",
 				Gate:      true,
 				DependsOn: []string{"triage"},
@@ -202,7 +221,6 @@ var builtinPlaybooks = []Playbook{
 				DependsOn: []string{"triage", "approve-validation"},
 			},
 			{
-				// assessor (not report-writer) so the autonomous run cannot create_finding — it only drafts.
 				Key:     "report",
 				Profile: "assessor",
 				Instruction: "Draft an assessment report from the triage and validation evidence: an executive " +

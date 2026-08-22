@@ -22,7 +22,7 @@ func (svc *Service) resolvePlaybook(ctx context.Context, id string) (Playbook, e
 	if err := json.Unmarshal(sp.Steps, &steps); err != nil {
 		return Playbook{}, fmt.Errorf("saved playbook %q is corrupt: %w", id, err)
 	}
-	return Playbook{ID: sp.ID, Name: sp.Name, Description: sp.Description, Goal: sp.Goal, Steps: steps}, nil
+	return Playbook{ID: sp.ID, Name: sp.Name, Description: sp.Description, Goal: sp.Goal, Steps: steps, MaxConcurrency: sp.MaxConcurrency}, nil
 }
 
 // validatePlaybookSteps checks steps reference real profiles (built-in or saved) and only earlier step

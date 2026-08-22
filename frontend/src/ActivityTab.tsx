@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type ReactElement, useEffect, useState } from 'react'
 import { api, ActivityItem, Artifact, Msg, Observation, Plan, PlaybookRun, Task } from './api'
 import { MessageTurn } from './MessageTurn'
 
@@ -300,6 +300,117 @@ function ThreadDetail({ item, onError }: { item: ActivityItem; onError: (m: stri
 
 // --- Plan detail (agent DAG run): each step's status, result, and live progress trail. ---
 
+// Parsed activity entry from the step's JSONL progress trail.
+interface ActivityEntry {
+  k: string        // ok | err | deny | delegate-start | delegate-end
+  tool: string
+  note?: string
+  args?: string
+  out?: string
+  profile?: string
+  depth?: number
+  dur_ms?: number
+  steps?: number
+}
+
+function tryParseEntry(line: string): ActivityEntry | null {
+  const trimmed = line.trim()
+  if (!trimmed || !trimmed.startsWith('{')) return null
+  try {
+    return JSON.parse(trimmed) as ActivityEntry
+  } catch {
+    return null
+  }
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  const s = ms / 1000
+  if (s < 60) return `${s.toFixed(1)}s`
+  return `${Math.round(s / 60)}m${Math.round(s % 60)}s`
+}
+
+// StepProgress renders the JSONL activity trail as a structured tree: regular tool turns at their
+// depth level, delegation boundaries as collapsible nodes showing profile/duration/step count.
+function StepProgress({ progress }: { progress: string }) {
+  const lines = progress.split('\n').filter(Boolean)
+  if (lines.length === 0) return null
+
+  const elements: ReactElement[] = []
+  let delegateStack: { profile: string; depth: number; children: ReactElement[] }[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const entry = tryParseEntry(lines[i])
+    if (!entry) {
+      // Legacy plain-text line.
+      elements.push(<div key={i} className="act-progress-line">{lines[i]}</div>)
+      continue
+    }
+
+    const depth = entry.depth ?? 0
+    const indent = depth * 16
+
+    if (entry.k === 'delegate-start') {
+      delegateStack.push({
+        profile: entry.profile ?? 'agent',
+        depth,
+        children: [],
+      })
+      continue
+    }
+
+    if (entry.k === 'delegate-end') {
+      const frame = delegateStack.pop()
+      const dur = entry.dur_ms ? formatDuration(entry.dur_ms) : ''
+      const stepCount = entry.steps ?? 0
+      const summary = (
+        <span>
+          <span className="act-delegate-profile">{frame?.profile ?? entry.profile ?? 'agent'}</span>
+          {dur && <span className="muted"> {dur}</span>}
+          {stepCount > 0 && <span className="muted"> · {stepCount} steps</span>}
+          {entry.note && <span className="muted"> — {entry.note}</span>}
+        </span>
+      )
+      const node = (
+        <details key={i} className="act-delegate" style={{ marginLeft: indent }}>
+          <summary className="act-delegate-head">{summary}</summary>
+          {frame && frame.children.length > 0 && (
+            <div className="act-delegate-body">{frame.children}</div>
+          )}
+        </details>
+      )
+
+      if (delegateStack.length > 0) {
+        delegateStack[delegateStack.length - 1].children.push(node)
+      } else {
+        elements.push(node)
+      }
+      continue
+    }
+
+    // Regular tool turn (ok, err, deny).
+    const kindClass = entry.k === 'err' ? 'act-err' : entry.k === 'deny' ? 'act-deny' : ''
+    const el = (
+      <details key={i} className={`act-tool-turn ${kindClass}`} style={{ marginLeft: indent }}>
+        <summary>
+          <span className="act-tool-name">{entry.tool}</span>
+          {entry.note && <span className="act-tool-note"> {entry.note}</span>}
+        </summary>
+        {entry.args && <pre className="act-tool-args">{entry.args}</pre>}
+        {entry.out && <pre className={`act-tool-result ${entry.k === 'err' ? 'act-err' : ''}`}>{entry.out}</pre>}
+      </details>
+    )
+
+    if (delegateStack.length > 0) {
+      delegateStack[delegateStack.length - 1].children.push(el)
+    } else {
+      elements.push(el)
+    }
+  }
+
+  return <div className="act-progress">{elements}</div>
+}
+
 function PlanDetail({ item, onError }: { item: ActivityItem; onError: (m: string) => void }) {
   const [plan, setPlan] = useState<Plan | null>(null)
 
@@ -339,7 +450,7 @@ function PlanDetail({ item, onError }: { item: ActivityItem; onError: (m: string
               {s.instruction && <div className="act-step-instr">{s.instruction}</div>}
               {s.result && <pre className="act-toolout">{s.result}</pre>}
               {s.error && <div className="banner error">⚠ {s.error}</div>}
-              {s.progress && <pre className="act-toolout muted">{s.progress}</pre>}
+              {s.progress && <StepProgress progress={s.progress} />}
             </details>
           ))}
         </div>

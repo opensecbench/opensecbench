@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/opensecbench/opensecbench/pkg/agent"
 	"github.com/opensecbench/opensecbench/pkg/model"
@@ -110,6 +111,23 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 
 	profile := svc.resolveProfile(ctx, profileID)
 	tgt := svc.targetForTag(ctx, profile.ModelTag)
+	depth := delegationDepth(ctx) + 1
+
+	// Thread the activity appender so nested delegations emit start/end markers and nested tool turns
+	// are tagged with their depth in the plan step's progress trail.
+	var onActivity func(agent.Step)
+	parentAppender := getActivityAppender(ctx)
+	if parentAppender != nil {
+		parentAppender.append(formatDelegateStart(profileID, task, depth))
+		nested := parentAppender.nested(profileID, depth)
+		onActivity = nested.record
+		ctx = withActivityAppender(ctx, nested)
+		ctx = withProgressSink(ctx, nested.record)
+	} else {
+		onActivity = progressSink(ctx)
+	}
+	start := time.Now()
+
 	loop := &agent.Loop{
 		Provider:     tgt.Provider,
 		Model:        tgt.SessionModel,
@@ -118,7 +136,7 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 		Approve:      Approver(authorize),
 		Execute:      svc.executeFor(projectID, tgt.Provider, tgt.Clearance),
 		Audit:        svc.Audit,
-		OnActivity:   progressSink(ctx),
+		OnActivity:   onActivity,
 		MaxSteps:     subAgentMaxSteps(),
 	}
 	// Surface the run in "Running now" for its lifetime (and make it cancelable) — a delegated agent is
@@ -131,7 +149,18 @@ func (svc *Service) Delegate(ctx context.Context, projectID, profileID, task str
 		task = data + "\n\n" + task
 	}
 	// Run the sub-agent one level deeper, so any `delegate` it issues is bounded by maxDelegationDepth.
-	res, err := loop.Run(withDelegationDepth(runCtx, delegationDepth(runCtx)+1), task)
+	res, err := loop.Run(withDelegationDepth(runCtx, depth), task)
+	dur := time.Since(start)
+
+	// Emit delegation end marker before handling errors, so the trace shows the duration even for failed delegations.
+	if parentAppender != nil {
+		var dres DelegationResult
+		if err == nil {
+			dres = DelegationResult{Profile: profileID, Answer: res.Answer, Stopped: res.Stopped, StepCount: len(res.Steps)}
+		}
+		parentAppender.append(formatDelegateEnd(profileID, depth, dres, dur))
+	}
+
 	if err != nil {
 		return DelegationResult{}, err
 	}

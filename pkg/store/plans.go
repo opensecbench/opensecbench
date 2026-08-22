@@ -42,9 +42,9 @@ func (db *DB) CreatePlan(ctx context.Context, p model.Plan) (model.Plan, error) 
 			s.Status = model.StepPending
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO plan_steps (id, plan_id, seq, step_key, profile, instruction, depends_on, gate, status, result, error)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '')`,
-			s.ID, p.ID, i, s.Key, s.Profile, s.Instruction, strings.Join(s.DependsOn, ","), boolToInt(s.Gate), s.Status); err != nil {
+			`INSERT INTO plan_steps (id, plan_id, seq, step_key, profile, instruction, depends_on, gate, skip_if, status, result, error)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '')`,
+			s.ID, p.ID, i, s.Key, s.Profile, s.Instruction, strings.Join(s.DependsOn, ","), boolToInt(s.Gate), s.SkipIf, s.Status); err != nil {
 			return model.Plan{}, err
 		}
 	}
@@ -101,7 +101,7 @@ func (db *DB) GetPlan(ctx context.Context, id string) (model.Plan, error) {
 
 func (db *DB) listPlanSteps(ctx context.Context, planID string) ([]model.PlanStep, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, plan_id, seq, step_key, profile, instruction, depends_on, gate, gate_approved, status, result, error, progress
+		`SELECT id, plan_id, seq, step_key, profile, instruction, depends_on, gate, gate_approved, skip_if, status, result, error, progress
 		 FROM plan_steps WHERE plan_id = ? ORDER BY seq`, planID)
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func (db *DB) listPlanSteps(ctx context.Context, planID string) ([]model.PlanSte
 		var s model.PlanStep
 		var deps string
 		var gate, gateApproved int
-		if err := rows.Scan(&s.ID, &s.PlanID, &s.Seq, &s.Key, &s.Profile, &s.Instruction, &deps, &gate, &gateApproved, &s.Status, &s.Result, &s.Error, &s.Progress); err != nil {
+		if err := rows.Scan(&s.ID, &s.PlanID, &s.Seq, &s.Key, &s.Profile, &s.Instruction, &deps, &gate, &gateApproved, &s.SkipIf, &s.Status, &s.Result, &s.Error, &s.Progress); err != nil {
 			return nil, err
 		}
 		if deps != "" {

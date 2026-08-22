@@ -20,9 +20,9 @@ func (db *DB) CreateSavedPlaybook(ctx context.Context, p model.SavedPlaybook) (m
 	}
 	ts := nowString()
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO saved_playbooks (id, name, description, goal, steps, source, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.Goal, string(p.Steps), p.Source, ts); err != nil {
+		`INSERT INTO saved_playbooks (id, name, description, goal, steps, source, max_concurrency, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.Goal, string(p.Steps), p.Source, p.MaxConcurrency, ts); err != nil {
 		return model.SavedPlaybook{}, err
 	}
 	p.CreatedAt = parseTime(ts)
@@ -39,8 +39,8 @@ func (db *DB) UpdateSavedPlaybook(ctx context.Context, p model.SavedPlaybook) (m
 		return model.SavedPlaybook{}, errors.New("store: saved playbook needs a name and steps")
 	}
 	res, err := db.ExecContext(ctx,
-		`UPDATE saved_playbooks SET name = ?, description = ?, goal = ?, steps = ? WHERE id = ?`,
-		p.Name, p.Description, p.Goal, string(p.Steps), p.ID)
+		`UPDATE saved_playbooks SET name = ?, description = ?, goal = ?, steps = ?, max_concurrency = ? WHERE id = ?`,
+		p.Name, p.Description, p.Goal, string(p.Steps), p.MaxConcurrency, p.ID)
 	if err != nil {
 		return model.SavedPlaybook{}, err
 	}
@@ -55,8 +55,8 @@ func (db *DB) GetSavedPlaybook(ctx context.Context, id string) (model.SavedPlayb
 	var p model.SavedPlaybook
 	var steps, created string
 	err := db.QueryRowContext(ctx,
-		`SELECT id, name, description, goal, steps, source, created_at FROM saved_playbooks WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &p.Description, &p.Goal, &steps, &p.Source, &created)
+		`SELECT id, name, description, goal, steps, source, max_concurrency, created_at FROM saved_playbooks WHERE id = ?`, id).
+		Scan(&p.ID, &p.Name, &p.Description, &p.Goal, &steps, &p.Source, &p.MaxConcurrency, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.SavedPlaybook{}, ErrNotFound
 	}
@@ -71,7 +71,7 @@ func (db *DB) GetSavedPlaybook(ctx context.Context, id string) (model.SavedPlayb
 // ListSavedPlaybooks returns all saved playbooks, newest first.
 func (db *DB) ListSavedPlaybooks(ctx context.Context) ([]model.SavedPlaybook, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, name, description, goal, steps, source, created_at FROM saved_playbooks ORDER BY created_at DESC`)
+		`SELECT id, name, description, goal, steps, source, max_concurrency, created_at FROM saved_playbooks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (db *DB) ListSavedPlaybooks(ctx context.Context) ([]model.SavedPlaybook, er
 	for rows.Next() {
 		var p model.SavedPlaybook
 		var steps, created string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Goal, &steps, &p.Source, &created); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Goal, &steps, &p.Source, &p.MaxConcurrency, &created); err != nil {
 			return nil, err
 		}
 		p.Steps = []byte(steps)

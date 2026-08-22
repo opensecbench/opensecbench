@@ -633,13 +633,14 @@ type Schedule struct {
 // SavedPlaybook is a user-saved agent playbook (ADR-0019): recorded from a run or authored directly.
 // Steps is a JSON array of {key, profile, instruction, depends_on}.
 type SavedPlaybook struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Goal        string          `json:"goal"`
-	Steps       json.RawMessage `json:"steps"`
-	Source      string          `json:"source,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Goal           string          `json:"goal"`
+	Steps          json.RawMessage `json:"steps"`
+	Source         string          `json:"source,omitempty"`
+	MaxConcurrency int             `json:"max_concurrency,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
 }
 
 // SavedMethodology is a user-authored methodology pack (ADR-0055): authored directly or saved as an editable
@@ -692,9 +693,13 @@ type PlanStep struct {
 	DependsOn    []string `json:"depends_on"`
 	Gate         bool     `json:"gate,omitempty"`
 	GateApproved bool     `json:"gate_approved,omitempty"`
-	Status       string   `json:"status"`
-	Result       string   `json:"result,omitempty"`
-	Error        string   `json:"error,omitempty"`
+	// SkipIf names a condition evaluated before the step runs; if met, the step is skipped (treated as
+	// done so dependents proceed). Conditions check project state — asset types, ecosystems, manifest
+	// files — so the runner avoids burning tokens on a sub-agent that would discover the same thing.
+	SkipIf   string `json:"skip_if,omitempty"`
+	Status   string `json:"status"`
+	Result   string `json:"result,omitempty"`
+	Error    string `json:"error,omitempty"`
 	// Progress is a live activity trail appended as the step's sub-agent runs — one line per tool turn
 	// (name, args summary, result/error). Streams to the UI and survives to explain a failed step.
 	Progress string `json:"progress,omitempty"`

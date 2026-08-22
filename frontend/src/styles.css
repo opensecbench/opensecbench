@@ -3100,6 +3100,22 @@ select.em-in { cursor: pointer; }
 .act-step-key { color: var(--tx); font-weight: 600; }
 .act-step-instr { margin-top: 7px; font-size: 12px; color: var(--tx2); line-height: 1.5; }
 
+/* delegation trace — structured progress trail inside plan steps */
+.act-progress { padding: 6px 0; }
+.act-progress-line { font-family: var(--mono); font-size: 11px; color: var(--tx3); padding: 1px 0; }
+.act-tool-turn { margin: 2px 0; font-size: 11px; }
+.act-tool-turn summary { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--tx2); font-size: 11px; }
+.act-tool-name { font-family: var(--mono); font-size: 10.5px; color: var(--tx2); background: var(--bg3); border-radius: 3px; padding: 1px 5px; }
+.act-tool-note { color: var(--tx3); }
+.act-tool-args, .act-tool-result { margin: 4px 0 2px 14px; padding: 4px 8px; background: var(--bg); border-radius: 4px; font-family: var(--mono); font-size: 10.5px; color: var(--tx3); max-height: 160px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.act-tool-turn.act-err summary { color: var(--red); }
+.act-tool-turn.act-deny summary { color: var(--yellow); }
+.act-tool-result.act-err { color: var(--red); }
+.act-delegate { margin: 4px 0; }
+.act-delegate-head { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11.5px; color: var(--tx); padding: 3px 0; }
+.act-delegate-profile { font-weight: 600; color: var(--accent); }
+.act-delegate-body { padding-left: 4px; border-left: 2px solid var(--line); margin-left: 4px; }
+
 /* playbook children */
 .act-child { width: 100%; background: transparent; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; text-align: left; }
 .act-child:hover { background: var(--bg3); }

@@ -128,7 +128,7 @@ and can later ship as plugins.
       each depending only on `recon`; `triage` depends on all four. The plan runner (ADR-0046) runs them as one
       concurrent wave — scan phase takes the slowest scanner's time, not the sum; a failed/skipped scanner
       skips only itself. Test drives the real playbook and asserts the wave runs concurrently then gates.
-- [ ] **Analyst autonomy — remaining** (ADR-0035): a **pipelined** scheduler (start a step the moment its own
+- [x] **Analyst autonomy — remaining** (ADR-0035): a **pipelined** scheduler (start a step the moment its own
       deps finish, dropping the per-wave barrier); a configurable/per-playbook concurrency cap; cancel
       in-flight steps on a sibling failure; a delegation **trace** in the UI; per-asset scanner fan-out for
       multi-repo projects; conditional steps (skip a scanner step when the KB shows no relevant assets).
